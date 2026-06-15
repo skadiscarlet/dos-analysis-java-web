@@ -157,9 +157,9 @@
     "total_sources": 20,
     "tomcat_count": 10,
     "spring_boot_count": 10,
-    "servlet_entries": 8,
+    "servlet_entries": 5,
     "controller_entries": 5,
-    "state_writes": 6,
+    "state_writes": 9,
     "persistent_writes": 1
   }
 }
