@@ -1,0 +1,165 @@
+{
+  "description": "Phase 1 手工标注的 HTTP entry source",
+  "date": "2026-06-15",
+  "frameworks": {
+    "tomcat": {
+      "description": "Tomcat Servlet entry points",
+      "sources": [
+        {
+          "class": "org.apache.catalina.servlets.DefaultServlet",
+          "method": "doGet",
+          "signature": "doGet(HttpServletRequest,HttpServletResponse)",
+          "type": "servlet_entry",
+          "params": ["request", "response"]
+        },
+        {
+          "class": "org.apache.catalina.servlets.DefaultServlet",
+          "method": "doPost",
+          "signature": "doPost(HttpServletRequest,HttpServletResponse)",
+          "type": "servlet_entry",
+          "params": ["request", "response"]
+        },
+        {
+          "class": "org.apache.catalina.manager.ManagerServlet",
+          "method": "doGet",
+          "signature": "doGet(HttpServletRequest,HttpServletResponse)",
+          "type": "servlet_entry",
+          "params": ["request", "response"]
+        },
+        {
+          "class": "org.apache.catalina.servlets.WebdavServlet",
+          "method": "service",
+          "signature": "service(HttpServletRequest,HttpServletResponse)",
+          "type": "servlet_entry",
+          "params": ["request", "response"]
+        },
+        {
+          "class": "org.apache.catalina.filters.RemoteIpFilter",
+          "method": "doFilter",
+          "signature": "doFilter(ServletRequest,ServletResponse,FilterChain)",
+          "type": "servlet_entry",
+          "params": ["request", "response", "chain"]
+        },
+        {
+          "class": "org.apache.catalina.session.StandardSession",
+          "method": "setAttribute",
+          "signature": "setAttribute(String,Object)",
+          "type": "state_write",
+          "params": ["name", "value"]
+        },
+        {
+          "class": "org.apache.catalina.session.ManagerBase",
+          "method": "add",
+          "signature": "add(Session)",
+          "type": "state_write",
+          "params": ["session"]
+        },
+        {
+          "class": "org.apache.catalina.core.ApplicationContext",
+          "method": "setAttribute",
+          "signature": "setAttribute(String,Object)",
+          "type": "state_write",
+          "params": ["name", "value"]
+        },
+        {
+          "class": "org.apache.catalina.webresources.Cache",
+          "method": "lookup",
+          "signature": "lookup(WebResource,String)",
+          "type": "state_write",
+          "params": ["webResource", "path"]
+        },
+        {
+          "class": "org.apache.catalina.connector.Request",
+          "method": "addCookie",
+          "signature": "addCookie(Cookie)",
+          "type": "state_write",
+          "params": ["cookie"]
+        }
+      ]
+    },
+    "spring-boot": {
+      "description": "Spring Boot Controller entry points",
+      "sources": [
+        {
+          "class": "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter",
+          "method": "handleInternal",
+          "signature": "handleInternal(HttpServletRequest,HttpServletResponse,HandlerMethod)",
+          "type": "controller_entry",
+          "params": ["request", "response", "handlerMethod"]
+        },
+        {
+          "class": "org.springframework.web.servlet.DispatcherServlet",
+          "method": "doDispatch",
+          "signature": "doDispatch(HttpServletRequest,HttpServletResponse)",
+          "type": "controller_entry",
+          "params": ["request", "response"]
+        },
+        {
+          "class": "org.springframework.web.bind.annotation.RestController",
+          "method": "*",
+          "signature": "*(*)",
+          "type": "controller_entry",
+          "params": ["*"]
+        },
+        {
+          "class": "org.springframework.web.bind.annotation.RequestMapping",
+          "method": "*",
+          "signature": "*(*)",
+          "type": "controller_entry",
+          "params": ["*"]
+        },
+        {
+          "class": "org.springframework.session.web.http.SessionRepositoryFilter",
+          "method": "doFilterInternal",
+          "signature": "doFilterInternal(HttpServletRequest,HttpServletResponse,FilterChain)",
+          "type": "controller_entry",
+          "params": ["request", "response", "filterChain"]
+        },
+        {
+          "class": "org.springframework.session.data.redis.RedisOperationsSessionRepository",
+          "method": "save",
+          "signature": "save(RedisSession)",
+          "type": "persistent_write",
+          "params": ["session"]
+        },
+        {
+          "class": "org.springframework.web.context.request.RequestContextHolder",
+          "method": "setRequestAttributes",
+          "signature": "setRequestAttributes(RequestAttributes)",
+          "type": "state_write",
+          "params": ["attributes"]
+        },
+        {
+          "class": "org.springframework.cache.CacheManager",
+          "method": "getCache",
+          "signature": "getCache(String)",
+          "type": "state_write",
+          "params": ["name"]
+        },
+        {
+          "class": "org.springframework.web.servlet.ModelAndView",
+          "method": "addObject",
+          "signature": "addObject(String,Object)",
+          "type": "state_write",
+          "params": ["attributeName", "attributeValue"]
+        },
+        {
+          "class": "org.springframework.web.context.support.WebApplicationContextUtils",
+          "method": "getRequiredWebApplicationContext",
+          "signature": "getRequiredWebApplicationContext(ServletContext)",
+          "type": "state_write",
+          "params": ["sc"]
+        }
+      ]
+    }
+  },
+  "statistics": {
+    "total_sources": 20,
+    "tomcat_count": 10,
+    "spring_boot_count": 10,
+    "servlet_entries": 8,
+    "controller_entries": 5,
+    "state_writes": 6,
+    "persistent_writes": 1
+  }
+}
