@@ -1,0 +1,19 @@
+{
+  "description": "Phase 1 手工标注的 HTTP entry source",
+  "date": "YYYY-MM-DD",
+  "frameworks": {
+    "tomcat": {
+      "description": "Tomcat Servlet entry points",
+      "sources": []
+    },
+    "spring-boot": {
+      "description": "Spring Boot Controller entry points",
+      "sources": []
+    }
+  },
+  "statistics": {
+    "total_sources": 0,
+    "tomcat_count": 0,
+    "spring_boot_count": 0
+  }
+}

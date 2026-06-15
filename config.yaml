@@ -23,7 +23,6 @@ codeql:
 # Phase 1 配置
 phase1:
   manual_sources: intel/sources/phase1_manual.json
-  output_dir: results
 
 # 输出路径
 output:
