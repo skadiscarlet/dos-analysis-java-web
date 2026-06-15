@@ -1,0 +1,19 @@
+# Frameworks source code (large)
+frameworks/*/
+
+# CodeQL databases (large)
+databases/*/
+
+# Results (can be regenerated)
+results/*.bqrs
+results/*.csv
+results/*.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Temp files
+*.tmp
+*.log

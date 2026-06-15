@@ -1,0 +1,31 @@
+# dos-analysis-web Configuration
+
+# 框架源码和数据库路径
+frameworks:
+  tomcat:
+    repo: https://github.com/apache/tomcat.git
+    branch: 9.0.x
+    source_dir: frameworks/tomcat
+    database: databases/tomcat-9.0-db
+
+  spring-boot:
+    repo: https://github.com/spring-projects/spring-boot.git
+    branch: v2.7.x
+    source_dir: frameworks/spring-boot
+    database: databases/spring-boot-2.7-db
+
+# CodeQL 配置
+codeql:
+  binary: /usr/bin/codeql
+  threads: 16
+  ram_mb: 20480
+
+# Phase 1 配置
+phase1:
+  manual_sources: intel/sources/phase1_manual.json
+  output_dir: results
+
+# 输出路径
+output:
+  results_dir: results
+  intel_dir: intel
