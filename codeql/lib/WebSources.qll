@@ -139,3 +139,120 @@ class ServletHttpEntryPoint extends HttpEntryPoint, ServletEntryMethod {
 class SpringHttpEntryPoint extends HttpEntryPoint, SpringControllerMethod {
   override string getEntryType() { result = "spring" }
 }
+
+/**
+ * Jetty handler method: handle(String, Request, HttpServletRequest, HttpServletResponse)
+ */
+class JettyHandlerMethod extends Method {
+  JettyHandlerMethod() {
+    this.getDeclaringType().getASupertype*()
+      .hasQualifiedName("org.eclipse.jetty.server.handler", "AbstractHandler") and
+    this.hasName("handle") and
+    this.getNumberOfParameters() = 4 and
+    this.getParameter(0).getType().(RefType).hasQualifiedName("java.lang", "String") and
+    this.getParameter(1).getType().getName().matches("%Request%") and
+    this.getParameter(2).getType().(RefType).hasQualifiedName("javax.servlet.http", "HttpServletRequest") and
+    this.getParameter(3).getType().(RefType).hasQualifiedName("javax.servlet.http", "HttpServletResponse")
+  }
+
+  /** Get the target parameter (URL path) */
+  Parameter getTargetParameter() { result = this.getParameter(0) }
+
+  /** Get the base Request parameter */
+  Parameter getBaseRequestParameter() { result = this.getParameter(1) }
+
+  /** Get the HttpServletRequest parameter */
+  Parameter getRequestParameter() { result = this.getParameter(2) }
+
+  /** Get the HttpServletResponse parameter */
+  Parameter getResponseParameter() { result = this.getParameter(3) }
+}
+
+/**
+ * Jetty-based HTTP entry point
+ */
+class JettyHttpEntryPoint extends HttpEntryPoint, JettyHandlerMethod {
+  override string getEntryType() { result = "jetty" }
+}
+
+/**
+ * Undertow HTTP handler: handleRequest(HttpServerExchange)
+ */
+class UndertowHttpHandler extends Method {
+  UndertowHttpHandler() {
+    this.getDeclaringType().getASupertype*()
+      .hasQualifiedName("io.undertow.server", "HttpHandler") and
+    this.hasName("handleRequest") and
+    this.getNumberOfParameters() = 1 and
+    this.getParameter(0).getType().(RefType).hasQualifiedName("io.undertow.server", "HttpServerExchange")
+  }
+
+  /** Get the HttpServerExchange parameter */
+  Parameter getExchangeParameter() { result = this.getParameter(0) }
+}
+
+/**
+ * Undertow-based HTTP entry point
+ */
+class UndertowHttpEntryPoint extends HttpEntryPoint, UndertowHttpHandler {
+  override string getEntryType() { result = "undertow" }
+}
+
+/**
+ * JAX-RS resource method: @GET, @POST, @PUT, @DELETE, @PATCH
+ */
+class JAXRSResourceMethod extends Method {
+  JAXRSResourceMethod() {
+    exists(Annotation a | a = this.getAnAnnotation() |
+      a.getType().getPackage().getName().matches("javax.ws.rs%") and
+      a.getType().getName() in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+    )
+  }
+
+  /** Get the HTTP method annotation */
+  Annotation getHttpMethodAnnotation() {
+    result = this.getAnAnnotation() and
+    result.getType().getPackage().getName().matches("javax.ws.rs%") and
+    result.getType().getName() in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
+  }
+
+  /** Get the HTTP method name */
+  string getHttpMethod() {
+    result = this.getHttpMethodAnnotation().getType().getName()
+  }
+}
+
+/**
+ * JAX-RS-based HTTP entry point
+ */
+class JAXRSHttpEntryPoint extends HttpEntryPoint, JAXRSResourceMethod {
+  override string getEntryType() { result = "jaxrs:" + this.getHttpMethod().toLowerCase() }
+}
+
+/**
+ * L2: 参数值空间分类
+ * 基于参数类型判断：Stream / Unlimited / Limited
+ */
+string paramValueSpace(Parameter p) {
+  exists(string tn | tn = p.getType().getName() |
+    // Stream: 单次请求可灌入任意大小数据
+    (tn.regexpMatch(".*Stream|MultipartFile|Part|.*Channel|ReadableByteChannel")
+      and result = "Stream")
+    or
+    // Unlimited: 攻击者可构造无限多个不同值
+    (tn.regexpMatch("String|CharSequence|.*\\[\\]|Map|List|Set|Object|JsonNode|Bundle")
+      and not tn.regexpMatch(".*Stream|MultipartFile|Part|.*Channel")
+      and result = "Unlimited")
+    or
+    // Limited: 有限值集合
+    ((tn in ["boolean", "Boolean"] or p.getType() instanceof EnumType)
+      and result = "Limited")
+    or
+    // 数值类型默认 Limited
+    (tn in ["int", "long", "Integer", "Long", "short", "byte", "float", "double"]
+      and result = "Limited")
+    or
+    // 兜底：复杂对象视为 Unlimited
+    result = "Unlimited"
+  )
+}
