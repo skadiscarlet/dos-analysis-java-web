@@ -1,6 +1,7 @@
 # Phase 2 Source Discovery Report
 
-生成时间: 2026-06-16 22:20
+生成时间: 2026-06-16 22:55
+状态: ✅ **完成** (3/4 框架成功)
 
 ## 概述
 
@@ -35,13 +36,26 @@ Phase 2 实现了自动化的 HTTP 入口点发现和参数值空间分类（L2�
   - Unlimited: 188 (主要是 String target 和 Request/Response 对象)
   - Limited: 0
 
-### Spring Boot 2.7.x
-- **状态**: 数据库需要重建
-- **预期**: Spring Controller 入口点识别
-
 ### Undertow 2.3.7
-- **状态**: 正在构建中
-- **预期**: HttpHandler.handleRequest() 入口点识别
+- **HTTP Entries**: 95
+- **框架类型**: Undertow Handler
+- **Entry Types**: handleRequest (HttpHandler)
+- **参数值空间**:
+  - Stream: 0
+  - Unlimited: 95 (HttpServerExchange 对象)
+  - Limited: 0
+
+### Spring Boot 2.7.x
+- **状态**: ❌ 构建失败（Java 版本不兼容 - Gradle 要求 Java 17）
+- **预期**: Spring Controller 入口点识别
+- **备注**: 需要使用 Java 17+ 重新构建
+
+## 总体统计
+
+- **成功分析框架**: 3/4 (Tomcat, Jetty, Undertow)
+- **总 HTTP Entries**: 1,019
+- **框架覆盖率**: 75% (Servlet, Jetty Handler, Undertow Handler)
+- **参数值空间分布**: 100% Unlimited (符合预期，因为测试框架主要使用 String/Request/Response 对象)
 
 ## L2 参数值空间分类
 
