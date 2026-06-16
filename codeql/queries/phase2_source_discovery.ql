@@ -60,7 +60,7 @@ class UndertowHttpHandler extends Method {
 class JAXRSResourceMethod extends Method {
   JAXRSResourceMethod() {
     exists(Annotation a | a = this.getAnAnnotation() |
-      a.getType().getPackage().getName().matches("javax.ws.rs%") and
+      (a.getType().getPackage().getName().matches("javax.ws.rs%") or a.getType().getPackage().getName().matches("jakarta.ws.rs%")) and
       a.getType().getName() in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
     )
   }

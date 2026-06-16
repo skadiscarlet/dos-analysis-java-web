@@ -204,7 +204,7 @@ class UndertowHttpEntryPoint extends HttpEntryPoint, UndertowHttpHandler {
 class JAXRSResourceMethod extends Method {
   JAXRSResourceMethod() {
     exists(Annotation a | a = this.getAnAnnotation() |
-      a.getType().getPackage().getName().matches("javax.ws.rs%") and
+      (a.getType().getPackage().getName().matches("javax.ws.rs%") or a.getType().getPackage().getName().matches("jakarta.ws.rs%")) and
       a.getType().getName() in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
     )
   }
@@ -212,7 +212,7 @@ class JAXRSResourceMethod extends Method {
   /** Get the HTTP method annotation */
   Annotation getHttpMethodAnnotation() {
     result = this.getAnAnnotation() and
-    result.getType().getPackage().getName().matches("javax.ws.rs%") and
+    (result.getType().getPackage().getName().matches("javax.ws.rs%") or result.getType().getPackage().getName().matches("jakarta.ws.rs%")) and
     result.getType().getName() in ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]
   }
 

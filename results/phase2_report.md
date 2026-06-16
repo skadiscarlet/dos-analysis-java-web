@@ -1,168 +1,110 @@
 # Phase 2 Source Discovery Report
 
-生成时间: 2026-06-16 22:55
-状态: ✅ **完成** (3/4 框架成功)
+生成时间: 2026-06-17 00:20  
+状态: ✅ 完成（Tomcat / Jetty / Undertow / Spring Boot / Jersey-JAX-RS）
 
 ## 概述
 
-Phase 2 实现了自动化的 HTTP 入口点发现和参数值空间分类（L2），扩展支持多种 Web 框架。
+Phase 2 实现了自动化 HTTP entry point 发现和参数值空间分类（L2），并在真实框架数据库上补齐 Spring Boot 与 JAX-RS 入口点结果。
 
-## 框架支持
+## 数据库状态
 
-✅ **已实现**:
-- Servlet (Tomcat, Jetty)
-- Spring MVC/Boot
-- Jetty Handler
-- Undertow Handler (构建中)
-- JAX-RS
+| Database | Source | Mode | finalised | Notes |
+|---|---|---:|---:|---|
+| `tomcat-9.0-db` | Tomcat | built | ✅ | Phase 1 既有数据库 |
+| `jetty-11-db` | Jetty 11.0.15 | built | ✅ | Maven `-fn` 容错完成 |
+| `undertow-2-db` | Undertow 2.3.7 | built | ✅ | 使用 JBoss Maven 仓库完成 |
+| `spring-boot-2.7-db` | Spring Boot 2.7 | build-mode=none | ✅ | 固定 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk` 修复 Gradle 7.6.3 与 Java 21 不兼容 |
+| `jersey-3.1-db` | Jersey 3.1.3 | partial built + finalize | ✅ | 作为 JAX-RS 参考实现数据库 |
 
 ## 分析结果
 
-### Tomcat 9.0.65
-- **HTTP Entries**: 736
-- **框架类型**: Servlet
-- **Entry Types**: doGet, doPost, doPut, doDelete, service
-- **参数值空间**:
-  - Stream: 0 (MultipartFile, InputStream等)
-  - Unlimited: 736 (String, Object, HttpServletRequest等)
-  - Limited: 0 (boolean, enum等)
+| Dataset | Total parameter rows | servlet | spring | jetty | undertow | jaxrs |
+|---|---:|---:|---:|---:|---:|---:|
+| Tomcat | 736 | 736 | 0 | 0 | 0 | 0 |
+| Jetty | 188 | 0 | 0 | 188 | 0 | 0 |
+| Undertow | 95 | 0 | 0 | 0 | 95 | 0 |
+| Spring Boot | 278 | 104 | 89 | 44 | 38 | 3 |
+| Jersey | 31 | 0 | 0 | 28 | 0 | 3 |
+| **Total** | **1328** | **840** | **89** | **260** | **133** | **6** |
 
-### Jetty 11.0.15
-- **HTTP Entries**: 188
-- **框架类型**: Jetty Handler
-- **Entry Types**: handle (AbstractHandler)
-- **参数值空间**:
-  - Stream: 0
-  - Unlimited: 188 (主要是 String target 和 Request/Response 对象)
-  - Limited: 0
+> 这里的 Total 是“entry 参数行”数量；同一个入口方法有多个参数时会产生多行。当前查询用于 source discovery 和 L2 参数值空间标注。
 
-### Undertow 2.3.7
-- **HTTP Entries**: 95
-- **框架类型**: Undertow Handler
-- **Entry Types**: handleRequest (HttpHandler)
-- **参数值空间**:
-  - Stream: 0
-  - Unlimited: 95 (HttpServerExchange 对象)
-  - Limited: 0
+## Spring Boot 入口点结果
 
-### Spring Boot 2.7.x
-- **状态**: ❌ 构建失败（Java 版本不兼容 - Gradle 要求 Java 17）
-- **预期**: Spring Controller 入口点识别
-- **备注**: 需要使用 Java 17+ 重新构建
+Spring Boot 数据库修复后，Phase 2 主查询输出：
 
-## 总体统计
+- `results/phase2/spring-boot_sources.csv`
+- 278 条参数记录
+- 其中：
+  - Spring controller 参数记录：89
+  - Servlet 参数记录：104
+  - Jetty handler 参数记录：44
+  - Undertow handler 参数记录：38
+  - JAX-RS 参数记录：3
 
-- **成功分析框架**: 3/4 (Tomcat, Jetty, Undertow)
-- **总 HTTP Entries**: 1,019
-- **框架覆盖率**: 75% (Servlet, Jetty Handler, Undertow Handler)
-- **参数值空间分布**: 100% Unlimited (符合预期，因为测试框架主要使用 String/Request/Response 对象)
+样例：
+
+```text
+Framework: servlet | Class: com.example.ResourceHandlingApplication$GetResourceServlet | Method: doGet | EntryType: servlet:doGet | Param[0]: req | Type: HttpServletRequest | ValueSpace: Unlimited
+Framework: undertow | Class: io.undertow.server.HttpHandler | Method: handleRequest | EntryType: undertow:handler | Param[0]: p0 | Type: HttpServerExchange | ValueSpace: Unlimited
+```
+
+## JAX-RS 入口点结果
+
+JAX-RS 查询已支持 `javax.ws.rs` 与 `jakarta.ws.rs` 两套包名。
+
+- Jersey JAX-RS 测试查询：`results/test_jaxrs_jersey.csv`
+- Jersey Phase 2 输出：`results/phase2/jersey_sources.csv`
+- Spring Boot Phase 2 输出中也包含 3 条 JAX-RS 参数记录
+
+Jersey 样例：
+
+```text
+Framework: jaxrs | Class: org.glassfish.jersey.server.wadl.internal.WadlResource | Method: getExternalGrammar | EntryType: jaxrs:resource | Param[1]: path | Type: String | ValueSpace: Unlimited
+Framework: jaxrs | Class: org.glassfish.jersey.server.wadl.internal.WadlResource | Method: getWadl | EntryType: jaxrs:resource | Param[0]: uriInfo | Type: UriInfo | ValueSpace: Unlimited
+```
 
 ## L2 参数值空间分类
 
 实现了基于参数类型的自动分类逻辑：
 
-```java
+```ql
 paramValueSpace(Parameter p):
   - Stream: .*Stream|MultipartFile|Part|.*Channel
-  - Unlimited: String|CharSequence|.*\[\]|Map|List|Set|Object|JsonNode
+  - Unlimited: String|CharSequence|.*\[\]|Map|List|Set|Object|JsonNode|Bundle
   - Limited: boolean|Boolean|EnumType|数值类型
 ```
 
-## CodeQL 实现
+当前结果中大多数 Web handler 参数为 `Unlimited`，符合框架入口对象（`HttpServletRequest`、`HttpServerExchange`、`UriInfo`、`String` path 等）特征。
 
-### 1. 框架检测 (WebSources.qll)
-- `ServletEntryMethod`: Servlet doXxx 方法
-- `SpringControllerMethod`: @RequestMapping 注解方法
-- `JettyHandlerMethod`: AbstractHandler.handle()
-- `UndertowHttpHandler`: HttpHandler.handleRequest()
-- `JAXRSResourceMethod`: @GET/@POST 等注解方法
+## 关键修复
 
-### 2. 统一抽象
-- `HttpEntryPoint`: 所有 HTTP 入口的统一接口
-- `getFramework()`: 返回框架类型
-- `getEntryType()`: 返回具体入口类型
+1. **Spring Boot DB 修复**
+   - 原因：Gradle 7.6.3 在 Java 21 下出现 `Unsupported class file major version 65`。
+   - 修复：使用 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk` 并采用 CodeQL `--build-mode=none` 成功 finalise。
 
-### 3. 主查询 (phase2_source_discovery.ql)
-```ql
-from HttpEntryPoint entry, Parameter p, int idx
-where p = entry.getParameter(idx)
-select entry, 
-  "Framework: " + entry.getFramework() +
-  " | Param[" + idx + "]: " + p.getName() +
-  " | Type: " + p.getType().getName() +
-  " | ValueSpace: " + paramValueSpace(p)
+2. **JAX-RS 包名支持**
+   - 原查询只匹配 `javax.ws.rs`。
+   - 修复后同时匹配 `javax.ws.rs` 与 `jakarta.ws.rs`，覆盖 Jersey 3.x。
+
+3. **Jersey DB 完成**
+   - Jersey 全量 Maven 构建中途停止，但已产出可用 TRAP。
+   - 通过 `codeql database finalize databases/jersey-3.1-db` 成功完成数据库。
+
+## 输出文件
+
+```text
+results/phase2/tomcat_sources.csv
+results/phase2/jetty_sources.csv
+results/phase2/undertow_sources.csv
+results/phase2/spring-boot_sources.csv
+results/phase2/jersey_sources.csv
+results/test_jaxrs_jersey.csv
 ```
-
-## 样本输出
-
-### Tomcat Servlet Entry
-```
-Framework: servlet
-Class: RequestInfoExample
-Method: doPost
-EntryType: servlet:doPost
-Param[0]: request | Type: HttpServletRequest | ValueSpace: Unlimited
-Param[1]: response | Type: HttpServletResponse | ValueSpace: Unlimited
-```
-
-### Jetty Handler Entry
-```
-Framework: jetty
-Class: org.eclipse.jetty.demos.FastFileServer$FastFileHandler
-Method: handle
-EntryType: jetty:handler
-Param[0]: target | Type: String | ValueSpace: Unlimited
-Param[1]: baseRequest | Type: Request | ValueSpace: Unlimited
-Param[2]: request | Type: HttpServletRequest | ValueSpace: Unlimited
-Param[3]: response | Type: HttpServletResponse | ValueSpace: Unlimited
-```
-
-## 自动化脚本
-
-### run_phase2.py
-- 批量运行所有数据库的 Phase 2 查询
-- 自动解码 BQRS 为 CSV
-- 聚合结果到 phase2_sources.json
-- 生成统计信息
-
-### validate_phase2.py
-- 每框架采样 25 个样本
-- 生成人工审查清单 (phase2_manual_review.jsonl)
-- 计算准确率（目标: ≥90%）
 
 ## 下一步
 
-1. ✅ 完成 Undertow 数据库构建
-2. ⏳ 修复 Spring Boot 数据库
-3. ⏳ 运行完整的 Phase 2 批量分析
-4. ⏳ 执行采样验证（人工审查 ~100 样本）
-5. ⏳ 生成最终准确率报告
-6. ⏳ 开始 Phase 3: L3 write target 检测
-
-## 技术亮点
-
-1. **多框架统一抽象**: 通过 HttpEntryPoint 接口统一不同框架的入口点检测
-2. **自动值空间分类**: 基于类型模式的 L2 分类，无需手工标注
-3. **可扩展架构**: 新框架只需实现 HttpEntryPoint 即可集成
-4. **自动化流水线**: 从查询运行到结果聚合全自动化
-5. **验证机制**: 采样验证确保准确率达标
-
-## 文件结构
-
-```
-codeql/
-├── lib/WebSources.qll          # 框架检测和 L2 分类
-├── queries/
-│   ├── phase2_source_discovery.ql    # 主查询
-│   ├── test_jetty_entries.ql         # Jetty 测试
-│   └── test_undertow_entries.ql      # Undertow 测试
-scripts/
-├── run_phase2.py               # 批量分析脚本
-├── validate_phase2.py          # 验证脚本
-├── build_jetty_db.sh          # Jetty 数据库构建
-└── build_undertow_db.sh       # Undertow 数据库构建
-results/phase2/
-├── tomcat_sources.csv          # Tomcat 结果 (736)
-├── jetty_sources.csv           # Jetty 结果 (188)
-└── phase2_report.md           # 本报告
-```
+1. 运行 `python3 scripts/validate_phase2.py` 生成分框架采样审查清单。
+2. 对 Spring/JAX-RS 结果做人工抽样 TP/FP 评估。
+3. 进入 Phase 3：基于这些 source 做 L3 write target / retention sink 检测。

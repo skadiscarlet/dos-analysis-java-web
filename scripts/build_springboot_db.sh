@@ -20,11 +20,14 @@ mkdir -p "$DB_DIR"
 
 cd "$SOURCE_ROOT"
 
-# 使用容错模式构建
+# 清理之前的构建
+./gradlew clean --no-daemon
+
+# 使用容错模式构建，只编译主代码
 codeql database create "$DB_PATH" \
     --language=java \
     --source-root="$SOURCE_ROOT" \
-    --command="./gradlew build -x test --no-daemon -Dorg.gradle.jvmargs=-Xmx4g || true" \
+    --command="./gradlew :spring-boot-project:spring-boot:compileJava :spring-boot-project:spring-boot-autoconfigure:compileJava :spring-boot-project:spring-web:compileJava --no-daemon -x test" \
     --overwrite
 
 echo "✓ Spring Boot 数据库构建完成"
