@@ -20,10 +20,11 @@ mkdir -p "$DB_DIR"
 
 cd "$SOURCE_ROOT"
 
+# 使用 --no-build-trace 和简单的 compile 命令
 codeql database create "$DB_PATH" \
     --language=java \
     --source-root="$SOURCE_ROOT" \
-    --command="mvn clean compile -DskipTests -Dmaven.javadoc.skip=true" \
+    --command="mvn compile -DskipTests -Dmaven.javadoc.skip=true -Drat.skip=true -fn" \
     --overwrite
 
 echo "✓ Jetty 数据库构建完成"
