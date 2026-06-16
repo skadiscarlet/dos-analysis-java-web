@@ -10,7 +10,7 @@ frameworks:
 
   spring-boot:
     repo: https://github.com/spring-projects/spring-boot.git
-    branch: v2.7.x
+    branch: 2.7.x
     source_dir: frameworks/spring-boot
     database: databases/spring-boot-2.7-db
 

@@ -64,7 +64,7 @@ build_spring_boot() {
 
     if [ ! -d "spring-boot" ]; then
         echo "[1/3] Cloning Spring Boot repository..."
-        git clone --depth 1 --branch v2.7.x https://github.com/spring-projects/spring-boot.git
+        git clone --depth 1 --branch 2.7.x https://github.com/spring-projects/spring-boot.git
     else
         echo "[1/3] Spring Boot repository already exists"
     fi
