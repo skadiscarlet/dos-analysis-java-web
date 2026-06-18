@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-06-18 11:57",
+  "input": "/home/furina/new_tool/dos-analysis-web/results/phase3/phase3_candidate_features.csv",
+  "total": 103,
+  "matched": 103,
+  "mismatched": 0,
+  "consistency": 1.0,
+  "pass": true,
+  "mismatches_truncated": false,
+  "mismatch_sample_limit": 50,
+  "mismatches": []
+}

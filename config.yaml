@@ -14,6 +14,24 @@ frameworks:
     source_dir: frameworks/spring-boot
     database: databases/spring-boot-2.7-db
 
+  jetty:
+    repo: https://github.com/eclipse/jetty.project.git
+    branch: jetty-11.0.15
+    source_dir: frameworks/jetty-11.0.15
+    database: databases/jetty-11-db
+
+  undertow:
+    repo: https://github.com/undertow-io/undertow.git
+    branch: 2.3.7.Final
+    source_dir: frameworks/undertow-2.3.7
+    database: databases/undertow-2-db
+
+  jersey:
+    repo: https://github.com/eclipse-ee4j/jersey.git
+    branch: 3.1.3
+    source_dir: frameworks/jersey-3.1.3
+    database: databases/jersey-3.1-db
+
 # CodeQL 配置
 codeql:
   binary: /usr/bin/codeql
@@ -28,3 +46,10 @@ phase1:
 output:
   results_dir: results
   intel_dir: intel
+
+phase3:
+  query: codeql/queries/phase3_candidate_features.ql
+  results_dir: results/phase3
+  merged_csv: results/phase3/phase3_candidate_features.csv
+  consistency_json: results/phase3/phase3_consistency.json
+  report: results/phase3_report.md

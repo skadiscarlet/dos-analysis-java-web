@@ -230,3 +230,32 @@ class WebLongLivedContainer extends ContainerField {
   string getPersistenceKind() { result = persistenceKind }
 }
 
+// =============================================================
+// Phase 3: Web lifecycle helper predicates
+// =============================================================
+
+bindingset[name]
+predicate isPersistentWebStoreName(string name) {
+  name.regexpMatch("(?i).*(Redis|Jdbc|Database|File|Persistent|Repository|DataSource|Disk|Store).*")
+}
+
+predicate isEvictionLikeCallable(Callable callable) {
+  callable.getName().regexpMatch("(?i).*(evict|expire|invalidate|timeout|prune|purge|cleanup).*")
+}
+
+string webContainerLifespan(string containerKind, Callable enclosingCallable) {
+  containerKind in ["session", "servlet_context", "static_container", "session_store", "persistent_store"] and
+  (
+    containerKind = "persistent_store" and result = "RebootPersistent"
+    or containerKind != "persistent_store" and exists(MethodCall call |
+      call.getEnclosingCallable() = enclosingCallable and
+      isEvictionLikeCallable(call.getMethod()) and
+      result = "Evicted"
+    )
+    or containerKind != "persistent_store" and not exists(MethodCall call |
+      call.getEnclosingCallable() = enclosingCallable and
+      isEvictionLikeCallable(call.getMethod())
+    ) and result = "ProcessLifetime"
+  )
+}
+

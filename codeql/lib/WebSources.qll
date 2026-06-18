@@ -115,8 +115,24 @@ class SpringControllerMethod extends Method {
  * Unified HTTP entry point abstraction
  */
 abstract class HttpEntryPoint extends Method {
-  /** Get the entry type: "servlet" or "spring" */
+  /** Get the framework: servlet, spring, jetty, undertow, or jaxrs */
+  abstract string getFramework();
+
+  /** Get the entry type for the specific framework */
   abstract string getEntryType();
+
+  /** Check if a parameter is clearly server-controlled output/context. */
+  predicate isServerControlledParam(Parameter p) {
+    p.getType().getName().regexpMatch(".*(Response|ServletResponse|Model|BindingResult|Principal|Authentication|SessionStatus|Errors|Writer|OutputStream).*")
+    or p.getName().regexpMatch("(?i).*(response|resp|model|bindingResult|principal|authentication|sessionStatus|errors|writer|output).*")
+  }
+
+  /** Get an attacker-controlled parameter with Stream or Unlimited value space */
+  Parameter getAnAttackerControlledParam() {
+    result = this.getAParameter() and
+    paramValueSpace(result) in ["Stream", "Unlimited"] and
+    not this.isServerControlledParam(result)
+  }
 
   /** Check if this entry point is externally accessible (no strong auth guard) */
   predicate isExternallyAccessible() {
@@ -130,14 +146,18 @@ abstract class HttpEntryPoint extends Method {
  * Servlet-based HTTP entry point
  */
 class ServletHttpEntryPoint extends HttpEntryPoint, ServletEntryMethod {
-  override string getEntryType() { result = "servlet" }
+  override string getFramework() { result = "servlet" }
+
+  override string getEntryType() { result = "servlet:" + this.getName() }
 }
 
 /**
  * Spring-based HTTP entry point
  */
 class SpringHttpEntryPoint extends HttpEntryPoint, SpringControllerMethod {
-  override string getEntryType() { result = "spring" }
+  override string getFramework() { result = "spring" }
+
+  override string getEntryType() { result = "spring:controller" }
 }
 
 /**
@@ -172,7 +192,9 @@ class JettyHandlerMethod extends Method {
  * Jetty-based HTTP entry point
  */
 class JettyHttpEntryPoint extends HttpEntryPoint, JettyHandlerMethod {
-  override string getEntryType() { result = "jetty" }
+  override string getFramework() { result = "jetty" }
+
+  override string getEntryType() { result = "jetty:handler" }
 }
 
 /**
@@ -195,7 +217,9 @@ class UndertowHttpHandler extends Method {
  * Undertow-based HTTP entry point
  */
 class UndertowHttpEntryPoint extends HttpEntryPoint, UndertowHttpHandler {
-  override string getEntryType() { result = "undertow" }
+  override string getFramework() { result = "undertow" }
+
+  override string getEntryType() { result = "undertow:handler" }
 }
 
 /**
@@ -226,6 +250,8 @@ class JAXRSResourceMethod extends Method {
  * JAX-RS-based HTTP entry point
  */
 class JAXRSHttpEntryPoint extends HttpEntryPoint, JAXRSResourceMethod {
+  override string getFramework() { result = "jaxrs" }
+
   override string getEntryType() { result = "jaxrs:" + this.getHttpMethod().toLowerCase() }
 }
 
