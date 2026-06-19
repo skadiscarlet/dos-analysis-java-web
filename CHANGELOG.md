@@ -4,6 +4,32 @@
 
 ---
 
+## [2026-06-19] 第三部分 WEB-REAL 回归门禁设计
+
+### 修改时间
+2026-06-19 22:01
+
+### 变更类型
+- [文档] 第三部分回归基准设计
+
+### 核心改动
+- 使用 brainstorming 梳理 `docs/drd_inspired_rearchitecture_plan.md` 第三部分的启动方式，确认第一轮采用回归门禁优先路线。
+- 明确将现有 `scripts/check_web_real_coverage.py` 的 hard-coded smoke check 升级为 manifest 驱动的 known-vuln regression gate。
+- 设计 `intel/regression/web_real_manifest.json`、`scripts/check_web_real_regression.py`、`results/phase3/web_real_regression.json` 的职责边界和判定语义。
+- 关键技术决策：第一轮只固定 5 个 `WEB-REAL-*` 的静态覆盖事实，不同时重写 Phase 4 排序或生成完整 validation recipe，避免扩大范围。
+
+### 交付成果
+- 新增设计文档：`docs/superpowers/specs/2026-06-19-web-real-regression-gate-design.md`
+- 修改文档：`CHANGELOG.md`
+- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+
+### 依赖与影响
+- 依赖：第一部分 proof-carrying schema、第二部分 bridge 覆盖和当前 `python3 scripts/check_web_real_coverage.py` 5/5 hit 基线。
+- 对后续工作的影响：下一步可按该设计新增 manifest 和 checker，并把 WEB-REAL smoke 升级为第三部分正式回归门禁。
+- 破坏性变更：无。
+
+---
+
 ## [2026-06-16] Phase 3 Unified Modeling 实施完成
 
 ### 修改时间
