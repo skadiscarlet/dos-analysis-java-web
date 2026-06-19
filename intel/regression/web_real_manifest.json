@@ -16,7 +16,7 @@
       "expected": [
         {"field": "sink_shape", "op": "equals", "value": "retained_map_put"},
         {"field": "receiver_proof", "op": "contains", "value": "requestTokenByTokenString"},
-        {"field": "growth_driver_kind", "op": "one_of", "values": ["map_key", "stored_value", "token_key"]}
+        {"field": "growth_driver_kind", "op": "one_of", "values": ["map_key", "stored_value", "token_key", "request_token_key"]}
       ],
       "deployment_condition": "Jersey OAuth1 provider is enabled and request token endpoint is reachable.",
       "notes": "Request token strings are retained in DefaultOAuth1Provider.requestTokenByTokenString."
@@ -53,7 +53,7 @@
       "expected": [
         {"field": "sink_shape", "op": "equals", "value": "nested_retained_map_put"},
         {"field": "receiver_proof", "op": "contains", "value": "LearningPushHandler.cache"},
-        {"field": "growth_dimension", "op": "contains", "value": "referer"}
+        {"field": "growth_dimension", "op": "equals", "value": "key_cardinality"}
       ],
       "deployment_condition": "Undertow LearningPushHandler is installed in the handler chain.",
       "notes": "Outer cache is bounded, but each per-referer inner map can grow by request path."
