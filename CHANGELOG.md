@@ -4,6 +4,32 @@
 
 ---
 
+## [2026-06-19] 第三部分 WEB-REAL 回归门禁实施计划
+
+### 修改时间
+2026-06-19 22:12
+
+### 变更类型
+- [文档] 实施计划
+
+### 核心改动
+- 使用 writing-plans 将已批准的 WEB-REAL regression gate 设计拆成可执行任务。
+- 明确新增 manifest、通用 checker、coverage 兼容 wrapper、验证和 changelog 更新的实施顺序。
+- 计划采用 manifest 驱动的 `hit` / `partial` / `missing` 判定，第一轮保持 Phase 4 排序不变。
+- 关键技术决策：现有项目没有 Python 单测框架，本计划使用临时 fixture/真实 Phase 3 CSV 加 CLI 断言完成 TDD 式验证。
+
+### 交付成果
+- 新增实施计划：`docs/superpowers/plans/2026-06-19-web-real-regression-gate.md`
+- 修改文档：`CHANGELOG.md`
+- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+
+### 依赖与影响
+- 依赖：`docs/superpowers/specs/2026-06-19-web-real-regression-gate-design.md` 已通过用户 review。
+- 对后续工作的影响：下一步可按计划使用 subagent-driven 或 inline execution 落地第三部分第一轮实现。
+- 破坏性变更：无。
+
+---
+
 ## [2026-06-19] 第三部分 WEB-REAL 回归门禁设计
 
 ### 修改时间
