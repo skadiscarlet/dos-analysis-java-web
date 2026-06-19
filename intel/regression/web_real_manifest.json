@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "description": "Static regression expectations for dynamically verified WEB-REAL cases.",
+  "cases": [
+    {
+      "id": "WEB-REAL-0001",
+      "framework": "jersey",
+      "component": "security/oauth1-server",
+      "dynamic_verdict": "default_heap_oom_confirmed",
+      "required": [
+        {"field": "framework", "op": "equals", "value": "jersey"},
+        {"field": "candidate_family", "op": "equals", "value": "provider_state"},
+        {"field": "retained_field", "op": "contains", "value": "requestTokenByTokenString"},
+        {"field": "request_flow_kind", "op": "equals", "value": "provider_field"}
+      ],
+      "expected": [
+        {"field": "sink_shape", "op": "equals", "value": "retained_map_put"},
+        {"field": "receiver_proof", "op": "contains", "value": "requestTokenByTokenString"},
+        {"field": "growth_driver_kind", "op": "one_of", "values": ["map_key", "stored_value", "token_key"]}
+      ],
+      "deployment_condition": "Jersey OAuth1 provider is enabled and request token endpoint is reachable.",
+      "notes": "Request token strings are retained in DefaultOAuth1Provider.requestTokenByTokenString."
+    },
+    {
+      "id": "WEB-REAL-0002",
+      "framework": "jersey",
+      "component": "media/multipart",
+      "dynamic_verdict": "default_heap_oom_confirmed_with_large_tempdir",
+      "required": [
+        {"field": "framework", "op": "equals", "value": "jersey"},
+        {"field": "candidate_family", "op": "equals", "value": "parser_body"},
+        {"field": "sink_shape", "op": "equals", "value": "parser_part_accumulator"}
+      ],
+      "expected": [
+        {"field": "container_kind", "op": "equals", "value": "parser_transaction"},
+        {"field": "growth_dimension", "op": "one_of", "values": ["part_count", "header_count", "byte_volume"]},
+        {"field": "request_flow_kind", "op": "equals", "value": "parser_body_flow"}
+      ],
+      "deployment_condition": "Jersey multipart MessageBodyReader is enabled for attacker-controlled multipart requests.",
+      "notes": "Multipart body parts are accumulated during parser transaction lifetime."
+    },
+    {
+      "id": "WEB-REAL-0003",
+      "framework": "undertow",
+      "component": "core LearningPushHandler",
+      "dynamic_verdict": "real_http_default_heap_oom_confirmed",
+      "required": [
+        {"field": "framework", "op": "equals", "value": "undertow"},
+        {"field": "candidate_family", "op": "equals", "value": "listener_state"},
+        {"field": "request_flow_kind", "op": "equals", "value": "listener_callback"},
+        {"field": "retained_field", "op": "contains", "value": "cache"}
+      ],
+      "expected": [
+        {"field": "sink_shape", "op": "equals", "value": "nested_retained_map_put"},
+        {"field": "receiver_proof", "op": "contains", "value": "LearningPushHandler.cache"},
+        {"field": "growth_dimension", "op": "contains", "value": "referer"}
+      ],
+      "deployment_condition": "Undertow LearningPushHandler is installed in the handler chain.",
+      "notes": "Outer cache is bounded, but each per-referer inner map can grow by request path."
+    },
+    {
+      "id": "WEB-REAL-0004",
+      "framework": "undertow",
+      "component": "core mod_cluster MCMP",
+      "dynamic_verdict": "default_heap_oom_confirmed",
+      "required": [
+        {"field": "framework", "op": "equals", "value": "undertow"},
+        {"field": "candidate_family", "op": "equals", "value": "management_state"},
+        {"field": "request_flow_kind", "op": "equals", "value": "bounded_call_path"},
+        {"field": "retained_field", "op": "one_of", "values": ["nodes", "balancers"]}
+      ],
+      "expected": [
+        {"field": "sink_shape", "op": "equals", "value": "registry_register"},
+        {"field": "receiver_proof", "op": "contains", "value": "ModClusterContainer"},
+        {"field": "deployment_condition", "op": "contains", "value": "management"}
+      ],
+      "deployment_condition": "MCMP management endpoint is exposed to low-trust clients.",
+      "notes": "Registry state grows through node, balancer, and virtual host registration."
+    },
+    {
+      "id": "WEB-REAL-0005",
+      "framework": "jetty",
+      "component": "jetty-proxy / jetty-client",
+      "dynamic_verdict": "real_http_default_heap_oom_confirmed",
+      "required": [
+        {"field": "framework", "op": "equals", "value": "jetty"},
+        {"field": "candidate_family", "op": "equals", "value": "client_destination"},
+        {"field": "request_flow_kind", "op": "equals", "value": "client_request_flow"},
+        {"field": "sink_shape", "op": "equals", "value": "retained_map_compute"},
+        {"field": "retained_field", "op": "contains", "value": "destinations"}
+      ],
+      "expected": [
+        {"field": "receiver_proof", "op": "contains", "value": "HttpClient.destinations"},
+        {"field": "growth_driver_kind", "op": "equals", "value": "origin_key"},
+        {"field": "growth_dimension", "op": "equals", "value": "destination_count"}
+      ],
+      "deployment_condition": "ProxyServlet deployment maps attacker-controlled request data to HttpClient destination origin or tag.",
+      "notes": "Harness maps attacker parameter to Jetty Request.tag() for the retained Origin.tag path."
+    }
+  ]
+}
