@@ -68,6 +68,9 @@ def validate_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         case_id = norm(case.get("id"))
         if not case_id:
             raise ValueError("each manifest case must have id")
+        required = case.get("required")
+        if not isinstance(required, list) or not required:
+            raise ValueError(f"{case_id}.required must be a non-empty list")
         for group in ("required", "expected"):
             rules = case.get(group, [])
             if not isinstance(rules, list):
@@ -80,18 +83,24 @@ def validate_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 def validate_rule(case_id: str, group: str, rule: Any) -> None:
     if not isinstance(rule, dict):
         raise ValueError(f"{case_id}.{group} rule must be an object")
-    field = norm(rule.get("field"))
-    op = norm(rule.get("op"))
-    if not field:
+    field = rule.get("field")
+    op = rule.get("op")
+    if not is_non_empty_string(field):
         raise ValueError(f"{case_id}.{group} rule is missing field")
+    if not isinstance(op, str):
+        raise ValueError(f"{case_id}.{group}.{field} has unsupported op: {op}")
     if op not in {"equals", "contains", "one_of"}:
         raise ValueError(f"{case_id}.{group}.{field} has unsupported op: {op}")
-    if op in {"equals", "contains"} and "value" not in rule:
-        raise ValueError(f"{case_id}.{group}.{field} requires value")
+    if op in {"equals", "contains"} and not is_non_empty_string(rule.get("value")):
+        raise ValueError(f"{case_id}.{group}.{field} requires non-empty string value")
     if op == "one_of":
         values = rule.get("values")
-        if not isinstance(values, list) or not values:
-            raise ValueError(f"{case_id}.{group}.{field} requires non-empty values")
+        if not isinstance(values, list) or not values or not all(is_non_empty_string(value) for value in values):
+            raise ValueError(f"{case_id}.{group}.{field} requires non-empty string values")
+
+
+def is_non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and value.strip() != ""
 
 
 def rule_matches(row: Row, rule: Rule) -> bool:
@@ -212,13 +221,13 @@ def print_summary(report: dict[str, Any]) -> None:
     )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST, help="WEB-REAL regression manifest")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT, help="Phase 3 merged CSV")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Regression JSON report")
     parser.add_argument("--no-write", action="store_true", help="Do not write the JSON report")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def run(manifest_path: Path = DEFAULT_MANIFEST, input_path: Path = DEFAULT_INPUT, output_path: Path = DEFAULT_OUTPUT, write: bool = True) -> int:
@@ -232,8 +241,8 @@ def run(manifest_path: Path = DEFAULT_MANIFEST, input_path: Path = DEFAULT_INPUT
     return 0 if report["partial"] == 0 and report["missing"] == 0 else 1
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     try:
         return run(args.manifest, args.input, args.output, write=not args.no_write)
     except ValueError as exc:
