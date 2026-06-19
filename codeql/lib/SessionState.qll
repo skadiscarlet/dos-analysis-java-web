@@ -8,6 +8,8 @@ import lib.CommonDoS
 import lib.WebSources
 import lib.WebGuards
 import lib.Persistence
+import lib.RetentionSinks
+import lib.RequestFlow
 
 class WebClientStateEntry extends ClientStateEntry, HttpEntryPoint {
   WebClientStateEntry() { this instanceof HttpEntryPoint }
@@ -118,32 +120,6 @@ predicate sameClassOrPackage(Callable caller, Callable callee) {
   caller.getDeclaringType().getPackage() = callee.getDeclaringType().getPackage()
 }
 
-predicate helperCallCarriesEntryData(WebClientStateEntry entry, MethodCall helperCall) {
-  exists(Expr arg, Parameter entryParam |
-    arg = helperCall.getAnArgument() and
-    entryParam = entry.getAnAttackerControlledParam() and
-    arg = entryParam.getAnAccess()
-  )
-  or
-  exists(Expr arg |
-    arg = helperCall.getAnArgument() and
-    isRequestDerivedExpr(arg)
-  )
-}
-
-predicate writeInEntryOrOneHop(WebClientStateEntry entry, MethodCall write, string pathKind) {
-  write.getEnclosingCallable() = entry and pathKind = "direct"
-  or
-  exists(Callable helper, MethodCall helperCall |
-    helperCall.getEnclosingCallable() = entry and
-    helperCall.getCallee() = helper and
-    helperCallCarriesEntryData(entry, helperCall) and
-    write.getEnclosingCallable() = helper and
-    sameClassOrPackage(entry, helper) and
-    pathKind = "one_hop_helper"
-  )
-}
-
 string sinkKind(MethodCall write) {
   write instanceof SessionAttributeWrite and result = "session_attribute"
   or
@@ -164,6 +140,8 @@ Expr retainedWriteKey(MethodCall write) {
   write instanceof ServletContextAttributeWrite and result = write.(ServletContextAttributeWrite).getKeyExpr()
   or
   write instanceof WebContainerWrite and result = write.(WebContainerWrite).getKeyExpr()
+  or
+  write instanceof WebRetentionSink and result = write.(WebRetentionSink).getGrowthDriver()
 }
 
 Expr retainedWriteValue(MethodCall write) {
@@ -172,24 +150,35 @@ Expr retainedWriteValue(MethodCall write) {
   write instanceof ServletContextAttributeWrite and result = write.(ServletContextAttributeWrite).getValueExpr()
   or
   write instanceof WebContainerWrite and result = write.(WebContainerWrite).getValueExpr()
+  or
+  write instanceof WebRetentionSink and result = write.(WebRetentionSink).getGrowthDriver()
 }
 
 string containerKind(MethodCall write) {
   isPersistentStoreWrite(write) and result = "persistent_store"
   or
-  not isPersistentStoreWrite(write) and write instanceof SessionAttributeWrite and result = "session"
-  or
-  not isPersistentStoreWrite(write) and write instanceof ServletContextAttributeWrite and result = "servlet_context"
+  not isPersistentStoreWrite(write) and write instanceof WebRetentionSink and
+  result = write.(WebRetentionSink).getContainerKind()
   or
   not isPersistentStoreWrite(write) and
+  not write instanceof WebRetentionSink and
+  write instanceof SessionAttributeWrite and result = "session"
+  or
+  not isPersistentStoreWrite(write) and
+  not write instanceof WebRetentionSink and
+  write instanceof ServletContextAttributeWrite and result = "servlet_context"
+  or
+  not isPersistentStoreWrite(write) and
+  not write instanceof WebRetentionSink and
   write instanceof WebContainerWrite and
   write.getMethod().getDeclaringType().getName().regexpMatch("(?i).*(Session|Store|Cache).*") and
   result = "session_store"
   or
   not isPersistentStoreWrite(write) and
+  not write instanceof WebRetentionSink and
   write instanceof WebContainerWrite and
   not write.getMethod().getDeclaringType().getName().regexpMatch("(?i).*(Session|Store|Cache).*") and
-  result = "static_container"
+  result = "unknown_container"
 }
 
 predicate isPersistentStoreWrite(MethodCall write) {
@@ -214,22 +203,27 @@ string lifespanFor(MethodCall write) {
 
 class WebClientStateWrite extends ClientStateWrite {
   WebClientStateEntry entry;
-  string pathKind;
+  string requestFlowKind;
+  string requestFlowProof;
+  string callPath;
+  string callPathDepth;
+  string requestCarrierKind;
+  string sourceKind;
+  string sourceExpr;
 
   WebClientStateWrite() {
-    (
-      this instanceof SessionAttributeWrite or
-      this instanceof ServletContextAttributeWrite or
-      this instanceof WebContainerWrite
-    ) and
-    writeInEntryOrOneHop(entry, this, pathKind)
+    this instanceof WebRetentionSink and
+    requestFlowFields(
+      entry, this, requestFlowKind, requestFlowProof, callPath, callPathDepth,
+      requestCarrierKind, sourceKind, sourceExpr
+    )
   }
 
   override ClientStateEntry getEntry() { result = entry }
 
   WebClientStateEntry getWebEntry() { result = entry }
 
-  string getPathKind() { result = pathKind }
+  string getPathKind() { result = requestFlowKind }
 
   string getLifespan() { result = lifespanFor(this) }
 
@@ -237,11 +231,110 @@ class WebClientStateWrite extends ClientStateWrite {
 
   override Expr getValueExpr() { result = retainedWriteValue(this) }
 
-  override string getSinkKind() { result = sinkKind(this) }
+  override string getSinkKind() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getSinkKind()
+    or not this instanceof WebRetentionSink and result = sinkKind(this)
+  }
 
   override string getContainerKind() { result = containerKind(this) }
 
   override string getEvidence() {
+    this instanceof WebRetentionSink and
+    result = this.(WebRetentionSink).getReceiverProof()
+    or
+    not this instanceof WebRetentionSink and
     result = this.getMethod().getDeclaringType().getName() + "." + this.getMethod().getName()
   }
+
+  string getSinkShape() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getSinkShape()
+    or not this instanceof WebRetentionSink and result = getSinkKind()
+  }
+
+  string getGrowthDimension() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getGrowthDimension()
+    or not this instanceof WebRetentionSink and result = "unknown"
+  }
+
+  string getGrowthDriverKind() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getGrowthDriverKind()
+    or not this instanceof WebRetentionSink and result = "unknown"
+  }
+
+  Expr getGrowthDriver() { result = retainedWriteKey(this) }
+
+  string getReceiverExprText() {
+    this instanceof WebRetentionSink and
+    result = this.(WebRetentionSink).getReceiverExpr().toString()
+    or not this instanceof WebRetentionSink and result = "<unknown>"
+  }
+
+  string getLifecycleRoot() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getLifecycleRoot()
+    or not this instanceof WebRetentionSink and result = "<unknown>"
+  }
+
+  string getRetainedObject() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getRetainedObject()
+    or not this instanceof WebRetentionSink and result = "<unknown>"
+  }
+
+  string getRetainedField() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getRetainedField()
+    or not this instanceof WebRetentionSink and result = "<unknown>"
+  }
+
+  string getRetentionPath() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getRetentionPath()
+    or not this instanceof WebRetentionSink and result = "<unknown>"
+  }
+
+  string getReceiverProof() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getReceiverProof()
+    or not this instanceof WebRetentionSink and result = "<missing>"
+  }
+
+  string getProofSource() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getProofSource()
+    or not this instanceof WebRetentionSink and result = "<missing>"
+  }
+
+  string getProofConfidence() {
+    this instanceof WebRetentionSink and result = this.(WebRetentionSink).getProofConfidence()
+    or not this instanceof WebRetentionSink and result = "debug"
+  }
+
+  string getRequestFlowProof() { result = requestFlowProof }
+
+  string getCallPath() { result = callPath }
+
+  string getCallPathDepth() { result = callPathDepth }
+
+  string getRequestCarrierKind() { result = requestCarrierKind }
+
+  string getSourceKind() { result = sourceKind }
+
+  string getSourceExprText() { result = sourceExpr }
+
+  string getCandidateFamily() { result = "retained_state" }
+
+  string getDeploymentCondition() { result = "" }
+
+  string getCapacityHint() { result = "" }
+}
+
+predicate flowOutputFields(
+  WebClientStateWrite write,
+  string requestFlowKind,
+  string requestFlowProof,
+  string callPath,
+  string callPathDepth,
+  string requestCarrierKind,
+  string sourceKind,
+  string sourceExpr
+) {
+  requestFlowFields(
+    write.getWebEntry(), write, requestFlowKind, requestFlowProof, callPath,
+    callPathDepth, requestCarrierKind, sourceKind, sourceExpr
+  )
 }

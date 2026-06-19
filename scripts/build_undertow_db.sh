@@ -20,11 +20,11 @@ mkdir -p "$DB_DIR"
 
 cd "$SOURCE_ROOT"
 
-# 使用容错模式并覆盖编译器插件版本
+# 使用自定义 Maven settings 并使用容错模式
 codeql database create "$DB_PATH" \
     --language=java \
     --source-root="$SOURCE_ROOT" \
-    --command="mvn compile -DskipTests -Dmaven.javadoc.skip=true -Drat.skip=true -Dmaven.compiler.plugin.version=3.11.0 -fn" \
+    --command="mvn compile -DskipTests -Dmaven.javadoc.skip=true -s /tmp/maven-settings-undertow.xml -fn" \
     --overwrite
 
 echo "✓ Undertow 数据库构建完成"

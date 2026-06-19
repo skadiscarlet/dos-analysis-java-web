@@ -39,6 +39,34 @@ FIELDNAMES = [
     "verdict_drd",
     "verdict",
     "evidence",
+    "sink_id",
+    "sink_fqn",
+    "sink_shape",
+    "growth_dimension",
+    "growth_driver_kind",
+    "growth_driver_expr",
+    "growth_driver_index",
+    "receiver_expr",
+    "lifecycle_root",
+    "retained_object",
+    "retained_field",
+    "retention_path",
+    "receiver_proof",
+    "proof_source",
+    "proof_confidence",
+    "proof_evidence",
+    "request_flow_kind",
+    "request_flow_proof",
+    "call_path",
+    "call_path_depth",
+    "request_carrier_kind",
+    "source_kind",
+    "source_expr",
+    "candidate_family",
+    "deployment_condition",
+    "capacity_hint",
+    "demotion_reason",
+    "debug_notes",
 ]
 
 
@@ -89,6 +117,7 @@ def run_framework(
     query: Path,
     results_dir: Path,
     codeql_config: dict[str, Any],
+    output_prefix: str = "candidate_features",
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
     codeql = str(codeql_config.get("binary", "/usr/bin/codeql"))
     database = BASE_DIR / str(meta["database"])
@@ -105,8 +134,8 @@ def run_framework(
         print(f"SKIP: {name} database not found: {database}")
         return [], run_info
 
-    bqrs_path = results_dir / f"{name}_candidate_features.bqrs"
-    csv_path = results_dir / f"{name}_candidate_features.csv"
+    bqrs_path = results_dir / f"{name}_{output_prefix}.bqrs"
+    csv_path = results_dir / f"{name}_{output_prefix}.csv"
     query_command = [codeql, "query", "run", f"--database={database}", f"--output={bqrs_path}"]
     if codeql_config.get("threads") is not None:
         query_command.append(f"--threads={codeql_config['threads']}")
@@ -120,8 +149,44 @@ def run_framework(
     rows = read_feature_rows(csv_path, name)
     run_info["status"] = "completed"
     run_info["rows"] = len(rows)
-    print(f"{name}: {len(rows)} candidate rows")
+    print(f"{name}: {len(rows)} {output_prefix} rows")
     return rows, run_info
+
+
+def parser_query_for(phase3: dict[str, Any]) -> Path | None:
+    query_text = phase3.get("parser_query", "codeql/queries/phase3_parser_candidate_features.ql")
+    query = BASE_DIR / str(query_text)
+    return query if query.exists() else None
+
+
+def auxiliary_queries_for(phase3: dict[str, Any]) -> list[dict[str, str]]:
+    queries: list[dict[str, str]] = []
+    parser_query = parser_query_for(phase3)
+    if parser_query is not None:
+        queries.append({
+            "framework": "jersey",
+            "label": "parser",
+            "query": str(parser_query),
+            "output_prefix": "parser_candidate_features",
+        })
+    for item in phase3.get("auxiliary_queries", []) or []:
+        if not isinstance(item, dict):
+            raise ValueError(f"phase3.auxiliary_queries 项格式错误: {item!r}")
+        framework = str(item.get("framework", "")).strip()
+        label = str(item.get("label", "")).strip()
+        query_text = str(item.get("query", "")).strip()
+        output_prefix = str(item.get("output_prefix", "")).strip()
+        if not framework or not label or not query_text or not output_prefix:
+            raise ValueError(f"phase3.auxiliary_queries 项缺少必要字段: {item!r}")
+        query = BASE_DIR / query_text
+        if query.exists():
+            queries.append({
+                "framework": framework,
+                "label": label,
+                "query": str(query),
+                "output_prefix": output_prefix,
+            })
+    return queries
 
 
 def summarize(rows: list[dict[str, str]]) -> dict[str, Any]:
@@ -265,6 +330,8 @@ def write_report(
         str(config["phase3"]["merged_csv"]),
         str(config["phase3"]["consistency_json"]),
         "results/phase3/<framework>_candidate_features.csv",
+        "results/phase3/<framework>_parser_candidate_features.csv",
+        "results/phase3/<framework>_oauth_candidate_features.csv",
         "```",
         "",
     ])
@@ -283,6 +350,7 @@ def main() -> int:
     phase3 = config["phase3"]
     codeql = str(config.get("codeql", {}).get("binary", "/usr/bin/codeql"))
     query = BASE_DIR / str(phase3["query"])
+    auxiliary_queries = auxiliary_queries_for(phase3)
     results_dir = BASE_DIR / str(phase3["results_dir"])
     merged_csv = BASE_DIR / str(phase3["merged_csv"])
     consistency_json = BASE_DIR / str(phase3["consistency_json"])
@@ -302,6 +370,16 @@ def main() -> int:
         framework_rows, run_info = run_framework(framework, meta, query, results_dir, config.get("codeql", {}))
         rows.extend(framework_rows)
         run_infos.append(run_info)
+        for auxiliary_query in auxiliary_queries:
+            if auxiliary_query["framework"] != framework:
+                continue
+            auxiliary_rows, auxiliary_run_info = run_framework(
+                framework, meta, Path(auxiliary_query["query"]), results_dir, config.get("codeql", {}),
+                output_prefix=auxiliary_query["output_prefix"],
+            )
+            rows.extend(auxiliary_rows)
+            auxiliary_run_info["framework"] = f"{framework}:{auxiliary_query['label']}"
+            run_infos.append(auxiliary_run_info)
 
     completed = [info for info in run_infos if info["status"] == "completed"]
     if not completed:
@@ -318,9 +396,20 @@ def main() -> int:
         raise RuntimeError("所有选中的 framework 都被跳过，未生成任何 Phase 3 查询结果")
 
     write_merged_csv(merged_csv, rows)
-    consistency_script = BASE_DIR / "scripts" / "check_phase3_consistency.py"
-    run_command(["python3", str(consistency_script), "--input", str(merged_csv), "--output", str(consistency_json)])
-    consistency = json.loads(consistency_json.read_text(encoding="utf-8"))
+    if rows:
+        consistency_script = BASE_DIR / "scripts" / "check_phase3_consistency.py"
+        run_command(["python3", str(consistency_script), "--input", str(merged_csv), "--output", str(consistency_json)])
+        consistency = json.loads(consistency_json.read_text(encoding="utf-8"))
+    else:
+        consistency = {
+            "total": 0,
+            "matched": 0,
+            "mismatched": 0,
+            "consistency": 0.0,
+            "pass": True,
+            "mismatches": [],
+        }
+        consistency_json.write_text(json.dumps(consistency, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     summary = summarize(rows)
     write_report(report, config, selected, run_infos, summary, consistency)
     print(f"Wrote {merged_csv}")

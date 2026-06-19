@@ -71,13 +71,13 @@ build_spring_boot() {
 
     cd spring-boot
 
-    echo "[2/3] Building Spring Boot..."
-    ./gradlew clean build -x test || echo "Build may have warnings, continuing..."
+    echo "[2/3] Skipping build (using buildless database)..."
 
-    echo "[3/3] Creating CodeQL database..."
+    echo "[3/3] Creating CodeQL database (buildless mode with --build-mode=none)..."
     "$CODEQL_BIN" database create "$DB_DIR/spring-boot-2.7-db" \
         --language=java \
         --source-root=. \
+        --build-mode=none \
         --threads=$THREADS \
         --ram=$RAM_MB \
         --overwrite

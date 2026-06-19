@@ -244,9 +244,13 @@ predicate isEvictionLikeCallable(Callable callable) {
 }
 
 string webContainerLifespan(string containerKind, Callable enclosingCallable) {
-  containerKind in ["session", "servlet_context", "static_container", "session_store", "persistent_store"] and
+  containerKind in [
+    "session", "servlet_context", "static_container", "session_store", "persistent_store",
+    "lifecycle_field_container", "framework_registry", "parser_transaction"
+  ] and
   (
     containerKind = "persistent_store" and result = "RebootPersistent"
+    or containerKind = "parser_transaction" and result = "ProcessLifetime"
     or containerKind != "persistent_store" and exists(MethodCall call |
       call.getEnclosingCallable() = enclosingCallable and
       isEvictionLikeCallable(call.getMethod()) and
@@ -259,3 +263,178 @@ string webContainerLifespan(string containerKind, Callable enclosingCallable) {
   )
 }
 
+// =============================================================
+// Proof-carrying Web retention sink support
+// =============================================================
+
+bindingset[name]
+predicate isContainerTypeName(string name) {
+  name.regexpMatch(
+    ".*(Map|List|Set|Collection|Queue|Deque|Registry|Store|Cache|Table|Pool|Multimap).*"
+  )
+}
+
+bindingset[name]
+predicate isWebLifecycleRootTypeName(string name) {
+  name.regexpMatch(
+    "(?i).*(Servlet|Filter|Handler|Provider|Resource|Controller|Client|Manager|Service|Container|Context|Registry).*"
+  )
+}
+
+bindingset[name]
+predicate isRequestLocalContainerName(string name) {
+  name.regexpMatch("(?i).*(HeaderMap|Headers|Request|Response|Attachment|Builder).*")
+}
+
+bindingset[name]
+predicate isParserContainerName(string name) {
+  name.regexpMatch("(?i).*(Multipart|MultiPart|MIME|Mime|Part|Parser|FormData).*")
+}
+
+class LifecycleRootFact extends Element {
+  RefType rootType;
+  Field rootField;
+  string source;
+  string lifetime;
+  string confidence;
+  string evidence;
+
+  LifecycleRootFact() {
+    rootField.isStatic() and
+    rootField.getDeclaringType().fromSource() and
+    rootField.getType() = rootType and
+    source = "static_field" and
+    lifetime = "ProcessLifetime" and
+    confidence = "high" and
+    evidence = rootField.getDeclaringType().getQualifiedName() + "." + rootField.getName() and
+    this = rootField
+    or
+    not rootField.isStatic() and
+    rootField.getDeclaringType().fromSource() and
+    isWebLifecycleRootTypeName(rootField.getDeclaringType().getName()) and
+    rootField.getType() = rootType and
+    source = "web_taxonomy" and
+    lifetime = "ProcessLifetime" and
+    confidence = "medium" and
+    evidence = rootField.getDeclaringType().getQualifiedName() + "." + rootField.getName() and
+    this = rootField
+  }
+
+  string getSource() { result = source }
+
+  RefType getRootType() { result = rootType }
+
+  Field getRootField() { result = rootField }
+
+  string getLifetime() { result = lifetime }
+
+  string getConfidence() { result = confidence }
+
+  string getEvidence() { result = evidence }
+}
+
+class RetainedField extends Field {
+  string proofSource;
+  string confidence;
+
+  RetainedField() {
+    this.fromSource() and
+    not isRequestLocalContainerName(this.getType().getName()) and
+    (
+      isContainerTypeName(this.getType().getName()) and
+      this.isStatic() and
+      proofSource = "static_field" and
+      confidence = "high"
+      or
+      isContainerTypeName(this.getType().getName()) and
+      not this.isStatic() and
+      isWebLifecycleRootTypeName(this.getDeclaringType().getName()) and
+      proofSource = "web_taxonomy" and
+      confidence = "medium"
+      or
+      not isContainerTypeName(this.getType().getName()) and
+      not this.isStatic() and
+      isWebLifecycleRootTypeName(this.getDeclaringType().getName()) and
+      isWebLifecycleRootTypeName(this.getType().getName()) and
+      proofSource = "framework_lifecycle" and
+      confidence = "medium"
+    )
+  }
+
+  string getProofSource() { result = proofSource }
+
+  string getConfidence() { result = confidence }
+
+  string getRetentionPath() {
+    result = this.getDeclaringType().getQualifiedName() + "." + this.getName()
+  }
+}
+
+predicate receiverIsFieldAccess(Expr receiver, Field field) {
+  exists(FieldAccess access |
+    access = receiver and
+    access.getField() = field
+  )
+}
+
+predicate receiverIsGetterForField(Expr receiver, Field field) {
+  exists(MethodCall getter, ReturnStmt ret, FieldAccess access |
+    getter = receiver and
+    getter.getMethod().getNumberOfParameters() = 0 and
+    getter.getMethod().getName().regexpMatch("(?i)(get|bodyParts|headers|destinations|cache|container).*") and
+    ret.getEnclosingCallable() = getter.getMethod() and
+    access = ret.getExpr() and
+    access.getField() = field
+  )
+}
+
+predicate receiverFlowsFromRetainedField(Expr receiver, RetainedField field, string path, string proofKind) {
+  receiverIsFieldAccess(receiver, field) and
+  path = field.getRetentionPath() and
+  proofKind = "retained_field_direct"
+  or
+  receiverIsGetterForField(receiver, field) and
+  path = field.getRetentionPath() and
+  proofKind = "getter_returns_retained_field"
+  or
+  exists(MethodCall getter |
+    getter = receiver and
+    receiverFlowsFromRetainedField(getter.getQualifier(), field, path, _) and
+    proofKind = "retained_field_chain_depth_1"
+  )
+}
+
+class ReceiverProof extends Element {
+  Expr receiver;
+  RetainedField retainedField;
+  string retentionPath;
+  string proofKind;
+
+  ReceiverProof() {
+    receiverFlowsFromRetainedField(receiver, retainedField, retentionPath, proofKind) and
+    this = receiver
+  }
+
+  Expr getReceiverExpr() { result = receiver }
+
+  Field getRetainedField() { result = retainedField }
+
+  string getLifecycleRoot() {
+    retainedField.isStatic() and result = "static_field"
+    or not retainedField.isStatic() and result = "lifecycle_field"
+  }
+
+  string getRetainedObject() { result = retainedField.getRetentionPath() }
+
+  string getRetentionPath() { result = retentionPath }
+
+  string getProofKind() { result = proofKind }
+
+  string getProofSource() { result = retainedField.getProofSource() }
+
+  string getConfidence() { result = retainedField.getConfidence() }
+
+  string getEvidence() {
+    result = getProofKind() + ":" + getRetentionPath()
+  }
+}

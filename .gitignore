@@ -1,13 +1,26 @@
-# Frameworks source code (large)
-frameworks/*/
+# Local framework source snapshots and CodeQL databases.
+frameworks/
+databases/
 
-# CodeQL databases (large)
-databases/*/
+# Generated analysis results, reports, PoC logs, and review queues.
+results/
 
-# Results (can be regenerated)
-results/*.bqrs
-results/*.csv
-results/*.json
+# Agent workflow drafts/plans/specs are local process artifacts.
+docs/superpowers/
+
+# Keep core project docs tracked by name even if broader doc ignores are added later.
+!README.md
+!CHANGELOG.md
+!AGENTS.md
+!docs/
+!docs/drd_inspired_rearchitecture_plan.md
+
+# Local data drops and scratch artifacts.
+*.bqrs
+*.csv
+*.jsonl
+*.sqlite
+*.db
 
 # Python
 __pycache__/

@@ -49,7 +49,36 @@ output:
 
 phase3:
   query: codeql/queries/phase3_candidate_features.ql
+  parser_query: codeql/queries/phase3_parser_candidate_features.ql
+  auxiliary_queries:
+    - framework: jersey
+      label: oauth
+      query: codeql/queries/phase3_oauth_candidate_features.ql
+      output_prefix: oauth_candidate_features
+    - framework: undertow
+      label: learning-push
+      query: codeql/queries/phase3_undertow_learning_push_candidate_features.ql
+      output_prefix: learning_push_candidate_features
+    - framework: undertow
+      label: mcmp
+      query: codeql/queries/phase3_undertow_mcmp_candidate_features.ql
+      output_prefix: mcmp_candidate_features
+    - framework: jetty
+      label: proxy
+      query: codeql/queries/phase3_jetty_proxy_candidate_features.ql
+      output_prefix: proxy_candidate_features
   results_dir: results/phase3
   merged_csv: results/phase3/phase3_candidate_features.csv
   consistency_json: results/phase3/phase3_consistency.json
   report: results/phase3_report.md
+
+phase4:
+  input_csv: results/phase3/phase3_candidate_features.csv
+  results_dir: results/phase4
+  ranked_csv: results/phase4/ranked_candidates.csv
+  ranked_json: results/phase4/ranked_candidates.json
+  review_queue_md: results/phase4/review_queue_top50.md
+  review_queue_json: results/phase4/review_queue_top50.json
+  evaluation_json: results/phase4/evaluation_summary.json
+  report: results/phase4_report.md
+  top_n: 50

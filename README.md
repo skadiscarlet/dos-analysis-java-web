@@ -41,10 +41,39 @@ Java Web 框架的 client-state retention DoS 检测工具。
 ```bash
 # 构建数据库
 ./scripts/build_databases.sh tomcat spring-boot
+./scripts/build_jersey_db.sh --force
 
 # 运行 Phase 1 分析
 ./scripts/run_phase1.sh
+
+# 运行 Phase 3 统一候选提取
+./dos-web-analyzer phase3
+
+# Phase 3 之后生成 Phase 4 排序、复核队列和报告
+./dos-web-analyzer analyze
+
+# 只刷新报告
+./dos-web-analyzer report
+
+# 生成 top-50 人工复核队列
+./dos-web-analyzer verify --top 50
 ```
+
+Jersey 使用聚焦 buildless 数据库视图 `frameworks/jersey-3.1.3-analysis-sources`，默认复制 `core-*`、`media/multipart` 和 `security/oauth1-*` 的源码，以稳定覆盖 provider/parser/OAuth 路径。
+
+当前 Phase 3 会合并普通 retained-state 查询、Jersey parser/body 查询、Jersey OAuth provider-state 查询、Undertow bridge 查询和 Jetty ProxyServlet bridge 查询，统一输出到 `results/phase3/phase3_candidate_features.csv`。最新基线为 37 条候选，其中 3 条为 Jersey multipart `candidate_family=parser_body`，1 条为 Jersey OAuth1 `candidate_family=provider_state`，1 条为 Undertow LearningPush `candidate_family=listener_state`，2 条为 Undertow MCMP `candidate_family=management_state`，1 条为 Jetty ProxyServlet / HttpClient destination map `candidate_family=client_destination`。
+
+## Phase 4 产物
+
+- `results/phase4/ranked_candidates.csv`：全部候选排序表
+- `results/phase4/ranked_candidates.json`：全部候选排序 JSON
+- `results/phase4/review_queue_top50.md`：人工复核队列
+- `results/phase4/evaluation_summary.json`：论文评估统计摘要
+- `results/phase4_report.md`：Phase 4 大规模挖掘报告
+
+## 设计文档
+
+- `docs/drd_inspired_rearchitecture_plan.md`：继承 Dr.D 方法论的三阶段改造计划，优先推进 long-lived object proof，再补 entry/data-flow/parser，最后重做回归与排序。
 
 ## 依赖
 
