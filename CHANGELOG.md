@@ -4,6 +4,39 @@
 
 ---
 
+## [2026-06-20] 第三部分 WEB-REAL 回归门禁实现
+
+### 修改时间
+2026-06-20 00:38
+
+### 变更类型
+- [新增功能] WEB-REAL manifest 回归门禁
+- [功能改进] WEB-REAL coverage 兼容入口
+- [文档] 回归验证记录
+
+### 核心改动
+- 新增 `intel/regression/web_real_manifest.json`，将 5 个已动态验证真阳的静态期望从 Python lambda 迁移到可审计 manifest。
+- 新增 `scripts/check_web_real_regression.py`，支持 `equals`、`contains`、`one_of` 规则，输出 `hit`、`partial`、`missing` 和机器可读 JSON 报告。
+- 将 `scripts/check_web_real_coverage.py` 改为兼容 wrapper，保留现有命令入口并委托给新 regression checker。
+- 加强 manifest、输入 CSV 和输出报告路径的错误处理，确保 CLI 对预期 I/O 和 manifest 错误返回 exit 2 且不泄露 traceback。
+- 关键技术决策：本轮只固定 known-vuln regression gate，不改变 Phase 4 排序权重或 CodeQL 查询；`results/` 仍按当前仓库策略作为 ignored 本地产物保留。
+
+### 交付成果
+- 新增 manifest：`intel/regression/web_real_manifest.json`
+- 新增脚本：`scripts/check_web_real_regression.py`
+- 修改脚本：`scripts/check_web_real_coverage.py`
+- 生成结果：`results/phase3/web_real_regression.json`（ignored 本地产物，未提交）
+- 重新生成结果：`results/phase3/phase3_consistency.json`、`results/phase4/`、`results/phase4_report.md`（ignored 本地产物，未提交）
+- 修改文档：`CHANGELOG.md`
+- 测试/验证结果：`python3 scripts/check_web_real_regression.py` 5/5 hit，0 partial，0 missing；`python3 scripts/check_web_real_coverage.py` 5/5 hit，0 partial，0 missing；`python3 scripts/check_phase3_consistency.py` 输出 `Phase 3 consistency: 1.000 (37/37 matched), pass=True`；`./dos-web-analyzer analyze` 输出 `Phase 4 complete: 37 candidates, top 37 queued, outputs under results/phase4`；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 输出 `OK: 0 regression(s)`。
+
+### 依赖与影响
+- 依赖：当前 Phase 3 proof/request-flow schema、5/5 WEB-REAL smoke hit 基线，以及 AOSP 侧权威 verdict 模型。
+- 对后续工作的影响：Phase 4 evaluation summary、capacity/lifespan proof 和 Dr.D compatibility manifest 可复用该 regression report 结构。
+- 破坏性变更：无；旧 coverage 命令仍可使用。
+
+---
+
 ## [2026-06-19] 隔离 worktree 忽略规则
 
 ### 修改时间
