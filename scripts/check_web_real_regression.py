@@ -26,9 +26,14 @@ def norm(value: Any) -> str:
 
 def load_json(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        content = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ValueError(f"manifest not found: {path}") from exc
+    except OSError as exc:
+        raise ValueError(f"manifest is not readable: {path}: {exc}") from exc
+
+    try:
+        data = json.loads(content)
     except json.JSONDecodeError as exc:
         raise ValueError(f"manifest is not valid JSON: {path}: {exc}") from exc
     if not isinstance(data, dict):
@@ -39,11 +44,16 @@ def load_json(path: Path) -> dict[str, Any]:
 def load_rows(path: Path) -> list[Row]:
     if not path.exists():
         raise ValueError(f"Phase 3 CSV not found: {path}")
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames is None:
-            raise ValueError(f"Phase 3 CSV has no header: {path}")
-        return [{field: norm(row.get(field)) for field in reader.fieldnames} for row in reader]
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames is None:
+                raise ValueError(f"Phase 3 CSV has no header: {path}")
+            return [{field: norm(row.get(field)) for field in reader.fieldnames} for row in reader]
+    except ValueError:
+        raise
+    except OSError as exc:
+        raise ValueError(f"Phase 3 CSV is not readable: {path}: {exc}") from exc
 
 
 def validate_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
