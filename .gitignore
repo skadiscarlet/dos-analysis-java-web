@@ -8,6 +8,9 @@ results/
 # Agent workflow drafts/plans/specs are local process artifacts.
 docs/superpowers/
 
+# Local git worktrees created for isolated implementation work.
+.worktrees/
+
 # Keep core project docs tracked by name even if broader doc ignores are added later.
 !README.md
 !CHANGELOG.md

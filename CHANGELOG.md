@@ -4,6 +4,32 @@
 
 ---
 
+## [2026-06-19] 隔离 worktree 忽略规则
+
+### 修改时间
+2026-06-19 23:16
+
+### 变更类型
+- [功能改进] 仓库维护
+- [文档] 忽略规则
+
+### 核心改动
+- 将项目内 `.worktrees/` 加入 `.gitignore`，用于后续按 subagent-driven 流程创建隔离实现工作区。
+- 关键技术决策：worktree 目录只承载本地执行环境，不作为项目源码或可复现实验产物版本化。
+- 影响范围仅限仓库忽略规则和变更日志。
+
+### 交付成果
+- 修改忽略规则：`.gitignore`
+- 修改文档：`CHANGELOG.md`
+- 测试/验证结果：仓库维护变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+
+### 依赖与影响
+- 依赖：`superpowers:using-git-worktrees` 要求项目内 worktree 目录必须被忽略。
+- 对后续工作的影响：允许在 `.worktrees/` 下创建隔离分支执行 WEB-REAL regression gate 实现。
+- 破坏性变更：无。
+
+---
+
 ## [2026-06-19] 仓库忽略规则与生成产物清理
 
 ### 修改时间
