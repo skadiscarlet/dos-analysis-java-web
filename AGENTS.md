@@ -62,7 +62,8 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 - **`databases/`**：各框架 CodeQL 数据库
 - **`intel/`**：source 标注、回归材料和人工情报
 - **`scripts/`**：构建、分析、验证和报告脚本
-- **`results/`**：分析结果、报告、复核队列、动态验证证据
+- **`dynamic-verification/`**：真实 HTTP 动态验证 Maven harness 源码；`target/` 为本地构建产物
+- **`results/`**：当前保留最新 Phase 3/4 汇总结果、报告、复核队列、WEB-REAL 回归结果和动态验证证据；旧 Phase 1/2 与单查询中间产物可按需重新生成
 - **`tests/`**：一致性和单元测试
 - **`config.yaml`**：pipeline 配置
 - **`dos-web-analyzer`**：统一 CLI 入口
@@ -71,18 +72,20 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 
 ## 目标框架
 
-### 第一梯队
+### 当前权威全量对象
 
-- Tomcat 9.x
-- Spring Boot 2.7 / 3.x
-- Jetty 11.x
-- Undertow 2.x
+- Tomcat 9.x（`databases/tomcat-9.0-db`）
+- Spring Boot 2.7.x（`databases/spring-boot-2.7-db`）
+- Jetty 11.x（`databases/jetty-11-db`）
+- Undertow 2.x（`databases/undertow-2-db`）
+- Jersey 3.1.x（`databases/jersey-3.1-db`）
 
-### 第二梯队
+### 后续扩展对象
 
+- Spring Boot 3.x
 - Vert.x 4.x
 - Micronaut 3.x
-- Jersey / JAX-RS 作为 REST source 识别和 retained state 验证对象
+- 其他 JAX-RS 实现作为 REST source 识别和 retained state 验证对象
 
 ---
 
@@ -91,26 +94,43 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 ```bash
 cd /home/furina/new_tool/dos-analysis-web
 
-# 构建 Tomcat 和 Spring Boot 数据库
+# 构建或刷新数据库（按需执行）
 ./scripts/build_databases.sh tomcat spring-boot
+./scripts/build_jetty_db.sh
+./scripts/build_undertow_db.sh
+./scripts/build_jersey_db.sh --force
 
-# Phase 1：手工 source 快速验证
-./dos-web-analyzer phase1 --framework tomcat
-./dos-web-analyzer phase1 --framework spring-boot
+# Phase 1：legacy 手工 source 快速验证
+./dos-web-analyzer phase1
 
 # Phase 2：HTTP source 自动发现
+# 当前脚本覆盖 tomcat / spring-boot / jetty / undertow；准确率采样入口为 validate_phase2.py
 ./dos-web-analyzer phase2
-python3 scripts/test_source_discovery.py
+python3 scripts/validate_phase2.py
 
 # Phase 3：统一五轴建模
 ./dos-web-analyzer phase3
 python3 scripts/check_phase3_consistency.py
 
-# Phase 4：候选排序、复核队列和报告
-./dos-web-analyzer analyze
+# Phase 4：候选排序、复核队列和报告；推荐用 --refresh-phase3 刷新全量结果
+./dos-web-analyzer analyze --refresh-phase3
 ./dos-web-analyzer report
 ./dos-web-analyzer verify --top 50
+
+# WEB-REAL 已验证真阳回归门禁
+python3 scripts/check_web_real_regression.py
+
+# 真实 HTTP 动态验证（Maven 可自动下载依赖）
+python3 scripts/run_dynamic_verification.py --profile smoke --heap 384m
+python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 ```
+
+### Phase 3 当前权威产物
+
+- `results/phase3/phase3_candidate_features.csv`
+- `results/phase3/phase3_consistency.json`
+- `results/phase3/web_real_regression.json`
+- `results/phase3_report.md`
 
 ### Phase 4 当前权威产物
 
@@ -132,43 +152,58 @@ python3 scripts/check_phase3_consistency.py
 
 - 机器可读库：`results/phase4/verified_vulnerabilities.json`
 - 人工摘要：`results/phase4/verified_vulnerabilities.md`
-- PoC 源码：`results/phase4/dynamic_verification/poc/`
+- 真实 HTTP harness 源码：`dynamic-verification/`
+- PoC 归档副本：`results/phase4/dynamic_verification/poc/`
 - 原始日志：`results/phase4/dynamic_verification/logs/`
+- 最新统一摘要：`results/phase4/dynamic_verification/dynamic_verification_summary.json`
+
+说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。下列 Phase4 ID 对应 2026-06-20 最新全量分析结果。
 
 ### WEB-REAL-0001 - Jersey OAuth1 request token map
 
+- **Phase4 ID**：`WEB-P4-0011`
 - **Component**：`security/oauth1-server`
 - **State**：request token map
-- **Dynamic verdict**：默认堆 OOM 已确认
+- **Dynamic verdict**：真实 HTTP 384MiB 堆 OOM 已确认；保留旧默认堆 direct harness 日志
 
 ### WEB-REAL-0002 - Jersey multipart MIME parser
 
+- **Phase4 IDs**：`WEB-P4-0001`、`WEB-P4-0002`、`WEB-P4-0003`
 - **Component**：`media/multipart`
 - **State**：multipart / mimepull part bookkeeping
-- **Dynamic verdict**：大磁盘 tempDir 下默认堆 OOM 已确认
+- **Dynamic verdict**：真实 HTTP multipart 384MiB 堆 OOM 已确认；保留旧大磁盘 tempDir 默认堆日志
 
 ### WEB-REAL-0003 - Undertow LearningPushHandler per-referer map
 
-- **Phase4 IDs**：`WEB-P4-0006`、`WEB-P4-0007`
+- **Phase4 ID**：`WEB-P4-0006`
 - **Entry**：`LearningPushHandler.handleRequest`
 - **State**：per-referer inner map
-- **Dynamic verdict**：真实 HTTP 默认堆 OOM 已确认
+- **Dynamic verdict**：真实 HTTP 384MiB 堆 OOM 已确认；保留旧默认堆日志
 
 ### WEB-REAL-0004 - Undertow mod_cluster MCMP registration state
 
-- **Phase4 ID**：`WEB-P4-0029`
+- **Phase4 ID**：`WEB-P4-0010`
 - **Entry**：`MCMPHandler.handleRequest`
 - **State**：nodes / balancers / virtual hosts
-- **Dynamic verdict**：默认堆 OOM 已确认
+- **Dynamic verdict**：真实 HTTP `CONFIG` 384MiB 堆 OOM 已确认；保留旧 direct harness 默认堆日志
 - **限制**：暴露面依赖 MCMP management endpoint 部署和配置
 
 ### WEB-REAL-0005 - Jetty ProxyServlet HttpClient destinations
 
+- **Phase4 ID**：`WEB-P4-0004`
 - **Component**：`jetty-proxy` / `jetty-client`
 - **Entry**：`ProxyServlet.service`
 - **State**：`HttpClient.destinations`
-- **Dynamic verdict**：真实 HTTP 默认堆 OOM 已确认
+- **Dynamic verdict**：真实 HTTP 384MiB 堆 OOM 已确认；保留旧默认堆日志
 - **限制**：harness 将攻击者 HTTP 参数映射到 Jetty `Request.tag()`，用于验证 retained `Origin.tag` / destination map 路径
+
+### WEB-REAL-0006 - Tomcat WebdavServlet lock maps
+
+- **Phase4 IDs**：`WEB-P4-0025`、`WEB-P4-0026`、`WEB-P4-0027`
+- **Entry**：`WebdavServlet.service`
+- **State**：`sharedLocks` / `resourceLocks`
+- **Dynamic verdict**：真实 HTTP WebDAV `LOCK` 384MiB 堆 OOM 已确认
+- **说明**：`WEB-REAL-0006` 是稳定锚点，覆盖 `sharedLocks.put(lock.token, lock)` 与 `resourceLocks.put(path, lock/sharedLock)`；lock 暴露面依赖 WebDAV servlet 可写部署。
 
 ---
 
@@ -176,8 +211,8 @@ python3 scripts/check_phase3_consistency.py
 
 1. **全程使用简体中文**与用户交流。
 2. **不要修改 AOSP 工具**，除非用户明确要求跨仓库同步；Web 工作默认限制在 `dos-analysis-web/`。
-3. **保持可复现性**：脚本、配置、结果、日志、PoC 和报告都应版本化或明确归档。
-4. **不要删除已有结果**；清理仅限临时文件，且必须确认不会影响复现实验。
+3. **保持可复现性**：脚本、配置、最新汇总结果、日志、PoC 和报告都应版本化或明确归档；可再生成的旧中间产物可清理，但必须记录。
+4. **不要删除最新权威结果或动态验证证据**；清理旧结果仅限用户明确要求或确认的旧中间文件，且必须确认不会影响复现实验。
 5. **避免无界全量搜索**：不要在大型数据库、框架源码或结果目录上做不加限制的全仓 `rg`。
 6. **CodeQL buildless 保守建模**：类型层级可能不完整，优先结合 source-defined 类型、名称字符串、方法名、注解名和局部数据流证据。
 7. **优先高召回**：静态查询可保守多报，top 候选必须人工源码复核。
@@ -205,6 +240,13 @@ PYTHONPATH=/home/furina/new_tool/dos-analysis \
 # AOSP golden regression，确认未破坏共享 verdict 语义
 PYTHONPATH=/home/furina/new_tool/dos-analysis \
   python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py
+```
+
+仅清理旧结果或同步文档、且未改 CodeQL/ranking/verdict/pipeline 逻辑时，至少运行：
+
+```bash
+python3 scripts/check_phase3_consistency.py
+python3 scripts/check_web_real_regression.py
 ```
 
 如果未运行某项验证，最终回复必须明确说明原因。
@@ -265,5 +307,5 @@ YYYY-MM-DD HH:MM
 
 ---
 
-**文档版本**：2026-06-18
+**文档版本**：2026-06-20
 **维护者**：项目团队

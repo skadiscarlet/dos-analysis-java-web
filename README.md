@@ -71,6 +71,25 @@ Jersey 使用聚焦 buildless 数据库视图 `frameworks/jersey-3.1.3-analysis-
 - `results/phase4/evaluation_summary.json`：论文评估统计摘要
 - `results/phase4_report.md`：Phase 4 大规模挖掘报告
 
+## 动态验证
+
+真实 HTTP 动态验证 harness 位于 `dynamic-verification/`，使用 Maven 拉取 Tomcat、Jersey、Undertow 和 Jetty 运行依赖。默认 smoke profile 用小规模请求验证真实 HTTP 入口和 retained state 增长；oom profile 使用受控 JVM 堆确认 OOM。
+
+```bash
+# 构建并运行全部真实 HTTP smoke
+python3 scripts/run_dynamic_verification.py --profile smoke --heap 384m
+
+# 运行全部真实 HTTP OOM 验证
+python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
+
+# 只验证 Tomcat WebDAV WEB-REAL-0006
+python3 scripts/run_dynamic_verification.py --profile oom --heap 384m --case WEB-REAL-0006
+```
+
+兼容说明：旧的 `--case WEB-P4-0025-0027` 仍会映射到 `WEB-REAL-0006`。
+
+最新真实 HTTP 证据写入 `results/phase4/dynamic_verification/dynamic_verification_summary.json` 和 `results/phase4/dynamic_verification/logs/`。当前覆盖 `WEB-REAL-0001` 至 `WEB-REAL-0006`；其中 `WEB-REAL-0006` 映射 Tomcat `WEB-P4-0025`、`WEB-P4-0026`、`WEB-P4-0027`。
+
 ## 设计文档
 
 - `docs/drd_inspired_rearchitecture_plan.md`：继承 Dr.D 方法论的三阶段改造计划，优先推进 long-lived object proof，再补 entry/data-flow/parser，最后重做回归与排序。

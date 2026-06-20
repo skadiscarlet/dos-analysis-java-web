@@ -96,6 +96,28 @@
       ],
       "deployment_condition": "ProxyServlet deployment maps attacker-controlled request data to HttpClient destination origin or tag.",
       "notes": "Harness maps attacker parameter to Jetty Request.tag() for the retained Origin.tag path."
+    },
+    {
+      "id": "WEB-REAL-0006",
+      "framework": "servlet",
+      "component": "tomcat WebdavServlet",
+      "phase4_ids": ["WEB-P4-0025", "WEB-P4-0026", "WEB-P4-0027"],
+      "dynamic_verdict": "real_http_heap_oom_confirmed",
+      "required": [
+        {"field": "framework", "op": "equals", "value": "servlet"},
+        {"field": "entry_fqn", "op": "equals", "value": "org.apache.catalina.servlets.WebdavServlet.service"},
+        {"field": "candidate_family", "op": "equals", "value": "retained_state"},
+        {"field": "retained_field", "op": "one_of", "values": ["resourceLocks", "sharedLocks"]}
+      ],
+      "expected": [
+        {"field": "sink_shape", "op": "equals", "value": "retained_map_put"},
+        {"field": "request_flow_kind", "op": "equals", "value": "one_hop_helper"},
+        {"field": "request_flow_proof", "op": "contains", "value": "doLock carries request data"},
+        {"field": "growth_driver_kind", "op": "equals", "value": "map_key"},
+        {"field": "growth_dimension", "op": "equals", "value": "key_cardinality"}
+      ],
+      "deployment_condition": "Tomcat WebdavServlet is deployed with WebDAV LOCK enabled and reachable by low-trust clients.",
+      "notes": "Real HTTP LOCK requests grow resourceLocks and sharedLocks; stable WEB-REAL id covers Phase 4 candidates WEB-P4-0025 through WEB-P4-0027."
     }
   ]
 }

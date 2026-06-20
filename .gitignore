@@ -11,6 +11,9 @@ docs/superpowers/
 # Local git worktrees created for isolated implementation work.
 .worktrees/
 
+# Maven build outputs for the real-HTTP dynamic verification harness.
+dynamic-verification/target/
+
 # Keep core project docs tracked by name even if broader doc ignores are added later.
 !README.md
 !CHANGELOG.md
