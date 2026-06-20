@@ -4,6 +4,32 @@
 
 ---
 
+## [2026-06-20] 静态挖掘候选动态验证设计
+
+### 修改时间
+2026-06-20 22:51
+
+### 变更类型
+- [文档] 动态验证设计
+
+### 核心改动
+- 为 `results/static_hunts/static_hunt_manual_review_spec_2026-06-20.md` 中非 `WEB-REAL-*` 已覆盖候选制定 OOM-first 动态验证设计。
+- 明确真阳性门槛：必须由真实 HTTP 请求进入服务端入口，并触发服务端 JVM heap OOM；仅静态路径、资源增长、磁盘填充或正常 cleanup 不足以标记真阳性。
+- 将第一批验证范围限定为 `TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004`、`UNDERTOW-STATIC-0003`，并要求 `TOMCAT-STATIC-0002` 与 `SB-STATIC-0001` 先做默认边界和可达性预筛。
+- 设计独立 static-hunt 动态验证输出目录，避免覆盖现有 `WEB-REAL-*` 动态验证摘要。
+
+### 交付成果
+- 新增设计文档：`docs/superpowers/specs/2026-06-20-static-hunt-dynamic-verification-design.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅写设计文档，未修改 harness、CodeQL、ranking、verdict 或 pipeline 逻辑；后续实现阶段需运行 dynamic-verification Maven 构建、probe smoke/OOM、`python3 scripts/check_phase3_consistency.py` 和 `python3 scripts/check_web_real_regression.py`。
+
+### 依赖与影响
+- 依赖：目标人工复核规格、现有 `dynamic-verification/` harness 风格和 `WEB-REAL-*` 证据门槛。
+- 对后续工作的影响：后续实现应先做 smoke profile，再做 OOM profile；新增真阳性不会自动入库，必须另行更新 `WEB-REAL-*` catalog。
+- 破坏性变更：无；仅新增设计文档和变更日志记录。
+
+---
+
 ## [2026-06-20] 真实 HTTP 动态验证 harness 与 WEB-REAL-0006 入库
 
 ### 修改时间
