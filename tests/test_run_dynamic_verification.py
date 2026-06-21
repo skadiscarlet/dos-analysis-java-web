@@ -5,9 +5,12 @@ import pytest
 
 from scripts.run_dynamic_verification import (
     CASES,
+    STATIC_HUNT_CASES,
     OOM_EXIT_CODE,
     build_java_command,
     parse_summary,
+    output_paths_for,
+    selected_cases,
 )
 
 
@@ -43,11 +46,36 @@ def test_build_java_command_uses_real_http_probe_class_and_heap_limit():
 
 
 def test_selected_cases_accepts_legacy_webdav_phase4_alias():
-    from scripts.run_dynamic_verification import selected_cases
-
     selected = selected_cases(["WEB-P4-0025-0027"])
 
     assert [case.case_id for case in selected] == ["WEB-REAL-0006"]
+
+
+def test_static_hunt_cases_cover_first_batch_without_web_real_ids():
+    case_ids = {case.case_id for case in STATIC_HUNT_CASES}
+
+    assert case_ids == {
+        "TOMCAT-STATIC-0003",
+        "JETTY-STATIC-0002",
+        "JETTY-STATIC-0004",
+        "UNDERTOW-STATIC-0003",
+    }
+    assert all(not case_id.startswith("WEB-REAL-") for case_id in case_ids)
+
+
+def test_output_paths_separate_static_hunt_from_web_real_results():
+    log_dir, summary_path = output_paths_for("static-hunt")
+
+    assert log_dir.as_posix().endswith("results/static_hunts/dynamic_verification/logs")
+    assert summary_path.as_posix().endswith(
+        "results/static_hunts/dynamic_verification/static_hunt_dynamic_verification_summary.json"
+    )
+
+
+def test_selected_cases_can_target_static_hunt_registry():
+    selected = selected_cases(["JETTY-STATIC-0002"], suite="static-hunt")
+
+    assert [case.case_id for case in selected] == ["JETTY-STATIC-0002"]
 
 
 def test_parse_summary_accepts_oom_exit_code_and_verdict(tmp_path):
@@ -71,6 +99,37 @@ def test_parse_summary_accepts_oom_exit_code_and_verdict(tmp_path):
     assert summary["status"] == "verified"
     assert summary["verdict"] == "CONFIRMED_HEAP_OOM_REAL_HTTP"
     assert summary["requestsBeforeOom"] == "37"
+
+
+def test_parse_static_hunt_summary_normalizes_candidate_fields(tmp_path):
+    from scripts.run_dynamic_verification import parse_static_hunt_summary
+
+    log = tmp_path / "probe.log"
+    log.write_text(
+        "\n".join(
+            [
+                "candidate=tomcat-webdav-dead-properties-real-http",
+                "verdict=CONFIRMED_HEAP_OOM_REAL_HTTP",
+                "requestsBeforeOom=19",
+                "deadPropertyPathsBeforeOom=19",
+                "oomSignal=uncaught_handler",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(["java"], OOM_EXIT_CODE)
+
+    summary = parse_static_hunt_summary("TOMCAT-STATIC-0003", completed, log, require_oom=True)
+
+    assert summary["candidate_id"] == "TOMCAT-STATIC-0003"
+    assert summary["status"] == "verified"
+    assert summary["verdict"] == "CONFIRMED_HEAP_OOM_REAL_HTTP"
+    assert summary["oomSignal"] == "uncaught_handler"
+    assert summary["requestsSent"] == "19"
+    assert summary["retainedMetric"] == "deadPropertyPathsBeforeOom=19"
+    assert summary["heap"] != ""
+    assert summary["log"].endswith("probe.log")
+    assert "notes" in summary
 
 
 def test_parse_summary_accepts_completed_smoke_run(tmp_path):

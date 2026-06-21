@@ -15,6 +15,8 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DYNAMIC_DIR = BASE_DIR / "dynamic-verification"
 LOG_DIR = BASE_DIR / "results" / "phase4" / "dynamic_verification" / "logs"
 SUMMARY_DIR = BASE_DIR / "results" / "phase4" / "dynamic_verification"
+STATIC_HUNT_LOG_DIR = BASE_DIR / "results" / "static_hunts" / "dynamic_verification" / "logs"
+STATIC_HUNT_SUMMARY_DIR = BASE_DIR / "results" / "static_hunts" / "dynamic_verification"
 OOM_EXIT_CODE = 100
 
 
@@ -80,6 +82,41 @@ CASES: tuple[DynamicCase, ...] = (
         "384m",
         ("128", "256", "32"),
         ("-1", "65536", "256"),
+    ),
+)
+
+STATIC_HUNT_CASES: tuple[DynamicCase, ...] = (
+    DynamicCase(
+        "TOMCAT-STATIC-0003",
+        "org.example.dos.dynamic.TomcatWebdavDeadPropertiesHttpProbe",
+        "tomcat-webdav-dead-properties-real-http.log",
+        "384m",
+        ("64", "16", "512", "16"),
+        ("-1", "4096", "2048", "128"),
+    ),
+    DynamicCase(
+        "JETTY-STATIC-0002",
+        "org.example.dos.dynamic.JettyPushSessionCacheHttpProbe",
+        "jetty-push-session-cache-real-http.log",
+        "384m",
+        ("128", "1024", "32"),
+        ("-1", "32768", "256"),
+    ),
+    DynamicCase(
+        "JETTY-STATIC-0004",
+        "org.example.dos.dynamic.JettyPushCacheFilterHttpProbe",
+        "jetty-push-cache-filter-real-http.log",
+        "384m",
+        ("128", "1024", "32"),
+        ("-1", "32768", "256"),
+    ),
+    DynamicCase(
+        "UNDERTOW-STATIC-0003",
+        "org.example.dos.dynamic.UndertowMultipartHttpProbe",
+        "undertow-multipart-real-http.log",
+        "384m",
+        ("32", "4096", "16"),
+        ("-1", "65536", "64"),
     ),
 )
 
@@ -158,35 +195,104 @@ def parse_summary(
     )
 
 
-def selected_cases(case_ids: Iterable[str]) -> list[DynamicCase]:
+def retained_metric(values: dict[str, str]) -> str:
+    for key in (
+        "deadPropertyPathsBeforeOom",
+        "deadPropertyPaths",
+        "cacheSizeBeforeOom",
+        "cacheSize",
+        "associatedPathsBeforeOom",
+        "associatedPaths",
+        "multipartFilesBeforeOom",
+        "multipartFiles",
+        "materializedPartsBeforeOom",
+        "materializedParts",
+    ):
+        if key in values:
+            return f"{key}={values[key]}"
+    return ""
+
+
+def parse_static_hunt_summary(
+    candidate_id: str,
+    completed: subprocess.CompletedProcess[str],
+    log_path: Path,
+    require_oom: bool,
+) -> dict[str, str]:
+    parsed = parse_summary(completed, log_path, require_oom=require_oom)
+    requests_sent = (
+        parsed.get("requestsBeforeOom")
+        or parsed.get("requestsCompleted")
+        or parsed.get("requestsSent")
+        or parsed.get("requests")
+        or ""
+    )
+    return {
+        "candidate_id": candidate_id,
+        "status": parsed.get("status", "not_verified"),
+        "verdict": parsed.get("verdict", ""),
+        "oomSignal": parsed.get("oomSignal", "process_exit" if parsed.get("status") == "verified" else ""),
+        "heap": parsed.get("maxHeapBytes", "unknown"),
+        "requestsSent": requests_sent,
+        "retainedMetric": retained_metric(parsed),
+        "log": str(log_path),
+        "notes": parsed.get("notes", ""),
+    }
+
+
+def selected_cases(case_ids: Iterable[str], suite: str = "web-real") -> list[DynamicCase]:
+    registry = STATIC_HUNT_CASES if suite == "static-hunt" else CASES
     wanted = [CASE_ALIASES.get(case_id, case_id) for case_id in case_ids]
     if not wanted:
-        return list(CASES)
-    by_id = {case.case_id: case for case in CASES}
+        return list(registry)
+    by_id = {case.case_id: case for case in registry}
     missing = sorted(set(wanted) - set(by_id))
     if missing:
         raise ValueError(f"unknown dynamic verification case(s): {', '.join(missing)}")
     return [by_id[case_id] for case_id in wanted]
 
 
-def run_cases(cases: list[DynamicCase], heap: str | None, port_base: int, run_profile: str) -> list[dict[str, str]]:
+def output_paths_for(suite: str) -> tuple[Path, Path]:
+    if suite == "static-hunt":
+        return (
+            STATIC_HUNT_LOG_DIR,
+            STATIC_HUNT_SUMMARY_DIR / "static_hunt_dynamic_verification_summary.json",
+        )
+    if suite == "web-real":
+        return (
+            LOG_DIR,
+            SUMMARY_DIR / "dynamic_verification_summary.json",
+        )
+    raise ValueError(f"unknown dynamic verification suite: {suite}")
+
+
+def run_cases(
+    cases: list[DynamicCase],
+    heap: str | None,
+    port_base: int,
+    run_profile: str,
+    suite: str = "web-real",
+) -> list[dict[str, str]]:
     classpath = ensure_built()
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_dir, summary_path = output_paths_for(suite)
+    log_dir.mkdir(parents=True, exist_ok=True)
     summaries: list[dict[str, str]] = []
     for index, case in enumerate(cases):
-        log_path = LOG_DIR / case.log_name
+        log_path = log_dir / case.log_name
         command = build_java_command(case, classpath, heap, port_base + index, run_profile)
         with log_path.open("w", encoding="utf-8") as handle:
             completed = run(command, DYNAMIC_DIR, stdout=handle)
-        summary = {
-            "case_id": case.case_id,
-            "log": str(log_path.relative_to(BASE_DIR)),
-            **parse_summary(completed, log_path, require_oom=(run_profile == "oom")),
-        }
+        if suite == "static-hunt":
+            summary = parse_static_hunt_summary(case.case_id, completed, log_path, require_oom=(run_profile == "oom"))
+        else:
+            summary = {
+                "case_id": case.case_id,
+                "log": str(log_path.relative_to(BASE_DIR)),
+                **parse_summary(completed, log_path, require_oom=(run_profile == "oom")),
+            }
         summaries.append(summary)
         print(f"{case.case_id}: {summary['status']} ({summary.get('verdict', 'no verdict')})")
-    SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
-    summary_path = SUMMARY_DIR / "dynamic_verification_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summaries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"wrote {summary_path.relative_to(BASE_DIR)}")
     return summaries
@@ -198,13 +304,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--heap", default=None, help="override JVM -Xmx value, e.g. 512m")
     parser.add_argument("--port-base", type=int, default=28080, help="first local port used by HTTP probes")
     parser.add_argument("--profile", choices=("smoke", "oom"), default="smoke", help="run bounded smoke or OOM profile")
+    parser.add_argument(
+        "--suite",
+        choices=("web-real", "static-hunt"),
+        default="web-real",
+        help="verification case registry and output root",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        run_cases(selected_cases(args.case), args.heap, args.port_base, args.profile)
+        run_cases(selected_cases(args.case, suite=args.suite), args.heap, args.port_base, args.profile, suite=args.suite)
         return 0
     except Exception as exc:
         print(f"dynamic verification failed: {exc}", file=sys.stderr)
