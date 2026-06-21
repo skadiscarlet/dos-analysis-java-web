@@ -15,7 +15,7 @@
 
 ### 核心改动
 - 将新增的 Spring Boot 3.x、Vert.x 4.x、Micronaut 3.x 数据库构建从 buildless 模式切换为 CodeQL build extraction，通过 `--command` 跟踪真实 Gradle/Maven 编译。
-- 新增三个构建 helper：Spring Boot 3 编译 core/autoconfigure/actuator 主模块；Vert.x 在同一次 CodeQL trace 中编译 `vert.x` core 与 `vertx-web` 的 Web 相关模块；Micronaut 编译 core/context/http/server/client/router/session/management/websocket 等 Web 分析相关模块。
+- 新增三个构建 helper：Spring Boot 3 先编译可稳定落地的 core 模块；Vert.x 在同一次 CodeQL trace 中编译 `vert.x` core 与 `vertx-web` 的 Web 相关模块；Micronaut 编译 core/context/http/server/client/router/session/management/websocket 等 Web 分析相关模块。
 - 将 Gradle/Maven 依赖缓存固定到本仓库 ignored 的 `.build-cache/`，避免受限执行环境写入用户 home，也避免依赖缓存进入 Git。
 - 将 `config.yaml` 中 Spring Boot 3 和 Vert.x 的 `source_dir` 从旧聚焦源码视图改回真实上游源码目录，文档同步说明 build-mode 构建方式。
 - 扩展框架注册测试，强制新增三类构建目标包含 `--command` 且不再使用 `--build-mode=none`。
@@ -30,7 +30,7 @@
 
 ### 依赖与影响
 - 依赖：GitHub/Maven Central/Gradle distribution 可访问；本机提供 Java 21 和 Java 17，其中 Micronaut 3 的 Gradle 7.5.1 使用 Java 17 运行。
-- 对后续工作的影响：后续刷新这三个数据库会执行真实编译，抽取精度高于 buildless，但耗时和网络依赖更高；若依赖下载失败，应优先检查 `.build-cache/` 和网络代理状态。
+- 对后续工作的影响：后续刷新这三个数据库会执行真实编译，抽取精度高于 buildless，但耗时和网络依赖更高；若依赖下载失败，应优先检查 `.build-cache/` 和网络代理状态。Spring Boot 3 的 autoconfigure/actuator optional integration 依赖面很宽，本轮先不纳入默认 build-mode 命令，待 Maven/Gradle 缓存或 mirror 稳定后再扩展。
 - 破坏性变更：旧的 `frameworks/*-analysis-sources` 聚焦源码视图不再作为新三类框架的配置入口；本地遗留目录可保留但不参与新建库。
 
 ---

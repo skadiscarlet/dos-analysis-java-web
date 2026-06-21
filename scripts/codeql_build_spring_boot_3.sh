@@ -1,6 +1,5 @@
 #!/bin/bash
-# Compile the Spring Boot 3 modules that are relevant to Web retention analysis
-# while CodeQL traces javac invocations.
+# Compile the Spring Boot 3 core module while CodeQL traces javac invocations.
 
 set -euo pipefail
 
@@ -53,8 +52,7 @@ sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapp
 ./gradlew \
   --no-daemon \
   --max-workers="${GRADLE_MAX_WORKERS:-4}" \
+  --no-build-cache \
   -x test \
-  :spring-boot-project:spring-boot:compileJava \
-  :spring-boot-project:spring-boot-autoconfigure:compileJava \
-  :spring-boot-project:spring-boot-actuator:compileJava \
-  :spring-boot-project:spring-boot-actuator-autoconfigure:compileJava
+  :spring-boot-project:spring-boot:clean \
+  :spring-boot-project:spring-boot:compileJava

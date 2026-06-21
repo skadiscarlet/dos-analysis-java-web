@@ -89,3 +89,22 @@ def test_gradle_build_helpers_use_local_cache_and_long_wrapper_timeout():
         assert "/home/furina/.gradle/wrapper/dists" in body
         assert "/home/furina/.gradle/caches/modules-2" in body
         assert "networkTimeout=120000" in body
+
+
+def test_spring_boot_3_build_helper_compiles_stable_core_module_only():
+    body = (ROOT / "scripts/codeql_build_spring_boot_3.sh").read_text(encoding="utf-8")
+
+    assert ":spring-boot-project:spring-boot:clean" in body
+    assert ":spring-boot-project:spring-boot:compileJava" in body
+    assert "--no-build-cache" in body
+    assert ":spring-boot-project:spring-boot-autoconfigure:compileJava" not in body
+    assert ":spring-boot-project:spring-boot-actuator:compileJava" not in body
+
+
+def test_vertx_build_helper_uses_local_maven_repo_with_central_fallback():
+    body = (ROOT / "scripts/codeql_build_vertx_4.sh").read_text(encoding="utf-8")
+
+    assert ".build-cache/m2/repository" in body
+    assert "repo.maven.apache.org/maven2" in body
+    assert "maven.aliyun.com/repository/public" in body
+    assert "-DremoteRepositories=" in body
