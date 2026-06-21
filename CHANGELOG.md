@@ -4,6 +4,44 @@
 
 ---
 
+## [2026-06-21] Static-Hunt 真实 HTTP 动态验证实现
+
+### 修改时间
+2026-06-21 19:35
+
+### 变更类型
+- [新增功能] 动态验证 harness
+- [功能改进] static-hunt runner 输出隔离
+- [文档] 验证结果记录
+
+### 核心改动
+- 为 `scripts/run_dynamic_verification.py` 新增 `--suite static-hunt` 模式，static-hunt 候选 registry、日志目录和 summary 与现有 `WEB-REAL-*` 动态验证证据分离。
+- 新增 Tomcat WebDAV dead-property、Jetty `PushSessionCacheFilter`、Jetty `PushCacheFilter` 和 Undertow multipart 四类真实 HTTP probe，统一输出 `candidate_id`、`status`、`verdict`、请求数、保留指标和日志路径。
+- 继续执行严格真阳性门槛：只有真实 HTTP 请求驱动服务 JVM heap OOM 才标记 `verified`；非 OOM、cleanup、bounded 或 request-burst 证据保留为 `not_verified`。
+- Jetty push cache probe 在 embedded harness 中包装 push-capable request，用于覆盖 `PushBuilder` 存在的 servlet 环境；日志显式记录该模式。
+- Undertow multipart probe 记录默认 `MAX_PARAMETERS=1000`、配置后的 bounded stress、temp file 指标和 cleanup 状态，最终未提升为真阳性。
+
+### 交付成果
+- 修改 runner：`scripts/run_dynamic_verification.py`
+- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/TomcatWebdavDeadPropertiesHttpProbe.java`
+- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyPushSessionCacheHttpProbe.java`
+- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyPushCacheFilterHttpProbe.java`
+- 新增 helper：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyPushProbeSupport.java`
+- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/UndertowMultipartHttpProbe.java`
+- 修改依赖：`dynamic-verification/pom.xml`
+- 更新测试：`tests/test_run_dynamic_verification.py`
+- 结果位置：`results/static_hunts/dynamic_verification/static_hunt_dynamic_verification_summary.json` 与 `results/static_hunts/dynamic_verification/logs/*.log`
+- 动态验证：已运行 static-hunt smoke suite，`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004`、`UNDERTOW-STATIC-0003` 均为 `completed_without_oom`；随后运行四个 OOM profile。
+- OOM verdict：`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 达到 `verified` / `CONFIRMED_HEAP_OOM_REAL_HTTP`；`UNDERTOW-STATIC-0003` 保持 `not_verified` / `NOT_VERIFIED_CLEANUP_BOUNDED`。
+- 回归验证：`pytest tests/test_run_dynamic_verification.py -q`、`mvn -q -f dynamic-verification/pom.xml -DskipTests package`、`python3 scripts/check_phase3_consistency.py`、`python3 scripts/check_web_real_regression.py` 均已通过。
+
+### 依赖与影响
+- 依赖：本地 Maven 依赖可用，Jetty `jetty-servlets` 11.0.15 作为 dynamic harness 依赖加入。
+- 对后续工作的影响：`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 已具备真实 HTTP heap OOM 证据，可进入后续人工复核和 catalog 提升讨论；`UNDERTOW-STATIC-0003` 当前仅保留为 request-burst / cleanup bounded 证据。
+- 破坏性变更：无；不修改 `WEB-REAL-*` catalog，不覆盖 `results/phase4/dynamic_verification/`。
+
+---
+
 ## [2026-06-21] Spring Boot 3 / Vert.x / Micronaut Build Mode 建库修正
 
 ### 修改时间
