@@ -45,6 +45,22 @@ def test_build_java_command_uses_real_http_probe_class_and_heap_limit():
     assert "smoke" in command
 
 
+def test_static_hunt_tomcat_dead_properties_command_shape():
+    case = next(case for case in STATIC_HUNT_CASES if case.case_id == "TOMCAT-STATIC-0003")
+
+    command = build_java_command(
+        case,
+        classpath="target/classes:/tmp/deps.jar",
+        heap=None,
+        port_base=28200,
+        run_profile="smoke",
+    )
+
+    assert command[:3] == ["java", "-Xmx384m", "-cp"]
+    assert "org.example.dos.dynamic.TomcatWebdavDeadPropertiesHttpProbe" in command
+    assert command[-6:] == ["64", "16", "512", "16", "28200", "smoke"]
+
+
 def test_selected_cases_accepts_legacy_webdav_phase4_alias():
     selected = selected_cases(["WEB-P4-0025-0027"])
 
