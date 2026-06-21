@@ -61,6 +61,24 @@ def test_static_hunt_tomcat_dead_properties_command_shape():
     assert command[-6:] == ["64", "16", "512", "16", "28200", "smoke"]
 
 
+def test_static_hunt_jetty_push_session_command_shape():
+    case = next(case for case in STATIC_HUNT_CASES if case.case_id == "JETTY-STATIC-0002")
+
+    command = build_java_command(case, "target/classes:/tmp/deps.jar", None, 28300, "smoke")
+
+    assert "org.example.dos.dynamic.JettyPushSessionCacheHttpProbe" in command
+    assert command[-5:] == ["128", "1024", "32", "28300", "smoke"]
+
+
+def test_static_hunt_jetty_push_cache_command_shape():
+    case = next(case for case in STATIC_HUNT_CASES if case.case_id == "JETTY-STATIC-0004")
+
+    command = build_java_command(case, "target/classes:/tmp/deps.jar", None, 28310, "smoke")
+
+    assert "org.example.dos.dynamic.JettyPushCacheFilterHttpProbe" in command
+    assert command[-5:] == ["128", "1024", "32", "28310", "smoke"]
+
+
 def test_selected_cases_accepts_legacy_webdav_phase4_alias():
     selected = selected_cases(["WEB-P4-0025-0027"])
 
