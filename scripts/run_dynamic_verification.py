@@ -83,6 +83,30 @@ CASES: tuple[DynamicCase, ...] = (
         ("128", "256", "32"),
         ("-1", "65536", "256"),
     ),
+    DynamicCase(
+        "WEB-REAL-0007",
+        "org.example.dos.dynamic.TomcatWebdavDeadPropertiesHttpProbe",
+        "tomcat-webdav-dead-properties-real-http.log",
+        "384m",
+        ("64", "16", "512", "16"),
+        ("-1", "4096", "2048", "128"),
+    ),
+    DynamicCase(
+        "WEB-REAL-0008",
+        "org.example.dos.dynamic.JettyPushSessionCacheHttpProbe",
+        "jetty-push-session-cache-real-http.log",
+        "384m",
+        ("128", "1024", "32"),
+        ("-1", "32768", "256"),
+    ),
+    DynamicCase(
+        "WEB-REAL-0009",
+        "org.example.dos.dynamic.JettyPushCacheFilterHttpProbe",
+        "jetty-push-cache-filter-real-http.log",
+        "384m",
+        ("128", "1024", "32"),
+        ("-1", "32768", "256"),
+    ),
 )
 
 STATIC_HUNT_CASES: tuple[DynamicCase, ...] = (
@@ -122,6 +146,9 @@ STATIC_HUNT_CASES: tuple[DynamicCase, ...] = (
 
 CASE_ALIASES = {
     "WEB-P4-0025-0027": "WEB-REAL-0006",
+    "TOMCAT-STATIC-0003": "WEB-REAL-0007",
+    "JETTY-STATIC-0002": "WEB-REAL-0008",
+    "JETTY-STATIC-0004": "WEB-REAL-0009",
 }
 
 
@@ -252,7 +279,7 @@ def parse_static_hunt_summary(
 
 def selected_cases(case_ids: Iterable[str], suite: str = "web-real") -> list[DynamicCase]:
     registry = STATIC_HUNT_CASES if suite == "static-hunt" else CASES
-    wanted = [CASE_ALIASES.get(case_id, case_id) for case_id in case_ids]
+    wanted = [CASE_ALIASES.get(case_id, case_id) if suite == "web-real" else case_id for case_id in case_ids]
     if not wanted:
         return list(registry)
     by_id = {case.case_id: case for case in registry}

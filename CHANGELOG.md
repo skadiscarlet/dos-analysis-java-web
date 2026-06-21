@@ -4,6 +4,37 @@
 
 ---
 
+## [2026-06-21] WEB-REAL 利用难度标注与 Static-Hunt 提升
+
+### 修改时间
+2026-06-21 20:25
+
+### 变更类型
+- [功能改进] WEB-REAL catalog
+- [文档] 利用条件标注
+- [测试] 回归门禁
+
+### 核心改动
+- 将 `TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 提升为稳定 `WEB-REAL-0007`、`WEB-REAL-0008`、`WEB-REAL-0009`，并在 dynamic runner 中保留旧 static ID 到新 WEB-REAL ID 的别名。
+- 为所有 `WEB-REAL-*` 在 `intel/regression/web_real_manifest.json` 中新增 `exploitability`，统一记录 `difficulty`、`default_exploitable`、`preconditions`、`limiting_factors` 和 `rationale`。
+- 明确高条件样例不能按默认可利用表述：Tomcat dead properties 要求 `readonly=false` 且 PROPPATCH 可达；Jetty push cache 两项要求显式部署 push filter 并具备 HTTP/2 / non-null `PushBuilder` 环境。
+- 扩展 WEB-REAL 回归脚本，允许 `phase3_regression=dynamic_only_pending_query` 的动态已确认项进入 catalog，同时不把暂未进入 Phase 3 查询覆盖的 0007-0009 计为 Phase 3 missing。
+
+### 交付成果
+- 修改 runner：`scripts/run_dynamic_verification.py`
+- 修改回归脚本：`scripts/check_web_real_regression.py`
+- 修改 manifest：`intel/regression/web_real_manifest.json`
+- 更新测试：`tests/test_run_dynamic_verification.py`、`tests/test_web_real_catalog.py`、`tests/test_web_real_regression.py`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 本地 ignored 摘要：`results/phase4/verified_vulnerabilities.json`、`results/phase4/verified_vulnerabilities.md`
+
+### 依赖与影响
+- 依赖：上一轮 static-hunt 真实 HTTP OOM 日志与 probe。
+- 对后续工作的影响：后续论文或披露材料应引用 manifest 中的 `exploitability`，不要把 context-constrained confirmed case 写成默认开放漏洞；Phase 3 查询仍需后续补齐 0007-0009 的静态覆盖。
+- 破坏性变更：`check_web_real_regression.py` 输出新增 `phase3_regression_cases` 和 `dynamic_only_pending_query` 统计字段。
+
+---
+
 ## [2026-06-21] Static-Hunt 真实 HTTP 动态验证实现
 
 ### 修改时间

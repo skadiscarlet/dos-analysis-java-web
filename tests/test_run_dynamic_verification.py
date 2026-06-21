@@ -24,6 +24,9 @@ def test_cases_cover_web_real_and_webdav_targets():
         "WEB-REAL-0004",
         "WEB-REAL-0005",
         "WEB-REAL-0006",
+        "WEB-REAL-0007",
+        "WEB-REAL-0008",
+        "WEB-REAL-0009",
     }.issubset(case_ids)
 
 
@@ -93,6 +96,16 @@ def test_selected_cases_accepts_legacy_webdav_phase4_alias():
     selected = selected_cases(["WEB-P4-0025-0027"])
 
     assert [case.case_id for case in selected] == ["WEB-REAL-0006"]
+
+
+def test_static_hunt_confirmed_cases_are_addressable_as_web_real_ids():
+    selected = selected_cases(["TOMCAT-STATIC-0003", "JETTY-STATIC-0002", "JETTY-STATIC-0004"])
+
+    assert [case.case_id for case in selected] == [
+        "WEB-REAL-0007",
+        "WEB-REAL-0008",
+        "WEB-REAL-0009",
+    ]
 
 
 def test_static_hunt_cases_cover_first_batch_without_web_real_ids():

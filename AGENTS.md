@@ -159,7 +159,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - 原始日志：`results/phase4/dynamic_verification/logs/`
 - 最新统一摘要：`results/phase4/dynamic_verification/dynamic_verification_summary.json`
 
-说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。下列 Phase4 ID 对应 2026-06-20 最新全量分析结果。
+说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。每个 `WEB-REAL-*` 必须带 `exploitability` 利用难度与条件说明；有真实 HTTP OOM 证据不等于默认应用可利用。下列 Phase4 ID 对应 2026-06-20 最新全量分析结果，`WEB-REAL-0007..0009` 来自 static-hunt 后续动态验证。
 
 ### WEB-REAL-0001 - Jersey OAuth1 request token map
 
@@ -167,6 +167,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Component**：`security/oauth1-server`
 - **State**：request token map
 - **Dynamic verdict**：真实 HTTP 384MiB 堆 OOM 已确认；保留旧默认堆 direct harness 日志
+- **利用难度**：Medium；依赖应用启用 Jersey OAuth1 provider 并暴露 request-token issuing endpoint，普通非 OAuth1 应用不在影响面。
 
 ### WEB-REAL-0002 - Jersey multipart MIME parser
 
@@ -174,6 +175,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Component**：`media/multipart`
 - **State**：multipart / mimepull part bookkeeping
 - **Dynamic verdict**：真实 HTTP multipart 384MiB 堆 OOM 已确认；保留旧大磁盘 tempDir 默认堆日志
+- **利用难度**：Medium；依赖应用存在 Jersey multipart upload endpoint，且代理/应用未限制 body size、part count 或上传配额。
 
 ### WEB-REAL-0003 - Undertow LearningPushHandler per-referer map
 
@@ -181,6 +183,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Entry**：`LearningPushHandler.handleRequest`
 - **State**：per-referer inner map
 - **Dynamic verdict**：真实 HTTP 384MiB 堆 OOM 已确认；保留旧默认堆日志
+- **利用难度**：High；依赖应用显式安装 Undertow `LearningPushHandler`，默认普通 Undertow handler 链不自动暴露该状态。
 
 ### WEB-REAL-0004 - Undertow mod_cluster MCMP registration state
 
@@ -188,6 +191,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Entry**：`MCMPHandler.handleRequest`
 - **State**：nodes / balancers / virtual hosts
 - **Dynamic verdict**：真实 HTTP `CONFIG` 384MiB 堆 OOM 已确认；保留旧 direct harness 默认堆日志
+- **利用难度**：Very High；MCMP 是管理面入口，正常部署应网络隔离或鉴权。
 - **限制**：暴露面依赖 MCMP management endpoint 部署和配置
 
 ### WEB-REAL-0005 - Jetty ProxyServlet HttpClient destinations
@@ -197,6 +201,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Entry**：`ProxyServlet.service`
 - **State**：`HttpClient.destinations`
 - **Dynamic verdict**：真实 HTTP 384MiB 堆 OOM 已确认；保留旧默认堆日志
+- **利用难度**：High；依赖 ProxyServlet 或等价代理把攻击者可控数据映射到 upstream origin/tag，且 destination idle eviction/allowlist 不足以限制 key 空间。
 - **限制**：harness 将攻击者 HTTP 参数映射到 Jetty `Request.tag()`，用于验证 retained `Origin.tag` / destination map 路径
 
 ### WEB-REAL-0006 - Tomcat WebdavServlet lock maps
@@ -205,7 +210,35 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Entry**：`WebdavServlet.service`
 - **State**：`sharedLocks` / `resourceLocks`
 - **Dynamic verdict**：真实 HTTP WebDAV `LOCK` 384MiB 堆 OOM 已确认
+- **利用难度**：Very High；依赖 Tomcat `WebdavServlet` 写方法对低信任客户端可达，普通应用通常不应暴露可写 WebDAV。
 - **说明**：`WEB-REAL-0006` 是稳定锚点，覆盖 `sharedLocks.put(lock.token, lock)` 与 `resourceLocks.put(path, lock/sharedLock)`；lock 暴露面依赖 WebDAV servlet 可写部署。
+
+### WEB-REAL-0007 - Tomcat WebdavServlet dead properties
+
+- **Source ID**：`TOMCAT-STATIC-0003`
+- **Entry**：`WebdavServlet.service` -> `doProppatch`
+- **State**：`MemoryPropertyStore.deadProperties`
+- **Dynamic verdict**：真实 HTTP WebDAV `PROPPATCH` 384MiB 堆 OOM 已确认
+- **利用难度**：Very High；必须部署 `WebdavServlet` 且配置 `readonly=false`，默认 read-only WebDAV 对该路径不可利用；攻击者还需要能创建或命中目标资源，并使用默认或无界 `propertyStore`。
+- **说明**：这是 context-constrained confirmed case，不应按正常应用默认开启漏洞表述。
+
+### WEB-REAL-0008 - Jetty PushSessionCacheFilter path cache
+
+- **Source ID**：`JETTY-STATIC-0002`
+- **Entry**：`PushSessionCacheFilter.doFilter` / servlet request listener
+- **State**：filter `_cache` 与 per-target associated map
+- **Dynamic verdict**：真实 HTTP + push-capable request wrapper 384MiB 堆 OOM 已确认
+- **利用难度**：High；依赖应用显式安装 `PushSessionCacheFilter`、存在 `PushBuilder` 可用的 HTTP/2 servlet 环境，并允许同一 session 发送大量唯一 path 与同 host `Referer`。
+- **说明**：HTTP/1.x 或无 `PushBuilder` 环境不触发同等路径。
+
+### WEB-REAL-0009 - Jetty PushCacheFilter primary-resource cache
+
+- **Source ID**：`JETTY-STATIC-0004`
+- **Entry**：`PushCacheFilter.doFilter`
+- **State**：filter `_cache` primary resource map 与 associated set
+- **Dynamic verdict**：真实 HTTP + push-capable request wrapper 384MiB 堆 OOM 已确认
+- **利用难度**：High；依赖应用显式安装 `PushCacheFilter` 且请求为 HTTP/2 / non-null `PushBuilder`，攻击者可制造大量唯一 primary path 与同 host `Referer`；`_maxAssociations` 只限制每个 primary 的子资源数，不限制 primary key 总数。
+- **说明**：属于 context-constrained confirmed case，static Phase 3 查询覆盖仍待补齐。
 
 ---
 

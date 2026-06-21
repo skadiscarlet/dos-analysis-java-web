@@ -8,18 +8,65 @@
       "component": "security/oauth1-server",
       "dynamic_verdict": "default_heap_oom_confirmed",
       "required": [
-        {"field": "framework", "op": "equals", "value": "jersey"},
-        {"field": "candidate_family", "op": "equals", "value": "provider_state"},
-        {"field": "retained_field", "op": "contains", "value": "requestTokenByTokenString"},
-        {"field": "request_flow_kind", "op": "equals", "value": "provider_field"}
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "jersey"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "provider_state"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "requestTokenByTokenString"
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "equals",
+          "value": "provider_field"
+        }
       ],
       "expected": [
-        {"field": "sink_shape", "op": "equals", "value": "retained_map_put"},
-        {"field": "receiver_proof", "op": "contains", "value": "requestTokenByTokenString"},
-        {"field": "growth_driver_kind", "op": "one_of", "values": ["map_key", "stored_value", "token_key", "request_token_key"]}
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "retained_map_put"
+        },
+        {
+          "field": "receiver_proof",
+          "op": "contains",
+          "value": "requestTokenByTokenString"
+        },
+        {
+          "field": "growth_driver_kind",
+          "op": "one_of",
+          "values": [
+            "map_key",
+            "stored_value",
+            "token_key",
+            "request_token_key"
+          ]
+        }
       ],
       "deployment_condition": "Jersey OAuth1 provider is enabled and request token endpoint is reachable.",
-      "notes": "Request token strings are retained in DefaultOAuth1Provider.requestTokenByTokenString."
+      "notes": "Request token strings are retained in DefaultOAuth1Provider.requestTokenByTokenString.",
+      "exploitability": {
+        "difficulty": "medium",
+        "default_exploitable": false,
+        "preconditions": [
+          "Jersey OAuth1 server provider is enabled by the application.",
+          "Request-token issuing endpoint is reachable by low-trust clients.",
+          "Application accepts enough attacker-controlled token payload or metadata to amplify provider memory."
+        ],
+        "limiting_factors": [
+          "OAuth1 server support is optional and not used by most modern Jersey applications.",
+          "Authentication, rate limits, or custom token storage can reduce exploitability."
+        ],
+        "rationale": "Confirmed real-HTTP heap OOM in the provider path, but only applications that expose Jersey OAuth1 token issuance are in scope."
+      }
     },
     {
       "id": "WEB-REAL-0002",
@@ -27,17 +74,59 @@
       "component": "media/multipart",
       "dynamic_verdict": "default_heap_oom_confirmed_with_large_tempdir",
       "required": [
-        {"field": "framework", "op": "equals", "value": "jersey"},
-        {"field": "candidate_family", "op": "equals", "value": "parser_body"},
-        {"field": "sink_shape", "op": "equals", "value": "parser_part_accumulator"}
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "jersey"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "parser_body"
+        },
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "parser_part_accumulator"
+        }
       ],
       "expected": [
-        {"field": "container_kind", "op": "equals", "value": "parser_transaction"},
-        {"field": "growth_dimension", "op": "one_of", "values": ["part_count", "header_count", "byte_volume"]},
-        {"field": "request_flow_kind", "op": "equals", "value": "parser_body_flow"}
+        {
+          "field": "container_kind",
+          "op": "equals",
+          "value": "parser_transaction"
+        },
+        {
+          "field": "growth_dimension",
+          "op": "one_of",
+          "values": [
+            "part_count",
+            "header_count",
+            "byte_volume"
+          ]
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "equals",
+          "value": "parser_body_flow"
+        }
       ],
       "deployment_condition": "Jersey multipart MessageBodyReader is enabled for attacker-controlled multipart requests.",
-      "notes": "Multipart body parts are accumulated during parser transaction lifetime."
+      "notes": "Multipart body parts are accumulated during parser transaction lifetime.",
+      "exploitability": {
+        "difficulty": "medium",
+        "default_exploitable": false,
+        "preconditions": [
+          "Jersey multipart MessageBodyReader is on the classpath and enabled for an upload endpoint.",
+          "Low-trust clients can send large multipart bodies with high part count.",
+          "Application or front proxy does not enforce tighter request size, part count, or upload quotas."
+        ],
+        "limiting_factors": [
+          "Multipart endpoints are application-specific rather than universal.",
+          "Reverse proxy/body limits and framework upload limits can block the payload before Jersey parsing."
+        ],
+        "rationale": "The parser OOM is realistic for exposed multipart upload endpoints without limits, but not for applications with no multipart entry or strict body quotas."
+      }
     },
     {
       "id": "WEB-REAL-0003",
@@ -45,18 +134,60 @@
       "component": "core LearningPushHandler",
       "dynamic_verdict": "real_http_default_heap_oom_confirmed",
       "required": [
-        {"field": "framework", "op": "equals", "value": "undertow"},
-        {"field": "candidate_family", "op": "equals", "value": "listener_state"},
-        {"field": "request_flow_kind", "op": "equals", "value": "listener_callback"},
-        {"field": "retained_field", "op": "contains", "value": "cache"}
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "undertow"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "listener_state"
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "equals",
+          "value": "listener_callback"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "cache"
+        }
       ],
       "expected": [
-        {"field": "sink_shape", "op": "equals", "value": "nested_retained_map_put"},
-        {"field": "receiver_proof", "op": "contains", "value": "LearningPushHandler.cache"},
-        {"field": "growth_dimension", "op": "equals", "value": "key_cardinality"}
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "nested_retained_map_put"
+        },
+        {
+          "field": "receiver_proof",
+          "op": "contains",
+          "value": "LearningPushHandler.cache"
+        },
+        {
+          "field": "growth_dimension",
+          "op": "equals",
+          "value": "key_cardinality"
+        }
       ],
       "deployment_condition": "Undertow LearningPushHandler is installed in the handler chain.",
-      "notes": "Outer cache is bounded, but each per-referer inner map can grow by request path."
+      "notes": "Outer cache is bounded, but each per-referer inner map can grow by request path.",
+      "exploitability": {
+        "difficulty": "high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Undertow LearningPushHandler is explicitly installed in the handler chain.",
+          "Attacker can send same-referer requests with many unique paths or query strings.",
+          "No external path cardinality or per-client request quota is enforced."
+        ],
+        "limiting_factors": [
+          "LearningPushHandler is an optional handler, not a default web application path.",
+          "Outer referer LRU limits referer count, although the per-referer inner map is unbounded."
+        ],
+        "rationale": "Confirmed OOM after installing the optional handler; exploitability depends on that deployment choice."
+      }
     },
     {
       "id": "WEB-REAL-0004",
@@ -64,18 +195,63 @@
       "component": "core mod_cluster MCMP",
       "dynamic_verdict": "default_heap_oom_confirmed",
       "required": [
-        {"field": "framework", "op": "equals", "value": "undertow"},
-        {"field": "candidate_family", "op": "equals", "value": "management_state"},
-        {"field": "request_flow_kind", "op": "equals", "value": "bounded_call_path"},
-        {"field": "retained_field", "op": "one_of", "values": ["nodes", "balancers"]}
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "undertow"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "management_state"
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "equals",
+          "value": "bounded_call_path"
+        },
+        {
+          "field": "retained_field",
+          "op": "one_of",
+          "values": [
+            "nodes",
+            "balancers"
+          ]
+        }
       ],
       "expected": [
-        {"field": "sink_shape", "op": "equals", "value": "registry_register"},
-        {"field": "receiver_proof", "op": "contains", "value": "ModClusterContainer"},
-        {"field": "deployment_condition", "op": "contains", "value": "management"}
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "registry_register"
+        },
+        {
+          "field": "receiver_proof",
+          "op": "contains",
+          "value": "ModClusterContainer"
+        },
+        {
+          "field": "deployment_condition",
+          "op": "contains",
+          "value": "management"
+        }
       ],
       "deployment_condition": "MCMP management endpoint is exposed to low-trust clients.",
-      "notes": "Registry state grows through node, balancer, and virtual host registration."
+      "notes": "Registry state grows through node, balancer, and virtual host registration.",
+      "exploitability": {
+        "difficulty": "very_high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Undertow mod_cluster MCMP management endpoint is deployed.",
+          "The management endpoint is reachable by low-trust clients.",
+          "The endpoint accepts CONFIG registration requests without an effective auth or network boundary."
+        ],
+        "limiting_factors": [
+          "MCMP is a management/control-plane endpoint and should normally be isolated.",
+          "Production deployments commonly protect it by network ACLs, management listener separation, or authentication."
+        ],
+        "rationale": "The state growth is confirmed, but exposing MCMP management to attackers is an unusual high-risk misconfiguration."
+      }
     },
     {
       "id": "WEB-REAL-0005",
@@ -83,41 +259,316 @@
       "component": "jetty-proxy / jetty-client",
       "dynamic_verdict": "real_http_default_heap_oom_confirmed",
       "required": [
-        {"field": "framework", "op": "equals", "value": "jetty"},
-        {"field": "candidate_family", "op": "equals", "value": "client_destination"},
-        {"field": "request_flow_kind", "op": "equals", "value": "client_request_flow"},
-        {"field": "sink_shape", "op": "equals", "value": "retained_map_compute"},
-        {"field": "retained_field", "op": "contains", "value": "destinations"}
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "jetty"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "client_destination"
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "equals",
+          "value": "client_request_flow"
+        },
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "retained_map_compute"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "destinations"
+        }
       ],
       "expected": [
-        {"field": "receiver_proof", "op": "contains", "value": "HttpClient.destinations"},
-        {"field": "growth_driver_kind", "op": "equals", "value": "origin_key"},
-        {"field": "growth_dimension", "op": "equals", "value": "destination_count"}
+        {
+          "field": "receiver_proof",
+          "op": "contains",
+          "value": "HttpClient.destinations"
+        },
+        {
+          "field": "growth_driver_kind",
+          "op": "equals",
+          "value": "origin_key"
+        },
+        {
+          "field": "growth_dimension",
+          "op": "equals",
+          "value": "destination_count"
+        }
       ],
       "deployment_condition": "ProxyServlet deployment maps attacker-controlled request data to HttpClient destination origin or tag.",
-      "notes": "Harness maps attacker parameter to Jetty Request.tag() for the retained Origin.tag path."
+      "notes": "Harness maps attacker parameter to Jetty Request.tag() for the retained Origin.tag path.",
+      "exploitability": {
+        "difficulty": "high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Jetty ProxyServlet or equivalent proxy path is deployed.",
+          "Attacker-controlled request data can influence HttpClient Origin host, port, scheme, or tag.",
+          "Destination idle eviction is disabled or ineffective for the attack duration."
+        ],
+        "limiting_factors": [
+          "Many proxy deployments restrict upstream targets or do not map client data into Origin.tag.",
+          "Destination idle timeout, allowlists, and upstream normalization can bound the map."
+        ],
+        "rationale": "The retained destination map OOM is confirmed in a harness that maps attacker input to Request.tag(); real exploitability depends on comparable proxy rewrite behavior."
+      }
     },
     {
       "id": "WEB-REAL-0006",
       "framework": "servlet",
       "component": "tomcat WebdavServlet",
-      "phase4_ids": ["WEB-P4-0025", "WEB-P4-0026", "WEB-P4-0027"],
+      "phase4_ids": [
+        "WEB-P4-0025",
+        "WEB-P4-0026",
+        "WEB-P4-0027"
+      ],
       "dynamic_verdict": "real_http_heap_oom_confirmed",
       "required": [
-        {"field": "framework", "op": "equals", "value": "servlet"},
-        {"field": "entry_fqn", "op": "equals", "value": "org.apache.catalina.servlets.WebdavServlet.service"},
-        {"field": "candidate_family", "op": "equals", "value": "retained_state"},
-        {"field": "retained_field", "op": "one_of", "values": ["resourceLocks", "sharedLocks"]}
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "servlet"
+        },
+        {
+          "field": "entry_fqn",
+          "op": "equals",
+          "value": "org.apache.catalina.servlets.WebdavServlet.service"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "retained_state"
+        },
+        {
+          "field": "retained_field",
+          "op": "one_of",
+          "values": [
+            "resourceLocks",
+            "sharedLocks"
+          ]
+        }
       ],
       "expected": [
-        {"field": "sink_shape", "op": "equals", "value": "retained_map_put"},
-        {"field": "request_flow_kind", "op": "equals", "value": "one_hop_helper"},
-        {"field": "request_flow_proof", "op": "contains", "value": "doLock carries request data"},
-        {"field": "growth_driver_kind", "op": "equals", "value": "map_key"},
-        {"field": "growth_dimension", "op": "equals", "value": "key_cardinality"}
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "retained_map_put"
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "equals",
+          "value": "one_hop_helper"
+        },
+        {
+          "field": "request_flow_proof",
+          "op": "contains",
+          "value": "doLock carries request data"
+        },
+        {
+          "field": "growth_driver_kind",
+          "op": "equals",
+          "value": "map_key"
+        },
+        {
+          "field": "growth_dimension",
+          "op": "equals",
+          "value": "key_cardinality"
+        }
       ],
       "deployment_condition": "Tomcat WebdavServlet is deployed with WebDAV LOCK enabled and reachable by low-trust clients.",
-      "notes": "Real HTTP LOCK requests grow resourceLocks and sharedLocks; stable WEB-REAL id covers Phase 4 candidates WEB-P4-0025 through WEB-P4-0027."
+      "notes": "Real HTTP LOCK requests grow resourceLocks and sharedLocks; stable WEB-REAL id covers Phase 4 candidates WEB-P4-0025 through WEB-P4-0027.",
+      "exploitability": {
+        "difficulty": "very_high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Tomcat WebdavServlet is deployed and reachable.",
+          "WebDAV write methods such as LOCK are enabled for low-trust clients.",
+          "No authentication, path quota, or WebDAV-specific rate limit prevents many lock attempts."
+        ],
+        "limiting_factors": [
+          "WebDAV writable exposure is uncommon for normal applications and should be protected.",
+          "Deployments may disable WebDAV methods or require authentication."
+        ],
+        "rationale": "Confirmed with real HTTP LOCK, but the attack requires a writable WebDAV deployment rather than a default ordinary servlet app."
+      }
+    },
+    {
+      "id": "WEB-REAL-0007",
+      "framework": "servlet",
+      "component": "tomcat WebdavServlet dead properties",
+      "source_static_id": "TOMCAT-STATIC-0003",
+      "phase3_regression": "dynamic_only_pending_query",
+      "dynamic_verdict": "real_http_heap_oom_confirmed_context_constrained",
+      "required": [
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "servlet"
+        },
+        {
+          "field": "entry_fqn",
+          "op": "equals",
+          "value": "org.apache.catalina.servlets.WebdavServlet.service"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "deadProperties"
+        }
+      ],
+      "expected": [
+        {
+          "field": "sink_shape",
+          "op": "one_of",
+          "values": [
+            "retained_map_put",
+            "retained_collection_add"
+          ]
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "contains",
+          "value": "proppatch"
+        }
+      ],
+      "deployment_condition": "Tomcat WebdavServlet is deployed with readonly=false, PROPPATCH reachable, and default/unbounded dead-property PropertyStore.",
+      "notes": "Real HTTP PROPPATCH drove MemoryPropertyStore.deadProperties to heap OOM. Default read-only WebDAV deployments are not exploitable for this path.",
+      "exploitability": {
+        "difficulty": "very_high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Tomcat WebdavServlet is deployed and reachable.",
+          "The servlet is configured with readonly=false; normal read-only WebDAV mapping is not exploitable for PROPPATCH.",
+          "Attacker can create or target existing resources before PROPPATCH.",
+          "The default MemoryPropertyStore or another unbounded propertyStore is used for dead properties."
+        ],
+        "limiting_factors": [
+          "readonly=false is a non-default editing configuration and normal applications generally should not expose it to untrusted clients.",
+          "Custom bounded propertyStore, authentication, or method filtering can block the attack."
+        ],
+        "rationale": "Real HTTP heap OOM is confirmed only under writable WebDAV dead-property storage; default read-only deployments should be treated as not exploitable."
+      }
+    },
+    {
+      "id": "WEB-REAL-0008",
+      "framework": "jetty",
+      "component": "jetty-servlets PushSessionCacheFilter",
+      "source_static_id": "JETTY-STATIC-0002",
+      "phase3_regression": "dynamic_only_pending_query",
+      "dynamic_verdict": "real_http_heap_oom_confirmed_context_constrained",
+      "required": [
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "jetty"
+        },
+        {
+          "field": "entry_fqn",
+          "op": "contains",
+          "value": "PushSessionCacheFilter"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "_cache"
+        }
+      ],
+      "expected": [
+        {
+          "field": "sink_shape",
+          "op": "one_of",
+          "values": [
+            "retained_map_put",
+            "nested_retained_map_put"
+          ]
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "contains",
+          "value": "referer"
+        }
+      ],
+      "deployment_condition": "Jetty PushSessionCacheFilter is installed and receives PushBuilder-capable HTTP/2 requests with attacker-controlled paths and same-host Referer.",
+      "notes": "Real HTTP harness used a PushBuilder-capable wrapper to exercise the filter cache path; static Phase 3 query support is pending.",
+      "exploitability": {
+        "difficulty": "high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Jetty PushSessionCacheFilter is explicitly installed in the servlet filter chain.",
+          "Requests run in a PushBuilder-capable HTTP/2 servlet environment.",
+          "Attacker can keep one session and send many unique target/child paths with same-host Referer.",
+          "No path cardinality, session size, or global cache quota limits the filter cache."
+        ],
+        "limiting_factors": [
+          "PushSessionCacheFilter is optional and HTTP/2 push support is increasingly disabled or unavailable in normal deployments.",
+          "Session management, path allowlists, or quotas can bound retention."
+        ],
+        "rationale": "Confirmed after wrapping a push-capable request; without the optional filter and PushBuilder-capable environment the vulnerable path is not reached."
+      }
+    },
+    {
+      "id": "WEB-REAL-0009",
+      "framework": "jetty",
+      "component": "jetty-servlets PushCacheFilter",
+      "source_static_id": "JETTY-STATIC-0004",
+      "phase3_regression": "dynamic_only_pending_query",
+      "dynamic_verdict": "real_http_heap_oom_confirmed_context_constrained",
+      "required": [
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "jetty"
+        },
+        {
+          "field": "entry_fqn",
+          "op": "contains",
+          "value": "PushCacheFilter"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "_cache"
+        }
+      ],
+      "expected": [
+        {
+          "field": "sink_shape",
+          "op": "one_of",
+          "values": [
+            "retained_map_put",
+            "nested_retained_map_put"
+          ]
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "contains",
+          "value": "referer"
+        }
+      ],
+      "deployment_condition": "Jetty PushCacheFilter is installed and reachable over HTTP/2 with non-null PushBuilder; attacker controls primary paths and same-host Referer.",
+      "notes": "Real HTTP harness used a PushBuilder-capable wrapper. _maxAssociations limits children per primary, not primary key cardinality; static Phase 3 query support is pending.",
+      "exploitability": {
+        "difficulty": "high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Jetty PushCacheFilter is explicitly installed in the servlet filter chain.",
+          "Requests use HTTP/2 with request.newPushBuilder() returning a non-null PushBuilder.",
+          "Attacker can generate many unique primary paths and same-host Referer associations.",
+          "No global primary-resource cache quota or administrative clearPushCache cadence bounds growth."
+        ],
+        "limiting_factors": [
+          "The filter short-circuits for HTTP/1.x or null PushBuilder.",
+          "_maxAssociations limits children per primary but does not bound the number of primary keys.",
+          "The filter is optional and not expected in many current applications."
+        ],
+        "rationale": "Confirmed in a push-capable HTTP/2 harness; real exploitability depends on the optional filter being exposed in that environment."
+      }
     }
   ]
 }

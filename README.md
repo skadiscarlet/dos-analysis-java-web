@@ -86,11 +86,15 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 
 # 只验证 Tomcat WebDAV WEB-REAL-0006
 python3 scripts/run_dynamic_verification.py --profile oom --heap 384m --case WEB-REAL-0006
+
+# static-hunt 提升后的 WEB-REAL ID 也可直接运行；旧 static ID 会映射到稳定 WEB-REAL ID
+python3 scripts/run_dynamic_verification.py --profile oom --heap 384m --case WEB-REAL-0007
+python3 scripts/run_dynamic_verification.py --profile oom --heap 384m --case TOMCAT-STATIC-0003
 ```
 
-兼容说明：旧的 `--case WEB-P4-0025-0027` 仍会映射到 `WEB-REAL-0006`。
+兼容说明：旧的 `--case WEB-P4-0025-0027` 仍会映射到 `WEB-REAL-0006`；`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 分别映射到 `WEB-REAL-0007`、`WEB-REAL-0008`、`WEB-REAL-0009`。
 
-最新真实 HTTP 证据写入 `results/phase4/dynamic_verification/dynamic_verification_summary.json` 和 `results/phase4/dynamic_verification/logs/`。当前覆盖 `WEB-REAL-0001` 至 `WEB-REAL-0006`；其中 `WEB-REAL-0006` 映射 Tomcat `WEB-P4-0025`、`WEB-P4-0026`、`WEB-P4-0027`。
+最新真实 HTTP 证据写入 `results/phase4/dynamic_verification/dynamic_verification_summary.json` 和 `results/phase4/dynamic_verification/logs/`。当前动态 runner 覆盖 `WEB-REAL-0001` 至 `WEB-REAL-0009`；其中 `WEB-REAL-0007`、`WEB-REAL-0008`、`WEB-REAL-0009` 是由 static-hunt 动态验证提升的 context-constrained confirmed cases。`intel/regression/web_real_manifest.json` 为每个 `WEB-REAL-*` 明确记录 `exploitability`，包括利用难度、默认是否可利用、必要前置条件和限制因素；高条件样例不得按默认开放漏洞解读。
 
 ## 设计文档
 

@@ -136,6 +136,21 @@ def summarize_row(row: Row) -> dict[str, str]:
 
 
 def evaluate_case(case: dict[str, Any], rows: list[Row]) -> dict[str, Any]:
+    if norm(case.get("phase3_regression")) == "dynamic_only_pending_query":
+        return {
+            "id": norm(case.get("id")),
+            "framework": norm(case.get("framework")),
+            "component": norm(case.get("component")),
+            "status": "dynamic_only_pending_query",
+            "matched_sink_id": "",
+            "matched_candidate": {},
+            "required_match_count": 0,
+            "full_match_count": 0,
+            "missing_rules": [],
+            "deployment_condition": norm(case.get("deployment_condition")),
+            "notes": norm(case.get("notes")),
+        }
+
     required = case.get("required", [])
     expected = case.get("expected", [])
     required_matches = [row for row in rows if not missing_rules(row, required)]
@@ -183,17 +198,23 @@ def build_report(
     rows: list[Row],
 ) -> dict[str, Any]:
     case_results = [evaluate_case(case, rows) for case in cases]
-    counts = {status: sum(1 for case in case_results if case["status"] == status) for status in ("hit", "partial", "missing")}
+    counts = {
+        status: sum(1 for case in case_results if case["status"] == status)
+        for status in ("hit", "partial", "missing", "dynamic_only_pending_query")
+    }
     total = len(case_results)
+    phase3_total = total - counts["dynamic_only_pending_query"]
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "manifest": display_path(manifest_path),
         "input_csv": display_path(input_path),
         "total_cases": total,
+        "phase3_regression_cases": phase3_total,
         "hit": counts["hit"],
         "partial": counts["partial"],
         "missing": counts["missing"],
-        "known_vuln_recall": counts["hit"] / total if total else 0.0,
+        "dynamic_only_pending_query": counts["dynamic_only_pending_query"],
+        "known_vuln_recall": counts["hit"] / phase3_total if phase3_total else 0.0,
         "cases": case_results,
     }
 
@@ -219,8 +240,9 @@ def print_summary(report: dict[str, Any]) -> None:
         print(line)
     print(
         "WEB-REAL regression: "
-        f"{report['hit']}/{report['total_cases']} hit, "
-        f"{report['partial']} partial, {report['missing']} missing"
+        f"{report['hit']}/{report['phase3_regression_cases']} phase3 hit, "
+        f"{report['partial']} partial, {report['missing']} missing, "
+        f"{report['dynamic_only_pending_query']} dynamic-only pending query"
     )
 
 
