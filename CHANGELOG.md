@@ -4,6 +4,63 @@
 
 ---
 
+## [2026-06-21] Spring Boot 3 / Vert.x / Micronaut Build Mode 建库修正
+
+### 修改时间
+2026-06-21 17:50
+
+### 变更类型
+- [功能改进] CodeQL 数据库构建
+- [文档] 构建流程同步
+
+### 核心改动
+- 将新增的 Spring Boot 3.x、Vert.x 4.x、Micronaut 3.x 数据库构建从 buildless 模式切换为 CodeQL build extraction，通过 `--command` 跟踪真实 Gradle/Maven 编译。
+- 新增三个构建 helper：Spring Boot 3 编译 core/autoconfigure/actuator 主模块；Vert.x 在同一次 CodeQL trace 中编译 `vert.x` core 与 `vertx-web` 的 Web 相关模块；Micronaut 编译 core/context/http/server/client/router/session/management/websocket 等 Web 分析相关模块。
+- 将 Gradle/Maven 依赖缓存固定到本仓库 ignored 的 `.build-cache/`，避免受限执行环境写入用户 home，也避免依赖缓存进入 Git。
+- 将 `config.yaml` 中 Spring Boot 3 和 Vert.x 的 `source_dir` 从旧聚焦源码视图改回真实上游源码目录，文档同步说明 build-mode 构建方式。
+- 扩展框架注册测试，强制新增三类构建目标包含 `--command` 且不再使用 `--build-mode=none`。
+
+### 交付成果
+- 修改构建入口：`scripts/build_databases.sh`
+- 新增构建 helper：`scripts/codeql_build_spring_boot_3.sh`、`scripts/codeql_build_vertx_4.sh`、`scripts/codeql_build_micronaut_3.sh`
+- 更新配置与忽略规则：`config.yaml`、`.gitignore`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 更新测试：`tests/test_framework_registry.py`
+- 测试/验证结果：见本次最终回复。
+
+### 依赖与影响
+- 依赖：GitHub/Maven Central/Gradle distribution 可访问；本机提供 Java 21 和 Java 17，其中 Micronaut 3 的 Gradle 7.5.1 使用 Java 17 运行。
+- 对后续工作的影响：后续刷新这三个数据库会执行真实编译，抽取精度高于 buildless，但耗时和网络依赖更高；若依赖下载失败，应优先检查 `.build-cache/` 和网络代理状态。
+- 破坏性变更：旧的 `frameworks/*-analysis-sources` 聚焦源码视图不再作为新三类框架的配置入口；本地遗留目录可保留但不参与新建库。
+
+---
+
+## [2026-06-21] 静态挖掘动态验证实施计划
+
+### 修改时间
+2026-06-21 17:45
+
+### 变更类型
+- [文档] 实施计划
+
+### 核心改动
+- 将 `docs/superpowers/specs/2026-06-20-static-hunt-dynamic-verification-design.md` 转换为可执行的静态挖掘动态验证实施计划。
+- 明确后续实现分为 static-hunt runner 输出隔离、Tomcat WebDAV dead-property probe、Jetty push cache probes、Undertow multipart probe 和最终验证五个任务。
+- 保持真阳性门槛不变：只有真实 HTTP 请求触发服务端 JVM heap OOM 才能进入 verified；增长、磁盘填充、request-local buffering 或正常 cleanup 不自动提升为真阳性。
+- 明确新增动态结果写入 `results/static_hunts/dynamic_verification/`，不覆盖现有 `WEB-REAL-*` 证据库。
+
+### 交付成果
+- 新增实施计划：`docs/superpowers/plans/2026-06-21-static-hunt-dynamic-verification.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次只新增计划文档，未修改 harness、CodeQL、ranking、verdict 或 pipeline 逻辑；已运行文档级格式和项目轻量回归检查，详见本次最终回复。
+
+### 依赖与影响
+- 依赖：静态挖掘动态验证设计文档、人工复核规格、现有 `dynamic-verification/` Maven harness 和 `scripts/run_dynamic_verification.py`。
+- 对后续工作的影响：下一步应按计划从 Python runner 的 TDD 测试开始实现，随后逐个新增 probe 并执行 smoke/OOM profile。
+- 破坏性变更：无；仅新增计划文档和变更日志记录。
+
+---
+
 ## [2026-06-20] 静态挖掘候选动态验证设计
 
 ### 修改时间
@@ -27,6 +84,271 @@
 - 依赖：目标人工复核规格、现有 `dynamic-verification/` harness 风格和 `WEB-REAL-*` 证据门槛。
 - 对后续工作的影响：后续实现应先做 smoke profile，再做 OOM profile；新增真阳性不会自动入库，必须另行更新 `WEB-REAL-*` catalog。
 - 破坏性变更：无；仅新增设计文档和变更日志记录。
+
+---
+
+## [2026-06-20] 静态挖掘候选人工复核规格
+
+### 修改时间
+2026-06-20 22:13
+
+### 变更类型
+- [文档] 人工复核规格
+
+### 核心改动
+- 汇总 `results/static_hunts/` 下 Tomcat、Jetty、Undertow、Jersey、Spring Boot 五个大规模 LLM 静态挖掘报告，整理出 15 个主候选漏洞复核对象。
+- 定义统一人工判定口径，包括必填证据、结果枚举、五轴映射、duplicate / WEB-REAL anchor 处理方式和 request-burst 候选的生命周期标注。
+- 按 P0/P1/P2 优先级给出每个候选的复核目标、关键检查项和预期判定出口，避免把已动态验证 root cause、request-local burst、app-dependent footgun 和 bounded noise 混在同一结论层。
+- 增加 rejected-pattern audit 要求，用于抽查各框架已拒绝项的容量、TTL、LRU、cleanup 或协议边界是否真实存在。
+
+### 交付成果
+- 新增人工复核规格：`results/static_hunts/static_hunt_manual_review_spec_2026-06-20.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：后续一致性和 WEB-REAL 回归验证见本次最终回复；本次未执行动态验证，因为该变更只整理人工复核规格，未修改 CodeQL、ranking、verdict 或 pipeline 逻辑。
+
+### 依赖与影响
+- 依赖：`results/static_hunts/*_static_hunt_2026-06-20.md`、现有 `WEB-REAL-*` 动态验证目录和项目五轴判定语义。
+- 对后续工作的影响：后续人工复核可按该 spec 逐项落地 review note，并将通过复核的新候选推进到专项 CodeQL 查询、Phase 3/4 建模或动态验证。
+- 破坏性变更：无；仅新增 ignored 本地结果规格和更新 `CHANGELOG.md`，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-20] Spring Boot 3 / Vert.x / Micronaut CodeQL 数据库扩展
+
+### 修改时间
+2026-06-20 22:23
+
+### 变更类型
+- [功能改进] 框架数据库覆盖扩展
+- [文档] 构建流程同步
+
+### 核心改动
+- 将 Spring Boot 3.x、Vert.x 4.x、Micronaut 3.x 从后续扩展对象推进为当前可构建分析目标，固定版本为 Spring Boot `v3.5.15`、Vert.x `4.5.28`、Micronaut Core `v3.10.8`。
+- 扩展 `scripts/build_databases.sh`，新增 `spring-boot-3`、`vertx`、`micronaut` 三个目标，统一使用 CodeQL buildless 模式生成数据库，降低上游完整构建对本机依赖和发布仓库状态的敏感性。
+- Spring Boot 3 目标生成 `frameworks/spring-boot-3.5.15-analysis-sources` 聚焦源码视图，覆盖 core/autoconfigure/actuator 主模块，避免全仓 buildSrc、docs 和大量 smoke tests 拉长 CodeQL 抽取。
+- Vert.x 目标同时下载 `eclipse-vertx/vert.x` core 与 `vert-x3/vertx-web`，生成 `frameworks/vertx-4.5.28-analysis-sources` 聚焦源码视图后建库，避免缺失 Router、handler、session 等 Web 层源码。
+- 同步 `config.yaml`、Phase 2 数据库列表、legacy Phase 1 Spring Boot 3 路径和 README/AGENTS 运行说明。
+- 新增框架注册回归测试，确保后续新增框架不会只更新部分入口。
+
+### 交付成果
+- 新增/修改构建入口：`scripts/build_databases.sh`、`scripts/download_frameworks.sh`
+- 更新 pipeline 配置：`config.yaml`
+- 更新分析脚本注册：`scripts/run_phase2.py`、`scripts/run_phase1.sh`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 新增测试：`tests/test_framework_registry.py`
+- 新增本地源码快照：`frameworks/spring-boot-3.5.15`、`frameworks/spring-boot-3.5.15-analysis-sources`、`frameworks/vert.x-4.5.28`、`frameworks/vertx-web-4.5.28`、`frameworks/vertx-4.5.28-analysis-sources`、`frameworks/micronaut-core-3.10.8`
+- 新增本地 CodeQL 数据库：`databases/spring-boot-3-db`、`databases/vertx-4-db`、`databases/micronaut-3-db`
+- 测试/验证结果：见本次最终回复。
+
+### 依赖与影响
+- 依赖：GitHub 可访问对应固定 tag；CodeQL CLI 2.23.8+；Java 21 本地运行环境。
+- 对后续工作的影响：Phase 2/3 全量运行会自动看到新数据库，后续需要为 Vert.x/Micronaut 增强 Web entry 和 retained-state 专项建模，以提高非 Servlet/Spring/JAX-RS 风格框架的召回。
+- 破坏性变更：无；源码快照和数据库目录保持 ignored，不进入版本库。
+
+---
+
+## [2026-06-20] Undertow 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-20 21:45
+
+### 变更类型
+- [文档] 静态挖掘报告
+
+### 核心改动
+- 按 `java-web-dos-hunter` 工作流对 Undertow `2.3.7.Final` 做静态资源耗尽 DoS hunt，覆盖 `LearningPushHandler`、mod_cluster MCMP、multipart parser、path cache、stuck-thread monitor、resource cache、session manager、WebSocket/SSE 和 HTTP/2 state。
+- 复核并确认 `LearningPushHandler` per-referer inner map 静态路径，与 `WEB-REAL-0003` / `WEB-P4-0006` 对齐；外层 `LRUCache` 只限制 referer entries，内层 `Map<String,PushedRequest>` 未见容量上限。
+- 复核并确认 mod_cluster MCMP registration state 静态路径，与 `WEB-REAL-0004` / `WEB-P4-0010` 对齐；`CONFIG` form data 可驱动 `balancers`、`nodes`、`hosts` 和 context mappings 增长，暴露面依赖 management endpoint 部署配置。
+- 将 `MultiPartParserDefinition` 记录为 request-burst heap/temp storage `needs_dynamic_probe` 候选；明确它不是 process-lifetime retained-state finding。
+- 将 `PathHandler.cache`、`StuckThreadDetectionHandler`、resource cache、session manager、WebSocket/SSE 和 HTTP/2 stream/priority state 作为 rejected / low-priority patterns 记录，理由是存在 LRU、固定池、max session、timeout、remove、close 或协议 accounting。
+- 关键技术决策：只做静态源码审计和现有 CodeQL 交叉检查；不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+
+### 交付成果
+- 新增本地静态挖掘报告：`results/static_hunts/undertow_static_hunt_2026-06-20.md`
+- 新增静态 findings CSV：`results/static_hunts/undertow_static_findings_2026-06-20.csv`
+- 新增 Undertow-only CodeQL 交叉检查输出：`results/static_hunts/undertow_phase3_candidate_features.bqrs`、`results/static_hunts/undertow_phase3_candidate_features.csv`、`results/static_hunts/undertow_learning_push_candidate_features.bqrs`、`results/static_hunts/undertow_learning_push_candidate_features.csv`、`results/static_hunts/undertow_mcmp_candidate_features.bqrs`、`results/static_hunts/undertow_mcmp_candidate_features.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：Undertow-only CodeQL generic Phase 3 query 输出 3 条并全部降级/拒绝；LearningPush 专项 query 输出 1 条并匹配 `UNDERTOW-STATIC-0001`；MCMP 专项 query 输出 2 条并匹配 `UNDERTOW-STATIC-0002`。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/undertow-2.3.7` 源码快照 `b7c54c4`、`databases/undertow-2-db` CodeQL 数据库和现有 Phase 3 / Undertow 专项查询。
+- 对后续工作的影响：后续可对 multipart request-burst 候选做部署 body-limit 静态审计或隔离动态 probe；也可补充更细的 MCMP context/host registry 专项 CodeQL 输出。
+- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-20] Jersey 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-20 21:44
+
+### 变更类型
+- [文档] 静态挖掘报告
+
+### 核心改动
+- 按项目内 `java-web-dos-hunter` 工作流对 Jersey 3.1.3 做静态资源耗尽 DoS hunt，覆盖 OAuth1 server、multipart provider、默认 message body providers、core-server monitoring/async/runtime 和主要 HTTP containers。
+- 运行 Jersey-only generic/parser/OAuth Phase 3 CodeQL 交叉检查，确认 generic 查询 0 条数据行，parser 专项 3 条数据行，OAuth 专项 1 条数据行。
+- 复核并确认现有 `WEB-REAL-0001` OAuth1 request token map 与 `WEB-REAL-0002` multipart MIME parser 两类静态路径；本轮未重新执行动态验证。
+- 新增 app-dependent 静态候选：默认 `FileProvider` 将任意请求实体流写入 `Utils.createTempFile()`，框架层只注册 `deleteOnExit()`，需要具体应用 `File` 实体参数或 `readEntity(File.class)` 路径证明。
+- 将 OAuth nonce cache、OAuth helper/admin maps、monitoring queues、sliding-window reservoirs、Broadcaster/ChunkedOutput、request-local property maps 和 response/header copying 作为 rejected / low-priority patterns 记录。
+- 关键技术决策：只做静态源码和 CodeQL 交叉检查，不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+
+### 交付成果
+- 新增本地静态挖掘报告：`results/static_hunts/jersey_static_hunt_2026-06-20.md`
+- 新增静态 findings CSV：`results/static_hunts/jersey_static_findings_2026-06-20.csv`
+- 新增 Jersey-only CodeQL 交叉检查输出：`results/static_hunts/jersey_phase3_candidate_features.bqrs`、`results/static_hunts/jersey_phase3_candidate_features.csv`、`results/static_hunts/jersey_parser_candidate_features.bqrs`、`results/static_hunts/jersey_parser_candidate_features.csv`、`results/static_hunts/jersey_oauth_candidate_features.bqrs`、`results/static_hunts/jersey_oauth_candidate_features.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：Jersey-only CodeQL 查询均成功执行并解码；后续一致性和 WEB-REAL 回归验证见本次最终回复。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/jersey-3.1.3` 源码、`databases/jersey-3.1-db` CodeQL 数据库、现有 Phase 3 parser/OAuth 查询和项目内 `skills/java-web-dos-hunter`。
+- 对后续工作的影响：后续可将 `FileProvider`、`EntityPartReader` 和 `@FormDataParam File` alias patterns 补进 Jersey 专项 CodeQL 查询；如果允许动态验证，可优先验证 `FileProvider` 在受控临时目录和小磁盘配额下的增长曲线。
+- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-20] Spring Boot 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-20 21:40
+
+### 变更类型
+- [文档] 静态挖掘报告
+
+### 核心改动
+- 按项目内 `java-web-dos-hunter` 工作流对 Spring Boot 2.7.x 做静态资源耗尽 DoS hunt，覆盖 actuator trace、actuator metrics、WebFlux multipart、Servlet multipart、WebClient metrics 和 WebMvc/WebFlux request instrumentation。
+- 运行 Spring Boot-only generic Phase 3 CodeQL 交叉检查，确认输出 2 条候选均来自 `src/test` blocking servlet fixture，生产源码候选为 0。
+- 新增高价值静态候选：WebFlux multipart 默认 `maxParts=-1` 与 `maxDiskUsagePerPart=-1` 的 part-count / disk-burst 风险。
+- 新增 app-dependent 静态候选：WebClient metrics 默认 `client.name=request.url().getHost()` 进入 `MeterRegistry`，而默认自动配置只对 `uri` tag 安装 100 个值上限；该项需要具体应用入口证明。
+- 将 HTTP trace、server metrics、Servlet multipart、long-task timer samples 和 actuator endpoint read operations 作为 rejected/default-bounded patterns 记录，避免误报默认有界路径。
+- 关键技术决策：本轮只做静态源码和 CodeQL 交叉检查，不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+
+### 交付成果
+- 新增本地静态挖掘报告：`results/static_hunts/spring_boot_static_hunt_2026-06-20.md`
+- 新增静态 findings CSV：`results/static_hunts/spring_boot_static_findings_2026-06-20.csv`
+- 新增 source/sink inventory：`results/static_hunts/spring_boot_static_inventory_2026-06-20.jsonl`
+- 新增 rejected/noise CSV：`results/static_hunts/spring_boot_static_rejected_2026-06-20.csv`
+- 新增 Spring Boot-only CodeQL 交叉检查输出：`results/static_hunts/spring-boot_phase3_candidate_features.bqrs`、`results/static_hunts/spring-boot_phase3_candidate_features.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：Spring Boot-only CodeQL generic Phase 3 query 成功执行并解码，输出 2 rows，均为 `src/test` 噪声；`spring_boot_static_inventory_2026-06-20.jsonl` 逐行 JSON 解析通过，10 records；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched, pass=True`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit, 0 partial, 0 missing`；`git diff --check` 通过。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/spring-boot` 2.7.x 源码、`databases/spring-boot-2.7-db` CodeQL 数据库、现有 Phase 3 查询和项目内 `skills/java-web-dos-hunter`。
+- 对后续工作的影响：后续可将 WebFlux multipart 和 WebClient metrics tag cardinality patterns 补进 Spring Boot 专项 CodeQL 查询；如果允许动态验证，可优先验证 reactive multipart 默认配置在受控临时目录和小磁盘配额下的增长曲线。
+- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+
+## [2026-06-20] Tomcat 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-20 21:09
+
+### 变更类型
+- [文档] 静态挖掘报告
+
+### 核心改动
+- 按 `java-web-dos-hunter` 工作流对 Tomcat `9.0.x` 做静态资源耗尽 DoS hunt，覆盖 WebDAV、multipart、静态资源 cache、WebSocket、HTTP/2、Form Auth saved request、CSRF nonce 和 SSO cache 等模块。
+- 复核并确认现有 `WebdavServlet` LOCK retained lock maps 静态路径，与 `WEB-REAL-0006` / `WEB-P4-0025..0027` 对齐；本轮未重新执行动态验证。
+- 新增源码级静态候选：`WebdavServlet.doProppatch` 未复用 `readRequestBody()` 的请求体完整缓冲路径，以及默认 `MemoryPropertyStore.deadProperties` 对 PROPPATCH dead properties 的 process-lifetime retention。
+- 将 multipart parser、static resource cache、WebSocket session maps、HTTP/2 stream maps、Form Auth saved request、CSRF nonce cache 和 SSO cache 作为 rejected / low-priority patterns 记录，理由是源码中存在容量、TTL、timeout、LRU、覆盖、unregister 或部署 gate。
+- 关键技术决策：只做静态源码和 CodeQL 交叉检查；不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+
+### 交付成果
+- 新增本地静态挖掘报告：`results/static_hunts/tomcat_static_hunt_2026-06-20.md`
+- 新增静态 findings CSV：`results/static_hunts/tomcat_static_findings_2026-06-20.csv`
+- 新增 Tomcat-only CodeQL 交叉检查输出：`results/static_hunts/tomcat_phase3_candidate_features.bqrs`、`results/static_hunts/tomcat_phase3_candidate_features.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：Tomcat-only CodeQL generic Phase 3 query 成功执行并解码，输出 24 rows，其中生产源码候选为 3 条 `WebdavServlet` lock-map rows，其余为 examples/tests 噪声；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched, pass=True`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit, 0 partial, 0 missing`。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/tomcat` 源码快照 `55fdb4f`、`databases/tomcat-9.0-db` CodeQL 数据库和现有 Phase 3 查询。
+- 对后续工作的影响：后续可将 `doProppatch` body buffering 与 `MemoryPropertyStore.deadProperties` 候选补进 Tomcat 专项 CodeQL 查询，并在隔离 harness 中选择性验证。
+- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-20] Jetty 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-20 20:52
+
+### 变更类型
+- [文档] 静态挖掘报告
+
+### 核心改动
+- 按 `java-web-dos-hunter` 工作流对 Jetty 11.0.15 做静态资源耗尽 DoS hunt，先建立 target profile，再枚举 retained-state sinks、HTTP sources、source-to-sink 路径和拒绝项。
+- 复核并确认现有 Jetty `ProxyServlet -> HttpClient.destinations` 静态候选，同时新增源码级静态候选：`PushSessionCacheFilter` 的全局 path cache / per-target association map / session timestamp map，以及 `PushCacheFilter` 的 primary-resource cache。
+- 将 `DoSFilter`、`QoSFilter`、session cache internals 和 request-local buffering 作为低优先级或 rejected patterns 记录，理由是存在 timeout、poll/remove、scheduler cleanup、session eviction/scavenging 或 request-local 生命周期约束。
+- 关键技术决策：本轮只做静态证据整理，不执行动态 harness，也不修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
+
+### 交付成果
+- 新增本地静态挖掘报告：`results/static_hunts/jetty_static_hunt_2026-06-20.md`
+- 刷新本地静态结果以恢复全量 baseline：`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase4/`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：`python3 scripts/run_phase3.py --framework jetty` 显示 Jetty generic query 0 rows、Jetty proxy auxiliary query 1 row、Phase 3 consistency 1/1 matched；随后运行 `./dos-web-analyzer analyze --refresh-phase3` 恢复全量结果，输出 37 total candidates、Phase 3 consistency 37/37 matched、Phase 4 ranked 37 candidates。未运行动态验证，原因是用户明确要求“先只静态”。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/jetty-11.0.15` 源码、`databases/jetty-11-db` CodeQL 数据库和现有 Phase 3/4 pipeline。
+- 对后续工作的影响：后续可将 `PushSessionCacheFilter` / `PushCacheFilter` 候选补进 Jetty 专项 CodeQL 查询，再选择性做真实 HTTP 动态验证。
+- 破坏性变更：无；仅新增 ignored 本地报告并刷新 ignored 本地结果，未修改 analyzer 代码或 verdict 语义。
+
+---
+
+## [2026-06-20] Java Web 资源耗尽 DoS 挖掘技能
+
+### 修改时间
+2026-06-20 19:15
+
+### 变更类型
+- [文档] Agent 技能
+
+### 核心改动
+- 新增项目内技能 `java-web-dos-hunter`，用于指导 agent 在 Java Web/HTTP 服务中大规模、证据驱动地挖掘资源耗尽型 DoS。
+- 技能与当前 Phase 3/4 analyzer 代码脱钩，不依赖本仓库 CodeQL 库、pipeline 或结果格式；仅沉淀可迁移的 source/sink/flow/verdict 工作流。
+- 明确 sink 全量枚举、HTTP source 全量枚举、source-to-sink 关联、真阳性判定、动态验证计划和低强度 subagent 委派纪律。
+- 关键技术决策：采用“先清单、再路径、后判定”的 evidence-driven pipeline，避免把局部可增长操作直接误判为可利用漏洞。
+
+### 交付成果
+- 新增技能正文：`skills/java-web-dos-hunter/SKILL.md`
+- 新增技能 UI 元数据：`skills/java-web-dos-hunter/agents/openai.yaml`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：`python3 /home/furina/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/java-web-dos-hunter` 通过；`grep` 结构检查确认技能包含 Stage 0-5、subagent 纪律、输出报告和真阳性判定字段；使用合成 Java Web 场景做轻量 forward-test，技能能将 Spring singleton registry header-key 增长判为 likely，并拒绝 response-local header copy 与 `maxParts=32` 的 part-count multipart 路径，随后补充 header 值空间、singleton retained-state、multipart 多维度 bound 和 `needs_path_proof` 口径说明。
+
+### 依赖与影响
+- 依赖：无运行时依赖；后续 agent 可按技能说明自行选择 `rg`、AST、CodeQL、调用图或 subagent。
+- 对后续工作的影响：可作为独立于当前 analyzer 的通用漏洞挖掘流程，用于后续 Java Web/HTTP 框架或服务的大规模资源耗尽 DoS hunting。
+- 破坏性变更：无；未修改 analyzer 查询、脚本、pipeline、结果或 verdict 语义。
+
+---
+
+## [2026-06-20] WEB-REAL 私有披露材料准备
+
+### 修改时间
+2026-06-20 19:10
+
+### 变更类型
+- [文档] 私有漏洞报告材料
+
+### 核心改动
+- 新增本地私有披露材料目录 `security-disclosures/`，按 `WEB-REAL-0001` 至 `WEB-REAL-0006` 分别准备上游安全团队报告草稿、附件清单、复跑命令和 CVE 请求措辞。
+- 按项目拆分报告入口：Jersey 走 Eclipse/Jersey 安全流程，Undertow 走 Red Hat Product Security，Jetty 走 Jetty Security Team，Tomcat 走 Tomcat Security Team。
+- 将每个 `WEB-REAL` 整理为独立目录，内含 `REPORT.md` 与 `attachments/`；附件包括对应 PoC、验证日志和裁剪版 evidence JSON。
+- 清理报告与 evidence JSON 中的内部结果目录引用，统一改为 `attachments/...` 相对路径，便于直接打包提交给上游安全团队。
+- 将 `security-disclosures/` 加入 `.gitignore`，避免 PoC 附件、日志摘要、厂商往来和未公开漏洞细节误入版本库。
+- 关键技术决策：报告正文使用英文，便于直接提交给上游；本地步骤和注意事项使用中文，便于后续执行和复核。
+
+### 交付成果
+- 新增本地忽略目录：`security-disclosures/`
+- 新增私有披露 runbook：`security-disclosures/README.md`
+- 新增 6 份本地报告草稿：`security-disclosures/WEB-REAL-0001-jersey-oauth1-request-token-map/REPORT.md` 至 `security-disclosures/WEB-REAL-0006-tomcat-webdav-lock-maps/REPORT.md`
+- 新增 6 组本地附件目录：每组 `attachments/` 包含 PoC、日志和 `evidence-WEB-REAL-*.json`
+- 修改忽略规则：`.gitignore`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：`git check-ignore -v security-disclosures/README.md` 确认命中 `.gitignore:18:security-disclosures/`；`git check-ignore -v security-disclosures/WEB-REAL-0001-jersey-oauth1-request-token-map/attachments/JerseyOAuth1HttpProbe.java` 确认附件也被忽略；`rg -n "results/phase4" security-disclosures` 无匹配；附件引用存在性校验通过；`jq -e . security-disclosures/WEB-REAL-*/attachments/evidence-WEB-REAL-*.json` 通过；`git status --short --ignored security-disclosures .gitignore CHANGELOG.md` 显示披露目录为 ignored，仅 `.gitignore` 与 `CHANGELOG.md` 为可跟踪变更；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched, pass=True`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit, 0 partial, 0 missing`。
+
+### 依赖与影响
+- 依赖：当前 `results/phase4/verified_vulnerabilities.json`、动态验证 PoC 和日志作为证据来源。
+- 对后续工作的影响：后续向上游报告时可直接从本地私有目录复制正文并附对应 PoC/log；发送前仍应按报告内命令复跑对应 case。
+- 破坏性变更：无；新增披露材料目录被 Git 忽略，不会进入公开版本历史。
 
 ---
 

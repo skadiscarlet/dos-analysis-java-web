@@ -76,15 +76,15 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 
 - Tomcat 9.x（`databases/tomcat-9.0-db`）
 - Spring Boot 2.7.x（`databases/spring-boot-2.7-db`）
+- Spring Boot 3.x（`databases/spring-boot-3-db`，当前 tag `v3.5.15`）
 - Jetty 11.x（`databases/jetty-11-db`）
 - Undertow 2.x（`databases/undertow-2-db`）
 - Jersey 3.1.x（`databases/jersey-3.1-db`）
+- Vert.x 4.x（`databases/vertx-4-db`，当前 tag `4.5.28`；build extraction 覆盖 `vert.x` core 与 `vertx-web`）
+- Micronaut 3.x（`databases/micronaut-3-db`，当前 tag `v3.10.8`）
 
 ### 后续扩展对象
 
-- Spring Boot 3.x
-- Vert.x 4.x
-- Micronaut 3.x
 - 其他 JAX-RS 实现作为 REST source 识别和 retained state 验证对象
 
 ---
@@ -95,10 +95,12 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 cd /home/furina/new_tool/dos-analysis-web
 
 # 构建或刷新数据库（按需执行）
-./scripts/build_databases.sh tomcat spring-boot
+./scripts/build_databases.sh tomcat spring-boot spring-boot-3 vertx micronaut
 ./scripts/build_jetty_db.sh
 ./scripts/build_undertow_db.sh
 ./scripts/build_jersey_db.sh --force
+
+# 新增扩展框架使用真实编译抽取；Gradle/Maven 依赖缓存落在本地 ignored 的 .build-cache/
 
 # Phase 1：legacy 手工 source 快速验证
 ./dos-web-analyzer phase1

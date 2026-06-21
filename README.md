@@ -40,7 +40,7 @@ Java Web 框架的 client-state retention DoS 检测工具。
 
 ```bash
 # 构建数据库
-./scripts/build_databases.sh tomcat spring-boot
+./scripts/build_databases.sh tomcat spring-boot spring-boot-3 vertx micronaut
 ./scripts/build_jersey_db.sh --force
 
 # 运行 Phase 1 分析
@@ -60,6 +60,8 @@ Java Web 框架的 client-state retention DoS 检测工具。
 ```
 
 Jersey 使用聚焦 buildless 数据库视图 `frameworks/jersey-3.1.3-analysis-sources`，默认复制 `core-*`、`media/multipart` 和 `security/oauth1-*` 的源码，以稳定覆盖 provider/parser/OAuth 路径。
+
+Spring Boot 3.x、Vert.x 4.x 和 Micronaut 3.x 使用固定 tag 的 CodeQL build extraction 数据库：Spring Boot `v3.5.15` -> `databases/spring-boot-3-db`，Vert.x `4.5.28` core + `vertx-web` -> `databases/vertx-4-db`，Micronaut Core `v3.10.8` -> `databases/micronaut-3-db`。构建 helper 位于 `scripts/codeql_build_spring_boot_3.sh`、`scripts/codeql_build_vertx_4.sh` 和 `scripts/codeql_build_micronaut_3.sh`，会把 Gradle/Maven 依赖缓存写入本地 ignored 的 `.build-cache/`，避免污染用户 home。
 
 当前 Phase 3 会合并普通 retained-state 查询、Jersey parser/body 查询、Jersey OAuth provider-state 查询、Undertow bridge 查询和 Jetty ProxyServlet bridge 查询，统一输出到 `results/phase3/phase3_candidate_features.csv`。最新基线为 37 条候选，其中 3 条为 Jersey multipart `candidate_family=parser_body`，1 条为 Jersey OAuth1 `candidate_family=provider_state`，1 条为 Undertow LearningPush `candidate_family=listener_state`，2 条为 Undertow MCMP `candidate_family=management_state`，1 条为 Jetty ProxyServlet / HttpClient destination map `candidate_family=client_destination`。
 

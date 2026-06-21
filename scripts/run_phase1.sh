@@ -11,7 +11,8 @@ QUERY="$PROJECT_ROOT/codeql/queries/phase1_candidates.ql"
 
 # 数据库路径
 TOMCAT_DB="$PROJECT_ROOT/databases/tomcat-9.0-db"
-SPRINGBOOT_DB="$PROJECT_ROOT/databases/springboot-3.4-db"
+SPRINGBOOT_DB="$PROJECT_ROOT/databases/spring-boot-2.7-db"
+SPRINGBOOT3_DB="$PROJECT_ROOT/databases/spring-boot-3-db"
 
 mkdir -p "$RESULTS_DIR"
 
@@ -69,7 +70,8 @@ run_query() {
 run_query "tomcat" "$TOMCAT_DB"
 
 # 运行 Spring Boot
-run_query "springboot" "$SPRINGBOOT_DB"
+run_query "spring-boot" "$SPRINGBOOT_DB"
+run_query "spring-boot-3" "$SPRINGBOOT3_DB"
 
 echo "======================================"
 echo "Phase 1 完成"

@@ -1,0 +1,91 @@
+import ast
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _phase2_databases() -> dict[str, str]:
+    module = ast.parse((ROOT / "scripts/run_phase2.py").read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "DATABASES":
+                    return {
+                        key.value: ast.unparse(value)
+                        for key, value in zip(node.value.keys, node.value.values)
+                        if isinstance(key, ast.Constant)
+                    }
+    raise AssertionError("DATABASES not found in scripts/run_phase2.py")
+
+
+def test_expansion_frameworks_are_registered_consistently():
+    config = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    frameworks = config["frameworks"]
+    phase2_databases = _phase2_databases()
+    build_script = (ROOT / "scripts/build_databases.sh").read_text(encoding="utf-8")
+
+    expected = {
+        "spring-boot-3": {
+            "branch": "v3.5.15",
+            "source_dir": "frameworks/spring-boot-3.5.15",
+            "database": "databases/spring-boot-3-db",
+            "build_helper": "scripts/codeql_build_spring_boot_3.sh",
+        },
+        "vertx": {
+            "branch": "4.5.28",
+            "source_dir": "frameworks/vert.x-4.5.28",
+            "database": "databases/vertx-4-db",
+            "build_helper": "scripts/codeql_build_vertx_4.sh",
+        },
+        "micronaut": {
+            "branch": "v3.10.8",
+            "source_dir": "frameworks/micronaut-core-3.10.8",
+            "database": "databases/micronaut-3-db",
+            "build_helper": "scripts/codeql_build_micronaut_3.sh",
+        },
+    }
+
+    for framework, expected_meta in expected.items():
+        assert frameworks[framework]["branch"] == expected_meta["branch"]
+        assert frameworks[framework]["source_dir"] == expected_meta["source_dir"]
+        assert frameworks[framework]["database"] == expected_meta["database"]
+        assert framework in phase2_databases
+        assert expected_meta["database"] in phase2_databases[framework]
+        assert f"{framework})" in build_script
+        assert expected_meta["build_helper"] in build_script
+        assert (ROOT / expected_meta["build_helper"]).exists()
+
+
+def _extract_shell_function(script: str, name: str) -> str:
+    start = script.index(f"{name}() {{")
+    next_start = script.find("\nbuild_", start + 1)
+    if next_start == -1:
+        next_start = script.find("\n# 处理命令行参数", start)
+    return script[start:next_start]
+
+
+def test_expansion_database_builds_use_compilation_commands():
+    build_script = (ROOT / "scripts/build_databases.sh").read_text(encoding="utf-8")
+
+    for function_name in ("build_spring_boot_3", "build_vertx", "build_micronaut"):
+        function_body = _extract_shell_function(build_script, function_name)
+        assert "--command=" in function_body
+        assert "--build-mode=none" not in function_body
+        assert "buildless" not in function_body.lower()
+
+
+def test_gradle_build_helpers_use_local_cache_and_long_wrapper_timeout():
+    helpers = [
+        ROOT / "scripts/codeql_build_spring_boot_3.sh",
+        ROOT / "scripts/codeql_build_micronaut_3.sh",
+    ]
+
+    for helper in helpers:
+        body = helper.read_text(encoding="utf-8")
+        assert ".build-cache/gradle" in body
+        assert "/home/furina/.gradle/wrapper/dists" in body
+        assert "/home/furina/.gradle/caches/modules-2" in body
+        assert "networkTimeout=120000" in body

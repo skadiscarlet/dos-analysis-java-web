@@ -12,8 +12,12 @@ BASE_DIR = Path("/home/furina/new_tool/dos-analysis-web")
 DATABASES = {
     "tomcat": BASE_DIR / "databases/tomcat-9.0-db",
     "spring-boot": BASE_DIR / "databases/spring-boot-2.7-db",
+    "spring-boot-3": BASE_DIR / "databases/spring-boot-3-db",
     "jetty": BASE_DIR / "databases/jetty-11-db",
     "undertow": BASE_DIR / "databases/undertow-2-db",
+    "jersey": BASE_DIR / "databases/jersey-3.1-db",
+    "vertx": BASE_DIR / "databases/vertx-4-db",
+    "micronaut": BASE_DIR / "databases/micronaut-3-db",
 }
 
 QUERY = BASE_DIR / "codeql/queries/phase2_source_discovery.ql"

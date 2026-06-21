@@ -11,8 +11,14 @@ docs/superpowers/
 # Local git worktrees created for isolated implementation work.
 .worktrees/
 
+# Local Gradle/Maven dependency caches for framework build-mode extraction.
+.build-cache/
+
 # Maven build outputs for the real-HTTP dynamic verification harness.
 dynamic-verification/target/
+
+# Private coordinated vulnerability disclosure drafts and vendor correspondence.
+security-disclosures/
 
 # Keep core project docs tracked by name even if broader doc ignores are added later.
 !README.md
