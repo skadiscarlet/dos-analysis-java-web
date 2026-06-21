@@ -79,6 +79,16 @@ def test_static_hunt_jetty_push_cache_command_shape():
     assert command[-5:] == ["128", "1024", "32", "28310", "smoke"]
 
 
+def test_static_hunt_undertow_multipart_command_shape():
+    case = next(case for case in STATIC_HUNT_CASES if case.case_id == "UNDERTOW-STATIC-0003")
+
+    command = build_java_command(case, "target/classes:/tmp/deps.jar", "384m", 28400, "smoke")
+
+    assert command[:3] == ["java", "-Xmx384m", "-cp"]
+    assert "org.example.dos.dynamic.UndertowMultipartHttpProbe" in command
+    assert command[-5:] == ["32", "4096", "16", "28400", "smoke"]
+
+
 def test_selected_cases_accepts_legacy_webdav_phase4_alias():
     selected = selected_cases(["WEB-P4-0025-0027"])
 
@@ -164,6 +174,35 @@ def test_parse_static_hunt_summary_normalizes_candidate_fields(tmp_path):
     assert summary["heap"] != ""
     assert summary["log"].endswith("probe.log")
     assert "notes" in summary
+
+
+def test_parse_static_hunt_summary_records_non_oom_verdict_without_promotion(tmp_path):
+    from scripts.run_dynamic_verification import parse_static_hunt_summary
+
+    log = tmp_path / "probe.log"
+    log.write_text(
+        "\n".join(
+            [
+                "candidate=undertow-multipart-real-http",
+                "verdict=NOT_VERIFIED_CLEANUP_BOUNDED",
+                "requestsCompleted=512",
+                "materializedParts=524288",
+                "multipartFiles=524288",
+                "cleanupRemovedTempFiles=true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(["java"], 0)
+
+    summary = parse_static_hunt_summary("UNDERTOW-STATIC-0003", completed, log, require_oom=True)
+
+    assert summary["candidate_id"] == "UNDERTOW-STATIC-0003"
+    assert summary["status"] == "not_verified"
+    assert summary["verdict"] == "NOT_VERIFIED_CLEANUP_BOUNDED"
+    assert summary["requestsSent"] == "512"
+    assert summary["retainedMetric"] == "multipartFiles=524288"
+    assert "cleanupRemovedTempFiles=true" in summary["notes"]
 
 
 def test_parse_summary_accepts_completed_smoke_run(tmp_path):

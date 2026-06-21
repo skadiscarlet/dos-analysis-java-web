@@ -116,7 +116,7 @@ STATIC_HUNT_CASES: tuple[DynamicCase, ...] = (
         "undertow-multipart-real-http.log",
         "384m",
         ("32", "4096", "16"),
-        ("-1", "65536", "64"),
+        ("128", "4096", "32"),
     ),
 )
 
@@ -219,7 +219,14 @@ def parse_static_hunt_summary(
     log_path: Path,
     require_oom: bool,
 ) -> dict[str, str]:
-    parsed = parse_summary(completed, log_path, require_oom=require_oom)
+    values = parse_log_values(log_path)
+    verdict = values.get("verdict", "")
+    if completed.returncode == 0 and require_oom and (
+        verdict.startswith("NOT_VERIFIED_") or verdict.startswith("BLOCKED_")
+    ):
+        parsed = {"status": "not_verified", **values}
+    else:
+        parsed = parse_summary(completed, log_path, require_oom=require_oom)
     requests_sent = (
         parsed.get("requestsBeforeOom")
         or parsed.get("requestsCompleted")
@@ -227,6 +234,9 @@ def parse_static_hunt_summary(
         or parsed.get("requests")
         or ""
     )
+    notes = parsed.get("notes", "")
+    if parsed.get("cleanupRemovedTempFiles"):
+        notes = f"{notes}; cleanupRemovedTempFiles={parsed['cleanupRemovedTempFiles']}".strip("; ")
     return {
         "candidate_id": candidate_id,
         "status": parsed.get("status", "not_verified"),
@@ -236,7 +246,7 @@ def parse_static_hunt_summary(
         "requestsSent": requests_sent,
         "retainedMetric": retained_metric(parsed),
         "log": str(log_path),
-        "notes": parsed.get("notes", ""),
+        "notes": notes,
     }
 
 
