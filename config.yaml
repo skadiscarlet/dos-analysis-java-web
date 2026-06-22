@@ -41,9 +41,13 @@ frameworks:
   vertx:
     repo: https://github.com/eclipse-vertx/vert.x.git
     branch: 4.5.28
-    source_dir: frameworks/vert.x-4.5.28
+    source_dir: frameworks/vertx-4.5.28-build-sources
     database: databases/vertx-4-db
     companion_repos:
+      vertx-core:
+        repo: https://github.com/eclipse-vertx/vert.x.git
+        branch: 4.5.28
+        source_dir: frameworks/vert.x-4.5.28
       vertx-web:
         repo: https://github.com/vert-x3/vertx-web.git
         branch: 4.5.28

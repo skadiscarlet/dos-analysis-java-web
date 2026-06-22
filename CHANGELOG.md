@@ -68,6 +68,96 @@
 
 ---
 
+## [2026-06-21] Spring Boot 3 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-21 22:10
+
+### 变更类型
+- [文档] 静态挖掘报告
+
+### 核心改动
+- 按项目内 `java-web-dos-hunter` 工作流对 Spring Boot 3.5.15 做静态资源耗尽 DoS hunt，覆盖 WebFlux multipart、Servlet multipart、HTTP client observations、server observations、actuator repositories/cache 和 embedded server resource knobs。
+- 运行 Spring Boot 3-only generic Phase 3 CodeQL 交叉检查，确认输出 0 条 data rows，未覆盖本轮源码审计得到的专项 patterns。
+- 确认 `SB3-STATIC-0001`：WebFlux multipart 默认 `maxParts=-1` 与 `maxDiskUsagePerPart=-1` 仍存在，标为 `needs_dynamic_probe`。
+- 确认 `SB3-STATIC-0002`：Boot 3 HTTP client observation 默认只限制 `uri` tag，Spring Framework 6.2.19 默认 convention 仍从 outbound URI host 生成低基数 `client.name`，标为 `needs_path_proof`。
+- 将 Servlet multipart、httpexchanges、audit repository、server observations、MetricsEndpoint、CachingOperationInvoker、embedded server queue/header knobs 和 GraphQL observation 作为 rejected / low-priority patterns 记录。
+- 关键技术决策：只做静态源码、依赖 bytecode 和 CodeQL 交叉检查，不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+
+### 交付成果
+- 新增本地静态挖掘报告：`results/static_hunts/spring_boot_3_static_hunt_2026-06-21.md`
+- 新增静态 findings CSV：`results/static_hunts/spring_boot_3_static_findings_2026-06-21.csv`
+- 新增 source/sink inventory：`results/static_hunts/spring_boot_3_static_inventory_2026-06-21.jsonl`
+- 新增 rejected/noise CSV：`results/static_hunts/spring_boot_3_static_rejected_2026-06-21.csv`
+- 新增 Spring Boot 3-only CodeQL 交叉检查输出：`results/static_hunts/spring-boot-3_phase3_candidate_features.bqrs`、`results/static_hunts/spring-boot-3_phase3_candidate_features.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：Spring Boot 3-only CodeQL generic Phase 3 query 成功执行并解码，输出 0 rows；后续一致性和 WEB-REAL 回归验证见本次最终回复。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/spring-boot-3.5.15` 源码、`databases/spring-boot-3-db` CodeQL 数据库、现有 Phase 3 查询、项目内 `skills/java-web-dos-hunter`，以及本地 `.build-cache` 中的 Spring Framework 6.2.19 `spring-web` / `spring-webflux` 依赖 jar。
+- 对后续工作的影响：后续可将 WebFlux multipart 默认无限边界和 Observation `client.name` tag cardinality patterns 补进 Spring Boot 3 专项 CodeQL 查询；如果允许动态验证，可优先验证 reactive multipart 默认配置在受控临时目录和小磁盘配额下的增长曲线。
+- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-21] Micronaut 静态资源耗尽 DoS 挖掘
+
+### 修改时间
+2026-06-21 22:12
+
+### 变更类型
+- [文档] 静态挖掘报告
+- [新增功能] Micronaut static-hunt 结果归档
+
+### 核心改动
+- 对 Micronaut Core `v3.10.8` 的 `http-server-netty`、`http-client`、`session`、`router`、`management`、`websocket` 等模块完成只静态资源耗尽 DoS 审计。
+- 发现三个保留候选：HTTP client `RequestKey` connection pool cardinality、in-memory session active count、multipart/form parser request-burst pressure。
+- 明确利用条件：Micronaut core 默认没有低信任入口直连这些 sink；HTTP client 候选需要应用将入站参数映射为出站 absolute URI，session 候选需要开放 session-creating route 且未配置 `maxActiveSessions`，multipart 候选默认 bounded，仅配置抬高边界后成立。
+- 运行 Micronaut-only generic Phase 3 与 parser Phase 3 CodeQL 交叉检查，均为 0 data rows，结果保存在 `results/static_hunts/`，不覆盖全量 Phase 3 baseline。
+
+### 交付成果
+- 新增报告：`results/static_hunts/micronaut_static_hunt_2026-06-21.md`
+- 新增 findings：`results/static_hunts/micronaut_static_findings_2026-06-21.csv`
+- 新增 inventory：`results/static_hunts/micronaut_static_inventory_2026-06-21.jsonl`
+- 新增 rejected/noise：`results/static_hunts/micronaut_static_rejected_2026-06-21.csv`
+- 新增 CodeQL 交叉检查输出：`results/static_hunts/micronaut_phase3_candidate_features.bqrs`、`results/static_hunts/micronaut_phase3_candidate_features.csv`、`results/static_hunts/micronaut_parser_candidate_features.bqrs`、`results/static_hunts/micronaut_parser_candidate_features.csv`
+
+### 依赖与影响
+- 依赖：Micronaut build-extraction CodeQL 数据库 `databases/micronaut-3-db` 与源码 `frameworks/micronaut-core-3.10.8`。
+- 对后续工作的影响：后续可补 Micronaut 专项 CodeQL 查询，优先寻找 inbound source 到 outbound `DefaultHttpClient` / `ProxyHttpClient` absolute URI 的应用路径，以及开放 session creation route 的配置证明。
+- 破坏性变更：无；未修改 CodeQL 查询、ranking、verdict、pipeline 或动态验证 harness。
+
+---
+
+## [2026-06-21] Vert.x 静态资源耗尽挖掘
+
+### 修改时间
+2026-06-21 22:13
+
+### 变更类型
+- [文档] 静态挖掘报告
+- [功能改进] static-hunt 证据归档
+
+### 核心改动
+- 使用 `java-web-dos-hunter` workflow 对 Vert.x 4.5.28 进行只静态资源耗尽型 DoS 挖掘，覆盖 `vert.x` core HTTP、`vertx-web` handler/session/SockJS、`vertx-web-client` cache/session/cookie 和 `vertx-web-proxy`。
+- 将 `BodyHandler` multipart 上传文件默认留存、SockJS attacker-chosen session id map、`CachingWebClient` 无容量 cache/variation registry 作为主候选，并分别标注利用条件、容量边界、生命周期和后续动态探针计划。
+- 明确降级/拒绝项：普通 `SessionHandler` 匿名 session、`StaticHandler` LRU cache、EventBus bridge reply map、CSRF token、WebClient CookieStore 和 core HttpClient endpoint pool，避免后续重复追踪低证据噪声。
+- 归档 Vert.x Phase 3 空结果到 `results/static_hunts`，作为通用查询暂未覆盖本轮 Vert.x 静态候选的交叉检查证据。
+
+### 交付成果
+- 新增报告：`results/static_hunts/vertx_static_hunt_2026-06-21.md`
+- 新增发现表：`results/static_hunts/vertx_static_findings_2026-06-21.csv`
+- 新增库存/拒绝项：`results/static_hunts/vertx_static_inventory_2026-06-21.jsonl`
+- 归档交叉检查：`results/static_hunts/vertx_phase3_candidate_features.csv`、`results/static_hunts/vertx_phase3_candidate_features.bqrs`
+- 验证：仅静态挖掘，未执行动态验证；运行 `python3 scripts/check_phase3_consistency.py` 和 `python3 scripts/check_web_real_regression.py`。
+
+### 依赖与影响
+- 依赖：Vert.x 4.5.28 build extraction 数据库和本地源码快照；现有 Phase 3 通用查询仅作交叉检查。
+- 对后续工作的影响：`VERTX-STATIC-0001` 可优先进入隔离 disk-fill/cleanup 动态验证；`VERTX-STATIC-0002` 需要并发/timeout 量化；`VERTX-STATIC-0003` 需要具体应用 proxy/SSRF-like source-to-sink 证明。
+- 破坏性变更：无；未修改 CodeQL、ranking、verdict、pipeline 或动态验证逻辑。
+
+---
+
 ## [2026-06-21] WEB-REAL 利用难度标注与 Static-Hunt 提升
 
 ### 修改时间
@@ -150,7 +240,8 @@
 - 将新增的 Spring Boot 3.x、Vert.x 4.x、Micronaut 3.x 数据库构建从 buildless 模式切换为 CodeQL build extraction，通过 `--command` 跟踪真实 Gradle/Maven 编译。
 - 新增三个构建 helper：Spring Boot 3 先编译可稳定落地的 core 模块；Vert.x 在同一次 CodeQL trace 中编译 `vert.x` core 与 `vertx-web` 的 Web 相关模块；Micronaut 编译 core/context/http/server/client/router/session/management/websocket 等 Web 分析相关模块。
 - 将 Gradle/Maven 依赖缓存固定到本仓库 ignored 的 `.build-cache/`，避免受限执行环境写入用户 home，也避免依赖缓存进入 Git。
-- 将 `config.yaml` 中 Spring Boot 3 和 Vert.x 的 `source_dir` 从旧聚焦源码视图改回真实上游源码目录，文档同步说明 build-mode 构建方式。
+- 将 Spring Boot 3 和 Micronaut 的 `source_dir` 指向真实上游源码目录；Vert.x 保留 core + web 聚焦组合源码视图作为 CodeQL `--source-root`，避免把 `frameworks/` 下其他框架归入同一个数据库。
+- 为 Micronaut 3 build helper 注入 Aliyun plugin/public mirror，并将 Gradle wrapper 从本机不完整的 `gradle-7.5.1-bin.zip` 切到可复用的 `gradle-7.5.1-all.zip` 缓存。
 - 扩展框架注册测试，强制新增三类构建目标包含 `--command` 且不再使用 `--build-mode=none`。
 
 ### 交付成果
@@ -163,8 +254,8 @@
 
 ### 依赖与影响
 - 依赖：GitHub/Maven Central/Gradle distribution 可访问；本机提供 Java 21 和 Java 17，其中 Micronaut 3 的 Gradle 7.5.1 使用 Java 17 运行。
-- 对后续工作的影响：后续刷新这三个数据库会执行真实编译，抽取精度高于 buildless，但耗时和网络依赖更高；若依赖下载失败，应优先检查 `.build-cache/` 和网络代理状态。Spring Boot 3 的 autoconfigure/actuator optional integration 依赖面很宽，本轮先不纳入默认 build-mode 命令，待 Maven/Gradle 缓存或 mirror 稳定后再扩展。
-- 破坏性变更：旧的 `frameworks/*-analysis-sources` 聚焦源码视图不再作为新三类框架的配置入口；本地遗留目录可保留但不参与新建库。
+- 对后续工作的影响：后续刷新这三个数据库会执行真实编译，抽取精度高于 buildless，但耗时和网络依赖更高；若依赖下载失败，应优先检查 `.build-cache/` 和网络代理状态。Spring Boot 3 的 autoconfigure/actuator optional integration 依赖面很宽，本轮先不纳入默认 build-mode 命令，待 Maven/Gradle 缓存或 mirror 稳定后再扩展。Vert.x 的分析源码入口为 build-time 生成的 `frameworks/vertx-4.5.28-build-sources`，真实上游源码仍保留在 `frameworks/vert.x-4.5.28` 与 `frameworks/vertx-web-4.5.28`。
+- 破坏性变更：旧的 Spring Boot 3 `frameworks/*-analysis-sources` 聚焦源码视图不再作为新建库配置入口；本地遗留目录可保留但不参与新建库。
 
 ---
 

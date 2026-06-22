@@ -48,11 +48,33 @@ import_gradle_wrapper_cache "gradle-7.5.1-all"
 import_gradle_module_cache
 cd "$SOURCE_ROOT"
 
+if ! grep -q 'maven.aliyun.com/repository/gradle-plugin' buildSrc/build.gradle; then
+  sed -i "/repositories {/a\\    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }\\n    maven { url 'https://maven.aliyun.com/repository/public' }\\n    mavenCentral()" buildSrc/build.gradle
+fi
+
+if ! grep -q 'maven.aliyun.com/repository/gradle-plugin' settings.gradle; then
+  sed -i "/pluginManagement {/,/repositories {/ s/repositories {/repositories {\\n        maven { url 'https:\\/\\/maven.aliyun.com\\/repository\\/gradle-plugin' }\\n        maven { url 'https:\\/\\/maven.aliyun.com\\/repository\\/public' }/" settings.gradle
+fi
+
+if ! grep -q 'CodeQL build extraction mirror' build.gradle; then
+  cat >> build.gradle <<'GRADLE'
+
+// CodeQL build extraction mirror: keep dependency resolution stable in restricted networks.
+allprojects {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        mavenCentral()
+    }
+}
+GRADLE
+fi
+
 if grep -q '^networkTimeout=' gradle/wrapper/gradle-wrapper.properties; then
   sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
 else
   printf '\nnetworkTimeout=120000\n' >> gradle/wrapper/gradle-wrapper.properties
 fi
+sed -i 's#gradle-7\.5\.1-bin\.zip#gradle-7.5.1-all.zip#' gradle/wrapper/gradle-wrapper.properties
 
 ./gradlew \
   --no-daemon \

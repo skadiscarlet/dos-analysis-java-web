@@ -80,7 +80,7 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 - Jetty 11.x（`databases/jetty-11-db`）
 - Undertow 2.x（`databases/undertow-2-db`）
 - Jersey 3.1.x（`databases/jersey-3.1-db`）
-- Vert.x 4.x（`databases/vertx-4-db`，当前 tag `4.5.28`；build extraction 覆盖 `vert.x` core 与 `vertx-web`）
+- Vert.x 4.x（`databases/vertx-4-db`，当前 tag `4.5.28`；build extraction 覆盖 `vert.x` core 与 `vertx-web` 聚焦源码视图）
 - Micronaut 3.x（`databases/micronaut-3-db`，当前 tag `v3.10.8`）
 
 ### 后续扩展对象

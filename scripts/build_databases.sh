@@ -136,13 +136,19 @@ build_vertx() {
         echo "[2/4] Vert.x Web 4.5.28 repository already exists"
     fi
 
-    echo "[3/4] Preparing local Maven cache..."
+    echo "[3/4] Preparing focused source view and local Maven cache..."
+    local source_view="$FRAMEWORKS_DIR/vertx-4.5.28-build-sources"
+    mkdir -p "$source_view"
+    rsync -a --delete --exclude '.git/' --exclude 'target/' \
+        "$FRAMEWORKS_DIR/vert.x-4.5.28/" "$source_view/vert.x-4.5.28/"
+    rsync -a --delete --exclude '.git/' --exclude 'target/' \
+        "$FRAMEWORKS_DIR/vertx-web-4.5.28/" "$source_view/vertx-web-4.5.28/"
     mkdir -p "$BUILD_CACHE_DIR/m2/repository" "$DB_DIR"
 
     echo "[4/4] Creating CodeQL database with Maven build extraction..."
     "$CODEQL_BIN" database create "$DB_DIR/vertx-4-db" \
         --language=java \
-        --source-root="$FRAMEWORKS_DIR" \
+        --source-root="$source_view" \
         --command="bash $PROJECT_ROOT/scripts/codeql_build_vertx_4.sh" \
         --threads=$THREADS \
         --ram=$RAM_MB \

@@ -36,7 +36,7 @@ def test_expansion_frameworks_are_registered_consistently():
         },
         "vertx": {
             "branch": "4.5.28",
-            "source_dir": "frameworks/vert.x-4.5.28",
+            "source_dir": "frameworks/vertx-4.5.28-build-sources",
             "database": "databases/vertx-4-db",
             "build_helper": "scripts/codeql_build_vertx_4.sh",
         },
@@ -57,6 +57,9 @@ def test_expansion_frameworks_are_registered_consistently():
         assert f"{framework})" in build_script
         assert expected_meta["build_helper"] in build_script
         assert (ROOT / expected_meta["build_helper"]).exists()
+
+    assert frameworks["vertx"]["companion_repos"]["vertx-core"]["source_dir"] == "frameworks/vert.x-4.5.28"
+    assert frameworks["vertx"]["companion_repos"]["vertx-web"]["source_dir"] == "frameworks/vertx-web-4.5.28"
 
 
 def _extract_shell_function(script: str, name: str) -> str:
@@ -108,3 +111,23 @@ def test_vertx_build_helper_uses_local_maven_repo_with_central_fallback():
     assert "repo.maven.apache.org/maven2" in body
     assert "maven.aliyun.com/repository/public" in body
     assert "-DremoteRepositories=" in body
+
+
+def test_vertx_database_uses_focused_source_view_not_whole_frameworks_dir():
+    build_script = (ROOT / "scripts/build_databases.sh").read_text(encoding="utf-8")
+    function_body = _extract_shell_function(build_script, "build_vertx")
+
+    assert "vertx-4.5.28-build-sources" in function_body
+    assert '--source-root="$FRAMEWORKS_DIR"' not in function_body
+    assert "--exclude 'target/'" in function_body
+    assert "--exclude '.git/'" in function_body
+
+
+def test_micronaut_build_helper_uses_available_gradle_all_distribution():
+    body = (ROOT / "scripts/codeql_build_micronaut_3.sh").read_text(encoding="utf-8")
+
+    assert "gradle-7.5.1-all.zip" in body
+    assert "gradle-7\\.5\\.1-bin\\.zip" in body
+    assert "maven.aliyun.com/repository/gradle-plugin" in body
+    assert "maven.aliyun.com/repository/public" in body
+    assert "allprojects" in body
