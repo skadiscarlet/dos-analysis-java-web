@@ -4,6 +4,70 @@
 
 ---
 
+## [2026-06-22] 新框架 Static-Hunt 真阳性提升为 WEB-REAL-0010..0012
+
+### 修改时间
+2026-06-22 12:05
+
+### 变更类型
+- [功能改进] WEB-REAL catalog
+- [文档] 利用条件标注
+- [测试] 回归门禁
+
+### 核心改动
+- 将 `SB3-STATIC-0002`、`MN-STATIC-0002`、`VERTX-STATIC-0003` 提升为稳定 `WEB-REAL-0010`、`WEB-REAL-0011`、`WEB-REAL-0012`，并在 dynamic runner 中保留旧 static ID 到新 WEB-REAL ID 的别名。
+- 在 `intel/regression/web_real_manifest.json` 中为三项新增 `exploitability`，统一记录利用难度、默认是否可利用、必要前置条件和限制因素；三项均为 context-constrained confirmed cases。
+- 将三项 PoC 和 OOM 日志归档到 `results/phase4/dynamic_verification/`，并更新 `verified_vulnerabilities.*` 本地证据库。
+- 同步 README 和 AGENTS 中的动态验证覆盖范围、static ID 兼容映射和 WEB-REAL 真阳性列表。
+
+### 交付成果
+- 修改 runner：`scripts/run_dynamic_verification.py`
+- 修改 manifest：`intel/regression/web_real_manifest.json`
+- 更新测试：`tests/test_run_dynamic_verification.py`、`tests/test_web_real_catalog.py`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 本地 ignored 证据：`results/phase4/verified_vulnerabilities.json`、`results/phase4/verified_vulnerabilities.md`、`results/phase4/dynamic_verification/poc/`、`results/phase4/dynamic_verification/logs/`
+
+### 依赖与影响
+- 依赖：上一条 static-hunt 动态验证归档中的真实 HTTP 384MiB heap OOM 日志。
+- 对后续工作的影响：`WEB-REAL-0010..0012` 已进入稳定 catalog，但 Phase 3 专项静态查询覆盖仍待补齐，因此 manifest 标记为 `dynamic_only_pending_query`。
+- 破坏性变更：无；不改变已有 `WEB-REAL-0001..0009` 判定。
+
+---
+
+## [2026-06-22] Spring Boot 3 / Micronaut / Vert.x Static-Hunt 动态验证归档
+
+### 修改时间
+2026-06-22 11:33
+
+### 变更类型
+- [新增功能] 动态验证 harness
+- [功能改进] static-hunt runner
+- [文档] 验证归档
+- [测试] runner 回归
+
+### 核心改动
+- 为 Spring Boot 3、Micronaut 和 Vert.x 的 8 个 2026-06-21 static-hunt 候选新增真实 HTTP 动态验证 probe，并接入 `scripts/run_dynamic_verification.py --suite static-hunt`。
+- 扩展 runner 的 static-hunt registry、retained metric 提取、非 OOM verdict 归一化和 Maven 本地仓库路径，保证 `BLOCKED_*`、`NOT_VERIFIED_*` 不会被误提升为真阳性，并将 Maven 依赖缓存固定到项目 `.build-cache/m2/repository`。
+- 完成 smoke 与 384MiB heap OOM profile 验证；严格按“真实 HTTP 请求触发服务 JVM heap OOM”门槛归档，确认 `SB3-STATIC-0002`、`MN-STATIC-0002`、`VERTX-STATIC-0003` 为真阳性，其余 5 项保留为 request-local、configuration-dependent、default-bounded、disk-only 或 timeout-bounded。
+- 生成完整 8 项 consolidated summary 与人工归档报告，记录每项利用条件、限制因素和默认可利用性判断。
+
+### 交付成果
+- 修改 runner：`scripts/run_dynamic_verification.py`
+- 修改依赖：`dynamic-verification/pom.xml`
+- 新增 Spring Boot 3 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/SpringBoot3WebFluxMultipartHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/SpringBoot3ClientObservationHttpProbe.java`
+- 新增 Micronaut probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/MicronautClientPoolHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/MicronautInMemorySessionHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/MicronautMultipartHttpProbe.java`
+- 新增 Vert.x probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/VertxBodyHandlerUploadHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/VertxSockJsSessionHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/VertxCachingWebClientHttpProbe.java`
+- 更新测试：`tests/test_run_dynamic_verification.py`
+- 本地 ignored 归档：`results/static_hunts/dynamic_verification/static_hunt_dynamic_verification_summary.json`、`results/static_hunts/dynamic_verification/new_framework_static_hunt_dynamic_verification_2026-06-21.md`、`results/static_hunts/dynamic_verification/logs/*.log`
+- 实施计划：`docs/superpowers/plans/2026-06-21-new-framework-static-hunt-dynamic-verification.md`
+
+### 依赖与影响
+- 依赖：Maven 可解析 Spring Framework 6.2.19、Micrometer 1.15.12、Micronaut 3.10.8 和 Vert.x 4.5.28 运行时依赖；动态验证需要本地 HTTP socket 权限。
+- 对后续工作的影响：3 个 confirmed static-hunt case 具备真实 HTTP heap OOM 证据，但尚未提升到 `WEB-REAL-*` catalog；如需提升，应同步 `intel/regression/web_real_manifest.json`、`results/phase4/verified_vulnerabilities.*`、`AGENTS.md` 和回归测试。
+- 破坏性变更：无；未修改 CodeQL、ranking、verdict 或 Phase 3/4 pipeline 逻辑。
+
+---
+
 ## [2026-06-21] WEB-REAL 利用难度标注与 Static-Hunt 提升
 
 ### 修改时间

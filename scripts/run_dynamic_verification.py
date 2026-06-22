@@ -13,6 +13,7 @@ from typing import Iterable
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DYNAMIC_DIR = BASE_DIR / "dynamic-verification"
+M2_REPO = BASE_DIR / ".build-cache" / "m2" / "repository"
 LOG_DIR = BASE_DIR / "results" / "phase4" / "dynamic_verification" / "logs"
 SUMMARY_DIR = BASE_DIR / "results" / "phase4" / "dynamic_verification"
 STATIC_HUNT_LOG_DIR = BASE_DIR / "results" / "static_hunts" / "dynamic_verification" / "logs"
@@ -107,6 +108,30 @@ CASES: tuple[DynamicCase, ...] = (
         ("128", "1024", "32"),
         ("-1", "32768", "256"),
     ),
+    DynamicCase(
+        "WEB-REAL-0010",
+        "org.example.dos.dynamic.SpringBoot3ClientObservationHttpProbe",
+        "spring-boot-3-client-observation-real-http.log",
+        "384m",
+        ("32", "1024", "8"),
+        ("-1", "32768", "256"),
+    ),
+    DynamicCase(
+        "WEB-REAL-0011",
+        "org.example.dos.dynamic.MicronautInMemorySessionHttpProbe",
+        "micronaut-inmemory-session-real-http.log",
+        "384m",
+        ("64", "8192", "16"),
+        ("-1", "262144", "128"),
+    ),
+    DynamicCase(
+        "WEB-REAL-0012",
+        "org.example.dos.dynamic.VertxCachingWebClientHttpProbe",
+        "vertx-caching-webclient-real-http.log",
+        "384m",
+        ("32", "4096", "8"),
+        ("-1", "131072", "128"),
+    ),
 )
 
 STATIC_HUNT_CASES: tuple[DynamicCase, ...] = (
@@ -142,6 +167,70 @@ STATIC_HUNT_CASES: tuple[DynamicCase, ...] = (
         ("32", "4096", "16"),
         ("128", "4096", "32"),
     ),
+    DynamicCase(
+        "SB3-STATIC-0001",
+        "org.example.dos.dynamic.SpringBoot3WebFluxMultipartHttpProbe",
+        "spring-boot-3-webflux-multipart-real-http.log",
+        "384m",
+        ("16", "4096", "4"),
+        ("512", "65536", "32"),
+    ),
+    DynamicCase(
+        "SB3-STATIC-0002",
+        "org.example.dos.dynamic.SpringBoot3ClientObservationHttpProbe",
+        "spring-boot-3-client-observation-real-http.log",
+        "384m",
+        ("32", "1024", "8"),
+        ("-1", "32768", "256"),
+    ),
+    DynamicCase(
+        "MN-STATIC-0001",
+        "org.example.dos.dynamic.MicronautClientPoolHttpProbe",
+        "micronaut-client-pool-real-http.log",
+        "384m",
+        ("16", "1024", "8"),
+        ("128", "4096", "32"),
+    ),
+    DynamicCase(
+        "MN-STATIC-0002",
+        "org.example.dos.dynamic.MicronautInMemorySessionHttpProbe",
+        "micronaut-inmemory-session-real-http.log",
+        "384m",
+        ("64", "8192", "16"),
+        ("-1", "262144", "128"),
+    ),
+    DynamicCase(
+        "MN-STATIC-0003",
+        "org.example.dos.dynamic.MicronautMultipartHttpProbe",
+        "micronaut-multipart-real-http.log",
+        "384m",
+        ("8", "4096", "4"),
+        ("16", "2097152", "4"),
+    ),
+    DynamicCase(
+        "VERTX-STATIC-0001",
+        "org.example.dos.dynamic.VertxBodyHandlerUploadHttpProbe",
+        "vertx-bodyhandler-upload-real-http.log",
+        "384m",
+        ("8", "4096", "4"),
+        ("64", "1048576", "8"),
+    ),
+    DynamicCase(
+        "VERTX-STATIC-0002",
+        "org.example.dos.dynamic.VertxSockJsSessionHttpProbe",
+        "vertx-sockjs-session-real-http.log",
+        "384m",
+        ("16", "1024", "4"),
+        ("256", "4096", "32"),
+    ),
+    DynamicCase(
+        "VERTX-STATIC-0003",
+        "org.example.dos.dynamic.VertxCachingWebClientHttpProbe",
+        "vertx-caching-webclient-real-http.log",
+        "384m",
+        ("32", "4096", "8"),
+        ("-1", "131072", "128"),
+    ),
 )
 
 CASE_ALIASES = {
@@ -149,6 +238,9 @@ CASE_ALIASES = {
     "TOMCAT-STATIC-0003": "WEB-REAL-0007",
     "JETTY-STATIC-0002": "WEB-REAL-0008",
     "JETTY-STATIC-0004": "WEB-REAL-0009",
+    "SB3-STATIC-0002": "WEB-REAL-0010",
+    "MN-STATIC-0002": "WEB-REAL-0011",
+    "VERTX-STATIC-0003": "WEB-REAL-0012",
 }
 
 
@@ -158,7 +250,15 @@ def run(command: list[str], cwd: Path, stdout: object | None = None) -> subproce
 
 
 def ensure_built() -> str:
-    mvn = ["mvn", "-q", "-DskipTests", "package", "dependency:build-classpath", "-Dmdep.outputFile=target/classpath.txt"]
+    mvn = [
+        "mvn",
+        "-q",
+        f"-Dmaven.repo.local={M2_REPO}",
+        "-DskipTests",
+        "package",
+        "dependency:build-classpath",
+        "-Dmdep.outputFile=target/classpath.txt",
+    ]
     completed = run(mvn, DYNAMIC_DIR)
     if completed.returncode != 0:
         raise RuntimeError(f"Maven build failed with exit code {completed.returncode}")
@@ -234,6 +334,20 @@ def retained_metric(values: dict[str, str]) -> str:
         "multipartFiles",
         "materializedPartsBeforeOom",
         "materializedParts",
+        "meterCountBeforeOom",
+        "meterCount",
+        "poolKeysBeforeOom",
+        "poolKeys",
+        "activeSessionsBeforeOom",
+        "activeSessions",
+        "uploadFilesBeforeOom",
+        "uploadFiles",
+        "uploadBytesBeforeOom",
+        "uploadBytes",
+        "sockJsSessionsBeforeOom",
+        "sockJsSessions",
+        "cacheEntriesBeforeOom",
+        "cacheEntries",
     ):
         if key in values:
             return f"{key}={values[key]}"
@@ -251,7 +365,8 @@ def parse_static_hunt_summary(
     if completed.returncode == 0 and require_oom and (
         verdict.startswith("NOT_VERIFIED_") or verdict.startswith("BLOCKED_")
     ):
-        parsed = {"status": "not_verified", **values}
+        status = "blocked_path_proof" if verdict == "BLOCKED_PATH_PROOF" else "not_verified"
+        parsed = {"status": status, **values}
     else:
         parsed = parse_summary(completed, log_path, require_oom=require_oom)
     requests_sent = (

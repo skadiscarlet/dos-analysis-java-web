@@ -569,6 +569,170 @@
         ],
         "rationale": "Confirmed in a push-capable HTTP/2 harness; real exploitability depends on the optional filter being exposed in that environment."
       }
+    },
+    {
+      "id": "WEB-REAL-0010",
+      "framework": "spring-boot",
+      "component": "Spring Boot 3 HTTP client observation client.name cardinality",
+      "source_static_id": "SB3-STATIC-0002",
+      "phase3_regression": "dynamic_only_pending_query",
+      "dynamic_verdict": "real_http_heap_oom_confirmed_context_constrained",
+      "required": [
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "spring-boot-3"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "metrics_cardinality"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "client.name"
+        }
+      ],
+      "expected": [
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "meter_registry_retention"
+        },
+        {
+          "field": "request_flow_kind",
+          "op": "contains",
+          "value": "outbound_client_host"
+        }
+      ],
+      "deployment_condition": "Spring Boot 3 application maps low-trust HTTP input to outbound RestTemplate, RestClient, or WebClient host while Micrometer observation metrics retain http.client.requests client.name tags.",
+      "notes": "Real HTTP entry drove RestTemplate observation through a local proxy until 384MiB heap OOM. Boot caps the client uri tag by default, but no equivalent default cap was found for client.name.",
+      "exploitability": {
+        "difficulty": "medium",
+        "default_exploitable": false,
+        "preconditions": [
+          "Spring Boot 3 application uses RestTemplate, RestClient, or WebClient with observation metrics enabled.",
+          "Low-trust HTTP input controls outbound URL host through an open fetch, proxy, callback, tenant upstream, or equivalent path.",
+          "The MeterRegistry retains http.client.requests meters for process lifetime.",
+          "No MeterFilter.maximumAllowableTags, host allowlist, egress policy, per-user quota, or client registry eviction bounds outbound host cardinality."
+        ],
+        "limiting_factors": [
+          "Spring Boot does not expose an attacker-controlled outbound URL endpoint by default.",
+          "Applications with fixed upstream hosts or strict allowlists are not affected by this path.",
+          "Custom MeterFilter limits on client.name can bound cardinality before OOM."
+        ],
+        "rationale": "Confirmed real-HTTP heap OOM when an application-shaped endpoint maps attacker input to outbound host; exploitability depends on that application path."
+      }
+    },
+    {
+      "id": "WEB-REAL-0011",
+      "framework": "micronaut",
+      "component": "Micronaut InMemorySessionStore active-session count",
+      "source_static_id": "MN-STATIC-0002",
+      "phase3_regression": "dynamic_only_pending_query",
+      "dynamic_verdict": "real_http_heap_oom_confirmed_context_constrained",
+      "required": [
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "micronaut"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "session_state"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "sessions"
+        }
+      ],
+      "expected": [
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "retained_cache_put"
+        },
+        {
+          "field": "growth_dimension",
+          "op": "equals",
+          "value": "session_count"
+        }
+      ],
+      "deployment_condition": "Micronaut application enables in-memory sessions and exposes a low-trust route that creates or saves sessions without max-active-sessions or equivalent quotas.",
+      "notes": "Real HTTP requests created independent in-memory sessions with attacker-sized attributes until 384MiB heap OOM.",
+      "exploitability": {
+        "difficulty": "medium",
+        "default_exploitable": false,
+        "preconditions": [
+          "Micronaut session module and InMemorySessionStore are enabled.",
+          "A low-trust route creates or saves sessions, for example through non-nullable Session binding, @SessionValue, or application session code.",
+          "micronaut.session.max-active-sessions is unset or set too high for available heap.",
+          "Attacker can create many new sessions and, for strong impact, write non-trivial session attributes within the inactive-expiry window."
+        ],
+        "limiting_factors": [
+          "Applications without anonymous session creation paths are not affected by this specific route.",
+          "max-active-sessions, per-client quotas, authentication, small attributes, and shorter expiry windows reduce exploitability."
+        ],
+        "rationale": "Confirmed real-HTTP heap OOM in the in-memory session store; exploitability depends on an exposed session-creating application route and absent active-session caps."
+      }
+    },
+    {
+      "id": "WEB-REAL-0012",
+      "framework": "vertx",
+      "component": "Vert.x CachingWebClient local cache",
+      "source_static_id": "VERTX-STATIC-0003",
+      "phase3_regression": "dynamic_only_pending_query",
+      "dynamic_verdict": "real_http_heap_oom_confirmed_context_constrained",
+      "required": [
+        {
+          "field": "framework",
+          "op": "equals",
+          "value": "vertx"
+        },
+        {
+          "field": "candidate_family",
+          "op": "equals",
+          "value": "client_cache"
+        },
+        {
+          "field": "retained_field",
+          "op": "contains",
+          "value": "cache"
+        }
+      ],
+      "expected": [
+        {
+          "field": "sink_shape",
+          "op": "equals",
+          "value": "retained_map_put"
+        },
+        {
+          "field": "growth_dimension",
+          "op": "equals",
+          "value": "cache_entry_count"
+        }
+      ],
+      "deployment_condition": "Vert.x application uses CachingWebClient in a low-trust request path where attacker input controls outbound cache key and upstream responses are cacheable.",
+      "notes": "Real HTTP entry mapped attacker query input to CachingWebClient cache keys against a controlled cacheable upstream until 384MiB heap OOM.",
+      "exploitability": {
+        "difficulty": "high",
+        "default_exploitable": false,
+        "preconditions": [
+          "Application explicitly creates and uses CachingWebClient.",
+          "Low-trust HTTP input influences outbound host, path, query, or equivalent CachingWebClient cache key.",
+          "Upstream returns cacheable status and cache headers accepted by the Vert.x cache interceptor.",
+          "No cache store capacity, byte quota, effective TTL/eviction policy, or per-user quota bounds cache entry cardinality."
+        ],
+        "limiting_factors": [
+          "Vert.x does not expose CachingWebClient as a default inbound server endpoint.",
+          "Vary caching is disabled by default, limiting one amplification dimension.",
+          "Allowlists, fixed upstreams, cache quotas, and non-cacheable upstream responses block or reduce the attack."
+        ],
+        "rationale": "Confirmed real-HTTP heap OOM in an application-shaped CachingWebClient path; exploitability is strongest in open fetch/proxy or tenant-upstream patterns."
+      }
     }
   ]
 }

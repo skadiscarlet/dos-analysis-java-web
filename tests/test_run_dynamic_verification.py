@@ -8,6 +8,7 @@ from scripts.run_dynamic_verification import (
     STATIC_HUNT_CASES,
     OOM_EXIT_CODE,
     build_java_command,
+    M2_REPO,
     parse_summary,
     output_paths_for,
     selected_cases,
@@ -27,6 +28,9 @@ def test_cases_cover_web_real_and_webdav_targets():
         "WEB-REAL-0007",
         "WEB-REAL-0008",
         "WEB-REAL-0009",
+        "WEB-REAL-0010",
+        "WEB-REAL-0011",
+        "WEB-REAL-0012",
     }.issubset(case_ids)
 
 
@@ -99,25 +103,100 @@ def test_selected_cases_accepts_legacy_webdav_phase4_alias():
 
 
 def test_static_hunt_confirmed_cases_are_addressable_as_web_real_ids():
-    selected = selected_cases(["TOMCAT-STATIC-0003", "JETTY-STATIC-0002", "JETTY-STATIC-0004"])
+    selected = selected_cases(
+        [
+            "TOMCAT-STATIC-0003",
+            "JETTY-STATIC-0002",
+            "JETTY-STATIC-0004",
+            "SB3-STATIC-0002",
+            "MN-STATIC-0002",
+            "VERTX-STATIC-0003",
+        ]
+    )
 
     assert [case.case_id for case in selected] == [
         "WEB-REAL-0007",
         "WEB-REAL-0008",
         "WEB-REAL-0009",
+        "WEB-REAL-0010",
+        "WEB-REAL-0011",
+        "WEB-REAL-0012",
     ]
+
+
+def test_new_framework_static_hunt_true_positives_are_web_real_cases():
+    selected = selected_cases(["WEB-REAL-0010", "WEB-REAL-0011", "WEB-REAL-0012"])
+
+    assert [case.case_id for case in selected] == [
+        "WEB-REAL-0010",
+        "WEB-REAL-0011",
+        "WEB-REAL-0012",
+    ]
+    assert selected[0].main_class.endswith("SpringBoot3ClientObservationHttpProbe")
+    assert selected[1].main_class.endswith("MicronautInMemorySessionHttpProbe")
+    assert selected[2].main_class.endswith("VertxCachingWebClientHttpProbe")
 
 
 def test_static_hunt_cases_cover_first_batch_without_web_real_ids():
     case_ids = {case.case_id for case in STATIC_HUNT_CASES}
 
-    assert case_ids == {
+    assert {
         "TOMCAT-STATIC-0003",
         "JETTY-STATIC-0002",
         "JETTY-STATIC-0004",
         "UNDERTOW-STATIC-0003",
-    }
+    }.issubset(case_ids)
     assert all(not case_id.startswith("WEB-REAL-") for case_id in case_ids)
+
+
+def test_static_hunt_cases_cover_new_framework_candidates():
+    case_ids = {case.case_id for case in STATIC_HUNT_CASES}
+
+    assert {
+        "SB3-STATIC-0001",
+        "SB3-STATIC-0002",
+        "MN-STATIC-0001",
+        "MN-STATIC-0002",
+        "MN-STATIC-0003",
+        "VERTX-STATIC-0001",
+        "VERTX-STATIC-0002",
+        "VERTX-STATIC-0003",
+    }.issubset(case_ids)
+
+
+def test_static_hunt_new_framework_command_shapes_are_addressable():
+    selected = selected_cases(
+        [
+            "SB3-STATIC-0001",
+            "SB3-STATIC-0002",
+            "MN-STATIC-0001",
+            "MN-STATIC-0002",
+            "MN-STATIC-0003",
+            "VERTX-STATIC-0001",
+            "VERTX-STATIC-0002",
+            "VERTX-STATIC-0003",
+        ],
+        suite="static-hunt",
+    )
+
+    assert [case.case_id for case in selected] == [
+        "SB3-STATIC-0001",
+        "SB3-STATIC-0002",
+        "MN-STATIC-0001",
+        "MN-STATIC-0002",
+        "MN-STATIC-0003",
+        "VERTX-STATIC-0001",
+        "VERTX-STATIC-0002",
+        "VERTX-STATIC-0003",
+    ]
+    assert selected[0].main_class.endswith("SpringBoot3WebFluxMultipartHttpProbe")
+    assert selected[1].main_class.endswith("SpringBoot3ClientObservationHttpProbe")
+    assert selected[2].main_class.endswith("MicronautClientPoolHttpProbe")
+    assert selected[3].main_class.endswith("MicronautInMemorySessionHttpProbe")
+    assert selected[4].main_class.endswith("MicronautMultipartHttpProbe")
+    assert selected[5].main_class.endswith("VertxBodyHandlerUploadHttpProbe")
+    assert selected[6].main_class.endswith("VertxSockJsSessionHttpProbe")
+    assert selected[7].main_class.endswith("VertxCachingWebClientHttpProbe")
 
 
 def test_output_paths_separate_static_hunt_from_web_real_results():
@@ -127,6 +206,11 @@ def test_output_paths_separate_static_hunt_from_web_real_results():
     assert summary_path.as_posix().endswith(
         "results/static_hunts/dynamic_verification/static_hunt_dynamic_verification_summary.json"
     )
+
+
+def test_maven_repo_local_uses_project_build_cache():
+    assert M2_REPO.as_posix().endswith(".build-cache/m2/repository")
+    assert "dos-analysis-web" in M2_REPO.as_posix()
 
 
 def test_selected_cases_can_target_static_hunt_registry():
@@ -216,6 +300,61 @@ def test_parse_static_hunt_summary_records_non_oom_verdict_without_promotion(tmp
     assert summary["requestsSent"] == "512"
     assert summary["retainedMetric"] == "multipartFiles=524288"
     assert "cleanupRemovedTempFiles=true" in summary["notes"]
+
+
+def test_parse_static_hunt_summary_records_blocked_path_proof_without_promotion(tmp_path):
+    from scripts.run_dynamic_verification import parse_static_hunt_summary
+
+    log = tmp_path / "probe.log"
+    log.write_text(
+        "\n".join(
+            [
+                "candidate=spring-boot-3-client-observation-real-http",
+                "verdict=BLOCKED_PATH_PROOF",
+                "requestsCompleted=16",
+                "meterCount=16",
+                "notes=requires app-controlled outbound host",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(["java"], 0)
+
+    summary = parse_static_hunt_summary("SB3-STATIC-0002", completed, log, require_oom=True)
+
+    assert summary["candidate_id"] == "SB3-STATIC-0002"
+    assert summary["status"] == "blocked_path_proof"
+    assert summary["verdict"] == "BLOCKED_PATH_PROOF"
+    assert summary["requestsSent"] == "16"
+    assert summary["retainedMetric"] == "meterCount=16"
+    assert "requires app-controlled outbound host" in summary["notes"]
+
+
+def test_parse_static_hunt_summary_records_default_bounded_without_promotion(tmp_path):
+    from scripts.run_dynamic_verification import parse_static_hunt_summary
+
+    log = tmp_path / "probe.log"
+    log.write_text(
+        "\n".join(
+            [
+                "candidate=micronaut-multipart-real-http",
+                "verdict=NOT_VERIFIED_DEFAULT_BOUNDED",
+                "requestsCompleted=8",
+                "materializedParts=32",
+                "notes=default 10MB request and 1MB file limits rejected oversized body",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.CompletedProcess(["java"], 0)
+
+    summary = parse_static_hunt_summary("MN-STATIC-0003", completed, log, require_oom=True)
+
+    assert summary["candidate_id"] == "MN-STATIC-0003"
+    assert summary["status"] == "not_verified"
+    assert summary["verdict"] == "NOT_VERIFIED_DEFAULT_BOUNDED"
+    assert summary["requestsSent"] == "8"
+    assert summary["retainedMetric"] == "materializedParts=32"
 
 
 def test_parse_summary_accepts_completed_smoke_run(tmp_path):

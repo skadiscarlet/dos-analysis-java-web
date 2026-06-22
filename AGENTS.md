@@ -159,7 +159,7 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - 原始日志：`results/phase4/dynamic_verification/logs/`
 - 最新统一摘要：`results/phase4/dynamic_verification/dynamic_verification_summary.json`
 
-说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。每个 `WEB-REAL-*` 必须带 `exploitability` 利用难度与条件说明；有真实 HTTP OOM 证据不等于默认应用可利用。下列 Phase4 ID 对应 2026-06-20 最新全量分析结果，`WEB-REAL-0007..0009` 来自 static-hunt 后续动态验证。
+说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。每个 `WEB-REAL-*` 必须带 `exploitability` 利用难度与条件说明；有真实 HTTP OOM 证据不等于默认应用可利用。下列 Phase4 ID 对应 2026-06-20 最新全量分析结果，`WEB-REAL-0007..0012` 来自 static-hunt 后续动态验证。
 
 ### WEB-REAL-0001 - Jersey OAuth1 request token map
 
@@ -239,6 +239,33 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - **Dynamic verdict**：真实 HTTP + push-capable request wrapper 384MiB 堆 OOM 已确认
 - **利用难度**：High；依赖应用显式安装 `PushCacheFilter` 且请求为 HTTP/2 / non-null `PushBuilder`，攻击者可制造大量唯一 primary path 与同 host `Referer`；`_maxAssociations` 只限制每个 primary 的子资源数，不限制 primary key 总数。
 - **说明**：属于 context-constrained confirmed case，static Phase 3 查询覆盖仍待补齐。
+
+### WEB-REAL-0010 - Spring Boot 3 HTTP client observation client.name cardinality
+
+- **Source ID**：`SB3-STATIC-0002`
+- **Entry**：应用 HTTP endpoint -> `RestTemplate` / `RestClient` / `WebClient` outbound request
+- **State**：Micrometer `MeterRegistry` 中 `http.client.requests` meters 的 `client.name` tag cardinality
+- **Dynamic verdict**：真实 HTTP entry -> outbound client observation 384MiB 堆 OOM 已确认
+- **利用难度**：Medium；依赖应用把低信任 HTTP 输入映射到 outbound URL host，例如 fetch/proxy/callback/tenant upstream，并且未对 `client.name` tag、host allowlist、egress 或 per-user quota 做限制。
+- **说明**：Spring Boot 自身不默认暴露 attacker-controlled outbound URL endpoint；固定 upstream 应用不在影响面。
+
+### WEB-REAL-0011 - Micronaut InMemorySessionStore active-session count
+
+- **Source ID**：`MN-STATIC-0002`
+- **Entry**：会创建或保存 session 的 Micronaut HTTP route
+- **State**：`InMemorySessionStore.sessions`
+- **Dynamic verdict**：真实 HTTP session creation 384MiB 堆 OOM 已确认
+- **利用难度**：Medium；依赖应用启用 in-memory session store，开放低信任 session 创建/保存路径，且未配置 `micronaut.session.max-active-sessions` 或等价 per-client/session quota；大 session attribute 会显著降低 OOM 门槛。
+- **说明**：没有匿名 session 创建面或没有大 attribute 写入路径的普通应用不直接可利用。
+
+### WEB-REAL-0012 - Vert.x CachingWebClient cache store
+
+- **Source ID**：`VERTX-STATIC-0003`
+- **Entry**：应用 HTTP endpoint -> `CachingWebClient` outbound request
+- **State**：`CachingWebClient` cache store entries
+- **Dynamic verdict**：真实 HTTP entry -> cacheable upstream response 384MiB 堆 OOM 已确认
+- **利用难度**：High；依赖应用显式使用 `CachingWebClient`，低信任输入能影响 outbound host/path/query/cache key，upstream 返回可缓存响应，且无 cache store 容量、字节配额、TTL/eviction 或 per-user quota。
+- **说明**：Vert.x 默认 server 不自动暴露该路径；开放 fetch/proxy/tenant-selected upstream 或 cache-busting query 可控的应用风险更高。
 
 ---
 
