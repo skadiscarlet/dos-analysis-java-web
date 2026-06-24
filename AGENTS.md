@@ -6,26 +6,28 @@
 
 ## 项目定位
 
-`dos-analysis-web` 是 Java Web 服务框架的 **client-state retention DoS** 检测工具，独立于 AOSP 侧 `dos-analysis/` 开发和运行。项目目标是在 Servlet、Spring、JAX-RS、Jetty、Undertow 等 Web 框架中发现由客户端可控状态长期保留导致的资源耗尽型 DoS，并为跨领域论文评估提供可复现数据。
+`dos-analysis-web` 是 Java Web DoS 分析与验证工具，独立于 AOSP 侧 `dos-analysis/` 开发和运行。本仓库已经完成 Java Web 框架/基座层 **client-state retention DoS** 的一轮探索，当前将这些成果冻结为 `WEB-REAL-*` 回归集、证据库和方法论对照。
+
+下一阶段主线转向 **具体 Java Web 应用默认部署下的直接 DoS 挖掘**：优先分析官方 Docker image、release package、quickstart compose 或默认配置即可启动的真实 Java 应用，寻找匿名或低权限 HTTP 入口在默认配置下直接造成 OOM、GC death、线程/连接池耗尽、磁盘耗尽、watchdog/restart 或持续服务不可用的问题。
 
 ### 与 AOSP 工具的关系
 
 - **独立实现**：本仓库内的 CodeQL 查询、脚本、结果和报告均按 Web 场景维护，不直接修改 `../dos-analysis/`。
 - **方法论复用**：复用五轴判定演算 `R/V/M/C/L` 和 verdict 语义。
 - **权威 verdict 实现**：需要与 AOSP 侧 `../dos-analysis/eval/verdict.py` 保持一致；Web 侧可调用或镜像验证，但不得私自改变语义。
-- **跨领域目标**：Web 结果用于证明 client-state retention DoS 是跨 AOSP 与 Java Web 的通用漏洞模式。
+- **跨领域目标**：保留 AOSP + Java Web 基座结果作为通用漏洞模式证据；下一阶段重点证明默认部署真实应用中的可利用 DoS。
 
 ---
 
 ## 核心方法论
 
-### Client-State Retention DoS 定义
+### 基座阶段：Client-State Retention DoS 定义
 
 ```text
 ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 ```
 
-### Web 领域映射
+### Web 基座领域映射
 
 | 通用概念 | Java Web 实例 |
 | --- | --- |
@@ -47,6 +49,22 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 - **L 生命周期**：`Evicted ⊏ ProcessLifetime ⊏ RebootPersistent`
 - **Verdict**：`Unexploitable ⊏ Context-Constrained ⊏ Time-Constrained ⊏ Unconstrained ⊏ Irrecoverable`
 
+### 下一阶段：Default-Deploy Application DoS
+
+```text
+DefaultDeployAppDoS := (Application, DefaultDeployment, Entry, State/Resource, Trigger, Bound, Impact)
+```
+
+核心判定：
+
+- **Application**：具体真实 Java Web 应用，而非仅框架/容器源码。
+- **DefaultDeployment**：官方镜像、release 包、quickstart compose 或默认配置；配置修改必须单独标注，不能混作默认可利用。
+- **Entry**：匿名或低权限 HTTP 入口、默认管理面、安装后自然暴露流程、上传/导入/搜索/同步/webhook/callback/SSO/OAuth 等常见功能。
+- **State/Resource**：retained map/cache/session、metrics tag、multipart/temp file、JSON/XML/parser、async/job queue、index、outbound client pool/cache、thread/connection pool。
+- **Trigger**：低带宽、少量或中等请求即可驱动资源增长或阻塞。
+- **Bound**：默认容量、TTL、quota、body limit、rate limit、auth、per-user/per-IP 限制。
+- **Impact**：真实 HTTP 触发 OOM、GC death、watchdog/restart、线程/连接池耗尽、磁盘耗尽或持续服务不可用；单纯增长曲线只能标为中间证据。
+
 ---
 
 ## 目录说明
@@ -60,10 +78,14 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 - **`codeql/queries/`**：Phase 1-4 查询与测试查询
 - **`frameworks/`**：目标框架源码
 - **`databases/`**：各框架 CodeQL 数据库
+- **`frameworks/applications/`**：应用级真实 Java Web 目标源码，本地下载产物
+- **`databases/applications/`**：应用级 build-mode CodeQL 数据库，本地生成产物
 - **`intel/`**：source 标注、回归材料和人工情报
+- **`intel/applications/`**：应用级目标 manifest，例如 `java_web_application_targets.json`
 - **`scripts/`**：构建、分析、验证和报告脚本
 - **`dynamic-verification/`**：真实 HTTP 动态验证 Maven harness 源码；`target/` 为本地构建产物
 - **`results/`**：当前保留最新 Phase 3/4 汇总结果、报告、复核队列、WEB-REAL 回归结果和动态验证证据；旧 Phase 1/2 与单查询中间产物可按需重新生成
+- **`results/application_dbs/`**：应用级 DB 批量构建状态、摘要和日志，本地生成产物
 - **`tests/`**：一致性和单元测试
 - **`config.yaml`**：pipeline 配置
 - **`dos-web-analyzer`**：统一 CLI 入口
@@ -83,9 +105,13 @@ ClientStateRetentionDoS := (Entry, State, Container, R, V, M, C, L)
 - Vert.x 4.x（`databases/vertx-4-db`，当前 tag `4.5.28`；build extraction 覆盖 `vert.x` core 与 `vertx-web` 聚焦源码视图）
 - Micronaut 3.x（`databases/micronaut-3-db`，当前 tag `v3.10.8`）
 
-### 后续扩展对象
+### 基座阶段状态
 
-- 其他 JAX-RS 实现作为 REST source 识别和 retained state 验证对象
+上述框架/基座对象进入维护模式：默认只做回归、证据刷新、披露材料整理和必要 bug 修复。除非用户明确要求，不再继续扩展更多框架基座作为主线。
+
+### 下一阶段目标应用
+
+优先选择默认部署可复现、用户量大、HTTP 功能面丰富的真实 Java 应用，例如 CI/CD、制品库、代码质量、身份认证、低代码/管理平台、地理信息、数据流、后台管理系统等。新增目标必须记录官方启动方式、默认账号/权限、默认资源限制、入口路径和复现命令。
 
 ---
 
@@ -102,19 +128,22 @@ cd /home/furina/new_tool/dos-analysis-web
 
 # 新增扩展框架使用真实编译抽取；Gradle/Maven 依赖缓存落在本地 ignored 的 .build-cache/
 
-# Phase 1：legacy 手工 source 快速验证
-./dos-web-analyzer phase1
+# 应用级真实 Java Web 目标采集与 build-mode DB 构建
+python3 scripts/collect_application_targets.py --limit 50 --per-query 40
+python3 scripts/build_application_databases.py \
+  --threads 4 --ram 8192 --timeout 1800 \
+  --use-default-github-accelerators \
+  --java-home-candidate /usr/lib/jvm/java-22-openjdk \
+  --java-home-candidate /usr/lib/jvm/java-21-openjdk \
+  --java-home-candidate /usr/lib/jvm/java-17-openjdk
+python3 scripts/build_application_databases.py --skip-clone --target diyhi__bbs
+python3 scripts/build_application_databases.py --skip-clone --java-home /usr/lib/jvm/java-22-openjdk --target diyhi__bbs
 
-# Phase 2：HTTP source 自动发现
-# 当前脚本覆盖 tomcat / spring-boot / jetty / undertow；准确率采样入口为 validate_phase2.py
-./dos-web-analyzer phase2
-python3 scripts/validate_phase2.py
-
-# Phase 3：统一五轴建模
+# 基座 Phase 3：统一五轴建模
 ./dos-web-analyzer phase3
 python3 scripts/check_phase3_consistency.py
 
-# Phase 4：候选排序、复核队列和报告；推荐用 --refresh-phase3 刷新全量结果
+# 基座 Phase 4：候选排序、复核队列和报告；推荐用 --refresh-phase3 刷新全量结果
 ./dos-web-analyzer analyze --refresh-phase3
 ./dos-web-analyzer report
 ./dos-web-analyzer verify --top 50
@@ -146,6 +175,17 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - `results/phase4/verified_vulnerabilities.md`
 - `results/phase4/dynamic_verification/`
 
+### 应用级当前权威产物
+
+- 目标 manifest：`intel/applications/java_web_application_targets.json`
+- 本地源码根：`frameworks/applications/`
+- 本地数据库根：`databases/applications/`
+- 构建状态：`results/application_dbs/application_db_build_status.jsonl`
+- 构建摘要：`results/application_dbs/application_db_build_summary.md`
+- 构建日志：`results/application_dbs/logs/`
+
+当前应用级 manifest 固定 50 个已经成功创建 build-mode CodeQL 数据库的 Java HTTP/Web 应用目标。构建脚本会优先使用中国境内 Maven/Gradle 源，重写 Gradle wrapper distribution 到腾讯云 Gradle 镜像，GitHub clone 失败时尝试默认加速前缀和 codeload archive fallback，并按 Java 22、21、17 顺序重试。`results/application_dbs/` 可保留超过 50 个成功或失败尝试记录；最终目标真相以 `intel/applications/java_web_application_targets.json` 为准。
+
 ---
 
 ## 已动态验证真阳
@@ -159,7 +199,14 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - 原始日志：`results/phase4/dynamic_verification/logs/`
 - 最新统一摘要：`results/phase4/dynamic_verification/dynamic_verification_summary.json`
 
-说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。每个 `WEB-REAL-*` 必须带 `exploitability` 利用难度与条件说明；有真实 HTTP OOM 证据不等于默认应用可利用。下列 Phase4 ID 对应 2026-06-20 最新全量分析结果，`WEB-REAL-0007..0012` 来自 static-hunt 后续动态验证。
+说明：`WEB-P4-*` 是 Phase 4 排序派生 ID，候选集或权重变化后可能移动；稳定锚点应以 `WEB-REAL-*`、sink/proof 和 `intel/regression/web_real_manifest.json` 为准。每个 `WEB-REAL-*` 必须带 `exploitability` 利用难度与条件说明；有真实 HTTP OOM 证据不等于默认应用可利用。
+
+当前冻结口径：
+
+- `intel/regression/web_real_manifest.json` 是 12 个 `WEB-REAL-*` 的权威索引和利用条件来源。
+- `results/phase4/verified_vulnerabilities.json` / `.md` 是当前已整理的机器可读/人工摘要；若 manifest 与摘要数量不一致，以 manifest 为 ID 真相，以动态验证日志和 runner case 做证据刷新。
+- `WEB-REAL-0007..0009` 标记为 `dynamic_only_pending_query`，保留为 context-constrained confirmed cases；如需完整 Phase 4 摘要和日志，应复跑对应动态 case 并同步 `verified_vulnerabilities.*`。
+- `WEB-REAL-0010..0012` 来自新框架 static-hunt 动态验证，属于应用形态路径下可 OOM 的 context-constrained cases，不按默认开放漏洞表述。
 
 ### WEB-REAL-0001 - Jersey OAuth1 request token map
 
@@ -274,11 +321,11 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 1. **全程使用简体中文**与用户交流。
 2. **不要修改 AOSP 工具**，除非用户明确要求跨仓库同步；Web 工作默认限制在 `dos-analysis-web/`。
 3. **保持可复现性**：脚本、配置、最新汇总结果、日志、PoC 和报告都应版本化或明确归档；可再生成的旧中间产物可清理，但必须记录。
-4. **不要删除最新权威结果或动态验证证据**；清理旧结果仅限用户明确要求或确认的旧中间文件，且必须确认不会影响复现实验。
+4. **不要删除最新权威结果或动态验证证据**；清理旧结果仅限过时 Phase 1/2 过程产物、obsolete docs/superpowers 或用户明确确认的旧中间文件，且必须确认不会影响复现实验。
 5. **避免无界全量搜索**：不要在大型数据库、框架源码或结果目录上做不加限制的全仓 `rg`。
 6. **CodeQL buildless 保守建模**：类型层级可能不完整，优先结合 source-defined 类型、名称字符串、方法名、注解名和局部数据流证据。
 7. **优先高召回**：静态查询可保守多报，top 候选必须人工源码复核。
-8. **动态验证选择性执行**：仅对 high-risk 候选或论文关键样例做动态验证。
+8. **动态验证选择性执行**：仅对 high-risk 候选或论文关键样例做动态验证。下一阶段应用真阳性必须以默认部署真实 HTTP 服务不可用为门槛；growth-only 不得提升为 confirmed DoS。
 9. **同步更新文档**：工具、目录、脚本、数据库、PoC、流程或结果有重要变化时，更新 `README.md`、相关报告和本 `AGENTS.md`。
 10. **每次项目修改后必须更新 `CHANGELOG.md`**。
 
@@ -353,21 +400,21 @@ YYYY-MM-DD HH:MM
 
 目标投稿软件工程顶会：ICSE、FSE、ASE、ISSTA。
 
-核心贡献：
+下一阶段论文贡献重心：
 
-1. **形式化框架**：五轴判定演算和领域映射方法论。
-2. **自动化 Source 识别**：跨 Servlet、Spring、JAX-RS、Jetty、Undertow 的分层 source discovery。
-3. **大规模跨领域实证**：AOSP + 多个 Java Web 框架。
-4. **开源工具链**：完整查询、pipeline、benchmark、PoC 和复现实验材料。
+1. **默认部署应用 DoS 基准**：构建真实 Java Web 应用、官方启动方式、默认配置和默认权限下的可复现实验集。
+2. **应用级资源耗尽模式**：覆盖 retained state、session/cache cardinality、metrics tag cardinality、multipart/temp file、parser expansion、async/job queue、index/import/export 和 outbound client cache/pool。
+3. **默认可利用性判定**：区分默认可达、低权限可达、配置依赖、管理面依赖和仅框架可触发，避免把高条件基座样例过度包装。
+4. **端到端动态证据**：每个 true positive 都提供默认部署真实 HTTP 触发的服务不可用证据、资源曲线、PoC 和复现命令。
 
 研究问题：
 
-- **RQ1**：client-state retention DoS 是否能跨领域泛化？
-- **RQ2**：Web source 自动识别是否足够准确？
-- **RQ3**：五轴模型相比三轴模型是否有更强判别力？
-- **RQ4**：能否发现真实、可复现、可报告的 Web 框架漏洞？
+- **RQ1**：真实 Java Web 应用默认部署中是否普遍存在可由低信任 HTTP 入口触发的资源耗尽 DoS？
+- **RQ2**：这些问题主要来自应用逻辑、框架默认集成、组件组合，还是基座容器缺陷？
+- **RQ3**：默认配置下的容量、TTL、quota、auth、rate limit 对可利用性有多大影响？
+- **RQ4**：静态候选、默认部署配置抽取和动态验证结合后，能否形成可扩展、低误报的应用级 DoS 挖掘流程？
 
 ---
 
-**文档版本**：2026-06-20
+**文档版本**：2026-06-22
 **维护者**：项目团队
