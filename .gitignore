@@ -19,7 +19,7 @@ dynamic-verification/target/
 
 # Private coordinated vulnerability disclosure drafts and vendor correspondence.
 security-disclosures/
-
+poc/
 # Keep core project docs tracked by name even if broader doc ignores are added later.
 !README.md
 !CHANGELOG.md
