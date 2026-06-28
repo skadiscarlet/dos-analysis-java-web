@@ -1,0 +1,24 @@
+{
+  "_static_path": "results/applications_static_analysis/xuxueli__xxl-boot/findings.jsonl",
+  "bound": "50 scheduled worker threads, Hikari/Druid DB pool limits, but no explicit delayed queue capacity in code; username length check occurs after captcha validation",
+  "default_reachability": "SecurityConfig permitAll includes /login and seed config has captchaEnabled=true",
+  "dimension": "scheduled executor queue, heap object count, worker threads, DB connection pressure",
+  "driver": "failed login request count, scheduled task backlog, username/User-Agent size within HTTP limits",
+  "dynamic_probe": "Flood invalid-captcha /login requests with fixed heap and default DB, measure delayed queue size, scheduled threads, DB pool wait, heap, latency and normal endpoint availability.",
+  "evidence": [
+    "SysLoginService.java:61-65",
+    "SysLoginService.java:108-124",
+    "AsyncManager.java:41-44",
+    "ThreadPoolConfig.java:48-61",
+    "AsyncFactory.java:35-76",
+    "application.yml:26-32",
+    "tables-init.sql:510"
+  ],
+  "finding_id": "XXL-BOOT-APP-STATIC-0003",
+  "module": "xxl-boot-api",
+  "retention": "queued TimerTask until execution; DB row growth is explicitly out of this finding's impact claim",
+  "sink": "AsyncManager schedules login failure TimerTask into ScheduledThreadPoolExecutor; task logs and inserts sys_logininfor",
+  "source": "anonymous POST /login with missing/invalid captcha uuid and attacker-controlled username/User-Agent",
+  "target": "xuxueli/xxl-boot",
+  "verdict": "needs_dynamic_probe"
+}

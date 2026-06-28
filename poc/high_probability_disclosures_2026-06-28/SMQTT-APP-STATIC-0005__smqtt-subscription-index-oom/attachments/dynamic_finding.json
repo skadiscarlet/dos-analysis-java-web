@@ -1,0 +1,27 @@
+{
+  "_phase": "P0",
+  "app": "quickmsg__smqtt",
+  "candidate_id": "SMQTT-APP-STATIC-0005",
+  "dynamic_verdict": "confirmed_oom",
+  "evidence": {
+    "aliveBeforeStop": true,
+    "heap": "96m",
+    "port": 1883,
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "processStatus": {
+      "Threads": "42",
+      "VmHWM": "265020 kB",
+      "VmRSS": "262940 kB"
+    },
+    "topicBytesApprox": 656
+  },
+  "heap": "96m",
+  "log": "results/applications_dynamic_validation/p0/logs/SMQTT-APP-STATIC-0005.log",
+  "notes": "",
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 105000,
+  "status": "verified_oom",
+  "title": "Anonymous subscriptions grow global fixed/wildcard topic indexes without per-client quotas",
+  "true_positive": true
+}

@@ -4,6 +4,1222 @@
 
 ---
 
+## [2026-06-28] XXL-Boot 漏洞申报稿合并为中文 GitHub Issue 格式
+
+### 修改时间
+2026-06-28 16:11
+
+### 变更类型
+- [文档] 漏洞申报材料调整
+
+### 核心改动
+- 将 `XXL-BOOT-APP-STATIC-0001` 与 `XXL-BOOT-APP-STATIC-0003` 合并到同一份中文 GitHub issue 提交稿中，覆盖匿名 `/login` / `/register` JSON 请求体复制和匿名登录失败异步日志队列两个子问题。
+- 去除 issue 正文中的附件位置引用，改为内联描述源码证据、动态验证摘要、服务端 OOM 日志信号、影响和修复建议。
+- 将 `XXL-BOOT-APP-STATIC-0003` 原目录的提交指南和漏洞报告改为指向 `XXL-BOOT-APP-STATIC-0001` 合并稿，避免重复分开发送。
+
+### 交付成果
+- 更新合并稿：`poc/high_probability_disclosures_2026-06-28/XXL-BOOT-APP-STATIC-0001__xxl-boot-repeatablefilter-login-body-oom/VULNERABILITY_REPORT.md`
+- 更新提交指南：`poc/high_probability_disclosures_2026-06-28/XXL-BOOT-APP-STATIC-0001__xxl-boot-repeatablefilter-login-body-oom/SUBMISSION_GUIDE.md`
+- 更新 0003 指向说明：`poc/high_probability_disclosures_2026-06-28/XXL-BOOT-APP-STATIC-0003__xxl-boot-login-failure-async-queue-oom/VULNERABILITY_REPORT.md`、`SUBMISSION_GUIDE.md`
+- 更新申报包索引：`poc/high_probability_disclosures_2026-06-28/README.md`
+- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态；`git diff --check` 通过。
+
+### 依赖与影响
+- 依赖：已有 XXL-Boot P1 动态验证真阳性和静态 finding 证据。
+- 对后续工作的影响：XXL-Boot 两个匿名登录面 DoS 子问题建议以一个 GitHub issue 提交，必要时再按维护者要求补私密日志。
+- 破坏性变更：无；不修改 CodeQL 查询、runner 或 verdict 语义。
+
+---
+
+## [2026-06-28] Erupt 漏洞申报稿合并为中文 GitHub Issue 格式
+
+### 修改时间
+2026-06-28 11:00
+
+### 变更类型
+- [文档] 漏洞申报材料调整
+
+### 核心改动
+- 将 `ERUPT-APP-STATIC-0001` 与 `ERUPT-APP-STATIC-0002` 合并到同一份中文 GitHub issue 提交稿中，覆盖匿名验证码 `height` 参数大图分配和 `/erupt-api/*` JSON 请求体 pre-auth 复制两个子问题。
+- 去除 issue 正文中的附件位置引用，改为内联描述源码证据、动态验证摘要、影响和修复建议。
+- 将 `ERUPT-APP-STATIC-0002` 原目录的提交指南和漏洞报告改为指向 `ERUPT-APP-STATIC-0001` 合并稿，避免重复分开发送。
+
+### 交付成果
+- 更新合并稿：`poc/high_probability_disclosures_2026-06-28/ERUPT-APP-STATIC-0001__erupt-captcha-height-bufferedimage-oom/VULNERABILITY_REPORT.md`
+- 更新提交指南：`poc/high_probability_disclosures_2026-06-28/ERUPT-APP-STATIC-0001__erupt-captcha-height-bufferedimage-oom/SUBMISSION_GUIDE.md`
+- 更新 0002 指向说明：`poc/high_probability_disclosures_2026-06-28/ERUPT-APP-STATIC-0002__erupt-operation-log-json-body-copy-oom/VULNERABILITY_REPORT.md`、`SUBMISSION_GUIDE.md`
+- 更新申报包索引：`poc/high_probability_disclosures_2026-06-28/README.md`
+- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态；`git diff --check` 通过。
+
+### 依赖与影响
+- 依赖：已有 Erupt P1 动态验证真阳性和静态 finding 证据。
+- 对后续工作的影响：Erupt 两个匿名 DoS 子问题建议以一个 GitHub issue 提交，必要时再按维护者要求补私密日志。
+- 破坏性变更：无；不修改 CodeQL 查询、runner 或 verdict 语义。
+
+---
+
+## [2026-06-28] 高概率应用 DoS 漏洞申报包整理
+
+### 修改时间
+2026-06-28 01:36
+
+### 变更类型
+- [文档] 漏洞申报材料与附件归档
+
+### 核心改动
+- 基于 `results/applications_dynamic_validation/` 中真实触发 OOM、且前置条件较低的应用级真阳性，筛选 16 个高概率被上游认可的申报对象。
+- 在 `poc/high_probability_disclosures_2026-06-28/` 下为每个漏洞建立独立目录，按 GitHub 私密漏洞报告、项目 `SECURITY.md`、项目公开邮箱和 CNVD/CVE 后续协调路径写明申报顺序。
+- 每个漏洞目录包含中文 `SUBMISSION_GUIDE.md`、英文 `VULNERABILITY_REPORT.md` 和 `attachments/`，附件内归档动态验证 JSON、静态 finding JSON、压缩原始动态日志与校验索引。
+
+### 交付成果
+- 新增申报包索引：`poc/high_probability_disclosures_2026-06-28/README.md`
+- 新增 16 个漏洞申报目录：覆盖 PowerJob、smqtt、JMQTT、Erupt、Rebuild、OPSLI、WGCloud 和 XXL-Boot 的高概率默认/匿名/默认 token DoS 真阳性。
+- 新增附件：每个目录下的 `attachments/dynamic_finding.json`、`static_finding.json`、`*.log.gz` 和 `ATTACHMENTS.md`
+- 更新文档：`CHANGELOG.md`
+- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态；`git diff --check` 通过。
+
+### 依赖与影响
+- 依赖：已有 P0/P1 动态验证真阳性结果、本地静态 finding、目标仓库 `SECURITY.md` / README 中的安全联系信息。
+- 对后续工作的影响：可直接按目录逐项向上游提交私密报告；同一项目多漏洞可按维护者反馈合并为一个 advisory 或拆分为多个 CVE/GHSA。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、动态验证 runner 或 verdict 语义。
+
+---
+
+## [2026-06-27] 应用级 P2 动态验证执行
+
+### 修改时间
+2026-06-27 22:54
+
+### 变更类型
+- [新增功能] 应用级 P2 动态验证 runner
+- [文档] P2 动态验证结果归档与口径同步
+
+### 核心改动
+- 新增 `scripts/run_application_p2_dynamic_validation.py`，以 `p2_dynamic_validation_triage.md` 为输入，按 P2 triage 维护 34 条候选的动态验证状态，并支持 `--case`、`--recommended-only`、`--runnable-only` 单项或子队列重跑。
+- 为 `SBA-APP-STATIC-0002` 实现默认 insecure Spring Boot Admin sample 探针：外部注册唯一 `/instances`，指向攻击者控制 health endpoint，由默认 status updater 接收 `Set-Cookie` 响应并写入 per-instance JDK CookieStore。
+- 保持严格真阳性门槛：只有真实外部 HTTP/协议请求触发目标 JVM `OutOfMemoryError`、GC death、线程/连接池耗尽或持续服务不可用才提升；未补齐默认服务环境、业务数据、登录态或依赖栈的候选保持 `precondition_blocked`，P2 triage 未选入主队列的候选保持 `triage_not_selected`。
+
+### 交付成果
+- 新增脚本：`scripts/run_application_p2_dynamic_validation.py`
+- 更新动态验证结果：`results/applications_dynamic_validation/p2/summary.json`、`summary.csv`、`findings.jsonl`
+- 新增人工报告：`results/applications_dynamic_validation/p2/P2_DYNAMIC_VALIDATION_REPORT.md`
+- 新增原始日志：`results/applications_dynamic_validation/p2/logs/SBA-APP-STATIC-0002.log`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：`python3 -m py_compile scripts/run_application_p2_dynamic_validation.py` 通过；`python3 scripts/run_application_p2_dynamic_validation.py` 生成完整 P2 结果；`python3 scripts/run_application_p2_dynamic_validation.py --case SBA-APP-STATIC-0002` 确认 `SBA-APP-STATIC-0002` 为 `verified_oom`。当前 P2 为 1 个 `verified_oom`、7 个 `precondition_blocked`、26 个 `triage_not_selected`、0 个 `probe_error`。
+
+### 依赖与影响
+- 依赖：本地 Spring Boot Admin 源码和已构建 classpath、本地 Maven 依赖缓存、可绑定本地端口的宿主环境。
+- 对后续工作的影响：P2 首个默认 HTTP 触发 OOM 已归档；后续可继续补 Astron、JetLinks、Mall、Kafka WebView 和 Rill Flow 的默认依赖栈、登录态与业务数据初始化。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-27] 应用级 P1 A 组前置条件补环境重测
+
+### 修改时间
+2026-06-27 21:44
+
+### 变更类型
+- [功能改进] 应用级 P1 动态验证 runner
+- [Bug 修复] 默认服务依赖与协议 harness
+- [文档] P1 动态验证结果口径同步
+
+### 核心改动
+- 对 P1 `precondition_blocked` 中 10 个 A 组候选补齐默认环境或协议 harness：Nacos ConfigService gRPC listener、CAT 官方 Docker Web+MySQL、DIYHI BBS MySQL、JPom 首次安装态、UJCMS MySQL、litemall 多模块 MySQL、ShoppingCart WAR/Tomcat、OPSLI MySQL+Redis。
+- 修复补测中的依赖和运行时问题：Litemall/OPSLI 使用 Maven classpath 优先，补 OPSLI MySQL driver 和 Java 22 启动顺序，修复 ShoppingCart Tomcat harness Java 版本，CAT 改为 runtime 可读 SQL 初始化目录、本地已有镜像优先和并发 projectUpdate burst。
+- 继续保持真阳门槛：只有外部协议或 HTTP 请求触发目标 JVM `OutOfMemoryError` 才标为 `verified_oom`，启动期失败、环境缺口和未 OOM 的执行完成均不提升。
+
+### 交付成果
+- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
+- 更新动态验证结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
+- 更新人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：A 组 10 个候选均完成补测；`OPSLI-BOOT-APP-STATIC-0001` 为 `verified_oom`，其余 9 个为 `completed_without_oom`。当前 P1 为 17 个 `verified_oom`、18 个 `completed_without_oom`、0 个 `probe_error`、54 个 `precondition_blocked`。
+
+### 依赖与影响
+- 依赖：本地应用源码、已有 Maven 依赖缓存、Docker MySQL/Redis/CAT 镜像、可绑定本地端口的宿主环境。
+- 对后续工作的影响：P1 第一优先级队列已压缩到 11 个 `precondition_blocked`；后续可继续补 Cryostat、CAT config、JPom cluster、itranswarp、SPMS 和 Rill Flow 等仍缺默认服务/业务态/protocol harness 的候选。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-27] 应用级 P2 动态验证准入复核
+
+### 修改时间
+2026-06-27 15:53
+
+### 变更类型
+- [文档] 应用级 P2 候选动态验证 triage
+
+### 核心改动
+- 基于 `_static_validation` 的 P2 队列，复核 34 条候选的默认可达性、部署条件、权限前置和资源类型边界。
+- 将 P2 候选拆分为 8 条建议进入动态验证、10 条低成本观测/代表性 Redis TTL 子实验、16 条暂不进入动态验证，避免短 TTL 小值 Redis、纯磁盘/DB 持久化、admin-only 或非默认 handler 路径占用 OOM 动态验证资源。
+- 明确下一轮 P2 动态验证仍需区分 `precondition_blocked`、`completed_without_oom`、`verified_oom` 和服务不可用证据，不把静态可疑点或单纯增长曲线提升为 confirmed。
+
+### 交付成果
+- 新增文档：`results/applications_static_analysis/_static_validation/p2_dynamic_validation_triage.md`
+- 输入依据：`results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md`、`all_candidates.csv` 和各应用 `findings.*`
+- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态。
+
+### 依赖与影响
+- 依赖：已有应用级静态汇总、P0/P1 动态验证结果和本地应用源码快照。
+- 对后续工作的影响：为 P2 runner 或手工动态验证提供优先队列，首批建议覆盖 SBA CookieStore、Astron embedding 线程、JetLinks thumbnail/WebSocket、Mall RabbitMQ、Kafka WebView WebSocket/JSON body 和 Rill Flow Redis runtime state。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-27] 应用级 P1 probe_error 修复与补测
+
+### 修改时间
+2026-06-27 12:44
+
+### 变更类型
+- [Bug 修复] 应用级 P1 动态验证 runner
+- [文档] P1 动态验证结果口径同步
+
+### 核心改动
+- 修复 `NACOS-APP-STATIC-0001` 的动态探针启动问题：补齐 Nacos classpath fallback、Prometheus 运行时依赖、JDK legacy opens、standalone/auth-disabled 启动参数和端口级 readiness，避免因依赖缺失或健康检查端点差异落入 `probe_error`。
+- 修复 `REBUILD-APP-STATIC-0001..0004` 的动态探针环境问题：为 Rebuild classpath 增加 CodeQL `javac.args` fallback，启动时写入默认安装态 `.rebuild` 配置，并以应用日志中的 installed ready state 作为 readiness 条件。
+- 对 5 个原 `probe_error` 候选执行动态补测，继续只把目标 JVM 真实 `OutOfMemoryError` 作为真阳性；Nacos instance registration、Rebuild session/captcha 两类探针执行完成但未确认 OOM，Rebuild barcode 和 pre-auth JSON body 两类探针确认 OOM。
+
+### 交付成果
+- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
+- 更新动态验证结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
+- 更新人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：`python3 -m py_compile scripts/run_application_p1_dynamic_validation.py` 通过；5 个原 `probe_error` 均已补测完成，当前 P1 为 16 个 `verified_oom`、9 个 `completed_without_oom`、0 个 `probe_error`、64 个 `precondition_blocked`。
+
+### 依赖与影响
+- 依赖：已有 P1 动态验证准备清单、本地 Nacos/Rebuild 源码与 CodeQL DB 构建日志、本地 Maven 依赖缓存、Docker MySQL 镜像和可绑定本地端口的宿主环境。
+- 对后续工作的影响：P1 第一优先级队列已无探针错误，后续可转向剩余 `precondition_blocked` 的默认部署初始化、低权限账号、业务数据或协议 harness 补齐。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-27] 应用级 P1 第一优先级补测
+
+### 修改时间
+2026-06-27 00:24
+
+### 变更类型
+- [功能改进] 应用级 P1 动态验证 runner
+- [文档] P1 第一优先级补测结果归档
+- [文档] README/AGENTS 结果口径同步
+
+### 核心改动
+- 扩展 `scripts/run_application_p1_dynamic_validation.py` 的 P1 探针覆盖，补测第一优先级 38 个候选，并新增 `--first-priority` 选择器以便只重跑该子集。
+- 补齐 JMQTT、Spring Boot Admin、Erupt、WGCloud、Socket-MQTT 和 XXL-Boot 等候选的默认环境或协议 harness；继续只把真实外部协议/HTTP 请求触发目标 JVM `OutOfMemoryError` 作为真阳性。
+- 拆分报告统计口径，把 `completed_without_oom`、`probe_error` 和 `precondition_blocked` 分开呈现，避免把探针依赖失败混入已执行未确认项。
+
+### 交付成果
+- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
+- 更新动态验证结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
+- 更新人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
+- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：P1 当前 89 个候选中 14 个 `verified_oom` 真阳性、6 个 `completed_without_oom`、5 个 `probe_error`、64 个 `precondition_blocked`；第一优先级 38 个候选中 7 个真实 OOM、5 个已执行未确认 OOM、5 个探针错误、21 个前置条件阻塞。
+
+### 依赖与影响
+- 依赖：已有 P1 动态验证准备清单、本地应用源码/构建产物、Docker、MySQL 镜像、Maven 依赖缓存和可绑定本地端口的宿主环境。
+- 对后续工作的影响：后续可优先处理 `probe_error` 的 Nacos/Rebuild 依赖解析问题，以及仍处于 `precondition_blocked` 的生产默认部署可达性、初始化数据、低权限账号或 agent/compose 前置条件缺口。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-26] 应用级 P1 动态 OOM 验证
+
+### 修改时间
+2026-06-26 21:57
+
+### 变更类型
+- [新增功能] 应用级 P1 动态验证 runner
+- [文档] P1 动态验证结果归档
+- [文档] 运行指南同步
+
+### 核心改动
+- 新增 `scripts/run_application_p1_dynamic_validation.py`，基于 `results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P1 队列执行应用级动态验证，并继续以真实外部协议或 HTTP 请求触发目标 JVM `OutOfMemoryError` 作为真阳性门槛。
+- 覆盖 89 个 P1 候选：对已脚本化的 PowerJob、SMQTT、XXL-JOB、RuoYi-Vue-Fast 和 Citrus 候选运行完整依赖环境或协议 harness，其余候选记录为 `precondition_blocked`，不当作阴性。
+- 修正 SMQTT P1 探针的收尾和隔离：MQTT 客户端异常统一进入 `finish_probe`，不同 SMQTT case 使用独立端口，并提升 empty-topic key 负载以稳定触发目标 JVM OOM。
+- 修正 PowerJob remote HTTP 探测：从日志发现实际 remote bind host，避免把非 localhost 绑定误判为服务未启动；该候选在 22,914 次 heartbeat 后仍未触发 OOM，保留 `completed_without_oom`。
+
+### 交付成果
+- 新增脚本：`scripts/run_application_p1_dynamic_validation.py`
+- 新增动态验证结果目录：`results/applications_dynamic_validation/p1/`
+- 新增机器可读结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
+- 新增人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
+- 新增原始日志：`results/applications_dynamic_validation/p1/logs/`
+- 修改文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：`python3 -m py_compile scripts/run_application_p1_dynamic_validation.py` 通过；P1 动态验证完成，89 个候选中 7 个 `verified_oom` 真阳性、1 个 `completed_without_oom` 未确认、81 个 `precondition_blocked`。
+
+### 依赖与影响
+- 依赖：已有 P1 动态验证准备清单、`frameworks/applications/*` 对应目标源码、本地 Maven 依赖缓存、Docker、MySQL/Redis 镜像和可绑定本地端口的宿主环境。
+- 对后续工作的影响：P1 结果为下一轮补齐 Nacos、Spring Boot Admin、Cryostat、JMQTT、CAT 等未脚本化默认环境提供了明确阻塞清单；当前真阳性只来自已由外部协议/HTTP 请求触发目标 JVM OOM 的 case。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-26] 应用级 P0 动态 OOM 验证
+
+### 修改时间
+2026-06-26 19:58
+
+### 变更类型
+- [新增功能] 应用级 P0 动态验证 runner
+- [文档] P0 动态验证结果归档
+- [文档] 运行指南同步
+
+### 核心改动
+- 新增 `scripts/run_application_p0_dynamic_validation.py`，基于 `results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P0 队列执行应用级动态验证，并用真实外部协议或 HTTP 请求触发目标 JVM OOM 作为真阳性门槛。
+- 覆盖 15 个 P0 候选：对 quickmsg/smqtt、xuxueli/xxl-job、powerjob、dromara/datacompare、yangzongzhuan/ruoyi-vue-fast、yiuman/citrus、1024-lab/smart-admin、xnx3/wangmarket 和 tianshiyeben/wgcloud 执行外部协议或 HTTP 动态验证。
+- 使用 Docker 启动 MySQL/Redis 等完整依赖环境，优先使用国内镜像前缀；Citrus 为进入目标 `/rest/verify/captcha` 路径额外使用运行时 properties、MDA classpath patch 和与目标无关的 MDA 自动配置排除，未修改应用源码。
+- 对 SmartAdmin、WGCloud、WangMarket 保留 `completed_without_oom`，对需要 Java agent 注入默认形态的 EaseAgent 两项保留 `blocked_environment`，不把静态可疑点、启动失败、增长曲线或非目标阶段错误提升为 confirmed。
+- 支持 `--case` 单候选补跑，并在补跑时合并保留已有 `summary.json` 结果，避免覆盖其他候选证据。
+
+### 交付成果
+- 新增脚本：`scripts/run_application_p0_dynamic_validation.py`
+- 新增动态验证结果目录：`results/applications_dynamic_validation/p0/`
+- 新增机器可读结果：`results/applications_dynamic_validation/p0/summary.json`、`summary.csv`、`findings.jsonl`
+- 新增人工报告：`results/applications_dynamic_validation/p0/P0_DYNAMIC_VALIDATION_REPORT.md`
+- 新增原始日志：`results/applications_dynamic_validation/p0/logs/`
+- 修改文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：`python3 -m py_compile scripts/run_application_p0_dynamic_validation.py` 通过；P0 动态验证完成，15 个候选中 10 个 `verified_oom` 真阳性、3 个 `completed_without_oom` 未确认、2 个 `blocked_environment`。
+
+### 依赖与影响
+- 依赖：已有 P0 动态验证准备清单、`frameworks/applications/*` 对应目标源码、本地 Maven 依赖缓存、Docker、MySQL/Redis 镜像和可绑定本地端口的宿主环境。
+- 对后续工作的影响：后续应用级动态验证可复用该 runner 的 `ProbeResult`/报告格式，继续扩展 P1 或补齐 blocked P0 的默认部署环境。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
+
+---
+
+## [2026-06-26] 应用级静态候选默认 OOM 汇总复核
+
+### 修改时间
+2026-06-26 14:06
+
+### 变更类型
+- [新增功能] 应用级静态候选汇总脚本
+- [文档] 默认外部 OOM 静态复核报告
+- [文档] 运行指南同步
+
+### 核心改动
+- 新增 `scripts/summarize_application_static_findings.py`，聚合 `results/applications_static_analysis/*/findings.jsonl` 与 `findings.csv`，统一输出全量候选、应用级汇总和默认外部 OOM 动态验证优先队列。
+- 对 48 个已有应用结果目录中的 216 条候选做静态复核，按默认外部可达性、非磁盘 OOM 相关资源类型、默认边界/TTL/cleanup 和动态证据缺口打上 `P0` 到 `P3` 优先级。
+- 新增 `all_candidates_dynamic_validation.md`，把 216 条候选全部整理为按 `P0/P1/P2/P3` 和应用分组的动态验证准备文档，逐条保留 entry、source、sink、driver、dimension、retention、bound、impact、动态验证建议和原始证据位置。
+- 将二阶段 DB-backed heap amplification、磁盘/DB-only、管理面/特殊配置/已拒绝候选与直接 session/map/cache/body/thread/queue 类路径区分开，避免把增长曲线或静态可疑点直接提升为 confirmed DoS。
+- 同步更新 `README.md` 与 `AGENTS.md`，记录应用级静态汇总脚本和 `_static_validation` 输出目录。
+
+### 交付成果
+- 新增脚本：`scripts/summarize_application_static_findings.py`
+- 新增静态验证报告：`results/applications_static_analysis/_static_validation/default_oom_static_validation.md`
+- 新增全量候选：`results/applications_static_analysis/_static_validation/all_candidates.csv`、`all_candidates.jsonl`
+- 新增动态验证准备清单：`results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md`
+- 新增应用汇总：`results/applications_static_analysis/_static_validation/application_summary.csv`
+- 新增动态验证队列：`results/applications_static_analysis/_static_validation/default_oom_probe_queue.csv`
+- 修改文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 测试/验证结果：`python3 -m py_compile scripts/summarize_application_static_findings.py` 通过；轻量回归见最终回复。
+
+### 依赖与影响
+- 依赖：已有 `results/applications_static_analysis/<target_id>/` 静态结果、`intel/applications/java_web_application_targets.json` manifest。
+- 对后续工作的影响：后续默认部署动态验证可优先从 `default_oom_probe_queue.csv` 的 `P0`/`P1` 队列选取目标，并用报告中的分类原因决定是否先补默认可达性或边界证据。
+- 破坏性变更：无；不修改 CodeQL 查询、ranking、verdict、Phase 3/4 pipeline 或动态验证语义。
+
+---
+
+## [2026-06-26] linlinjava/litemall 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 12:25
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `linlinjava/litemall` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `litemall-all` 的 `admin`/`wx` profiles、官方 Docker compose 8080 HTTP 面、Shiro 匿名登录前接口、wx 商城匿名分页接口、低权限订单延迟任务队列和默认配置开关。
+- 按用户限定范围排除磁盘/DB/对象存储耗尽、需要管理权限的 `/admin/**` 业务接口、默认关闭的短信/邮件/快递/外部 provider、特殊上线配置、bounded thread pool、disabled HomeCache 和 Druid stat view。
+- 静态复核结论为 0 个 `confirmed`、1 个 `likely`、2 个 `needs_dynamic_probe`：匿名 `/admin/auth/kaptcha`/失败登录可驱动 Shiro `MemorySessionDAO` 6 小时内存 session 基数增长；匿名 `/wx/*/list`/search page-size 与低权限 unpaid-order `DelayQueue` 保留为动态探针。
+- 通过本地 `shiro-core-1.6.0.jar` 字节码核对确认 `DefaultSessionManager` 默认创建 `MemorySessionDAO`，且 `MemorySessionDAO` 使用 `ConcurrentHashMap` 保存 session；所有候选均未执行动态验证，不能提升为 confirmed DoS。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/linlinjava__litemall/`
+- 新增报告：`results/applications_static_analysis/linlinjava__litemall/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/linlinjava__litemall/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/linlinjava__litemall` 源码、`databases/applications/linlinjava__litemall-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `linlinjava/litemall` target 信息。
+- 对后续工作的影响：后续可优先用固定小堆和隔离 Docker/MySQL 验证匿名 captcha session 基数增长、匿名大 `limit` 请求和低权限 unpaid-order queue 是否能达到 OOM、GC death、线程/连接池耗尽或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-26] codecentric/spring-boot-admin 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 12:38
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `codecentric/spring-boot-admin` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Admin Server/starter setup、无内置默认认证、`POST /instances` 注册 API、in-memory event store、snapshot repository、status/info monitor、默认 instance WebClient cookie store、proxy fan-out 和 SSE event streams。
+- 按用户限定范围排除磁盘/DB/日志、样例 `insecure` profile、需要 `secure` profile/管理权限的路径、`FilteringNotifier` 样例自定义、Hazelcast/Discovery 特殊配置和 Actuator 管理面操作。
+- 静态复核结论为 0 个 `confirmed`、1 个 `likely`、3 个 `needs_dynamic_probe`：默认开放 `/instances` 可由唯一 `healthUrl` 驱动 eventLog/snapshot/monitor map 基数增长；registered endpoint cookie store、同名 application proxy fan-out 和 SSE/backpressure 保留为动态探针。
+- 明确所有候选均未执行动态验证，不能提升为 confirmed DoS；磁盘存储不纳入问题范围。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/codecentric__spring-boot-admin/`
+- 新增报告：`results/applications_static_analysis/codecentric__spring-boot-admin/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/codecentric__spring-boot-admin/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/codecentric__spring-boot-admin` 源码、`databases/applications/codecentric__spring-boot-admin-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `codecentric/spring-boot-admin` target 信息。
+- 对后续工作的影响：若后续扩大到动态验证，可优先用 minimal unsecured SBA server、固定 JVM heap 和本地 mock health endpoint 验证 `/instances` 注册 retained state、per-instance cookie store、application proxy fan-out 与 SSE/backpressure 是否能造成 OOM、GC death、连接耗尽或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-26] alibaba/nacos 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 12:07
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `alibaba/nacos` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `8848` HTTP server、默认 `/nacos` context、SDK gRPC 默认 `9848`、`nacos.core.auth.enabled=false` 的 OpenAPI/SDK/gRPC 边界，以及 `admin/console` 默认 auth、AI registry 默认关闭、multipart/form size 默认上限等部署条件。
+- 按用户限定范围排除磁盘/DB/日志/上传/配置导入导出、`/v3/admin/*`、`/v3/console/*`、AI MCP/Skill registry 特殊配置、Config/Naming fuzzy watch bounded paths、RPC ack bounded cache 和其他需要管理权限或非默认开启的路径。
+- 静态复核结论为 0 个 `confirmed`、2 个 `likely`、1 个 `needs_dynamic_probe`：默认开放 Naming instance 注册可驱动 ephemeral client/service/publisher/index 进程内状态增长；默认 SDK gRPC Config batch listen 可驱动 `ConfigChangeListenContext` 双向索引增长；legacy HTTP config long polling 因 10000 listener cap、2MB form cap、timeout cleanup 和路径 wiring 缺口保留为动态探针。
+- 明确所有候选均未执行动态验证，不能提升为 confirmed DoS；`likely` 仅表示默认可达性和 source-to-sink 静态证据较强。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/alibaba__nacos/`
+- 新增报告：`results/applications_static_analysis/alibaba__nacos/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/alibaba__nacos/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/alibaba__nacos` 源码、`databases/applications/alibaba__nacos-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `alibaba/nacos` target 信息。
+- 对后续工作的影响：若后续扩大到动态验证，可优先用默认单机 Nacos、固定 JVM heap 和隔离网络验证 `/nacos/v3/client/ns/instance` 注册状态增长、SDK gRPC `ConfigBatchListenRequest` listener 索引增长和 legacy long-poll `allSubs` 请求窗口压力是否能造成 OOM、GC death、连接/线程耗尽或持续 HTTP/gRPC 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-26] dromara/Jpom 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 11:42
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `dromara/Jpom` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `server`/`agent` 模块、`docker-compose.yml`、`docker-compose-local.yml`、cluster compose、匿名登录前接口、`/api/**` open API、agent authorize 边界、session/cache/map/queue/body-copy sinks。
+- 按用户限定范围排除磁盘存储耗尽、上传/temp file/解压输出、需要管理权限或业务 trigger token 的构建/脚本/SSH/项目触发器、特殊 `transport-encryption=BASE64` 配置和 server-only compose 中未被 `randomIdSign()` 使用的 `jpom.authorize.token`。
+- 保留 2 个 `likely` 候选：匿名 `GET /rand-code` 可创建并保留 1 小时 server servlet sessions；官方 local/cluster compose 默认 `SERVER_TOKEN` 注入 `JPOM_SERVER_TEMP_TOKEN` 时，`/api/node/receive_push` 可按攻击者控制的 `ips` 增长进程级 static `CACHE_RECEIVE_PUSH`。
+- 明确降级/拒绝 agent pre-authorize JSON body copy、build trigger queue、server decryption body copy、WebSocket session maps、bounded LRU/LFU/timed caches 和磁盘/管理面路径。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/dromara__jpom/`
+- 新增报告：`results/applications_static_analysis/dromara__jpom/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/dromara__jpom/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/dromara__jpom` 源码、`databases/applications/dromara__jpom-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `dromara/Jpom` target 信息。
+- 对后续工作的影响：后续可优先用固定小堆和隔离 Docker 网络验证匿名 captcha session 基数增长、local/cluster 默认 token receive-push static cache 增长是否能达到 OOM、GC death 或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-26] macrozheng/mall 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 11:41
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `macrozheng/mall` 做只静态资源耗尽 DoS 挖掘，覆盖官方 compose 默认发布的 `mall-admin:8080`、`mall-search:8081`、`mall-portal:8085`，以及 `mall-security` 白名单、会员 SSO、商品/首页/品牌公开分页、订单延迟取消队列、Redis cache、Elasticsearch 搜索和对象存储/支付回调降噪项。
+- 按用户限定范围排除磁盘/DB/对象存储持久化耗尽、需要管理权限或管理面语义的后台控制器、`mall-demo` 非默认部署、MinIO/OSS 上传、ES index import/create/delete、Alipay 特殊支付 provider 和 request-local 参数复制。
+- 静态复核结论为 0 个 `confirmed`、1 个 `likely`、4 个 `needs_dynamic_probe`：低权限 `/order/cancelOrder` 可在订单校验前投递 RabbitMQ TTL 消息；匿名 storefront 和 `mall-search` 分页缺少应用级 `pageSize` 上限；匿名 `/sso/getAuthCode` 与自助注册登录可驱动 Redis key/cardinality 增长。
+- 明确将 RabbitMQ/Redis/JVM/ES 影响与磁盘持久化副作用分开标注，所有候选均未执行动态验证，不能提升为 confirmed DoS。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/macrozheng__mall/`
+- 新增报告：`results/applications_static_analysis/macrozheng__mall/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/macrozheng__mall/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/macrozheng__mall` 源码、`databases/applications/macrozheng__mall-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `macrozheng/mall` target 信息。
+- 对后续工作的影响：若后续扩大到动态验证，可优先用默认 compose、固定 RabbitMQ/Redis/ES/JVM 资源验证 `/order/cancelOrder` TTL queue 堆积、匿名大 `pageSize` 请求、`/sso/getAuthCode` Redis key 增长和会员 cache key 增长是否能造成 OOM、GC death、broker/Redis/ES backpressure 或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-26] macrozheng/mall-tiny 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 11:04
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `macrozheng/mall-tiny` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker/MySQL/Redis 部署、Spring Security 白名单、匿名注册/登录、JWT refresh、动态权限资源表、Redis admin/resource cache、Swagger/Actuator/Druid 白名单和 UMS 管理控制器。
+- 按用户限定范围排除磁盘/DB 持久化存储、登录日志、需要 `/admin/**`、`/role/**`、`/menu/**`、`/resource/**` 管理权限的接口、特殊安全配置、上传/temp file 和纯文档/监控面。
+- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、1 个 `needs_dynamic_probe`：匿名注册加成功登录可能制造 24h Redis admin-cache key 基数，但因 Redis TTL、DB 行增长排除、自注册用户无资源权限、缓存异常传播不确定，未提升为 likely。
+- 明确拒绝匿名注册 DB 行增长、自注册用户访问管理端点、成功登录日志、固定成本 BCrypt、resourceList cache、管理大分页/批量 relation list、动态权限 map 膨胀、Swagger/Actuator/Druid 和 JWT header parser 等高噪声路径。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/macrozheng__mall-tiny/`
+- 新增报告：`results/applications_static_analysis/macrozheng__mall-tiny/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/macrozheng__mall-tiny/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/macrozheng__mall-tiny` 源码、`databases/applications/macrozheng__mall-tiny-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `macrozheng/mall-tiny` target 信息。
+- 对后续工作的影响：若后续扩大到动态验证，可优先用一次性 MySQL/Redis、固定 Redis `maxmemory` 和固定 JVM heap 验证匿名注册/登录驱动的 Redis admin cache key 增长是否能实际造成 Redis OOM、登录失败传播或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-26] xuxueli/xxl-job 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-26 10:59
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `xuxueli/xxl-job` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker compose、`xxl-job-admin` SSO/OpenAPI 边界、sample executor 默认 `9999` 暴露面、默认 `default_token`、executor `/trigger`、`JobThread`、GLUE Groovy class cache 和 Netty 聚合/业务线程池。
+- 按用户限定范围排除磁盘存储耗尽、日志/callback/script 文件、DB 表增长、普通 admin UI、需要登录或管理权限的控制器、特殊安全配置和纯命令执行/RCE 语义，只判断默认配置下外部请求可导致的非磁盘资源耗尽问题。
+- 保留 2 个 `likely` 候选：默认 sample executor 弱默认 token 下唯一 `jobId` 可创建进程级 `JobThread`/线程 registry；同一 jobId 唯一 `logId` 可堆积无界 `LinkedBlockingQueue<TriggerRequest>` 与 `triggerLogIdSet`。
+- 保留 2 个 `needs_dynamic_probe` 候选：`GLUE_GROOVY` 唯一 `glueSource` 驱动 `GlueFactory.CLASS_CACHE`/Groovy class metadata 增长；executor Netty `HttpObjectAggregator(5MiB)` 与 content-to-String 在 pre-dispatch 阶段形成 request-burst heap/线程池压力。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/xuxueli__xxl-job/`
+- 新增报告：`results/applications_static_analysis/xuxueli__xxl-job/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/xuxueli__xxl-job/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/xuxueli__xxl-job` 源码、`databases/applications/xuxueli__xxl-job-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xuxueli/xxl-job` target 信息。
+- 对后续工作的影响：后续可优先用默认 compose 或 executor-only 部署、固定 heap/Metaspace 和隔离网络验证 jobId -> JobThread 基数增长、same-job triggerQueue 积压、GLUE class cache 增长和 pre-auth body aggregation 是否能达到 OOM、GC death、线程耗尽或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-25] cryostatio/cryostat-legacy 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-25 16:56
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `cryostatio/cryostat-legacy` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `run.sh`/compose 鉴权边界、Vert.x Web/WebSocket、`/api/v1/notifications`、`/api/v2/targets`、JMX target connection manager、GraphQL 和通用 BodyHandler 请求体处理。
+- 按用户限定范围排除磁盘存储耗尽、archive/report/recording/temp file、dev-only GraphiQL、compose BasicAuth 场景、需要 target/recording 权限或特殊安全配置的路径，只判断默认配置下外部 HTTP/WebSocket 请求可导致的非磁盘资源耗尽问题。
+- 保留 2 个 `likely` 候选：`run.sh` 默认 NoopAuthManager 下 WebSocket accepted connections/ping timers 无实际小上限；`POST /api/v2/targets` 唯一失败 `connectUrl` 可能遗留 `TargetConnectionManager.targetLocks` key。
+- 保留 1 个 `needs_dynamic_probe` 候选：多个 `BodyHandler.create(true)` 入口缺少 body limit，普通非 multipart body 可形成 request-burst heap pressure；因请求期释放和 runtime 门槛未测，未提升为 likely。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/cryostatio__cryostat-legacy/`
+- 新增报告：`results/applications_static_analysis/cryostatio__cryostat-legacy/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/cryostatio__cryostat-legacy/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/cryostatio__cryostat-legacy` 源码、`databases/applications/cryostatio__cryostat-legacy-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `cryostatio/cryostat-legacy` target 信息。
+- 对后续工作的影响：后续可优先在隔离 `run.sh` NoopAuthManager 部署、固定 JVM heap 和受限网络/FD 环境下验证 WebSocket accepted connection retention、失败 targetLocks 增长和非 multipart body request-burst heap pressure。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] eclipse-tahu/tahu 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 23:43
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `eclipse-tahu/tahu` 做只静态资源耗尽 DoS 挖掘，覆盖 Java reactor、Sparkplug MQTT core/edge/host libraries、edge/host compat 默认运行方式、MQTT callback、topic cache、sequence reorder、edge/device/metric maps、protobuf/DataSet/Template parser 和本地 command listener。
+- 按用户限定范围排除磁盘存储、本地 `/tmp/commands` 文件路径、非 HTTP/Web MQTT broker 消息面、examples 模块和需要宿主应用集成的库路径，只判断默认配置下外部 HTTP/Web 请求可触发的非磁盘资源耗尽问题。
+- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、0 个 `needs_dynamic_probe`；目标默认形态是 Sparkplug/MQTT library 与 MQTT compat application，不是默认可启动 Java Web 应用。
+- 记录 MQTT 范围外复核点：`TopicUtil.SPLIT_TOPIC_CACHE`、`TahuHostCallback` 无界 executor queue、`EdgeNodeManager` / `HostApplicationMetricMap` retained maps、`SequenceReorderMap` buffering 和 Sparkplug payload parser burst memory，均因非 HTTP/Web source 未进入本轮主 findings。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/eclipse-tahu__tahu/`
+- 新增报告：`results/applications_static_analysis/eclipse-tahu__tahu/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/eclipse-tahu__tahu/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/eclipse-tahu__tahu` 源码、`databases/applications/eclipse-tahu__tahu-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `eclipse-tahu/tahu` target 信息。
+- 对后续工作的影响：后续若扩大到 MQTT broker DoS，可优先验证 topic cache、executor queue、edge/device/metric retained maps 和 sequence reorder buffering；若继续应用级 Web 主线，应选择真实默认部署宿主应用，确认是否把 HTTP/WebSocket 请求映射到 Tahu MQTT publish/host processing。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] inspectIT/inspectit-ocelot 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 23:51
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `inspectIT/inspectit-ocelot` 做只静态资源耗尽 DoS 挖掘，覆盖主 Java Agent 默认部署边界、configuration server 默认 Spring Boot 8090 HTTP 面、Spring Security `permitAll` 列表、agent configuration/command 接口、agent status/config cache、webhook、actuator 和 Swagger/OpenAPI。
+- 按用户限定范围排除磁盘存储耗尽、默认 `admin/admin` 后的管理 API、远程 Git/webhook 特殊配置、认证/管理权限路径、Kapacitor/file/search/YAML documentation 控制面和纯 metadata/static 响应。
+- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、2 个 `needs_dynamic_probe`：默认匿名 `/api/v1/agent/configuration` 可填充有界 configuration/status caches；默认匿名 `/api/v1/agent/command?wait-for-command=true` 可保持 30 秒长轮询请求并创建有界 queue cache entry。
+- 因默认 `max-agents=10000`、`agent-eviction-delay=1h`、`agentCommandCache.maximumSize(1000)`、`command-timeout=2m`、`agent-polling-timeout=30s` 和默认 virtual threads 存在明确边界，未将上述候选提升为 likely/confirmed。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/inspectit__inspectit-ocelot/`
+- 新增报告：`results/applications_static_analysis/inspectit__inspectit-ocelot/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/inspectit__inspectit-ocelot/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/inspectit__inspectit-ocelot` 源码、`databases/applications/inspectit__inspectit-ocelot-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `inspectIT/inspectit-ocelot` target 信息。
+- 对后续工作的影响：后续可优先用默认 configuration server、固定堆和隔离 HTTP harness 验证 10000 个 agent attribute/status cache entry 与 30 秒匿名 long poll 是否能造成 OOM、GC death、连接/请求耗尽或持续 HTTP 不可用；若扩大到默认弱口令管理面，需单独审计 authenticated 管理 API。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] xingshuangs/iot-communication 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 23:08
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `xingshuangs/iot-communication` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Maven `jar` 目标、生产 `App.main`、README/tutorial 默认使用方式、可选 `TcpServerBasic` / `ModbusTcpServer` / `S7PLCServer`、RTSP/fMP4 client/proxy 和 SDP parser。
+- 按用户限定范围排除磁盘存储耗尽、外部 Web monitor demo、宿主应用显式启动的非默认 server、特殊配置和管理面，只判断当前仓库默认配置下外部请求可触发的非磁盘资源耗尽问题。
+- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、0 个 `needs_dynamic_probe`；目标本身是 IoT 通信库而非默认可启动 Java Web 应用，默认 `App.main` 不启动 HTTP/TCP/UDP 服务。
+- 记录可选库 API 风险边界：Modbus/S7 frame buffer 是 16-bit 协议长度驱动的 request-local parser pressure；RTSP/fMP4 queue 和 SDP attributes 需要宿主创建 outbound client/proxy，不属于当前默认部署外部面。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/xingshuangs__iot-communication/`
+- 新增报告：`results/applications_static_analysis/xingshuangs__iot-communication/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/xingshuangs__iot-communication/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/xingshuangs__iot-communication` 源码、`databases/applications/xingshuangs__iot-communication-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xingshuangs/iot-communication` target 信息。
+- 对后续工作的影响：后续应优先选择真实默认部署的 Web/IoT 宿主应用，确认其是否把外部 HTTP/WebSocket 请求映射到本库的 Modbus/S7 server、RTSP/fMP4 proxy 或 parser API；不建议对当前 library 目标单独做默认部署 OOM harness。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] Cicizz/jmqtt 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 22:58
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `Cicizz/jmqtt` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Netty MQTT/TCP、MQTT over WebSocket、匿名认证、CONNECT/SUBSCRIBE/PUBLISH/QoS inflight、订阅树、协议处理器队列、连接 registry 和 retain/message DB 边界。
+- 按用户限定范围排除磁盘/DB 存储耗尽、retain/message/event 表增长、WebSocket 单帧/HTTP 聚合有界路径、特殊鉴权配置和管理隔离假设，只判断默认配置下外部 MQTT 请求可触发的非磁盘资源耗尽问题。
+- 保留 3 个 `likely` 候选：默认匿名 SUBSCRIBE 可增长进程级 CTrie 订阅树且 cleanSession 断开只清 DB 不清内存树；QoS2 PUBLISH 半握手可在 `qos2Receiving` 中保留 payload `byte[]`；恶意订阅端不 ACK 可使 `outboundFlowMessages` 累积待确认消息对象。
+- 保留 2 个 `needs_dynamic_probe` 候选：协议处理器大有界队列和 `ConnectManager.clientCache` 在线连接 registry；二者因存在硬上限或通用连接/OS 边界未提升为 likely。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/cicizz__jmqtt/`
+- 新增报告：`results/applications_static_analysis/cicizz__jmqtt/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/cicizz__jmqtt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/cicizz__jmqtt` 源码、`databases/applications/cicizz__jmqtt-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `Cicizz/jmqtt` target 信息。
+- 对后续工作的影响：后续可优先用默认 broker、固定堆和隔离 MQTT harness 验证 CTrie 订阅树清理缺口、QoS2 入站半握手 payload retention、出站 inflight ACK 拖延是否能造成 OOM、GC death 或持续 broker 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] megaease/easeagent 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 22:32
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `megaease/easeagent` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Java Agent 部署、内置 9900 HTTP server、配置/健康/Prometheus routes、NanoHTTPD fork、Servlet/Tomcat/Spring Gateway 插件和 Dropwizard/Prometheus metric registry。
+- 按用户限定范围排除磁盘 temp file 存储耗尽、配置篡改安全影响、特殊网络暴露假设、需要目标应用特定业务路径证明的中间件 metric key，以及 Servlet/Tomcat 已模板化 route metric 噪声。
+- 保留 2 个 `likely` 候选：默认内置 NanoHTTPD server 对每个外部连接创建无界 daemon thread；默认无鉴权配置 routes 在校验前解析无界 POST/PUT body 并复制到堆/JSON map。
+- 保留 1 个 `needs_dynamic_probe` 候选：Spring Gateway metric fallback 在无 route attr 时可能用攻击者控制的完整 URI 作为进程级 metric key，但需要默认 gateway 运行链路确认 no-route 请求是否触发。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/megaease__easeagent/`
+- 新增报告：`results/applications_static_analysis/megaease__easeagent/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/megaease__easeagent/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/megaease__easeagent` 源码、`databases/applications/megaease__easeagent-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `megaease/easeagent` target 信息。
+- 对后续工作的影响：后续可优先用隔离 JVM 验证 9900 thread-per-connection、配置 routes 大 body heap/JSON parser 压力，以及 Spring Gateway no-route metric cardinality 是否能在默认配置、有界堆下造成 OOM、native thread exhaustion、GC death 或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] daoshenzzg/socket-mqtt 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 22:07
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `daoshenzzg/socket-mqtt` 做只静态资源耗尽 DoS 挖掘，覆盖 Netty MQTT/MQTT_WS broker 默认 README 启动面、`Server` 默认 executor、MQTT decoder、WebSocket codec、自定义协议 decoder、status 端口、连接 registry 和测试订阅 demo 边界。
+- 按用户限定范围排除磁盘/DB 存储耗尽、`src/test` HSQL 订阅表、center 特殊配置、status 固定响应和需要应用显式安装的 NORMAL JSON/custom protocol 路径作为默认主发现。
+- 保留 2 个 `likely` 候选：默认 MQTT/MQTT_WS PUBLISH 在 `EventDispatcher` 中 `ByteBufHolder.retain()` 后未见 release，远端消息可造成 direct/heap buffer 与队列保留增长；默认业务线程池 `LinkedBlockingQueue` 容量 1,000,000，外部消息速率可填充队列并持有 `ctx/channel/msg`。
+- 保留 2 个 `needs_dynamic_probe` 候选：自定义 `ProtocolDecoder` 无 bodyLength 上限，以及 `Server.channels` 无应用级连接数上限；二者分别因需要显式安装 handler或通用连接容量边界而不提升为 likely。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/daoshenzzg__socket-mqtt/`
+- 新增报告：`results/applications_static_analysis/daoshenzzg__socket-mqtt/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/daoshenzzg__socket-mqtt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/daoshenzzg__socket-mqtt` 源码、`databases/applications/daoshenzzg__socket-mqtt-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `daoshenzzg/socket-mqtt` target 信息，以及本地 `.build-cache` 中 `netty-all-4.1.68.Final` 字节码复核。
+- 对后续工作的影响：后续可优先用默认 MQTT/MQTT_WS server、固定堆和 Netty leak detector 动态验证 PUBLISH retain/no-release 与 executor queue 增长是否造成 direct memory exhaustion、OOM、GC death 或持续 broker 不可用；自定义协议和连接数候选需按隔离 harness 单独验证。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+## [2026-06-24] dromara/dataCompare 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 21:59
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `dromara/dataCompare` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 2.5/Shiro/RuoYi 风格部署、默认账号、Shiro 匿名白名单、默认 `demoEnabled=true`、`swagger.enabled=true`、Druid/JDBC、session/cache、上传、数据对比/探测任务和 demo/test 控制器。
+- 按用户限定范围排除磁盘存储耗尽、Druid 管理面、数据对比/探测管理权限路径、特殊配置和持久化 DB 行增长，只判断默认配置下外部低权限请求可触发的非磁盘资源耗尽问题。
+- 保留 2 个 `likely` 候选：默认 demo `/demo/operate/add` / `importData` 与默认 Swagger test `/test/user/save` 均可由低权限登录用户向进程级 static map 写入无 TTL/容量限制对象。
+- 保留 1 个 `needs_dynamic_probe` 候选：`/system/dbconfig/testConnection` 缺少 `@RequiresPermissions`，低权限用户可同步发起攻击者指定 JDBC 连接并占用 request thread/outbound connection，但可利用性依赖 JDBC/网络超时行为。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/dromara__datacompare/`
+- 新增报告：`results/applications_static_analysis/dromara__datacompare/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/dromara__datacompare/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/dromara__datacompare` 源码、`databases/applications/dromara__datacompare-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `dromara/dataCompare` target 信息。
+- 对后续工作的影响：后续可优先动态验证 demo/test static map 的 heap 增长和 `testConnection` 慢 JDBC 目标对 Tomcat worker 的占用是否能在默认配置、有界堆下造成 OOM、GC death、线程耗尽或持续 HTTP 不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+## [2026-06-24] 9tigerio/db2rest 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 21:42
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `9tigerio/db2rest` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/Docker compose、默认 `ENABLE_AUTH=false`、RDBMS read/bulk/_expand/admin/sql/rpc/actuator 边界。
+- 按用户限定范围排除磁盘/DB 持久化存储耗尽、需要特殊 `SQL_TEMPLATE_PATH` 或数据库 routine 的路径、特殊安全配置和纯环境定义行为，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
+- 保留 2 个 `likely` 候选：默认开放读接口接受任意正 `limit` 并将 JDBC 结果完整 materialize 为 `List<Map<String,Object>>`；默认开放 `/bulk` JSON/CSV 在应用内全量解析并构造整批 JDBC batch 参数。
+- 保留 2 个 `needs_dynamic_probe` 候选：默认开放 `/_expand` join body 无数量/SQL 长度上限；默认开放 `/admin/reloadCache` 可反复触发 JDBC metadata reload。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/9tigerio__db2rest/`
+- 新增报告：`results/applications_static_analysis/9tigerio__db2rest/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/9tigerio__db2rest/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/9tigerio__db2rest` 源码、`databases/applications/9tigerio__db2rest-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `9tigerio/db2rest` target 信息。
+- 对后续工作的影响：后续可优先动态验证显式大 `limit` 读取真实大表和 `/bulk` 大 JSON/CSV body 在默认 auth=false、默认 Hikari pool、有界堆下是否造成 OOM、GC death、连接/worker 长期占用或持续 HTTP 不可用；`_expand` 和 `reloadCache` 需要使用本地合成 schema 验证。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+## [2026-06-24] s-pms/SPMS-Server 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 21:31
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `s-pms/SPMS-Server` 做只静态资源耗尽 DoS 挖掘，覆盖 Spring Boot 3 / AirPower 6.3.1 默认 production profile、`@Api` 路由、`@Permission` 权限语义、Redis 验证码/OAuth2 code 缓存、WebSocket、通知队列、全局 request wrapper、MCP/OpenAPI、设备匿名读接口和上传路径。
+- 按用户限定范围排除磁盘/对象存储、DB/Influx 持久化存储耗尽、管理权限路径、特殊配置和非 HTTP 外部入口，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
+- 保留 1 个 `likely` 候选：匿名 `/user/sendSms` 与 `/user/sendEmail` 可用不同手机号/邮箱制造 5 分钟 TTL 的 Redis 验证码 key 高基数增长；其中短信路径当前只写 Redis 与日志，默认触发更稳定。
+- 保留 1 个 `needs_dynamic_probe` 候选：登录后 `/oauth2/createCode` 在有效 `OpenApp` 下每次请求写入两个 5 分钟 TTL Redis code key，但需要登录和已有 OpenApp，不按默认匿名漏洞表述。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/s-pms__spms-server/`
+- 新增报告：`results/applications_static_analysis/s-pms__spms-server/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/s-pms__spms-server/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/s-pms__spms-server` 源码、`databases/applications/s-pms__spms-server-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `s-pms/SPMS-Server` target 信息，以及本地 `.build-cache` 中 AirPower 6.3.1 依赖字节码复核。
+- 对后续工作的影响：后续可优先在隔离 Redis/MySQL/SMTP 环境动态验证验证码 key cardinality 是否能在默认 compose、有界 Redis/JVM 下造成 Redis OOM、eviction、GC death 或持续 HTTP 不可用；OAuth2 code 候选需先构造普通用户和有效 OpenApp。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+## [2026-06-24] LiuYuYang01/ThriveX-Server 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 21:23
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `LiuYuYang01/ThriveX-Server` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/MyBatis-Plus/Docker release 边界、`@NoTokenRequired` 匿名入口、JWT 拦截器、限流、RSS 聚合、评论/留言列表、异步邮件、文件管理和统计代理。
+- 按用户限定范围排除磁盘/对象存储/DB 持久化存储耗尽本身、admin/JWT-gated 控制面、特殊配置和管理权限路径，只判断默认配置下外部请求可触发的非磁盘资源耗尽。
+- 保留 2 个 `likely` 候选：匿名友链 `status` mass assignment 可把攻击者 RSS 直接送入已审核聚合，公开 `/api/rss` 对所有已审核 RSS 做无上限 fan-out 和完整 feed 解析；匿名评论/留言 `status` mass assignment 可进入公开已审核列表，公开列表在分页前全量加载并构树/映射。
+- 保留 1 个 `needs_dynamic_probe` 候选：匿名评论、留言和友链新增会调度 `@Async` 邮件发送，项目未配置显式有界 async executor；但 SMTP 单任务超时有配置，因此需动态确认 executor 队列/线程行为。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/liuyuyang01__thrivex-server/`
+- 新增报告：`results/applications_static_analysis/liuyuyang01__thrivex-server/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/liuyuyang01__thrivex-server/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/liuyuyang01__thrivex-server` 源码、`databases/applications/liuyuyang01__thrivex-server-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `LiuYuYang01/ThriveX-Server` target 信息。
+- 对后续工作的影响：后续可优先动态验证 RSS fan-out/parser 压力和评论/留言公开列表 heap/CPU 曲线是否能在默认配置、有界堆下造成 OOM、GC death、线程/连接耗尽或持续 HTTP 不可用；异步邮件候选需使用受控慢 SMTP，避免对真实邮箱或第三方服务造成影响。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] shashirajraja/shopping-cart 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 20:17
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `shashirajraja/shopping-cart` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Servlet/JSP WAR、Tomcat/MySQL/Jakarta Mail 运行边界、公开 JSP/contact/register/login、默认 guest 购物/订单路径、JDBC 资源生命周期和邮件发送线程阻塞。
+- 按用户限定范围排除磁盘/DB 持久化存储耗尽、admin-only 产品/库存/发货管理、产品图片 BLOB、表行增长和请求期列表/图片响应对象，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
+- 保留 2 个 `likely` 候选：匿名 JSP 默认 `session=true` 创建 server-side session 且应用未配置 session 数量上限；默认 guest/普通用户路径可在 `DBUtil` static MySQL connection 上累积未关闭 `PreparedStatement`/`ResultSet`。
+- 保留 1 个 `needs_dynamic_probe` 候选：公开 contact、匿名注册和低权限下单邮件路径同步调用 `Transport.send`，且未配置 `mail.smtp.connectiontimeout` / `timeout` / `writetimeout`，可能在 SMTP 慢或不可达时耗尽 request threads。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/shashirajraja__shopping-cart/`
+- 新增报告：`results/applications_static_analysis/shashirajraja__shopping-cart/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/shashirajraja__shopping-cart/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/shashirajraja__shopping-cart` 源码、`databases/applications/shashirajraja__shopping-cart-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `shashirajraja/shopping-cart` target 信息，以及本地 Maven 缓存中的 `mysql-connector-j-8.0.33` 和 `jakarta.mail-2.0.1` jar 反编译证据。
+- 对后续工作的影响：后续可优先动态验证匿名 JSP session-count 增长和 Connector/J active statement count 是否能在默认 Tomcat/MySQL/有界堆下造成 OOM、GC death 或持续 HTTP 不可用；邮件线程候选需使用可控 SMTP 故障注入避免外部副作用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] SourceLabOrg/kafka-webview 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 20:11
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `SourceLabOrg/kafka-webview` 做只静态资源耗尽 DoS 挖掘，覆盖官方 Docker/release 默认配置、Spring Security 边界、普通消费 API、STOMP websocket consumer manager、Actuator、登录/重置密码和配置上传边界。
+- 按用户限定范围排除磁盘存储耗尽、admin-only 配置/上传/topic 管理、禁用认证 anonymous-admin 特殊配置和仅由既有 Kafka 集群状态决定的 metadata 放大路径。
+- 保留 3 个 `needs_dynamic_probe` 候选：低权限 `/api/consumer/view/{id}` 按 topic partition 向全局 fixed pool 提交任务且未见 queue cap；`/websocket/consume/{viewId}` 在 executor 提交前写入 `consumers` map 的饱和异常路径；普通 JSON consume/offset API 在业务校验前构造 unbounded request object graph。
+- 明确记录默认首次启动无 cluster/view，`KWV-APP-STATIC-0001/0002` 属于默认配置、正常使用态、有低权限账号和已有 Kafka view 的候选，不能表述为全新空实例匿名触发。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/sourcelaborg__kafka-webview/`
+- 新增报告：`results/applications_static_analysis/sourcelaborg__kafka-webview/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/sourcelaborg__kafka-webview/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/sourcelaborg__kafka-webview` 源码、`databases/applications/sourcelaborg__kafka-webview-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `SourceLabOrg/kafka-webview` target 信息。
+- 对后续工作的影响：后续可优先动态验证 `/api/consumer/view/{id}` 的 fixed pool queue 增长和 websocket consumers map 饱和异常路径，再测大 JSON request-burst 的 heap/GC 门槛。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] weibocom/rill-flow 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 17:46
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `weibocom/rill-flow` 做只静态资源耗尽 DoS 挖掘，覆盖官方 Docker compose、UI nginx `/flow/` 反代、默认 `AuthUserResolver` 边界、submit/trigger/convert/dependency_check、触发器、runtime Redis、Aviator cache、Prometheus meter 和默认 executor 队列。
+- 按用户限定范围排除磁盘存储耗尽、后台/管理权限入口、生产默认不会开启或需要特殊基础设施的路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 保留 3 个 `needs_dynamic_probe` 候选：默认无有效鉴权的 `/flow/submit.json` 在存在可提交 descriptor 时驱动 runtime Redis execution/context 增长；匿名 `/flow/trigger.json` 在任务存在性检查和 6144 字节 context 限制前解析 context；`/flow/convert.json` 与 `/flow/dependency_check.json` raw DAG YAML/JSON parser request-burst 压力。
+- 明确拒绝 cron/kafka trigger 管理态 map/consumer、后台 descriptor/template/customized storage、Aviator bounded cache、bounded executor queues、Prometheus meter cardinality 和既有状态列表放大等高噪声或范围外路径。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/weibocom__rill-flow/`
+- 新增报告：`results/applications_static_analysis/weibocom__rill-flow/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/weibocom__rill-flow/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/weibocom__rill-flow` 源码、`databases/applications/weibocom__rill-flow-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `weibocom/rill-flow` target 信息。
+- 对后续工作的影响：后续可优先动态验证 submit runtime Redis retained-state 增长是否能造成默认服务不可用，再测 trigger/convert/dependency_check parser request-burst 的 heap/CPU/GC 门槛。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] xnx3/wangmarket 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 17:26
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `xnx3/wangmarket` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/JSP/Shiro、根级匿名 `.do`/`.html`、验证码/登录校验、公开站点页面、UEditor 和安装态边界。
+- 按用户限定范围排除磁盘存储耗尽、后台/管理权限入口、首次安装一次性状态、特殊云存储配置和不属于当前仓库的插件入口，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
+- 保留 1 个 `likely` 候选：默认匿名 `/captcha.do` 和带非空 `code` 的 `/wangmarketLoginSubmit.do` 会通过 `CaptchaUtil` 创建 server-side session；默认 Shiro 使用 `MemorySessionDAO` 且 100 分钟超时，未见 session 数量或 per-IP 上限。
+- 保留 1 个 `needs_dynamic_probe` 候选：安装完成并配置站点域名后，公开 `*.html` 站点页面成功命中站点时会把 `SImpleSiteVO` 写入匿名 session，同样可能驱动 session count 增长。
+- 明确拒绝后台模板导入/还原、新闻/站点管理、UEditor 文件存储、云存储页面源缓存、日志持久化、phoneCreateSite 外部插件、安装流程和登录后空间统计线程等高噪声或范围外路径。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/xnx3__wangmarket/`
+- 新增报告：`results/applications_static_analysis/xnx3__wangmarket/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/xnx3__wangmarket/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/xnx3__wangmarket` 源码、`databases/applications/xnx3__wangmarket-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xnx3/wangmarket` target 信息、内置 SQLite 快照和 `wm-3.28.jar` 字节码反编译证据。
+- 对后续工作的影响：后续可优先动态验证匿名验证码/登录校验 session-count 增长在默认堆和默认 Shiro cleanup 下的 OOM/GC/不可用门槛；公开站点页面候选需要先完成默认安装域名/站点态。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] xuxueli/xxl-boot 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 16:50
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `xuxueli/xxl-boot` 做只静态资源耗尽 DoS 挖掘，覆盖 `xxl-boot-api` 默认 Spring Security 匿名面、`RepeatableFilter` JSON body 包装、验证码 Redis key、登录失败异步日志队列，以及 `xxl-boot-admin` SSO 边界。
+- 按用户限定范围排除磁盘存储耗尽、DB 行增长、后台/管理权限入口、生产默认不会开放或需要管理登录的功能，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 保留 1 个 `likely` 候选：默认匿名 `/login` 与 `/register` JSON body 会先经过全局 `RepeatableFilter` 完整读入 `StringBuilder`/`String` 并复制为 `byte[]`，未见应用级 JSON body 上限。
+- 保留 2 个 `needs_dynamic_probe` 候选：匿名 `/captchaImage` 生成 2 分钟 TTL Redis captcha key 和验证码图片；匿名 `/login` 验证码失败路径会在用户名长度校验前提交登录失败 `TimerTask` 到 scheduled executor。
+- 明确拒绝 Druid/Swagger 管理或文档面、`xxl-boot-admin` 后台业务控制器、文件上传/下载、Excel/代码生成、XSS wrapper 认证路径、默认关闭注册账号增长、未使用的 `@RateLimiter`/`@RepeatSubmit` 等高噪声模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/xuxueli__xxl-boot/`
+- 新增报告：`results/applications_static_analysis/xuxueli__xxl-boot/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/xuxueli__xxl-boot/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/xuxueli__xxl-boot` 源码、`databases/applications/xuxueli__xxl-boot-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xuxueli/xxl-boot` target 信息。
+- 对后续工作的影响：后续可优先动态验证匿名 JSON body request-burst 的 heap/GC/不可用门槛，再测 `/captchaImage` Redis key 窗口和 `/login` 验证码失败异步队列/DB pool 压力。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] dromara/ujcms 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 16:30
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `dromara/ujcms` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker/compose、Spring Boot/Spring MVC/Spring Security、公开前台 API、访问统计、multipart、验证码、注册/留言、投票/问卷、分页和缓存路径。
+- 按用户限定范围排除磁盘存储耗尽、后台/管理权限入口、默认关闭功能、特殊配置和仅数据库行增长路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 保留 1 个 `likely` 候选：默认公开 `POST /frontend/visit/{siteId}` 与 `POST /api/visit/{siteId}` 可将攻击者控制的 `referrer` host 构造为未截断 `source` 字符串，并在写库前保留于 singleton `VisitService.visitLogCache`。
+- 保留 1 个 `needs_dynamic_probe` 候选：同一公开访问统计入口每次请求都构造 `ua_parser.Parser`，反复加载和初始化 `regexes.yaml` 解析规则，可能造成 request-burst CPU/GC 压力。
+- 明确拒绝后台 WebFile/ZIP、头像上传、Captcha/IP 登录/IP SMS bounded cache、默认关闭注册、默认需登录加验证码留言、投票/问卷选项校验、公开列表分页上限和浏览计数静态 map/cache 等高噪声模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/dromara__ujcms/`
+- 新增报告：`results/applications_static_analysis/dromara__ujcms/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/dromara__ujcms/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/dromara__ujcms` 源码、`databases/applications/dromara__ujcms-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `dromara/ujcms` target 信息，以及本地 Maven 缓存中的 `uap-java-1.6.1` jar 反编译证据。
+- 对后续工作的影响：后续可优先动态验证访问统计 `referrer` source 未截断路径在默认 Tomcat/Spring 接受阈值、异步写库失败/积压和有界堆下的服务不可用门槛；`Parser` per-request 构造候选需要对比 singleton 复用前后的 CPU/GC 曲线。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] ytyht226/taskflow 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 15:54
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `ytyht226/taskflow` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Maven 多模块 jar/pom 目标、DAG `wrapperMap`/依赖集合、`DagContext`、`TaskUtil` 批处理集合、`CustomThreadPool` 无界队列和 Gson/JsonPath/opConfig 参数解析路径。
+- 按用户限定范围排除磁盘/文件存储耗尽、特殊配置、生产默认不开启功能、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 未发现默认配置下可由外部 HTTP 请求直接触发的 `confirmed`、`likely` 或值得保留为 `needs_dynamic_probe` 的 DoS 候选；核心原因是该目标为 DAG 编排 jar library，没有默认 Web server、controller、servlet/filter、JAX-RS resource、request/session/multipart 入口。
+- 明确拒绝 DAG wrapper graph 增长、依赖集合增长、TaskUtil taskList/batch 放大、无界 executor queue、Gson/JsonPath/opConfig 解析、listener map/list 和 DagContext 结果保留等库级误用模式，理由是均需要宿主应用把外部请求映射到 taskflow Java API。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/ytyht226__taskflow/`
+- 新增报告：`results/applications_static_analysis/ytyht226__taskflow/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/ytyht226__taskflow/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/ytyht226__taskflow` 源码、`databases/applications/ytyht226__taskflow-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `ytyht226/taskflow` target 信息和本地 CodeQL build log。
+- 对后续工作的影响：后续若要继续跟 taskflow 相关风险，应转向真实默认部署的宿主 Web 应用，查找匿名或低权限 HTTP 参数是否直接控制 DAG wrapper graph、TaskUtil taskList/batch 参数、opConfig/jsonPathList、递归参数解析、无界 executor queue 或跨请求保留的 DagEngine/DagContext。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] quickmsg/smqtt 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 15:44
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `quickmsg/smqtt` 做只静态资源耗尽 DoS 挖掘，覆盖官方 Docker 默认 MQTT TCP 1883、no-config fallback、默认匿名认证、CONNECT/PUBLISH/SUBSCRIBE/QoS2/offline session/retain message/topic registry 路径。
+- 按用户限定范围排除磁盘/DB/Redis 持久化存储、需要挂载配置才开启的 HTTP/WS/cluster/admin/API、固定认证/ACL 等非默认配置路径，只判断默认配置下外部 MQTT 请求可触发的非磁盘资源耗尽问题。
+- 保留 6 个 `likely` 默认匿名候选：persistent session 断开后保留 channel registry；retained PUBLISH 填充无界 `retainMessages`；普通 PUBLISH 对未订阅 topic 创建空 topic key；offline persistent subscription 累积 session message 队列；SUBSCRIBE 增长 fixed/wildcard topic index；QoS2 半握手缓存 publish message 与 retry ack state。
+- 明确拒绝 HTTP `/smqtt/*` API、HTTP 管理/UI、WebSocket、cluster、Redis/DB persistent registry、ACL FILE/JDBC、固定认证、boundedElastic 队列和单帧 MQTT parser 大包等高噪声或非默认模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/quickmsg__smqtt/`
+- 新增报告：`results/applications_static_analysis/quickmsg__smqtt/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/quickmsg__smqtt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/quickmsg__smqtt` 源码、`databases/applications/quickmsg__smqtt-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `quickmsg/smqtt` target 信息。
+- 对后续工作的影响：后续可优先动态验证 retained message、offline session queue、empty topic key cardinality 三条默认匿名 MQTT 路径，再测 persistent channel registry、subscription trie 和 QoS2 cache/ackMap 的服务不可用阈值。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] michaelliao/itranswarp 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 13:33
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `michaelliao/itranswarp` 做只静态资源耗尽 DoS 挖掘，覆盖默认 quickstart Docker Compose、Spring Boot/Tomcat、全局 Redis rate limiter、`/api` JSON body 解析、Passkey/WebAuthn、external gpt/remoteCodeRun、search、avatar、attachment、Markdown、view counter 和 Redis cache 路径。
+- 按用户限定范围排除磁盘/DB 存储耗尽、特殊配置、生产默认不开启功能、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 保留 2 个 `likely` 候选：可伪造代理 IP 头驱动 Redis rate-limit timestamp key 基数增长并绕过默认限流；`@RequestBody` JSON 在 `@RoleWith` 角色检查或默认禁用 feature flag 前被 Jackson 解析，可能造成 request-burst heap/CPU 压力。
+- 保留 1 个 `needs_dynamic_probe` 候选：匿名 `/api/passkey/signin` 在 challenge/credential 校验前解码并解析攻击者控制的 WebAuthn 字段，需要动态确认 webauthn4j 对大字段的拒绝阶段和资源曲线。
+- 明确拒绝 passkey challenge DB row、search、avatar、attachment 下载/上传存储、Markdown、remote-code-runner executor、ChatGPT outbound、OAuth provider、manage/admin 业务逻辑、public view counters、Redis first-page caches、本地/eth 登录和大 `pageIndex` 等高噪声模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/michaelliao__itranswarp/`
+- 新增报告：`results/applications_static_analysis/michaelliao__itranswarp/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/michaelliao__itranswarp/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/michaelliao__itranswarp` 源码、`databases/applications/michaelliao__itranswarp-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `michaelliao/itranswarp` target 信息。
+- 对后续工作的影响：后续可优先动态验证 Redis key cardinality/限流绕过和 pre-auth JSON parser heap 压力；Passkey/WebAuthn parser 候选需要先构造 valid-enough 字段再测量。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] aizuda/flowlong 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 13:14
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `aizuda/flowlong` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/Solon example、`/process/deploy`、`/process/instance-start`、固定 `process.json`、流程模型 cache、实例启动、提醒调度、事件发布、ThreadLocal 和 SpEL/SnEL 表达式路径。
+- 按用户限定范围排除磁盘/DB 持久化存储增长、特殊配置、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 未发现默认配置下可由外部 HTTP 请求直接触发的 `confirmed`、`likely` 或值得保留为 `needs_dynamic_probe` 的非磁盘 DoS 候选；核心原因是默认 HTTP 面只暴露固定示例入口，外部请求不能控制模型内容、流程 key、变量大小、缓存 key、表达式、队列/线程或 body/multipart 字节。
+- 明确拒绝默认 `/process/deploy` 任意模型上传、固定 `process.json` parse、`FlowSimpleCache` key cardinality、`/process/instance-start` DB row 增长、per-instance process model cache、reminder scheduler scan、event publish、`FlowDataTransfer` ThreadLocal、SpEL/SnEL eval 和 Solon `maxBodySize=1024mb` 等高噪声模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/aizuda__flowlong/`
+- 新增报告：`results/applications_static_analysis/aizuda__flowlong/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/aizuda__flowlong/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/aizuda__flowlong` 源码、`databases/applications/aizuda__flowlong-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `aizuda/flowlong` target 信息。
+- 对后续工作的影响：后续若要继续跟 FlowLong 相关风险，应转向真实默认部署的宿主 Web 应用，查找匿名或低权限 HTTP 参数是否直接控制 workflow JSON 部署、process/tenant key、启动变量、dynamicAssignee、条件表达式、提醒/trigger/timer 配置、per-instance model cache 或自定义无界 `FlowCache`/event/executor。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] j-easy/easy-flows 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 13:05
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `j-easy/easy-flows` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Maven jar 目标、库 API source、`WorkContext`、`RepeatFlow`、`TimesPredicate`、`ParallelFlow`、`SequentialFlow`、executor/report/context merge 等资源敏感点。
+- 按用户限定范围排除磁盘存储耗尽、特殊配置、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
+- 未发现默认配置下可由外部 HTTP 请求直接触发的 `confirmed`、`likely` 或值得保留为 `needs_dynamic_probe` 的 DoS 候选；核心原因是该目标为 workflow engine jar library，没有默认 Web server、controller、servlet/filter、JAX-RS resource、request/session/multipart 入口。
+- 明确拒绝 `WorkContext` map 增长、`RepeatFlow.times(0/负数)` 长循环、custom predicate、`ParallelFlow` workUnits/task/future/report cardinality、executor/thread 压力和 `ParallelFlowReport` context merge 等库级误用模式，理由是均需要宿主应用把外部请求映射到 easy-flows API。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/j-easy__easy-flows/`
+- 新增报告：`results/applications_static_analysis/j-easy__easy-flows/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/j-easy__easy-flows/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/j-easy__easy-flows` 源码、`databases/applications/j-easy__easy-flows-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `j-easy/easy-flows` target 信息和本地 CodeQL build log。
+- 对后续工作的影响：后续若要继续跟 easy-flows 相关风险，应转向真实默认部署的宿主 Web 应用，查找匿名或低权限 HTTP 参数是否直接控制 `RepeatFlow.times(...)`、workflow work unit count、长生命周期 `WorkContext` 或 caller-provided executor。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] getrebuild/rebuild 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 12:24
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `getrebuild/rebuild` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker 部署、Spring Boot/Tomcat session、Ehcache、匿名白名单、验证码、条码/二维码生成、OpenAPI 网关、登录失败 retry cache、`X-ReqRandom` re-entry cache、任务队列、分享/文件/OnlyOffice/邮件/2FA 等路径。
+- 按用户限定范围排除磁盘存储耗尽、需要特殊配置、生产默认不会开启的安全性配置、管理权限或管理面依赖路径；Ehcache `overflowToDisk` 只作为排除项记录，非磁盘判断以 `maxElementsInMemory=10000` 为边界。
+- 保留 2 个 `likely` 默认匿名候选：拦截器在认证前通过 `ServletUtils.getSessionAttribute` 创建 120 分钟 Tomcat session；匿名 `/commons/barcode/render*` 可由长 `t` 和 `w=1200` 放大 ZXing `BitMatrix`/`BufferedImage` request-burst heap/CPU。
+- 保留 4 个 `needs_dynamic_probe` 候选：`/gw/api/**` 在签名验证前读取并 FastJSON parse raw body；`/user/captcha?k=` 的 session/MobKey 增长；`/user/user-login` 失败路径的 `LoginRetry-*` cache 增长；`X-ReqRandom` 预认证 re-entry cache 增长。
+- 明确拒绝文件/磁盘、admin/setup、OnlyOffice、邮件验证码、2FA/temp-auth/auto-login、登录成功队列、API 日志队列、共享仪表盘 token 依赖、map/mermaid/search/metadata auth-gated 路径、头像和 live-wallpaper 固定 upstream 等高噪声模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/getrebuild__rebuild/`
+- 新增报告：`results/applications_static_analysis/getrebuild__rebuild/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/getrebuild__rebuild/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/getrebuild__rebuild` 源码、`databases/applications/getrebuild__rebuild-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `getrebuild/rebuild` target 信息，以及本地 Maven 缓存中的 `easy-captcha` / `devezhao commons` jar 反编译证据。
+- 对后续工作的影响：后续可优先动态验证 `REBUILD-APP-STATIC-0001` 的匿名 session OOM/GC 门槛和 `REBUILD-APP-STATIC-0002` 的条码渲染 OOM 门槛，再验证 `/gw/api/**` pre-auth JSON parse、captcha/LoginRetry/ReqRandom cache 在默认 Ehcache 和有界堆下是否能造成持续服务不可用。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
+## [2026-06-24] Tencent/APIJSON 应用级静态 DoS 挖掘
+
+### 修改时间
+2026-06-24 12:36
+
+### 变更类型
+- [文档] 应用级静态挖掘结果
+- [新增功能] 应用级 static-analysis 结果归档
+
+### 核心改动
+- 使用 `skills/java-web-dos-hunter` 对 `Tencent/APIJSON` 做只静态资源耗尽 DoS 挖掘，覆盖本地 build-mode DB 实际包含的 `APIJSONORM 8.1.8` jar 模块、Parser/Verifier/SQLExecutor/FunctionParser/script executor 等默认资源面。
+- 按用户限定范围排除磁盘存储耗尽、需要特殊配置、生产部署通常不会开启的安全性配置、管理权限或管理面依赖路径，只判断默认配置下外部请求可能导致的非磁盘资源耗尽。
+- 未发现默认配置下可落为 `confirmed`、`likely` 或需要单独动态验证的外部请求直接 DoS 候选；核心原因是该目标为 ORM library 且无默认 HTTP entry，表访问、query count/page、对象/数组/深度、SQL 数量、where/having/combine 复杂度均有默认边界。
+- 明确拒绝任意表 GET/HEAD 查询、超大 count/page、SQL cache/connection map cardinality、compiledScriptMap、FUNCTION_MAP、REQUEST_MAP、`@combine/@having` CPU、`@explain` 和 raw SQL/SQL function 等高噪声模式。
+
+### 交付成果
+- 新增本地结果目录：`results/applications_static_analysis/tencent__apijson/`
+- 新增报告：`results/applications_static_analysis/tencent__apijson/STATIC_DOS_HUNT_REPORT.md`
+- 新增明细：`results/applications_static_analysis/tencent__apijson/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
+- 修改变更日志：`CHANGELOG.md`
+- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+
+### 依赖与影响
+- 依赖：本地 `frameworks/applications/tencent__apijson` 源码、`databases/applications/tencent__apijson-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `Tencent/APIJSON` target 信息。
+- 对后续工作的影响：如果继续分析 APIJSON 生态，应转向官方 APIJSON-Demo 或真实默认部署集成应用，单独记录 HTTP controller、默认 seed/Access/Request/Function 表和是否修改 `MAX_*`、`ENABLE_SCRIPT_FUNCTION`、`Log.DEBUG`、`needVerify` 或 parser/executor 生命周期。
+- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+
+---
+
 ## [2026-06-24] diyhi/bbs 应用级静态 DoS 挖掘
 
 ### 修改时间

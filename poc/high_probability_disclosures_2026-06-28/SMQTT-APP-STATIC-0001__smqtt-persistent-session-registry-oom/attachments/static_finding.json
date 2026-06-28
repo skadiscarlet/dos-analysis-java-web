@@ -1,0 +1,31 @@
+{
+  "_static_path": "results/applications_static_analysis/quickmsg__smqtt/findings.jsonl",
+  "bound": "MqttDecoder bounds a single frame to messageMaxSize 4194304, but clientIdentifier count is not capped; default authConfig is null and NoneAuthManager accepts all clients",
+  "dimension": [
+    "process_heap",
+    "key_cardinality",
+    "session_lifetime_state"
+  ],
+  "driver": "distinct clientIdentifier count; optional subscription count per persistent channel",
+  "entry": "Default MQTT TCP 1883 in official docker run without mounted config",
+  "evidence": [
+    "frameworks/applications/quickmsg__smqtt/README.md:216-220",
+    "frameworks/applications/quickmsg__smqtt/smqtt-bootstrap/src/main/java/io/github/quickmsg/docker/DockerStarter.java:17-39",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/config/BootstrapConfig.java:25-39",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/auth/AuthManagerFactory.java:17-31",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/auth/NoneAuthManager.java:8-12",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/ConnectProtocol.java:96-112",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/ConnectProtocol.java:146-150",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/ConnectProtocol.java:190-194",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/spi/DefaultChannelRegistry.java:23-42"
+  ],
+  "finding_id": "SMQTT-APP-STATIC-0001",
+  "impact": "default unauthenticated external clients can accumulate process-lifetime session/channel objects. Static evidence is strong, but no OOM or sustained unavailability was measured in this run.",
+  "retention": "offline persistent MqttChannel remains in process registries until the same clientIdentifier reconnects or process restarts; no TTL or max session count found",
+  "scope_notes": "No HTTP, disk, DB, Redis, admin, or special config dependency.",
+  "sink": "DefaultChannelRegistry.channelMap plus ConnectProtocol.close persistent-session branch that skips channelRegistry.close and topicRegistry.clear",
+  "source": "MQTT CONNECT with attacker-controlled unique clientIdentifier and cleanSession=false, followed by DISCONNECT or TCP close",
+  "static_trigger_shape": "Open many MQTT connections using unique client IDs, set cleanSession=false, complete CONNECT, then disconnect. Repeat with new IDs and observe channelRegistry.counts or heap in a future probe.",
+  "title": "Anonymous persistent MQTT sessions retain client registry entries after disconnect",
+  "verdict": "likely"
+}

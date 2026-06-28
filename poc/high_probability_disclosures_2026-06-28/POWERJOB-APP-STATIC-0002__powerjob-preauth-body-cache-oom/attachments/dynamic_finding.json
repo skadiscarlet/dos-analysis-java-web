@@ -1,0 +1,34 @@
+{
+  "_phase": "P0",
+  "app": "powerjob__powerjob",
+  "candidate_id": "POWERJOB-APP-STATIC-0002",
+  "dynamic_verdict": "confirmed_oom",
+  "evidence": {
+    "aliveBeforeStop": true,
+    "clientException": "",
+    "endpoint": "/container/downloadContainerTemplate",
+    "heap": "192m",
+    "lastHttpStatus": 200,
+    "mysqlContainer": "p0-powerjob-mysql",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33307,
+    "payloadBytes": 16777340,
+    "port": 18084,
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "processStatus": {
+      "Threads": "105",
+      "VmHWM": "578936 kB",
+      "VmRSS": "578936 kB"
+    },
+    "workerThreads": 8
+  },
+  "heap": "192m",
+  "log": "results/applications_dynamic_validation/p0/logs/POWERJOB-APP-STATIC-0002.log",
+  "notes": "",
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 8,
+  "status": "verified_oom",
+  "title": "Pre-auth request body caching copies ordinary POST bodies into heap under default server heap",
+  "true_positive": true
+}

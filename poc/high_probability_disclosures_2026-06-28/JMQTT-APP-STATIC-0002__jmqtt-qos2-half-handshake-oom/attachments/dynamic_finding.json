@@ -1,0 +1,33 @@
+{
+  "_phase": "P1",
+  "app": "cicizz__jmqtt",
+  "candidate_id": "JMQTT-APP-STATIC-0002",
+  "dynamic_verdict": "confirmed_oom",
+  "evidence": {
+    "aliveBeforeStop": true,
+    "clientException": "",
+    "connections": 6,
+    "estimatedPayloadBytes": 117760000,
+    "heap": "128m",
+    "mysqlContainer": "p1-jmqtt-mysql-18842",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33442,
+    "payloadBytes": 512000,
+    "port": 18842,
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "processStatus": {
+      "Threads": "106",
+      "VmHWM": "285904 kB",
+      "VmRSS": "285904 kB"
+    }
+  },
+  "heap": "128m",
+  "log": "results/applications_dynamic_validation/p1/logs/JMQTT-APP-STATIC-0002.log",
+  "notes": "JMQTT 匿名 QoS2 PUBLISH 半握手，不发送 PUBREL/后续 ACK；只以目标 JVM OOM 为真阳。",
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 230,
+  "status": "verified_oom",
+  "title": "匿名 QoS2 PUBLISH 半握手保留 DeviceMessage",
+  "true_positive": true
+}

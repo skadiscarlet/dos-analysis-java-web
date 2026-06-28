@@ -1,0 +1,24 @@
+{
+  "_static_path": "results/applications_static_analysis/quickmsg__smqtt/findings.jsonl",
+  "bound": "messageMaxSize bounds topic string length per frame; no total topic key quota or negative-cache eviction found",
+  "dimension": [
+    "process_heap",
+    "key_cardinality"
+  ],
+  "driver": "distinct PUBLISH topicName cardinality",
+  "entry": "Default MQTT TCP 1883",
+  "evidence": [
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/PublishProtocol.java:57-61",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/spi/DefaultTopicRegistry.java:74-76",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/topic/FixedTopicFilter.java:24-30"
+  ],
+  "finding_id": "SMQTT-APP-STATIC-0003",
+  "impact": "an unauthenticated client can grow broker heap with tiny PUBLISH packets even when no subscribers and retain=false. This is a default external request path and more clearly application-specific than generic connection flooding.",
+  "retention": "empty CopyOnWriteArraySet entries are stored in FixedTopicFilter.topicChannels and no cleanup path removes entries created only by publish lookup",
+  "scope_notes": "No disk storage and no special config; dynamic proof still required for service-unavailability threshold.",
+  "sink": "PublishProtocol always calls topicRegistry.getSubscribesByTopic; FixedTopicFilter.getSubscribeByTopic uses topicChannels.computeIfAbsent(topic, ...)",
+  "source": "MQTT PUBLISH with attacker-controlled distinct fixed topicName, retain=false is sufficient",
+  "static_trigger_shape": "CONNECT anonymously, then publish tiny QoS0 non-retained messages to unique fixed topics such as dos/empty/{i}; no subscriber setup is required.",
+  "title": "Publishing to many never-subscribed topics creates empty global topic keys",
+  "verdict": "likely"
+}

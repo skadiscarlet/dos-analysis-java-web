@@ -1,0 +1,29 @@
+{
+  "_static_path": "results/applications_static_analysis/powerjob__powerjob/findings.jsonl",
+  "bound": "Spring multipart 200MiB does not bound JSON/text/raw body. Spring Boot 2.7.18 Undertow default maxHttpPostSize is -1 by local javap. Server heap is 512MiB in default docker-compose.",
+  "dimension": [
+    "heap_bytes",
+    "gc_pressure",
+    "request_burst_memory"
+  ],
+  "driver": "attacker-controlled request body byte volume and concurrent request count",
+  "evidence": [
+    "docker-compose.yml:26-33",
+    "application.properties:10-14",
+    "CachingRequestBodyFilter.java:30-47",
+    "CachingRequestBodyFilter.java:63-80",
+    "CachingRequestBodyFilter.java:83-111",
+    "PowerJobAuthInterceptor.java:52-54",
+    "OpenApiInterceptor.java:48-50",
+    "ServerProperties$Undertow javap shows DataSize.ofBytes(-1)"
+  ],
+  "exploitability": "Anonymous low-trust HTTP can trigger filter-stage memory pressure before business validation. Exact OOM threshold needs default compose measurement.",
+  "finding_id": "POWERJOB-APP-STATIC-0002",
+  "priority": "P1",
+  "retention": "Full body string is retained for request processing before controller/interceptor authorization finishes; subsequent JSON parsing/input-stream reads can duplicate bytes",
+  "sink": "CachingRequestBodyFilter.CustomHttpServletRequestWrapper reads the full body into StringBuilder/String and later body.getBytes()",
+  "source": "Any Spring MVC request with Content-Type not exactly application/x-www-form-urlencoded or multipart/form-data, including anonymous /openApi/* and /container/downloadContainerTemplate",
+  "static_status": "No dynamic test run; not confirmed service unavailability.",
+  "title": "Pre-auth request body caching copies ordinary POST bodies into heap under default 512MiB server heap",
+  "verdict": "likely"
+}

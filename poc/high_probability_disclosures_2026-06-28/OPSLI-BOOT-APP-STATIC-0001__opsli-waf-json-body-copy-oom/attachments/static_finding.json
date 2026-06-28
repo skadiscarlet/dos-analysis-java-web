@@ -1,0 +1,37 @@
+{
+  "_static_path": "results/applications_static_analysis/hiparker__opsli-boot/findings.jsonl",
+  "bound": "spring.servlet.multipart has 10MB limits but those do not constrain JSON; reviewed config does not set a Spring MVC JSON body max or Tomcat max-http-form-post-size equivalent; container/proxy defaults and heap size are deployment-dependent",
+  "dimension": [
+    "request_heap",
+    "request_cpu",
+    "request_burst_memory"
+  ],
+  "driver": "request body byte volume, concurrent request count, and regex input shape",
+  "dynamic_probe": "Start default opsli-boot with capped heap and Redis/MySQL; POST large JSON bodies with benign and regex-adversarial content to /system/login and /api/v1/common/email/create-code; measure heap peak, GC, servlet worker occupancy, latency and ordinary endpoint availability. Stop before host OOM outside the isolated test.",
+  "entry": "POST /opsli-boot/system/login, /opsli-boot/system/login-by-code, /opsli-boot/api/{ver}/common/email/create-code and /opsli-boot/api/{ver}/common/mobile/create-code under default permit-all configuration",
+  "evidence": [
+    "pom.xml:369-378",
+    "opsli-starter/src/main/resources/application.yaml:36-39",
+    "opsli-starter/src/main/resources/application.yaml:179-190",
+    "opsli-starter/src/main/resources/application.yaml:203-222",
+    "opsli-base-support/opsli-core/src/main/java/org/opsli/core/autoconfigure/conf/SecurityConfig.java:95-105",
+    "opsli-plugins/opsli-plugins-waf/src/main/java/org/opsli/plugins/waf/conf/WafConfig.java:39-58",
+    "opsli-plugins/opsli-plugins-waf/src/main/java/org/opsli/plugins/waf/filter/WafFilter.java:45-59",
+    "opsli-plugins/opsli-plugins-waf/src/main/java/org/opsli/plugins/waf/servlet/WafHttpServletRequestWrapper.java:50-54",
+    "opsli-plugins/opsli-plugins-waf/src/main/java/org/opsli/plugins/waf/servlet/WafHttpServletRequestWrapper.java:79-96",
+    "opsli-plugins/opsli-plugins-waf/src/main/java/org/opsli/plugins/waf/servlet/WafHttpServletRequestWrapper.java:200-212",
+    "opsli-plugins/opsli-plugins-waf/src/main/java/org/opsli/plugins/waf/util/XSSFilterKit.java:63-105",
+    "opsli-modulars/opsli-modulars-system/src/main/java/org/opsli/modulars/system/login/web/LoginByAccountRestController.java:81-96",
+    "opsli-modulars/opsli-modulars-system/src/main/java/org/opsli/modulars/system/login/web/LoginByCodeRestController.java:59-74",
+    "opsli-modulars/opsli-modulars-system/src/main/java/org/opsli/modulars/tools/common/CommonRestController.java:82-148"
+  ],
+  "finding_id": "OPSLI-BOOT-APP-STATIC-0001",
+  "impact": "static evidence strongly supports externally triggerable request-local heap/CPU amplification on default anonymous JSON endpoints, but no dynamic OOM, GC death, worker exhaustion, or sustained unavailable evidence was collected",
+  "reachability": "opsli.waf.enable=true, xss-filter=true, url-patterns=/*; SecurityConfig loads permit-all entries for the listed anonymous endpoints; WafConfig order=0 registers before controller logic and @Limiter method advice",
+  "retention": "request-burst lifetime; multiple full-body copies and regex replacement results live until request completion and can overlap across servlet workers",
+  "sink": "WafHttpServletRequestWrapper.getInputStream -> StreamUtils.copyToString -> filterParamString -> XSSFilterKit.stripXSS -> json.getBytes -> ByteArrayInputStream",
+  "source": "anonymous application/json request body before controller @RequestBody parsing",
+  "static_poc": "Send large application/json bodies to the anonymous endpoints; the WAF must read the whole body into a String, run XSS regex replacements, and re-create a ByteArrayInputStream before normal request processing.",
+  "title": "Default WAF copies anonymous JSON request bodies into String, regex-filters them, then creates a second byte array before controller handling",
+  "verdict": "likely"
+}

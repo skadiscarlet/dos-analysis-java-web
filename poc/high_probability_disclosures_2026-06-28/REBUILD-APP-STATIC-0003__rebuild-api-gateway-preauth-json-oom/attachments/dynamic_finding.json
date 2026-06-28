@@ -1,0 +1,35 @@
+{
+  "_phase": "P1",
+  "app": "getrebuild__rebuild",
+  "candidate_id": "REBUILD-APP-STATIC-0003",
+  "dynamic_verdict": "confirmed_oom",
+  "evidence": {
+    "aliveBeforeStop": true,
+    "clientException": "URLError(BrokenPipeError(32, 'Broken pipe'))",
+    "endpoint": "/gw/api/system-time?appid=bad&sign=bad",
+    "heap": "128m",
+    "lastHttpStatus": 200,
+    "loopsPerWorker": 24,
+    "mysqlContainer": "p1-rebuild-mysql-18153",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33453,
+    "payloadBytes": 10485771,
+    "port": 18153,
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "processStatus": {
+      "Threads": "102",
+      "VmHWM": "456336 kB",
+      "VmRSS": "456336 kB"
+    },
+    "workerThreads": 8
+  },
+  "heap": "128m",
+  "log": "results/applications_dynamic_validation/p1/logs/REBUILD-APP-STATIC-0003.log",
+  "notes": "匿名 /gw/api/system-time 在签名校验前读取并解析 JSON body；未 OOM 则不提升。",
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 7,
+  "status": "verified_oom",
+  "title": "Unauthenticated API gateway parses raw JSON before signature verification",
+  "true_positive": true
+}

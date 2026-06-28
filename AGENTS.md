@@ -138,6 +138,13 @@ python3 scripts/build_application_databases.py \
   --java-home-candidate /usr/lib/jvm/java-17-openjdk
 python3 scripts/build_application_databases.py --skip-clone --target diyhi__bbs
 python3 scripts/build_application_databases.py --skip-clone --java-home /usr/lib/jvm/java-22-openjdk --target diyhi__bbs
+python3 scripts/summarize_application_static_findings.py
+python3 scripts/run_application_p0_dynamic_validation.py
+python3 scripts/run_application_p0_dynamic_validation.py --case SMQTT-APP-STATIC-0002
+python3 scripts/run_application_p1_dynamic_validation.py
+python3 scripts/run_application_p1_dynamic_validation.py --case SMQTT-APP-STATIC-0003
+python3 scripts/run_application_p2_dynamic_validation.py
+python3 scripts/run_application_p2_dynamic_validation.py --case SBA-APP-STATIC-0002
 
 # 基座 Phase 3：统一五轴建模
 ./dos-web-analyzer phase3
@@ -183,8 +190,21 @@ python3 scripts/run_dynamic_verification.py --profile oom --heap 384m
 - 构建状态：`results/application_dbs/application_db_build_status.jsonl`
 - 构建摘要：`results/application_dbs/application_db_build_summary.md`
 - 构建日志：`results/application_dbs/logs/`
+- 应用级静态结果根：`results/applications_static_analysis/<target_id>/`
+- 应用级静态汇总与默认 OOM 复核：`results/applications_static_analysis/_static_validation/`
+- 应用级 P0 动态验证结果：`results/applications_dynamic_validation/p0/`
+- 应用级 P1 动态验证结果：`results/applications_dynamic_validation/p1/`
+- 应用级 P2 动态验证结果：`results/applications_dynamic_validation/p2/`
 
 当前应用级 manifest 固定 50 个已经成功创建 build-mode CodeQL 数据库的 Java HTTP/Web 应用目标。构建脚本会优先使用中国境内 Maven/Gradle 源，重写 Gradle wrapper distribution 到腾讯云 Gradle 镜像，GitHub clone 失败时尝试默认加速前缀和 codeload archive fallback，并按 Java 22、21、17 顺序重试。`results/application_dbs/` 可保留超过 50 个成功或失败尝试记录；最终目标真相以 `intel/applications/java_web_application_targets.json` 为准。
+
+应用级静态结果通常包含 `STATIC_DOS_HUNT_REPORT.md`、`source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv` 和按需生成的 `dynamic_probe_plan.md`。`scripts/summarize_application_static_findings.py` 会聚合已有 `findings.jsonl` / `findings.csv`，生成全量候选、应用汇总、默认外部 OOM 动态验证优先队列和 216 条候选 Markdown 准备清单；该脚本只做静态汇总，不会把候选提升为 confirmed。
+
+应用级 P0 动态验证使用 `scripts/run_application_p0_dynamic_validation.py`，以 `results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P0 队列为输入，输出 `summary.json`、`summary.csv`、`findings.jsonl`、`P0_DYNAMIC_VALIDATION_REPORT.md` 和原始日志到 `results/applications_dynamic_validation/p0/`。当前 P0 冻结口径为：15 个候选中 5 个真实触发 OOM 真阳性，10 个因默认应用环境、登录态或特殊 agent/compose 前置条件未满足而保持环境阻塞；真实 OOM 证据必须来自外部协议/HTTP 请求触发目标 JVM 的 `OutOfMemoryError`。
+
+应用级 P1 动态验证使用 `scripts/run_application_p1_dynamic_validation.py`，以 `results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P1 队列为输入，输出 `summary.json`、`summary.csv`、`findings.jsonl`、`P1_DYNAMIC_VALIDATION_REPORT.md` 和原始日志到 `results/applications_dynamic_validation/p1/`。当前 P1 冻结口径为：89 个候选中 17 个真实触发 OOM 真阳性，18 个已执行但未确认 OOM，0 个保持 `probe_error`，54 个因默认服务环境、业务数据、登录态、agent/compose 或协议 harness 前置条件未满足而保持 `precondition_blocked`；其中第一优先级补测 38 个候选，10 个真实 OOM、17 个已执行未确认 OOM、0 个探针错误、11 个前置条件阻塞；真实 OOM 证据必须来自外部协议/HTTP 请求触发目标 JVM 的 `OutOfMemoryError`。
+
+应用级 P2 动态验证使用 `scripts/run_application_p2_dynamic_validation.py`，以 `results/applications_static_analysis/_static_validation/p2_dynamic_validation_triage.md` 为输入，输出 `summary.json`、`summary.csv`、`findings.jsonl`、`P2_DYNAMIC_VALIDATION_REPORT.md` 和原始日志到 `results/applications_dynamic_validation/p2/`。当前 P2 冻结口径为：34 个候选中 1 个真实触发 OOM 真阳性（`SBA-APP-STATIC-0002`），7 个 triage 推荐候选因默认服务环境、业务数据、登录态或依赖栈未补齐保持 `precondition_blocked`，26 个按 P2 triage 保持 `triage_not_selected`；真实 OOM 或服务不可用证据必须来自外部协议/HTTP 请求触发目标 JVM 的 `OutOfMemoryError`、GC death、线程/连接池耗尽或持续服务不可用。
 
 ---
 

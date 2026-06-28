@@ -70,11 +70,35 @@ python3 scripts/build_application_databases.py --skip-clone --target diyhi__bbs
 python3 scripts/build_application_databases.py --skip-clone \
   --java-home /usr/lib/jvm/java-22-openjdk \
   --target diyhi__bbs
+
+# 汇总已有应用级静态结果，并生成默认外部 OOM 静态复核队列和动态验证准备清单
+python3 scripts/summarize_application_static_findings.py
+
+# 基于 P0 动态验证准备清单运行应用级真实 OOM 验证
+python3 scripts/run_application_p0_dynamic_validation.py
+python3 scripts/run_application_p0_dynamic_validation.py --case SMQTT-APP-STATIC-0002
+
+# 基于 P1 动态验证准备清单运行应用级真实 OOM 验证
+python3 scripts/run_application_p1_dynamic_validation.py
+python3 scripts/run_application_p1_dynamic_validation.py --first-priority
+python3 scripts/run_application_p1_dynamic_validation.py --case SMQTT-APP-STATIC-0003
+
+# 基于 P2 动态验证 triage 运行应用级真实 OOM/服务不可用验证
+python3 scripts/run_application_p2_dynamic_validation.py
+python3 scripts/run_application_p2_dynamic_validation.py --case SBA-APP-STATIC-0002
 ```
 
 构建脚本会生成 `.build-cache/m2/settings-china.xml` 和 `.build-cache/gradle/init-china.gradle`，优先使用阿里云、腾讯云 Maven/Gradle 相关源，并将 Gradle wrapper distribution URL 改写到腾讯云 Gradle 镜像。GitHub clone 会依次尝试直连、默认加速前缀和 codeload archive fallback；Maven/Gradle 构建会跳过测试、前端、GPG、license、antrun 等非 Java 抽取步骤，降低真实应用 build-mode 建库被非 Java 生命周期阻断的概率。
 
 当前批量结果：本地状态中 51 个目标成功创建 build-mode CodeQL 数据库，最终 manifest 固定其中 50 个更贴近 HTTP/Web 应用的目标；每个 manifest 目标都带有 `build_status=build_succeeded`、`codeql_database_ready=true`、`database_dir`、`build_log`、`build_java_home` 和 `build_root`。最新机器状态以 `results/application_dbs/application_db_build_status.jsonl` 为准，人工摘要见 `results/application_dbs/application_db_build_summary.md`。
+
+应用级静态挖掘结果默认归档到 `results/applications_static_analysis/<target_id>/`。可用 `scripts/summarize_application_static_findings.py` 聚合 `findings.jsonl` / `findings.csv`，输出全量候选、应用汇总、默认外部 OOM 动态验证优先队列和 216 条候选 Markdown 准备清单到 `results/applications_static_analysis/_static_validation/`。
+
+应用级 P0 动态验证使用 `scripts/run_application_p0_dynamic_validation.py`，输入为 `_static_validation/all_candidates_dynamic_validation.md` 中的 P0 队列，输出写入 `results/applications_dynamic_validation/p0/`。当前 P0 结果包含 15 个候选，其中 5 个由真实外部协议或 HTTP 请求触发目标 JVM OOM 并标为真阳性，10 个因默认应用环境、登录态或 agent/compose 前置条件未满足而保持 `blocked_environment`。
+
+应用级 P1 动态验证使用 `scripts/run_application_p1_dynamic_validation.py`，输入为 `_static_validation/all_candidates_dynamic_validation.md` 中的 P1 队列，输出写入 `results/applications_dynamic_validation/p1/`。当前 P1 结果包含 89 个候选，其中 17 个由真实外部协议或 HTTP 请求触发目标 JVM `OutOfMemoryError` 并标为真阳性，18 个已执行但未确认 OOM，0 个保持 `probe_error`，54 个因默认环境或前置条件缺口保持 `precondition_blocked`。本轮第一优先级补测覆盖 38 个候选，其中 10 个真实 OOM、17 个已执行未确认 OOM、0 个探针错误、11 个前置条件阻塞。
+
+应用级 P2 动态验证使用 `scripts/run_application_p2_dynamic_validation.py`，输入为 `_static_validation/p2_dynamic_validation_triage.md`，输出写入 `results/applications_dynamic_validation/p2/`。当前 P2 结果包含 34 个候选，其中 triage 建议进入动态验证的 8 个候选里，`SBA-APP-STATIC-0002` 通过默认 insecure Spring Boot Admin sample、外部注册 `/instances` 和攻击者健康端点 `Set-Cookie` 响应真实触发目标 JVM `OutOfMemoryError`，7 个因默认服务环境、业务数据、登录态或依赖栈未补齐保持 `precondition_blocked`；其余 26 个按 P2 triage 标为 `triage_not_selected`。
 
 ## 冻结的基座成果
 

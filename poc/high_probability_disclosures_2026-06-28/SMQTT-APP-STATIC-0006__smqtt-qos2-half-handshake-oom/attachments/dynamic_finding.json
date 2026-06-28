@@ -1,0 +1,30 @@
+{
+  "_phase": "P1",
+  "app": "quickmsg__smqtt",
+  "candidate_id": "SMQTT-APP-STATIC-0006",
+  "dynamic_verdict": "confirmed_oom",
+  "evidence": {
+    "aliveBeforeStop": true,
+    "clientException": "",
+    "connections": 5,
+    "estimatedCachedPayloadBytes": 73400320,
+    "heap": "96m",
+    "payloadBytes": 524288,
+    "port": 18836,
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "processStatus": {
+      "Threads": "43",
+      "VmHWM": "233248 kB",
+      "VmRSS": "196968 kB"
+    }
+  },
+  "heap": "96m",
+  "log": "results/applications_dynamic_validation/p1/logs/SMQTT-APP-STATIC-0006.log",
+  "notes": "",
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 140,
+  "status": "verified_oom",
+  "title": "QoS2 half-handshake retains publish messages and retry ack state",
+  "true_positive": true
+}

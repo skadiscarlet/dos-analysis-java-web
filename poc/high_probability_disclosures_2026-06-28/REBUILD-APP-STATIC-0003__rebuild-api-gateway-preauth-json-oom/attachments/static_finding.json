@@ -1,0 +1,27 @@
+{
+  "_static_path": "results/applications_static_analysis/getrebuild__rebuild/findings.jsonl",
+  "bound": "There is an IP rate limiter of 600 requests per 10s and 3000 per 60s. No application-level raw JSON body size cap was found; multipart is disabled but not relevant. Unknown API names fail before body parsing, so an existing API name is needed.",
+  "dimension": [
+    "request_burst_heap",
+    "parser_cpu"
+  ],
+  "driver": "attacker-controlled body byte volume, JSON nesting, and repeated requests to any existing API name",
+  "dynamic_probe": "Use an existing API name such as system-time, invalid appid/sign, and controlled large/nested JSON bodies under bounded heap. Measure body read/parse memory, CPU, response time, limiter behavior and process health. Success requires sustained service unavailability or process failure, not a quick 4xx/JSON error.",
+  "entry": "POST /gw/api/system-time?appid=<bad>&sign=<bad> with a large or deeply nested JSON body",
+  "evidence": [
+    "frameworks/applications/getrebuild__rebuild/src/main/java/com/rebuild/web/RebuildWebConfigurer.java:149-155",
+    "frameworks/applications/getrebuild__rebuild/src/main/java/com/rebuild/api/ApiGateway.java:63-67",
+    "frameworks/applications/getrebuild__rebuild/src/main/java/com/rebuild/api/ApiGateway.java:90-126",
+    "frameworks/applications/getrebuild__rebuild/src/main/java/com/rebuild/api/ApiGateway.java:181-251",
+    "frameworks/applications/getrebuild__rebuild/src/main/java/com/rebuild/api/ApiGateway.java:269-280",
+    "frameworks/applications/getrebuild__rebuild/src/main/java/com/rebuild/api/SystemTime.java:20-28",
+    "javap:.build-cache/m2/repository/com/github/devezhao/commons/1.3.13/commons-1.3.13.jar cn.devezhao.commons.web.ServletUtils getRequestString"
+  ],
+  "finding_id": "REBUILD-APP-STATIC-0003",
+  "impact": "Plausible default unauthenticated request-burst DoS path, but static evidence alone cannot determine Tomcat body-size behavior, FastJSON failure mode, or whether the IP limiter keeps impact below service-unavailable threshold.",
+  "retention": "request-local StringBuilder/String/FastJSON tree during parsing; may OOM before auth failure response",
+  "sink": "ApiGateway.buildBaseApiContext calls ServletUtils.getRequestString(request) and JSON.parse(postData) before verfiy checks appid/sign/appSecret",
+  "source": "raw request body on /gw/api/** plus query appid/sign",
+  "title": "Unauthenticated API gateway parses raw JSON body before API signature verification",
+  "verdict": "needs_dynamic_probe"
+}

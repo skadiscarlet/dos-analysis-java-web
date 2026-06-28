@@ -1,0 +1,28 @@
+{
+  "_phase": "P1",
+  "app": "quickmsg__smqtt",
+  "candidate_id": "SMQTT-APP-STATIC-0001",
+  "dynamic_verdict": "confirmed_oom",
+  "evidence": {
+    "aliveBeforeStop": true,
+    "cleanSession": false,
+    "clientException": "TimeoutError('timed out')",
+    "heap": "96m",
+    "port": 18831,
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "processStatus": {
+      "Threads": "64",
+      "VmHWM": "309036 kB",
+      "VmRSS": "306736 kB"
+    }
+  },
+  "heap": "96m",
+  "log": "results/applications_dynamic_validation/p1/logs/SMQTT-APP-STATIC-0001.log",
+  "notes": "",
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 43706,
+  "status": "verified_oom",
+  "title": "Anonymous persistent MQTT sessions retain client registry entries after disconnect",
+  "true_positive": true
+}

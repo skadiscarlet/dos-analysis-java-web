@@ -1,0 +1,27 @@
+{
+  "_static_path": "results/applications_static_analysis/quickmsg__smqtt/findings.jsonl",
+  "bound": "one SUBSCRIBE packet is frame-size bounded; no per-client subscription count, global subscription count, or trie size quota found",
+  "dimension": [
+    "process_heap",
+    "key_cardinality",
+    "object_count"
+  ],
+  "driver": "topic filter count, fixed topic cardinality, wildcard trie segment count, and number of long-lived/persistent clients",
+  "entry": "Default MQTT TCP 1883",
+  "evidence": [
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/SubscribeProtocol.java:44-52",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/topic/FixedTopicFilter.java:39-45",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/topic/TreeNode.java:36-54",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/topic/SubscribeTopic.java:51-55",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/ConnectProtocol.java:190-194"
+  ],
+  "finding_id": "SMQTT-APP-STATIC-0005",
+  "impact": "a default unauthenticated client can retain large subscription indexes by keeping connections open or using persistent sessions. Static evidence is strong; dynamic threshold not measured.",
+  "retention": "subscriptions live for connection lifetime for clean sessions and survive disconnect when cleanSession=false due persistent-session cleanup branch",
+  "scope_notes": "Default MQTT protocol path; no admin privileges.",
+  "sink": "FixedTopicFilter.topicChannels, TreeNode.childNodes/subscribes, and MqttChannel.topics",
+  "source": "MQTT SUBSCRIBE with many distinct fixed topic filters or wildcard filters with many attacker-controlled segments",
+  "static_trigger_shape": "CONNECT anonymously, optionally cleanSession=false, then send repeated SUBSCRIBE packets with unique filters such as dos/sub/{i} or wildcard trees with many unique segments.",
+  "title": "Anonymous subscriptions grow global fixed/wildcard topic indexes without per-client quotas",
+  "verdict": "likely"
+}

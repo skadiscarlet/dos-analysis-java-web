@@ -1,0 +1,29 @@
+{
+  "_static_path": "results/applications_static_analysis/erupts__erupt/findings.jsonl",
+  "bound": "recordOperateLog is true by default and filter is registered on /erupt-api/*. No application-level JSON body limit found in reviewed code; multipart/file limits do not protect ordinary JSON body.",
+  "dimension": [
+    "heap_bytes",
+    "duplicate_string_and_byte_array",
+    "threadlocal_retained_bytes",
+    "gc_pressure"
+  ],
+  "driver": "request body byte volume, concurrent request count, servlet worker thread count",
+  "evidence": [
+    "EruptSecurityProp.java:18-19",
+    "MvcInterceptor.java:34-40",
+    "HttpServletRequestFilter.java:35-47",
+    "HttpServletRequestFilter.java:61-69",
+    "RequestBodyTL.java:11-19",
+    "OperationService.java:43-78",
+    "EruptUserController.java:72-111"
+  ],
+  "exploitability": "Anonymous low-trust HTTP can trigger heap pressure before auth and may leave large bodies in thread-local storage on non-recorded paths. Exact OOM threshold requires default runtime probe.",
+  "finding_id": "ERUPT-APP-STATIC-0002",
+  "priority": "P1",
+  "retention": "At least request-burst retention before business handling; on anonymous login, missing handler, auth failure, or handler without @EruptRecordOperate, the ThreadLocal body may remain attached to the worker thread until overwritten or thread exits",
+  "sink": "HttpServletRequestFilter.EruptRequestWrapper reads the full request body with StreamUtils.copyToString and later duplicates it via body.getBytes(); RequestBodyTL.remove is only reached in OperationService for @EruptRecordOperate handlers",
+  "source": "Any /erupt-api/* request with Content-Type exactly application/json and attacker-controlled body",
+  "static_status": "No dynamic test run; static path and missing cleanup are concrete.",
+  "title": "Default operation-log filter copies /erupt-api JSON body before auth and can retain it in ThreadLocal on non-recorded paths",
+  "verdict": "likely"
+}
