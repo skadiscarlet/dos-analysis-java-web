@@ -3,6 +3,34 @@
 本文档记录 dos-analysis-web 项目的所有重要变更。
 
 ---
+## [2026-06-29] Java Web DoS 动态验证 Skill
+
+### 修改时间
+2026-06-29 13:51
+
+### 变更类型
+- [新增功能] 动态验证 Skill
+- [文档] Subagent 动态验证流程与结果格式
+
+### 核心改动
+- 新增 `$java-web-dos-dynamic-validator`，用于接收上一轮静态分析结果文件和目标输出目录，按候选开启 subagent 执行默认部署动态验证。
+- 约束 worker 必须完成环境准备、默认服务运行、必要数据或低权限账户准备、受控 HTTP/协议探测、证据采集和清理，并把利用条件写入 `utilization_conditions`。
+- 明确 Docker/compose/release package 默认部署优先级、国内镜像加速使用原则、动态 confirmed 门槛、growth-only 降级规则和 blocked/not reproduced 分类。
+- 新增聚合脚本，将各 case 的 `result.json` 汇总为 `summary.json`、`summary.csv`、`findings.jsonl`、`blocked_or_rejected.jsonl` 和 `DYNAMIC_VALIDATION_REPORT.md`。
+
+### 交付成果
+- 新增 Skill 主文件：`.codex/skills/java-web-dos-dynamic-validator/SKILL.md`
+- 新增 UI 元数据：`.codex/skills/java-web-dos-dynamic-validator/agents/openai.yaml`
+- 新增聚合脚本：`.codex/skills/java-web-dos-dynamic-validator/scripts/aggregate_dynamic_validation.py`
+- 测试/验证结果：`quick_validate.py` 校验通过；聚合脚本使用临时样例执行成功并生成预期摘要文件。
+
+### 依赖与影响
+- 依赖：Codex subagent 工具可用时才能实际并发执行动态验证；不可用时 skill 会生成暂停状态和执行计划。
+- 对后续工作的影响：可直接用于 `dynamic_validation_queue.jsonl`、`findings.jsonl` 或 Markdown 静态结果到默认部署动态证据的闭环验证。
+- 破坏性变更：无；未修改 CodeQL 查询、runner、ranking、verdict 或既有动态验证脚本。
+
+---
+
 
 ## [2026-06-28] XXL-Boot 漏洞申报稿合并为中文 GitHub Issue 格式
 

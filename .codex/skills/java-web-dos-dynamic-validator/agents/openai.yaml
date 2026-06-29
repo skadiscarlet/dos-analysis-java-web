@@ -1,0 +1,4 @@
+interface:
+  display_name: "Java Web DoS Dynamic Validator"
+  short_description: "Validate static Java Web DoS candidates dynamically"
+  default_prompt: "Use $java-web-dos-dynamic-validator to validate Java Web DoS static-analysis results in isolated default-deploy environments and write exploitability evidence to a target folder."
