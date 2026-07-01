@@ -1,0 +1,21 @@
+{
+  "record_id": "apache__druid-DRUID-APP-STATIC-0002",
+  "app": "apache/druid",
+  "title": "DRUID-APP-STATIC-0002",
+  "source_batch": "new",
+  "source_file": "new/cases/apache__druid-DRUID-APP-STATIC-0002/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "默认未启用认证的 Druid Router Avatica protobuf endpoint 可由匿名客户端用大型合法 protobuf POST 触发 Router JVM heap OOM；1GiB Router heap 复测中，128MiB 请求后 Router 仍运行，256MiB 请求导致 Java heap OOM、Router exit 3 和 HTTP health connection refused。",
+  "finding_id": "DRUID-APP-STATIC-0002",
+  "probe_id": "PROBE-DRUID-0002",
+  "entry": "POST /druid/v2/sql/avatica-protobuf/ through Router port 8888",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "Druid Router DRUID_XMS=1g and DRUID_XMX=1g; Docker HostConfig.Memory=0, no container memory limit",
+  "requests_sent": 2,
+  "log_path": "logs/router_after_1g_oom.log",
+  "evidence_summary": "request_count=2; duration_seconds=59; metric=heap|rss|http_availability|container_exit; baseline={'router_health': 'HTTP 200 /status/health', 'router_heap_env': 'DRUID_XMS=1g; DRUID_XMX=1g', 'router_rss_after_128m': '865.6MiB / 30.99GiB...",
+  "strict_1g_evidence": "druid_xmx=1g"
+}

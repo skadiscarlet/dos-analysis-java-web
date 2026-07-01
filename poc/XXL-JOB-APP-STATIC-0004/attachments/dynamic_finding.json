@@ -1,0 +1,30 @@
+{
+  "candidate_id": "XXL-JOB-APP-STATIC-0004",
+  "app": "xuxueli__xxl-job",
+  "title": "Netty HttpObjectAggregator accepts near-5MiB bodies on executor endpoints",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 199,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p1/logs/XXL-JOB-APP-STATIC-0004.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 9999,
+    "endpoint": "/trigger",
+    "payloadBytesApprox": 4194590,
+    "workerThreads": 8,
+    "lastHttpStatus": 200,
+    "clientException": "",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1347912 kB",
+      "VmRSS": "1347912 kB",
+      "Threads": "129"
+    }
+  },
+  "notes": ""
+}

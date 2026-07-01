@@ -1,0 +1,21 @@
+{
+  "record_id": "prestodb__presto-PRESTO-APP-STATIC-0001",
+  "app": "prestodb/presto",
+  "title": "PRESTO-APP-STATIC-0001",
+  "source_batch": "new",
+  "source_file": "new/cases/prestodb__presto-PRESTO-APP-STATIC-0001/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "默认官方 Presto coordinator 无认证暴露 /v1/statement 时，匿名 HTTP 客户端带 X-Presto-User 连续提交大量约 700KiB SQL 且不轮询 nextUri，可线性保留 Query/session 对象并触发默认 1GiB heap OOM。",
+  "finding_id": "PRESTO-APP-STATIC-0001",
+  "probe_id": "DP-PRESTO-001",
+  "entry": "POST /v1/statement",
+  "failure_signal": "OutOfMemoryError",
+  "heap_or_limit": "Presto image default -Xmx1G; Docker harness --memory=2g --memory-swap=2g",
+  "requests_sent": 974,
+  "log_path": "logs/container_final.log",
+  "evidence_summary": "request_count=974; duration_seconds=87; metric=heap|rss|http_availability|gc|class_histogram; baseline={'heap_used_k': 365307, 'docker_mem_mib': 1001.0, 'query_instances': 0, 'session_context_instances': 0, 'http_availability': 'GET /v1/...",
+  "strict_1g_evidence": "-xmx1g"
+}

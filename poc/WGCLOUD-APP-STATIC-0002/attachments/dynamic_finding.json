@@ -1,0 +1,34 @@
+{
+  "candidate_id": "WGCLOUD-APP-STATIC-0002",
+  "app": "tianshiyeben__wgcloud",
+  "title": "Default-token /agent/minTask raw JSON and static BatchData",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 175,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p1/logs/WGCLOUD-APP-STATIC-0002.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18178,
+    "endpoint": "/wgcloud/agent/minTask",
+    "payloadBytes": 4463661,
+    "workerThreads": 8,
+    "loopsPerWorker": 24,
+    "lastHttpStatus": 200,
+    "clientException": "",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1441828 kB",
+      "VmRSS": "1441828 kB",
+      "Threads": "87"
+    },
+    "mysqlContainer": "p1-wgcloud-mysql",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33478
+  },
+  "notes": "完整 WGCloud server + MySQL 默认 token，POST /agent/minTask 大数组和 BatchData 静态列表压力。"
+}

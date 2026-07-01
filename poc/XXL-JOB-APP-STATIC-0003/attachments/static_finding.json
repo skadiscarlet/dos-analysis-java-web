@@ -1,0 +1,21 @@
+{
+  "finding_id": "XXL-JOB-APP-STATIC-0003",
+  "target": "xuxueli/xxl-job",
+  "module": "xxl-job-core executor GLUE",
+  "verdict": "needs_dynamic_probe",
+  "source": "external POST :9999/trigger with glueType=GLUE_GROOVY, unique glueSource and default token/appname",
+  "sink": "GlueFactory.getCodeSourceClass parses Groovy source and stores Class<?> in CLASS_CACHE by codeSource MD5",
+  "driver": "unique compilable glueSource contents and size",
+  "dimension": "heap, Metaspace, class metadata, compile CPU",
+  "retention": "GlueFactory singleton holds GroovyClassLoader and CLASS_CACHE for process lifetime",
+  "bound": "no CLASS_CACHE size limit or eviction found, but valid payload shape, Metaspace threshold and interaction with JobThread cleanup are unmeasured",
+  "default_reachability": "sample executor default glueenabled=true and executor port is exposed in compose; weak default token/appname required",
+  "evidence": [
+    "application.properties:33-34",
+    "ExecutorBizImpl.java:57-64",
+    "ExecutorBizImpl.java:89-106",
+    "GlueFactory.java:40-44",
+    "GlueFactory.java:68-79"
+  ],
+  "dynamic_probe": "Use benign compilable GLUE_GROOVY IJobHandler variants in isolated executor, track CLASS_CACHE size, Metaspace, heap, compile latency and service availability."
+}

@@ -1,0 +1,43 @@
+{
+  "candidate_id": "CITRUS-APP-STATIC-0001",
+  "app": "yiuman__citrus",
+  "title": "Anonymous /rest/verify/captcha creates unbounded HttpSession-retained Captcha objects",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 48950,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p0/logs/CITRUS-APP-STATIC-0001.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18082,
+    "endpoint": "/rest/verify/captcha",
+    "mysqlContainer": "p0-citrus-mysql",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33312,
+    "redisContainer": "p0-citrus-redis",
+    "redisImage": "docker.1ms.run/redis:7-alpine",
+    "redisPort": 36381,
+    "setCookieResponses": 48950,
+    "workerThreads": 16,
+    "maxRequests": 100000,
+    "largeHeapEnhancedProbe": true,
+    "lastHttpStatus": 200,
+    "clientException": "TimeoutError('timed out')",
+    "runtimeOption": "citrus.verify.store=session; citrus.verify.enable=true; spring.datasource.multiples.default mirrors primary datasource",
+    "runtimeConfig": "results/applications_dynamic_validation/p0/runtime/citrus-p0.properties",
+    "runtimeClasspathPatch": "results/applications_dynamic_validation/p0/runtime/citrus-classpath-patch",
+    "startupMode": "mda_autoconfiguration_excluded",
+    "firstStartupError": "Citrus full environment did not serve /rest/verify/captcha on port 18082; see results/applications_dynamic_validation/p0/logs/CITRUS-APP-STATIC-0001.full-startup.log",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1473884 kB",
+      "VmRSS": "1473884 kB",
+      "Threads": "90"
+    }
+  },
+  "notes": "完整 MySQL/Redis 环境启动，显式使用 session verification store 触发 HttpSession-retained captcha 路径。"
+}

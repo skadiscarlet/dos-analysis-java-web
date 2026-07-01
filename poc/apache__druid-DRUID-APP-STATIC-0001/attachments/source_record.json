@@ -1,0 +1,21 @@
+{
+  "record_id": "apache__druid-DRUID-APP-STATIC-0001",
+  "app": "apache/druid",
+  "title": "DRUID-APP-STATIC-0001",
+  "source_batch": "new",
+  "source_file": "new/cases/apache__druid-DRUID-APP-STATIC-0001/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "官方 Druid Docker quickstart 派生部署中，Router /druid/v2/sql/ 匿名可达；在 DRUID_XMS=1g / DRUID_XMX=1g 的严格补测下，单个 512MiB text/plain SQL body 触发 Router JVM `OutOfMemoryError: Java heap space` 并退出。",
+  "finding_id": "DRUID-APP-STATIC-0001",
+  "probe_id": "PROBE-DRUID-0001",
+  "entry": "POST /druid/v2/sql/ on Druid Router HTTP port 8888",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "Druid Router DRUID_XMS=1g and DRUID_XMX=1g; no Docker mem_limit set in the case compose",
+  "requests_sent": 7,
+  "log_path": "logs/compose_all_reinforce.log",
+  "evidence_summary": "request_count=7; duration_seconds=98; metric=heap|rss|http_availability|container_state; baseline={'router_health': 'HTTP 200 before probe', 'router_heap': 'DRUID_XMS=1g; DRUID_XMX=1g'}; peak={'router_observed_rss': '1.736GiB after 256Mi...",
+  "strict_1g_evidence": "druid_xmx=1g"
+}

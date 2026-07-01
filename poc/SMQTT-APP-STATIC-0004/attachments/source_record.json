@@ -1,0 +1,21 @@
+{
+  "record_id": "SMQTT-APP-STATIC-0004",
+  "app": "quickmsg__smqtt",
+  "title": "Offline persistent subscriptions accumulate unbounded session message queues",
+  "source_batch": "p0",
+  "source_file": "p0/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "java.lang.OutOfMemoryError",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 70,
+  "log_path": "results/applications_dynamic_validation/p0/logs/SMQTT-APP-STATIC-0004.log",
+  "evidence_summary": "payloadBytes=3145728; VmHWM=1158348 kB; VmRSS=1158348 kB; Threads=55",
+  "strict_1g_evidence": "1g"
+}

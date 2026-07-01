@@ -1,0 +1,40 @@
+{
+  "record_id": "SMQTT-APP-STATIC-0002",
+  "app": "quickmsg__smqtt",
+  "source_batch": "p0",
+  "status": "verified_oom",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 260,
+  "strict_1g_evidence": "1g",
+  "log_path": "results/applications_dynamic_validation/p0/logs/SMQTT-APP-STATIC-0002.log",
+  "evidence_summary": "payloadBytes=3670016; VmHWM=1185868 kB; VmRSS=1185868 kB; Threads=51",
+  "dynamic_finding": {
+    "candidate_id": "SMQTT-APP-STATIC-0002",
+    "app": "quickmsg__smqtt",
+    "title": "Anonymous retained MQTT publishes fill an unbounded in-memory retainMessages map",
+    "status": "verified_oom",
+    "dynamic_verdict": "confirmed_oom",
+    "true_positive": true,
+    "oom_signal": "java.lang.OutOfMemoryError",
+    "requests_sent": 260,
+    "heap": "1g",
+    "log": "results/applications_dynamic_validation/p0/logs/SMQTT-APP-STATIC-0002.log",
+    "evidence": {
+      "heap": "1g",
+      "port": 1883,
+      "payloadBytes": 3670016,
+      "estimatedRetainedBytes": 954204160,
+      "maxMessages": 520,
+      "postProbePortOpen": true,
+      "processExitCode": null,
+      "aliveBeforeStop": true,
+      "processStatus": {
+        "VmHWM": "1185868 kB",
+        "VmRSS": "1185868 kB",
+        "Threads": "51"
+      }
+    },
+    "notes": ""
+  }
+}

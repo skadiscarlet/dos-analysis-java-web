@@ -1,0 +1,94 @@
+{
+  "record_id": "apache__hertzbeat-HERTZBEAT-DOS-0001",
+  "app": "apache/hertzbeat",
+  "source_batch": "new",
+  "status": "confirmed_oom",
+  "failure_signal": "OutOfMemoryError: Cannot reserve 4194304 bytes of direct buffer memory (allocated: 1070396417, limit: 1073741824)",
+  "heap_or_limit": "HertzBeat JAVA_OPTS=-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g; Docker --memory 2g --memory-swap 2g",
+  "requests_sent": 21763,
+  "strict_1g_evidence": "java_opts=-xms1g",
+  "log_path": "logs/container_full_reinforce.log",
+  "evidence_summary": "request_count=21763; duration_seconds=173; metric=docker memory, Java RSS, Java heap/direct-memory OOM logs, HTTP status, availability; baseline={'root_http_ready': 'GET / returned HTTP 200 before probe', 'heap_direct_limit': 'JAVA_OPTS=...",
+  "resource_observation": {
+    "metric": "docker memory, Java RSS, Java heap/direct-memory OOM logs, HTTP status, availability",
+    "baseline": {
+      "root_http_ready": "GET / returned HTTP 200 before probe",
+      "heap_direct_limit": "JAVA_OPTS=-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g"
+    },
+    "peak": {
+      "docker_mem_usage": "1.964GiB / 2GiB",
+      "java_vmhwm_kb": 2106668,
+      "sample_index": 21760,
+      "oom_log_count": 180,
+      "auto_create_monitor_log_count": 21763,
+      "push_plane": "sampled push responses included repeated HTTP 502 after direct-memory OOM while GET / stayed HTTP 200"
+    },
+    "failure_signal": "OutOfMemoryError: Cannot reserve 4194304 bytes of direct buffer memory (allocated: 1070396417, limit: 1073741824)",
+    "log_paths": [
+      "logs/container_full_reinforce.log",
+      "logs/probe_response_samples.txt",
+      "logs/reinforce_start_fixed.log",
+      "logs/cleanup_reinforce.txt"
+    ],
+    "evidence_paths": [
+      "evidence/probe_observations.csv",
+      "evidence/probe_summary_reinforce.json",
+      "evidence/oom_reinforce_excerpt.txt"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "默认 HertzBeat 1.8.0 Docker 部署中，匿名客户端可访问 Prometheus push path；在 2g 容器、1g heap/direct 的严格补测下，约 21.7k 个唯一 job/instance 的最小 push 请求触发目标 JVM direct-buffer `OutOfMemoryError`，push 面出现重复 HTTP 502。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "This run used a 2GiB Docker memory cap and explicit 1GiB Java heap/direct memory as a strict validation harness; larger production containers may require more unique job/instance keys before OOM.",
+      "No authentication, rate limit, per-IP quota, job/instance cardinality cap, or eviction was observed on the tested push path.",
+      "The controller returned HTTP 400 for many successful side-effect requests, but logs confirmed monitor auto-creation before/around the response.",
+      "Disabling unauthenticated push auto-create or bounding job/instance cardinality mitigates this path."
+    ],
+    "not_affected_when": [
+      "/api/push/** is not exposed to low-trust clients or is protected by authentication.",
+      "Prometheus push auto-create is disabled or constrained.",
+      "Unique job/instance cardinality is capped per tenant, user, or source IP.",
+      "Created push monitors are evicted or quota-managed.",
+      "Reverse proxy or gateway rate limits prevent the required request volume."
+    ]
+  },
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_docker_image",
+    "image_or_version": "docker.m.daocloud.io/apache/hertzbeat:1.8.0; upstream apache/hertzbeat:1.8.0; image id sha256:1ffeef8f0dce79c971943e19d2de1ef94f49d5079d0ceebe5292542d65eb63cb; mirror digest sha256:75d48a62748fe42e4b2354e393ce567f51f7d46764b404763ec885cd23d74a0d",
+    "commands": [
+      "docker pull docker.m.daocloud.io/apache/hertzbeat:1.8.0",
+      "docker run -d --name hbdos0001-hertzbeat --memory 2g --memory-swap 2g -e JAVA_OPTS=\"-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED\" -p 2157:1157 -p 2158:1158 docker.m.daocloud.io/apache/hertzbeat:1.8.0",
+      "./probe.py --count 30000 --start-index 1 --sample-every 250 --timeout 5 --concurrency 8 --case-dir .",
+      "docker rm -f hbdos0001-hertzbeat"
+    ],
+    "config_changes": [
+      "No HertzBeat source or application configuration changes.",
+      "Harness-only host port mapping changed to 2157/2158.",
+      "Strict retest harness Docker memory and swap cap set to 2g.",
+      "Strict retest harness set JAVA_OPTS=-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g; --add-opens preserves Apache Arrow Java 21 runtime compatibility."
+    ],
+    "non_default_reason": null
+  },
+  "trigger": {
+    "request_shape": "curl -X POST http://127.0.0.1:2157/api/push/prometheus/job/{job}/instance/{instance} -H 'Content-Type: text/plain' --data-binary 'sample_metric 1\\n'",
+    "parameters": {
+      "auth": "none",
+      "body": "sample_metric 1\\n",
+      "content_type": "text/plain",
+      "job_pattern": "dosjob%06d",
+      "instance_pattern": "inst%06d",
+      "concurrency": 8
+    },
+    "loop_variable": "unique job and instance values",
+    "request_count": 21763,
+    "duration_seconds": 173,
+    "bandwidth_notes": "Eight concurrent local HTTP workers sent minimal Prometheus text bodies with unique job/instance path segments. The run was manually stopped after confirmed 1GiB direct-memory OOM and repeated push 502 responses."
+  }
+}

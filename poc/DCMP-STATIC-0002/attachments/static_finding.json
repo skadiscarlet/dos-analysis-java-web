@@ -1,0 +1,30 @@
+{
+  "finding_id": "DCMP-STATIC-0002",
+  "title": "Default Swagger test user API retains low-privilege submitted users in a process-lifetime static map",
+  "verdict": "likely",
+  "source": {
+    "id": "SRC-005",
+    "entry": "POST /test/user/save",
+    "auth": "low_privilege_authenticated",
+    "evidence": [
+      "frameworks/applications/dromara__datacompare/src/main/resources/application.yml:204",
+      "frameworks/applications/dromara__datacompare/src/main/java/com/vince/xq/framework/config/ShiroConfig.java:310"
+    ]
+  },
+  "sink": {
+    "id": "SINK-005",
+    "operation": "users.put(user.getUserId(), user)",
+    "resource_type": "heap_retained_static_map",
+    "evidence": [
+      "frameworks/applications/dromara__datacompare/src/main/java/com/vince/xq/project/tool/swagger/TestController.java:36",
+      "frameworks/applications/dromara__datacompare/src/main/java/com/vince/xq/project/tool/swagger/TestController.java:72"
+    ]
+  },
+  "driver": "attacker-controlled userId key cardinality and retained UserEntity string fields",
+  "dimension": "heap object count and key cardinality",
+  "retention": "static map for process lifetime; deletion requires explicit delete per id",
+  "bound": "no size cap, TTL, per-user quota, or permission annotation; Shiro login required",
+  "default_deployment": "swagger.enabled=true and controller is present in default source build",
+  "impact_hypothesis": "low-privilege repeated POSTs can grow heap and make /test/user/list allocate larger response lists",
+  "scope_notes": "non-disk; not anonymous; potentially test-only code but enabled in default configuration"
+}

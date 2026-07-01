@@ -1,0 +1,63 @@
+{
+  "case_id": "apache__druid-DRUID-APP-STATIC-0002",
+  "created_at": "2026-06-29 22:21:31 CST",
+  "target": "apache/druid",
+  "slug": "apache__druid",
+  "finding_id": "DRUID-APP-STATIC-0002",
+  "probe_id": "PROBE-DRUID-0002",
+  "title": "Router SQL Avatica protobuf forwarding buffers full request body in memory",
+  "deployment_plan": {
+    "preferred_source": "official Docker image / Docker quickstart compose",
+    "selected_source": "official_docker_image",
+    "image": "apache/druid:37.0.0",
+    "image_digest": "apache/druid@sha256:0116fb802786649fc3635d6d4ab5be4da8abee3edafbe95c7f358a564d4c82e8",
+    "reason": "The repository docker-compose.yml references apache/druid:38.0.0, but docker.io had no such manifest at validation time. The latest locally available official release image is apache/druid:37.0.0, with the same Router Avatica protobuf buffering path.",
+    "services": ["postgres", "zookeeper", "coordinator", "broker", "router"],
+    "ports": {
+      "router": "127.0.0.1:28888 -> 8888",
+      "broker": "127.0.0.1:28082 -> 8082",
+      "coordinator": "127.0.0.1:28081 -> 8081",
+      "postgres": "127.0.0.1:25432 -> 5432",
+      "zookeeper": "127.0.0.1:22181 -> 2181"
+    },
+    "harness_changes": [
+      "Removed fixed container_name values to avoid interfering with other workers.",
+      "Bound host ports to 127.0.0.1 and shifted host port numbers for isolation.",
+      "Started only the Router/Broker/Coordinator/Postgres/ZooKeeper subset required for this Router-to-Broker Avatica path."
+    ],
+    "application_config_changes": []
+  },
+  "probe_plan": {
+    "entry": "POST /druid/v2/sql/avatica-protobuf/ through Router",
+    "content_type": "application/x-protobuf",
+    "attacker_model": "anonymous local HTTP client against default unauthenticated quickstart Router",
+    "payload": "Valid Avatica protobuf OpenConnectionRequest plus protobuf unknown length-delimited padding field.",
+    "loop_variable": "protobuf request body byte size",
+    "body_size_cap_bytes": 100663296,
+    "default_body_sizes_bytes": [87, 1048664, 8388696, 16777304, 33554520, 67108952, 100663384],
+    "concurrency": 1,
+    "request_cap": 7,
+    "time_cap_seconds": 180,
+    "stop_conditions": [
+      "Router JVM exits or logs OutOfMemoryError / GC overhead",
+      "Router /status/health remains unavailable across repeated checks",
+      "HTTP body-size rejection appears before proportional buffering",
+      "Configured body size or time cap is reached"
+    ]
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "POST /druid/v2/sql/avatica-protobuf through Router.",
+    "sink": "AsyncQueryForwardingServlet.service reads the full InputStream into byte[] requestBytes and stores it as AVATICA_QUERY_ATTRIBUTE for proxying.",
+    "driver": "Avatica protobuf request body byte volume; repeated concurrent requests retain byte arrays during broker selection/proxy forwarding.",
+    "evidence": [
+      "services/src/main/java/org/apache/druid/server/AsyncQueryForwardingServlet.java:232-237 buffers avatica protobuf request body and stores it in a request attribute.",
+      "services/src/main/java/org/apache/druid/server/AsyncQueryForwardingServlet.java:441-443 reuses the retained byte[] as BytesRequestContent.",
+      "server/src/main/java/org/apache/druid/server/initialization/jetty/JettyServerModule.java:227 sets request header size, with no reviewed body-size setting nearby."
+    ],
+    "missing_evidence": [
+      "Official default Router exposure for Avatica protobuf in target deployment.",
+      "Runtime maximum accepted protobuf/request body size."
+    ]
+  }
+}

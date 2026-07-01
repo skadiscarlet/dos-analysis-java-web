@@ -1,0 +1,27 @@
+{
+  "finding_id": "SMQTT-APP-STATIC-0002",
+  "title": "Anonymous retained MQTT publishes fill an unbounded in-memory retainMessages map",
+  "verdict": "likely",
+  "entry": "Default MQTT TCP 1883",
+  "source": "MQTT PUBLISH with retain=true, attacker-controlled distinct topicName and payload",
+  "sink": "PublishProtocol.filterRetainMessage -> DefaultMessageRegistry.retainMessages.put(topic, RetainMessage)",
+  "driver": "distinct retained topic cardinality and retained payload bytes up to the configured MQTT frame limit",
+  "dimension": [
+    "process_heap",
+    "key_cardinality",
+    "byte_volume"
+  ],
+  "retention": "retained messages stay in the process-level retainMessages map until overwritten by the same topic or process restart; no eviction, TTL, byte quota, or topic quota found",
+  "bound": "default messageMaxSize 4194304 caps one MQTT frame and therefore one retained payload, but total retained count and aggregate bytes are unbounded; default auth and ACL allow publish",
+  "impact": "few hundred 4MiB retained messages can plausibly exhaust a small/default broker heap. Static-only run did not measure heap or service failure threshold.",
+  "evidence": [
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/mqtt/MqttReceiver.java:42-47",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/PublishProtocol.java:66-72",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/PublishProtocol.java:140-144",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/spi/DefaultMessageRegistry.java:20-38",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/message/RetainMessage.java:32-49",
+    "frameworks/applications/quickmsg__smqtt/config/config.yaml:9-10"
+  ],
+  "static_trigger_shape": "CONNECT anonymously, then publish retained messages to topics like dos/retain/{i} with payloads near the default 4MiB frame cap or many small payloads for key cardinality.",
+  "scope_notes": "Default MQTT broker feature; not disk persistence."
+}

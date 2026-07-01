@@ -1,0 +1,27 @@
+{
+  "finding_id": "SMQTT-APP-STATIC-0004",
+  "title": "Offline persistent subscriptions accumulate unbounded session message queues",
+  "verdict": "likely",
+  "entry": "Default MQTT TCP 1883",
+  "source": "Attacker-controlled cleanSession=false subscriber plus later PUBLISH messages to subscribed topics while the session is offline",
+  "sink": "PublishProtocol.filterOfflineSession -> DefaultMessageRegistry.saveSessionMessage -> CopyOnWriteArrayList.add(SessionMessage)",
+  "driver": "offline message count and payload bytes for a persistent clientIdentifier",
+  "dimension": [
+    "process_heap",
+    "byte_volume",
+    "queue_length"
+  ],
+  "retention": "sessionMessages are removed only when the same clientIdentifier reconnects; no offline TTL, per-session message count, or byte quota found",
+  "bound": "single message bounded by messageMaxSize; aggregate offline queue unbounded; clean sessions are cleared on close but persistent sessions are intentionally retained",
+  "impact": "a default unauthenticated client can create a persistent subscription, disconnect, then enqueue many offline messages to itself or another persistent offline session. Static evidence is concrete but runtime OOM/unavailability was not measured.",
+  "evidence": [
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/ConnectProtocol.java:110-112",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/ConnectProtocol.java:190-194",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/SubscribeProtocol.java:44-52",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/PublishProtocol.java:99-128",
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/spi/DefaultMessageRegistry.java:20-33",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/message/SessionMessage.java:37-56"
+  ],
+  "static_trigger_shape": "Client A CONNECT cleanSession=false, SUBSCRIBE dos/offline/#, DISCONNECT. Client B publishes many QoS1 messages with large payloads to dos/offline/{i}.",
+  "scope_notes": "Process-memory offline queue, not DB/Redis persistence."
+}

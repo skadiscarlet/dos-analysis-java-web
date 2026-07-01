@@ -1,0 +1,234 @@
+[
+  {
+    "record_id": "apache__druid-DRUID-APP-STATIC-0001",
+    "app": "apache/druid",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/apache__druid-DRUID-APP-STATIC-0001",
+    "entry": "POST /druid/v2/sql/ on Druid Router HTTP port 8888"
+  },
+  {
+    "record_id": "apache__druid-DRUID-APP-STATIC-0002",
+    "app": "apache/druid",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/apache__druid-DRUID-APP-STATIC-0002",
+    "entry": "POST /druid/v2/sql/avatica-protobuf/ through Router port 8888"
+  },
+  {
+    "record_id": "apache__hertzbeat-HERTZBEAT-DOS-0001",
+    "app": "apache/hertzbeat",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/apache__hertzbeat-HERTZBEAT-DOS-0001",
+    "entry": "POST /api/push/prometheus/job/{job}/instance/{instance}"
+  },
+  {
+    "record_id": "apache__skywalking-SKYWALKING-APP-STATIC-0002",
+    "app": "apache/skywalking",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/apache__skywalking-SKYWALKING-APP-STATIC-0002",
+    "entry": "gRPC /skywalking.v10.PprofTask/collect on OAP core gRPC port 11800"
+  },
+  {
+    "record_id": "apache__solr-SOLR-APP-STATIC-0001",
+    "app": "apache/solr",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/apache__solr-SOLR-APP-STATIC-0001",
+    "entry": "POST /solr/doscore/select with Content-Type: application/x-www-form-urlencoded"
+  },
+  {
+    "record_id": "prestodb__presto-PRESTO-APP-STATIC-0001",
+    "app": "prestodb/presto",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/prestodb__presto-PRESTO-APP-STATIC-0001",
+    "entry": "POST /v1/statement"
+  },
+  {
+    "record_id": "thingsboard__thingsboard-TB-APP-STATIC-0001",
+    "app": "thingsboard/thingsboard",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/thingsboard__thingsboard-TB-APP-STATIC-0001",
+    "entry": "POST /api/v1/{deviceToken}/telemetry"
+  },
+  {
+    "record_id": "thingsboard__thingsboard-TB-APP-STATIC-0002",
+    "app": "thingsboard/thingsboard",
+    "source_batch": "new",
+    "status": "confirmed_oom",
+    "output_dir": "poc/thingsboard__thingsboard-TB-APP-STATIC-0002",
+    "entry": "Authenticated HTTP POST /api/plugins/telemetry/DEVICE/{deviceId}/SERVER_SCOPE with Transfer-Encoding: chunked and no Content-Length"
+  },
+  {
+    "record_id": "dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+    "app": "DependencyTrack/dependency-track",
+    "source_batch": "new_retest",
+    "status": "confirmed_oom",
+    "output_dir": "poc/dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+    "entry": "POST /api/v1/bom multipart/form-data"
+  },
+  {
+    "record_id": "openzipkin__zipkin-ZIPKIN-APP-STATIC-0001",
+    "app": "openzipkin/zipkin",
+    "source_batch": "new_retest",
+    "status": "confirmed_oom",
+    "output_dir": "poc/openzipkin__zipkin-ZIPKIN-APP-STATIC-0001",
+    "entry": "POST /api/v2/spans with Content-Type: application/json and optional Content-Encoding: gzip"
+  },
+  {
+    "record_id": "CITRUS-APP-STATIC-0001",
+    "app": "yiuman__citrus",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/CITRUS-APP-STATIC-0001",
+    "entry": "/rest/verify/captcha"
+  },
+  {
+    "record_id": "DCMP-STATIC-0001",
+    "app": "dromara__datacompare",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/DCMP-STATIC-0001",
+    "entry": "/demo/operate/add"
+  },
+  {
+    "record_id": "DCMP-STATIC-0002",
+    "app": "dromara__datacompare",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/DCMP-STATIC-0002",
+    "entry": "/test/user/save"
+  },
+  {
+    "record_id": "POWERJOB-APP-STATIC-0002",
+    "app": "powerjob__powerjob",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/POWERJOB-APP-STATIC-0002",
+    "entry": "/container/downloadContainerTemplate"
+  },
+  {
+    "record_id": "RYVF-APP-STATIC-0001",
+    "app": "yangzongzhuan__ruoyi-vue-fast",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/RYVF-APP-STATIC-0001",
+    "entry": "/test/user/save"
+  },
+  {
+    "record_id": "SMQTT-APP-STATIC-0002",
+    "app": "quickmsg__smqtt",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/SMQTT-APP-STATIC-0002",
+    "entry": "protocol service on port 1883"
+  },
+  {
+    "record_id": "SMQTT-APP-STATIC-0004",
+    "app": "quickmsg__smqtt",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/SMQTT-APP-STATIC-0004",
+    "entry": "protocol service on port 1883"
+  },
+  {
+    "record_id": "XXL-JOB-APP-STATIC-0002",
+    "app": "xuxueli__xxl-job",
+    "source_batch": "p0",
+    "status": "verified_oom",
+    "output_dir": "poc/XXL-JOB-APP-STATIC-0002",
+    "entry": "protocol service on port 9999"
+  },
+  {
+    "record_id": "CITRUS-APP-STATIC-0002",
+    "app": "yiuman__citrus",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/CITRUS-APP-STATIC-0002",
+    "entry": "/rest/authenticate"
+  },
+  {
+    "record_id": "ERUPT-APP-STATIC-0001",
+    "app": "erupts__erupt",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/ERUPT-APP-STATIC-0001",
+    "entry": "/erupt-api/code-img"
+  },
+  {
+    "record_id": "ERUPT-APP-STATIC-0002",
+    "app": "erupts__erupt",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/ERUPT-APP-STATIC-0002",
+    "entry": "/erupt-api/data/table/EruptUser"
+  },
+  {
+    "record_id": "JMQTT-APP-STATIC-0002",
+    "app": "cicizz__jmqtt",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/JMQTT-APP-STATIC-0002",
+    "entry": "protocol service on port 18842"
+  },
+  {
+    "record_id": "REBUILD-APP-STATIC-0002",
+    "app": "getrebuild__rebuild",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/REBUILD-APP-STATIC-0002",
+    "entry": "/commons/barcode/render"
+  },
+  {
+    "record_id": "REBUILD-APP-STATIC-0003",
+    "app": "getrebuild__rebuild",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/REBUILD-APP-STATIC-0003",
+    "entry": "/gw/api/system-time?appid=bad&sign=bad"
+  },
+  {
+    "record_id": "SMQTT-APP-STATIC-0003",
+    "app": "quickmsg__smqtt",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/SMQTT-APP-STATIC-0003",
+    "entry": "protocol service on port 18833"
+  },
+  {
+    "record_id": "SMQTT-APP-STATIC-0006",
+    "app": "quickmsg__smqtt",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/SMQTT-APP-STATIC-0006",
+    "entry": "protocol service on port 18836"
+  },
+  {
+    "record_id": "WGCLOUD-APP-STATIC-0002",
+    "app": "tianshiyeben__wgcloud",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/WGCLOUD-APP-STATIC-0002",
+    "entry": "/wgcloud/agent/minTask"
+  },
+  {
+    "record_id": "XXL-JOB-APP-STATIC-0003",
+    "app": "xuxueli__xxl-job",
+    "source_batch": "p1",
+    "status": "confirmed_thread_exhaustion",
+    "output_dir": "poc/XXL-JOB-APP-STATIC-0003",
+    "entry": "protocol service on port 9999"
+  },
+  {
+    "record_id": "XXL-JOB-APP-STATIC-0004",
+    "app": "xuxueli__xxl-job",
+    "source_batch": "p1",
+    "status": "verified_oom",
+    "output_dir": "poc/XXL-JOB-APP-STATIC-0004",
+    "entry": "/trigger"
+  }
+]

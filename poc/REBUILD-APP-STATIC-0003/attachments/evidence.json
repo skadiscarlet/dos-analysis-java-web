@@ -1,0 +1,46 @@
+{
+  "record_id": "REBUILD-APP-STATIC-0003",
+  "app": "getrebuild__rebuild",
+  "source_batch": "p1",
+  "status": "verified_oom",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 10,
+  "strict_1g_evidence": "1g",
+  "log_path": "results/applications_dynamic_validation/p1/logs/REBUILD-APP-STATIC-0003.log",
+  "evidence_summary": "endpoint=/gw/api/system-time?appid=bad&sign=bad; payloadBytes=25165835; workerThreads=10; loopsPerWorker=30; lastHttpStatus=200; VmHWM=1507892 kB; VmRSS=1507892 kB; Threads=108",
+  "dynamic_finding": {
+    "candidate_id": "REBUILD-APP-STATIC-0003",
+    "app": "getrebuild__rebuild",
+    "title": "Unauthenticated API gateway parses raw JSON before signature verification",
+    "status": "verified_oom",
+    "dynamic_verdict": "confirmed_oom",
+    "true_positive": true,
+    "oom_signal": "java.lang.OutOfMemoryError",
+    "requests_sent": 10,
+    "heap": "1g",
+    "log": "results/applications_dynamic_validation/p1/logs/REBUILD-APP-STATIC-0003.log",
+    "evidence": {
+      "heap": "1g",
+      "port": 18153,
+      "endpoint": "/gw/api/system-time?appid=bad&sign=bad",
+      "payloadBytes": 25165835,
+      "workerThreads": 10,
+      "loopsPerWorker": 30,
+      "lastHttpStatus": 200,
+      "clientException": "",
+      "postProbePortOpen": true,
+      "processExitCode": null,
+      "aliveBeforeStop": true,
+      "processStatus": {
+        "VmHWM": "1507892 kB",
+        "VmRSS": "1507892 kB",
+        "Threads": "108"
+      },
+      "mysqlContainer": "p1-rebuild-mysql-18153",
+      "mysqlImage": "docker.1ms.run/mysql:5.7",
+      "mysqlPort": 33453
+    },
+    "notes": "匿名 /gw/api/system-time 在签名校验前读取并解析 JSON body；未 OOM 则不提升。"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "finding_id": "DCMP-STATIC-0001",
+  "title": "Default demo operation endpoints retain low-privilege submitted users in a process-lifetime static map",
+  "verdict": "likely",
+  "source": {
+    "id": "SRC-003",
+    "entry": "POST /demo/operate/add",
+    "auth": "low_privilege_authenticated",
+    "evidence": [
+      "frameworks/applications/dromara__datacompare/src/main/java/com/vince/xq/framework/config/ShiroConfig.java:310",
+      "frameworks/applications/dromara__datacompare/src/main/resources/application.yml:10"
+    ]
+  },
+  "sink": {
+    "id": "SINK-002",
+    "operation": "users.put(userId, user)",
+    "resource_type": "heap_retained_static_map",
+    "evidence": [
+      "frameworks/applications/dromara__datacompare/src/main/java/com/vince/xq/project/demo/controller/DemoOperateController.java:39",
+      "frameworks/applications/dromara__datacompare/src/main/java/com/vince/xq/project/demo/controller/DemoOperateController.java:149"
+    ]
+  },
+  "driver": "number of requests or imported rows; each add gets a new Integer key from users.size()+1",
+  "dimension": "heap object count and key cardinality",
+  "retention": "static map for process lifetime; only manual /demo/operate/clean clears it",
+  "bound": "no size cap, TTL, per-user quota, or default permission annotation; Shiro login required",
+  "default_deployment": "application.yml has demoEnabled=true; README/SQL initialize default users",
+  "impact_hypothesis": "low-privilege repeated POSTs can grow heap and slow list/export operations until JVM memory pressure or service degradation",
+  "scope_notes": "non-disk; not admin-only; default demo feature; dynamic OOM not verified"
+}

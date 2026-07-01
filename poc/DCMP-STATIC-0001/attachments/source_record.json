@@ -1,0 +1,21 @@
+{
+  "record_id": "DCMP-STATIC-0001",
+  "app": "dromara__datacompare",
+  "title": "Default demo operation endpoints retain submitted users in a static map",
+  "source_batch": "p0",
+  "source_file": "p0/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "默认 Shiro 登录后访问 demo static map 写入路径。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/demo/operate/add",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 40307,
+  "log_path": "results/applications_dynamic_validation/p0/logs/DCMP-STATIC-0001.log",
+  "evidence_summary": "endpoint=/demo/operate/add; workerThreads=12; lastHttpStatus=200; VmHWM=1518904 kB; VmRSS=1518904 kB; Threads=91",
+  "strict_1g_evidence": "1g"
+}

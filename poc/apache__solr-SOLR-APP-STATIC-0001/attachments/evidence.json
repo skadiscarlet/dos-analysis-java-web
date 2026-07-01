@@ -1,0 +1,91 @@
+{
+  "record_id": "apache__solr-SOLR-APP-STATIC-0001",
+  "app": "apache/solr",
+  "source_batch": "new",
+  "status": "confirmed_oom",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "SOLR_HEAP=1g; Docker --memory=2g --memory-swap=2g",
+  "requests_sent": 2,
+  "strict_1g_evidence": "solr_heap=1g",
+  "log_path": "logs/container_logs_after_probe.txt",
+  "evidence_summary": "request_count=2; duration_seconds=16; metric=heap,rss,gc,http_availability; baseline={'heap_max_bytes': 1073741824, 'docker_mem_usage': '1.257GiB / 2GiB', 'health': 'HTTP 200 for /solr/doscore/select?q=*:*&rows=0'}; peak={'last_successfu...",
+  "resource_observation": {
+    "metric": "heap,rss,gc,http_availability",
+    "baseline": {
+      "heap_max_bytes": 1073741824,
+      "docker_mem_usage": "1.257GiB / 2GiB",
+      "health": "HTTP 200 for /solr/doscore/select?q=*:*&rows=0"
+    },
+    "peak": {
+      "last_successful_body_size_bytes": 134217728,
+      "failing_body_size_bytes": 268435456,
+      "container_exit_code": 134,
+      "final_health": "HTTP unavailable after JVM abort"
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/container_logs_after_probe.txt"
+    ],
+    "evidence_paths": [
+      "evidence/probe_observations.json",
+      "evidence/container_inspect_after_1g_oom.json"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "匿名 HTTP 客户端在官方 Solr Docker 默认安全关闭部署中，对默认 core 的 /select 发送 form-url-encoded POST，可在 SOLR_HEAP=1g、2GiB 容器复测下由 256MiB 表单请求触发目标 JVM Java heap space OOM 并导致服务退出。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "Validation was repeated with SOLR_HEAP=1g; larger production heaps raise the required body-size threshold.",
+      "Default _default configset did not enforce a small formdataUploadLimitInKB in this deployment path.",
+      "Reverse-proxy/client body limits, Solr requestParsers formdataUploadLimitInKB, authentication, rate limits, or per-client quotas can block or raise the attack cost.",
+      "The proof bound the Docker container to 768MiB only to avoid host impact; the failure signal was Java heap OOM, not Docker OOMKilled."
+    ],
+    "not_affected_when": [
+      "Solr HTTP endpoints are not reachable by low-trust clients.",
+      "A strict form-url-encoded body-size limit rejects the request before SolrRequestParsers materializes parameters.",
+      "Authentication/authorization, reverse proxy controls, or rate limits prevent anonymous large POST requests."
+    ]
+  },
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_docker_image",
+    "image_or_version": "solr:9.8.1@sha256:86a7f3fbec6596b4ee1122b6a862f41eb4b7f41a164abbc169ba9ee03e41525b",
+    "commands": [
+      "docker pull solr:9.8.1",
+      "/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/new/cases/apache__solr-SOLR-APP-STATIC-0001/start_commands.sh dos-solr-form-apache-solr-static-0001",
+      "./probe.py --case-dir /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/new/cases/apache__solr-SOLR-APP-STATIC-0001 --container dos-solr-form-apache-solr-static-0001 --base-url http://127.0.0.1:18983/solr --core doscore --request-cap 9 --timeout 180",
+      "docker cp dos-solr-form-apache-solr-static-0001:/var/solr/logs /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/new/cases/apache__solr-SOLR-APP-STATIC-0001/evidence/solr_var_logs",
+      "docker rm -f -v dos-solr-form-apache-solr-static-0001"
+    ],
+    "config_changes": [
+      "No Solr configset or application source changes.",
+      "Validation harness used SOLR_HEAP=256m and Docker --memory 768m --memory-swap 768m to keep the local proof bounded."
+    ],
+    "non_default_reason": null
+  },
+  "trigger": {
+    "request_shape": "POST http://127.0.0.1:28983/solr/doscore/select; body starts with q=%2A%3A%2A and appends many attacker-controlled pNNNNNN=<value> form parameters.",
+    "parameters": {
+      "content_type": "application/x-www-form-urlencoded",
+      "body_size_ramp_bytes": [
+        134217728,
+        268435456,
+        536870912,
+        805306368
+      ],
+      "last_successful_body_size_bytes": 134217728,
+      "failing_body_size_bytes": 268435456,
+      "last_successful_param_count": 8192,
+      "concurrency": 1
+    },
+    "loop_variable": "form body bytes and parameter count",
+    "request_count": 2,
+    "duration_seconds": 16,
+    "bandwidth_notes": "Single local HTTP client, one request per body-size step; 128MiB returned HTTP 200 and 256MiB disconnected while the target JVM aborted with Java heap OOM."
+  }
+}

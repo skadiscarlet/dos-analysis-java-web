@@ -1,0 +1,56 @@
+{
+  "case_id": "thingsboard__thingsboard-TB-APP-STATIC-0002",
+  "target": "thingsboard/thingsboard",
+  "finding_id": "TB-APP-STATIC-0002",
+  "probe_id": "PROBE-002",
+  "objective": "Validate whether authenticated REST telemetry/attribute POST endpoints using @RequestBody String can bypass the default Content-Length-only payload guard with Transfer-Encoding: chunked and cause target JVM memory exhaustion.",
+  "static_hypothesis": {
+    "entry": "POST /api/plugins/telemetry/{deviceId}/{scope} or /api/plugins/telemetry/{entityType}/{entityId}/timeseries/{scope}",
+    "guard": "server.http.max_payload_size default includes /api/**=16777216 and PayloadSizeFilter checks request.getContentLength().",
+    "sink": "TelemetryController.saveAttributes/saveTelemetry materializes @RequestBody String, parses it with JsonParser.parseString, and converts JSON entries into in-memory lists before asynchronous save.",
+    "attacker_control": "Authenticated body byte volume and JSON key/value count using Transfer-Encoding: chunked without Content-Length."
+  },
+  "deployment_plan": {
+    "source": "official_docker_image",
+    "image": "thingsboard/tb-postgres:latest",
+    "digest": "sha256:2d17e4e36edcc1652592d48a3ab25dc7c9d13442b9f8283bc0594eb7b290b65b",
+    "published_version_observed": "ThingsBoard v4.2.1.1",
+    "ports": {
+      "http": "127.0.0.1:19090 -> container 9090",
+      "mqtt": "127.0.0.1:11883 -> container 1883",
+      "coap": "127.0.0.1:15683/udp -> container 5683/udp",
+      "lwm2m_coap": "127.0.0.1:15685/udp -> container 5685/udp",
+      "lwm2m_coaps": "127.0.0.1:15686/udp -> container 5686/udp"
+    },
+    "harness_limits": [
+      "docker --memory=4096m --memory-swap=4096m",
+      "JAVA_OPTS=-Xms512m -Xmx1536m -XX:+ExitOnOutOfMemoryError"
+    ],
+    "app_config_changes": []
+  },
+  "data_preparation_plan": [
+    "Use documented default Tenant Administrator credentials tenant@thingsboard.org / tenant.",
+    "Create a disposable test device via POST /api/device.",
+    "Use the Tenant Administrator JWT for low-privilege authenticated REST POST probes.",
+    "Delete the test device after probe if the service remains available; otherwise remove the disposable container and data directory."
+  ],
+  "probe_plan": {
+    "control": "POST 17 MiB JSON with Content-Length to confirm PayloadSizeFilter rejects or closes early at /api/**=16 MiB.",
+    "attack": "POST chunked JSON without Content-Length to /api/plugins/telemetry/DEVICE/{deviceId}/SERVER_SCOPE.",
+    "sizes_mib": [17, 64, 128, 256, 384, 512],
+    "actual_stop": "Stopped after 256 MiB chunked request because target JVM logged OutOfMemoryError and HTTP availability failed.",
+    "request_cap": 7,
+    "concurrency": 1
+  },
+  "safety_plan": {
+    "scope": "localhost-only disposable Docker container",
+    "stop_conditions": [
+      "OutOfMemoryError",
+      "container exit or restart",
+      "sustained HTTP unavailable",
+      "connection close after failure",
+      "configured request/body cap"
+    ],
+    "no_further_probe_after": "2026-06-29T15:55:24+08:00"
+  }
+}

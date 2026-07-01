@@ -1,0 +1,53 @@
+{
+  "case_id": "prestodb__presto-PRESTO-APP-STATIC-0001",
+  "target": "prestodb/presto",
+  "slug": "prestodb__presto",
+  "finding_id": "PRESTO-APP-STATIC-0001",
+  "probe_id": "DP-PRESTO-001",
+  "goal": "Dynamically validate whether abandoned initial POST /v1/statement submissions retain QueuedStatementResource Query objects until default Presto coordinator heap exhaustion.",
+  "deployment_plan": {
+    "preferred_model": "official_docker_image",
+    "selected_image": "prestodb/presto:0.298.1",
+    "selected_digest": "sha256:aff53afed348be30818735646c0b73be639b24a5c97e1cf2562a68de527dc34a",
+    "container_name": "dos-presto-prestodb-presto-static-0001",
+    "port_mapping": "127.0.0.1:18080 -> container 8080",
+    "presto_config_changes": [],
+    "harness_limits": [
+      "Docker --memory=2g --memory-swap=2g to avoid host impact and distinguish JVM OOM from cgroup OOM",
+      "Presto image default jvm.config retained -Xmx1G"
+    ]
+  },
+  "probe_plan": {
+    "entry": "POST /v1/statement",
+    "auth": "default no http-server.authentication.type; X-Presto-User header supplies user identity",
+    "method": "POST",
+    "headers": {
+      "X-Presto-User": "dos_probe",
+      "Content-Type": "text/plain"
+    },
+    "body_shape": "SELECT '<unique padded literal>'",
+    "body_bytes_per_request": 700000,
+    "concurrency": 1,
+    "request_cap": 1600,
+    "poll_next_uri": false,
+    "stop_conditions": [
+      "OutOfMemoryError or JVM exit",
+      "sustained HTTP unavailability",
+      "Docker memory reaches 1900 MiB safety stop",
+      "request cap reached"
+    ]
+  },
+  "evidence_plan": [
+    "Record image/container inspect and default config",
+    "Record startup logs and /v1/info readiness",
+    "Sample HTTP responses",
+    "Sample docker stats",
+    "Sample jcmd GC.heap_info",
+    "Sample jcmd GC.class_histogram filtered for QueuedStatementResource$Query and HttpRequestSessionContext",
+    "Capture final container logs and inspect after failure"
+  ],
+  "cleanup_plan": [
+    "docker rm -v dos-presto-prestodb-presto-static-0001",
+    "Remove accidental full data-directory heap-dump copy after preserving file listing"
+  ]
+}

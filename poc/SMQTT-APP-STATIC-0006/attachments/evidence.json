@@ -1,0 +1,43 @@
+{
+  "record_id": "SMQTT-APP-STATIC-0006",
+  "app": "quickmsg__smqtt",
+  "source_batch": "p1",
+  "status": "verified_oom",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 970,
+  "strict_1g_evidence": "1g",
+  "log_path": "results/applications_dynamic_validation/p1/logs/SMQTT-APP-STATIC-0006.log",
+  "evidence_summary": "payloadBytes=1048576; VmHWM=1308844 kB; VmRSS=1171180 kB; Threads=42",
+  "dynamic_finding": {
+    "candidate_id": "SMQTT-APP-STATIC-0006",
+    "app": "quickmsg__smqtt",
+    "title": "QoS2 half-handshake retains publish messages and retry ack state",
+    "status": "verified_oom",
+    "dynamic_verdict": "confirmed_oom",
+    "true_positive": true,
+    "oom_signal": "java.lang.OutOfMemoryError",
+    "requests_sent": 970,
+    "heap": "1g",
+    "log": "results/applications_dynamic_validation/p1/logs/SMQTT-APP-STATIC-0006.log",
+    "evidence": {
+      "heap": "1g",
+      "port": 18836,
+      "connections": 5,
+      "payloadBytes": 1048576,
+      "maxMessages": 1800,
+      "enhancedProbe": true,
+      "estimatedCachedPayloadBytes": 1017118720,
+      "clientException": "",
+      "postProbePortOpen": true,
+      "processExitCode": null,
+      "aliveBeforeStop": true,
+      "processStatus": {
+        "VmHWM": "1308844 kB",
+        "VmRSS": "1171180 kB",
+        "Threads": "42"
+      }
+    },
+    "notes": ""
+  }
+}

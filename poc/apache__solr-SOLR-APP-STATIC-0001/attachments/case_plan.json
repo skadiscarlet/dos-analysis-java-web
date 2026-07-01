@@ -1,0 +1,64 @@
+{
+  "case_id": "apache__solr-SOLR-APP-STATIC-0001",
+  "target": "apache/solr",
+  "slug": "apache__solr",
+  "finding_id": "SOLR-APP-STATIC-0001",
+  "probe_id": "PROBE-SOLR-001",
+  "title": "Default form-url-encoded request parser materializes near-unbounded POST bodies into heap parameters",
+  "objective": "Validate whether anonymous external POST requests to a default Solr core can trigger JVM OOM, GC death, restart, or sustained HTTP unavailability through form-url-encoded parser state growth.",
+  "deployment_plan": {
+    "model": "official_docker_image",
+    "image": "solr:9.8.1",
+    "image_digest": "solr@sha256:86a7f3fbec6596b4ee1122b6a862f41eb4b7f41a164abbc169ba9ee03e41525b",
+    "core": "doscore",
+    "host_bind": "127.0.0.1:18983",
+    "container_port": 8983,
+    "heap_limit": "SOLR_HEAP=256m",
+    "container_memory_limit": "768m",
+    "config_changes": [
+      "No Solr application/configset changes. SOLR_HEAP and Docker memory limit are validation harness safety limits. Container memory was set to 768m after an initial 512m dry run showed baseline cgroup memory near the limit, which would confound JVM heap evidence."
+    ]
+  },
+  "probe_plan": {
+    "entry": "POST /solr/doscore/select",
+    "content_type": "application/x-www-form-urlencoded",
+    "attacker_model": "anonymous HTTP client against default security-off Solr Docker deployment",
+    "concurrency": 1,
+    "request_cap": 9,
+    "body_size_bytes": [
+      65536,
+      1048576,
+      4194304,
+      8388608,
+      16777216,
+      33554432,
+      50331648,
+      67108864,
+      100663296
+    ],
+    "stop_conditions": [
+      "OutOfMemoryError in container logs",
+      "container restart or exit",
+      "sustained HTTP unavailability after a probe",
+      "HTTP 5xx attributable to memory pressure",
+      "probe time cap reached"
+    ],
+    "success_condition": "Confirmed only on OOM, GC death, restart, or sustained unavailability. Heap or latency growth alone is observed_growth_not_confirmed."
+  },
+  "static_candidate": {
+    "source": "External POST application/x-www-form-urlencoded body to default core handlers such as /solr/{core}/select or /solr/{core}/query",
+    "sink": "SolrRequestParsers.parseFormDataContent accumulates key/value bytes, optional charset buffer entries, decoded strings, and MultiMapSolrParams arrays before handler execution",
+    "driver": "form body byte length, parameter count, key length, and value length",
+    "request_shape": "POST /solr/{core}/select with Content-Type: application/x-www-form-urlencoded and q=*:* plus many attacker-controlled parameters in the body",
+    "resource_dimension": "parser_state",
+    "resource_metric": "target JVM heap used, GC time, parser exception/OOM, request latency",
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl"
+  },
+  "safety": {
+    "isolated_local_target": true,
+    "bind_address": "127.0.0.1",
+    "no_third_party_targets": true,
+    "single_threaded_probe": true,
+    "cleanup_required": true
+  }
+}

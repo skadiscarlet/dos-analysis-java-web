@@ -1,0 +1,21 @@
+{
+  "record_id": "RYVF-APP-STATIC-0001",
+  "app": "yangzongzhuan__ruoyi-vue-fast",
+  "title": "Low-privileged /test/user/save stores UserEntity entries in a static LinkedHashMap",
+  "source_batch": "p0",
+  "source_file": "p0/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "默认数据库初始化后关闭默认验证码配置项，以稳定进入低权限登录态；目标 sink 为 /test/user/save static map。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/test/user/save",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 2987,
+  "log_path": "results/applications_dynamic_validation/p0/logs/RYVF-APP-STATIC-0001.log",
+  "evidence_summary": "endpoint=/test/user/save; workerThreads=24; lastHttpStatus=500; VmHWM=1606804 kB; VmRSS=1606804 kB; Threads=117",
+  "strict_1g_evidence": "1g"
+}

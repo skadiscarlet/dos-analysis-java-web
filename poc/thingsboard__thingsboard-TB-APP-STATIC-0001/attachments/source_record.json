@@ -1,0 +1,21 @@
+{
+  "record_id": "thingsboard__thingsboard-TB-APP-STATIC-0001",
+  "app": "thingsboard/thingsboard",
+  "title": "TB-APP-STATIC-0001",
+  "source_batch": "new",
+  "source_file": "new/cases/thingsboard__thingsboard-TB-APP-STATIC-0001/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "官方 ThingsBoard tb-node 单节点部署中，HTTP device telemetry path 会在认证结果返回前读取并绑定 chunked JSON body；在 -Xmx1024m / 2g 容器补测下，单个 512MiB timeseries-large-value telemetry 请求触发目标 JVM `OutOfMemoryError: Java heap space` 并返回 HTTP 500。",
+  "finding_id": "TB-APP-STATIC-0001",
+  "probe_id": "PROBE-001",
+  "entry": "POST /api/v1/{deviceToken}/telemetry",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "ThingsBoard tb-node JAVA_OPTS=-Xms512m -Xmx1024m -Xss384k; Docker compose mem_limit=2g",
+  "requests_sent": 2,
+  "log_path": "logs/probe_results_reinforce_telemetry_large.jsonl",
+  "evidence_summary": "request_count=2; duration_seconds=12; metric=heap/rss/http_response/heap_dump; baseline={'docker_stats_before_telemetry_256m': 'MemUsage=1.672GiB/2GiB, /login status=200 after prior attributes reinforcement probe'}; peak={'telemetry_512m...",
+  "strict_1g_evidence": "mem_limit=2g"
+}

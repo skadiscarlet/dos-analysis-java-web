@@ -1,0 +1,21 @@
+{
+  "record_id": "WGCLOUD-APP-STATIC-0002",
+  "app": "tianshiyeben__wgcloud",
+  "title": "Default-token /agent/minTask raw JSON and static BatchData",
+  "source_batch": "p1",
+  "source_file": "p1/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "完整 WGCloud server + MySQL 默认 token，POST /agent/minTask 大数组和 BatchData 静态列表压力。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/wgcloud/agent/minTask",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 175,
+  "log_path": "results/applications_dynamic_validation/p1/logs/WGCLOUD-APP-STATIC-0002.log",
+  "evidence_summary": "endpoint=/wgcloud/agent/minTask; payloadBytes=4463661; workerThreads=8; loopsPerWorker=24; lastHttpStatus=200; VmHWM=1441828 kB; VmRSS=1441828 kB; Threads=87",
+  "strict_1g_evidence": "1g"
+}

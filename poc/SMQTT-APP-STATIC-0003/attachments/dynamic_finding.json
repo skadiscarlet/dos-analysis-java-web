@@ -1,0 +1,29 @@
+{
+  "candidate_id": "SMQTT-APP-STATIC-0003",
+  "app": "quickmsg__smqtt",
+  "title": "Publishing to never-subscribed topics creates empty global topic keys",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 127062,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p1/logs/SMQTT-APP-STATIC-0003.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18833,
+    "topicBytesApprox": 8208,
+    "maxMessages": 240000,
+    "enhancedProbe": true,
+    "clientException": "TimeoutError('timed out')",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1323660 kB",
+      "VmRSS": "1323660 kB",
+      "Threads": "48"
+    }
+  },
+  "notes": ""
+}

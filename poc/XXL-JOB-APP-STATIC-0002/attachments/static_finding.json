@@ -1,0 +1,21 @@
+{
+  "finding_id": "XXL-JOB-APP-STATIC-0002",
+  "target": "xuxueli/xxl-job",
+  "module": "xxl-job-core executor sample",
+  "verdict": "likely",
+  "source": "external POST :9999/trigger for the same jobId with unique logId and payload fields",
+  "sink": "JobThread.pushTriggerQueue adds logId to triggerLogIdSet and TriggerRequest to an unbounded LinkedBlockingQueue",
+  "driver": "failed or slow trigger processing versus request rate; unique logId and executorParams/glueSource field size",
+  "dimension": "queue element count, heap object count, queued request payload retention",
+  "retention": "queued TriggerRequest and logId are retained until the JobThread worker polls and executes them",
+  "bound": "LinkedBlockingQueue is constructed without capacity; triggerLogIdSet has no size cap; duplicate logId check does not constrain unique logIds",
+  "default_reachability": "same default exposed executor and weak default token/appname as XXL-JOB-APP-STATIC-0001",
+  "evidence": [
+    "ExecutorBizImpl.java:133-159",
+    "JobThread.java:40-65",
+    "JobThread.java:103-110",
+    "JobThread.java:112-127",
+    "SampleXxlJob.java:41-49"
+  ],
+  "dynamic_probe": "Trigger default demoJobHandler faster than it can finish, vary logId and executorParams size, measure queue length via instrumentation/JFR, heap, GC, latency and service availability."
+}

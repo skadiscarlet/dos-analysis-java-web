@@ -1,0 +1,27 @@
+{
+  "finding_id": "CITRUS-APP-STATIC-0001",
+  "title": "Anonymous /rest/verify/captcha creates unbounded HttpSession-retained Captcha objects",
+  "verdict": "likely",
+  "entry": "GET /rest/verify/captcha without reusing Cookie/JSESSIONID",
+  "source": "permitAll verification endpoint path variable type=caption",
+  "sink": "CaptchaProcessor.send -> SessionVerificationRepository.save -> request.getSession().setAttribute(SESSION_VERIFY_ID, Captcha)",
+  "driver": "number of fresh sessions created by requests that omit or vary the session cookie",
+  "dimension": [
+    "session_count",
+    "heap_object_count",
+    "key_cardinality"
+  ],
+  "retention": "servlet HttpSession lifetime; Captcha object includes a BufferedImage and is not removed on generation",
+  "bound": "fixed session attribute key only bounds one session; no per-IP, global session-count, rate, or endpoint enable check was found; citrus.verify.enable=false only gates login validation",
+  "impact": "static evidence for default anonymous heap retention; dynamic default-deployment service-unavailable threshold not measured",
+  "evidence": [
+    "deploy/docker-compose.yml:25-38",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/authorize/SystemAuthorizeConfigProvider.java:28-30",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/verify/VerificationController.java:51-58",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/verify/captcha/CaptchaProcessor.java:31-35",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/verify/SessionVerificationRepository.java:24-26",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/verify/captcha/Captcha.java:15-24",
+    "citrus-main/src/main/resources/application.yml:15-17"
+  ],
+  "dynamic_probe": "loop GET /rest/verify/captcha with no Cookie against default compose backend/front; observe active session count, heap, GC, response latency and restart/OOM under a bounded heap"
+}

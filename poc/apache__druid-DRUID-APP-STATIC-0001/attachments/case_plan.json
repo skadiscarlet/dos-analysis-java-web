@@ -1,0 +1,60 @@
+{
+  "case_id": "apache__druid-DRUID-APP-STATIC-0001",
+  "target": "apache/druid",
+  "slug": "apache__druid",
+  "finding_id": "DRUID-APP-STATIC-0001",
+  "probe_id": "PROBE-DRUID-0001",
+  "objective": "Validate whether default Apache Druid Docker quickstart SQL endpoints fully materialize large text/plain or application/x-www-form-urlencoded POST bodies before SQL parsing and whether controlled external requests can cause target-JVM resource failure.",
+  "deployment_plan": {
+    "source": "official_docker_compose_from_target_source_with_official_docker_image",
+    "source_files": [
+      "/home/furina/new_tool/dos-analysis-web/frameworks/applications/apache__druid/distribution/docker/docker-compose.yml",
+      "/home/furina/new_tool/dos-analysis-web/frameworks/applications/apache__druid/distribution/docker/environment"
+    ],
+    "image": "apache/druid:37.0.0",
+    "reason_for_tag": "The source tree is 38.0.0-SNAPSHOT and its compose references apache/druid:38.0.0, but Docker Hub returned no manifest for that tag; 37.0.0 is the nearest available official release tag checked.",
+    "isolation_changes": [
+      "container_name values prefixed with druiddos_apache_druid_",
+      "host ports remapped to 127.0.0.1:19081/19082/19083/19088/19091/19100-19105/15432/12181"
+    ],
+    "semantic_config_changes": []
+  },
+  "probe_plan": {
+    "entries": [
+      "POST http://127.0.0.1:19088/druid/v2/sql/ via Router",
+      "POST http://127.0.0.1:19082/druid/v2/sql/ via Broker"
+    ],
+    "content_types": [
+      "text/plain",
+      "application/x-www-form-urlencoded"
+    ],
+    "body_size_steps_bytes": [
+      1024,
+      1048576,
+      8388608,
+      33554432,
+      67108864,
+      134217728
+    ],
+    "concurrency_steps": [
+      1,
+      2
+    ],
+    "request_cap": 24,
+    "time_cap_seconds": 900,
+    "stop_conditions": [
+      "target OutOfMemoryError or GC overhead log",
+      "container restart or exit",
+      "sustained HTTP unavailability",
+      "operator safety stop if memory use approaches unsafe host pressure"
+    ]
+  },
+  "evidence_to_capture": [
+    "startup logs",
+    "HTTP status and latency per request",
+    "docker stats for router and broker",
+    "container health/availability checks",
+    "target logs around probe window",
+    "cleanup log"
+  ]
+}

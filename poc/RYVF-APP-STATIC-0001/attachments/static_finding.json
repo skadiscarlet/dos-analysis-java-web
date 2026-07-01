@@ -1,0 +1,27 @@
+{
+  "finding_id": "RYVF-APP-STATIC-0001",
+  "title": "Low-privileged /test/user/save stores attacker-controlled UserEntity entries in a process-lifetime static LinkedHashMap",
+  "verdict": "likely",
+  "entry": "POST /test/user/save",
+  "source": "authenticated low-privilege HTTP request parameters userId, username, password, mobile",
+  "sink": "TestController.users.put(user.getUserId(), user) where users is private static final LinkedHashMap",
+  "driver": "distinct userId values and UserEntity field sizes",
+  "dimension": [
+    "process_heap",
+    "map_key_cardinality",
+    "object_count"
+  ],
+  "retention": "process-lifetime static map; entries survive across requests until process restart or explicit delete",
+  "bound": "no capacity limit, TTL, eviction, per-client quota, rate limit, or @PreAuthorize permission guard; only requires authentication",
+  "impact": "low-privileged default authenticated users can drive unbounded process heap growth; dynamic OOM/GC/service-unavailable threshold not measured",
+  "evidence": [
+    "src/main/java/com/ruoyi/project/tool/swagger/TestController.java:31-35",
+    "src/main/java/com/ruoyi/project/tool/swagger/TestController.java:71-79",
+    "src/main/java/com/ruoyi/framework/config/SecurityConfig.java:113-119",
+    "sql/ry_20260417.sql:69-70",
+    "sql/ry_20260417.sql:126-127",
+    "sql/ry_20260417.sql:277-278"
+  ],
+  "static_poc": "Login as a default low-privilege user, then repeatedly POST /test/user/save with increasing userId and large username/password/mobile values.",
+  "dynamic_probe": "Measure JVM heap, GC, /test/user/list latency, map growth, HTTP failures, and process exit under repeated saves."
+}

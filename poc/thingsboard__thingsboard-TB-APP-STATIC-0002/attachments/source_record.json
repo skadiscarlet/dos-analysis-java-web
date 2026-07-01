@@ -1,0 +1,21 @@
+{
+  "record_id": "thingsboard__thingsboard-TB-APP-STATIC-0002",
+  "app": "thingsboard/thingsboard",
+  "title": "TB-APP-STATIC-0002",
+  "source_batch": "new",
+  "source_file": "new/cases/thingsboard__thingsboard-TB-APP-STATIC-0002/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "官方单容器默认部署中，具备 TENANT_ADMIN 等低权限写设备属性能力的客户端，可用无 Content-Length 的 chunked REST attributes POST 绕过默认 /api/** 16MiB Content-Length 检查；在 1.5GiB 测试堆下 256MiB body 触发目标 JVM Java heap OOM 并导致 HTTP 不可用。",
+  "finding_id": "TB-APP-STATIC-0002",
+  "probe_id": "PROBE-002",
+  "entry": "Authenticated HTTP POST /api/plugins/telemetry/DEVICE/{deviceId}/SERVER_SCOPE with Transfer-Encoding: chunked and no Content-Length",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "JVM -Xmx1536m; Docker --memory=4096m --memory-swap=4096m",
+  "requests_sent": 5,
+  "log_path": "logs/probe_events.jsonl",
+  "evidence_summary": "request_count=5; duration_seconds=35.333; metric=heap|rss|http_availability; baseline={'docker_rss': '1.799GiB / 4GiB', 'jvm_heap_used': '664630K', 'jvm_heap_total': '871424K', 'http_availability': 'GET /api/auth/login returned 401'}; pe...",
+  "strict_1g_evidence": "-xmx1536m"
+}

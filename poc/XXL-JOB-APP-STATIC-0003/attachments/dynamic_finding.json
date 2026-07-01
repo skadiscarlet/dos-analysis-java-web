@@ -1,0 +1,40 @@
+{
+  "candidate_id": "XXL-JOB-APP-STATIC-0003",
+  "app": "xuxueli__xxl-job",
+  "title": "Default-token GLUE_GROOVY trigger compiles unique glueSource",
+  "status": "confirmed_thread_exhaustion",
+  "dynamic_verdict": "confirmed_thread_exhaustion",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 780,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p1/logs/XXL-JOB-APP-STATIC-0003.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 9999,
+    "glueType": "GLUE_GROOVY",
+    "maxTriggers": 2200,
+    "gluePadBytes": 32771,
+    "sleepingGlueHandler": true,
+    "enhancedProbe": true,
+    "headers": {
+      "XXL-JOB-ACCESS-TOKEN": "default_token",
+      "XXL-JOB-APPNAME": "xxl-job-executor-sample"
+    },
+    "userThreadsBeforeStart": 1320,
+    "nprocLimit": 2220,
+    "nprocMargin": 900,
+    "threadsBeforeStop": 900,
+    "beatOkAfterProbe": true,
+    "clientException": "",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "651584 kB",
+      "VmRSS": "651584 kB",
+      "Threads": "900"
+    }
+  },
+  "notes": "XXL-JOB default-token GLUE_GROOVY 使用唯一 jobId 与阻塞型 glueSource 创建大量 JobThread；以线程耗尽/可用性失败为确认信号，不限于 Java heap OOM。"
+}

@@ -1,0 +1,132 @@
+{
+  "case_id": "apache__druid-DRUID-APP-STATIC-0001",
+  "target": "apache/druid",
+  "slug": "apache__druid",
+  "finding_id": "DRUID-APP-STATIC-0001",
+  "probe_id": "PROBE-DRUID-0001",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "resource_dimension": "memory",
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_compose",
+    "image_or_version": "apache/druid:37.0.0, apache/druid@sha256:0116fb802786649fc3635d6d4ab5be4da8abee3edafbe95c7f358a564d4c82e8",
+    "commands": [
+      "docker compose -p druiddos_apache_druid up -d",
+      "./probe.py --max-size 536870912 --size-steps 1048576,8388608,33554432,67108864,134217728,268435456,536870912 --content-types text/plain --concurrency 1 --timeout 360 --chunk-size 1048576 --stop-on-failure",
+      "docker compose -p druiddos_apache_druid down -v"
+    ],
+    "config_changes": [
+      "Isolation-only host port remapping to 127.0.0.1:19088 for Router and 127.0.0.1:19082 for Broker; Druid internal ports unchanged.",
+      "Isolation-only container_name prefix druiddos_apache_druid_.",
+      "Strict retest harness set DRUID_XMS=1g and DRUID_XMX=1g to satisfy the >=1GiB validation threshold.",
+      "Validated nearest available official release image apache/druid:37.0.0 because source compose referenced apache/druid:38.0.0 and Docker Hub returned no manifest for that tag."
+    ],
+    "non_default_reason": null
+  },
+  "reachability": {
+    "attacker_model": "anonymous",
+    "entry": "POST /druid/v2/sql/ on Druid Router HTTP port 8888",
+    "auth_required": false,
+    "account_used": null,
+    "network_exposure": "external_http_default",
+    "required_roles": []
+  },
+  "data_preparation": {
+    "required": false,
+    "steps": [],
+    "seed_data": [],
+    "low_privilege_account": null,
+    "default_credentials_used": false
+  },
+  "trigger": {
+    "request_shape": "POST http://127.0.0.1:19088/druid/v2/sql/ with Content-Type text/plain and streamed Content-Length SQL body.",
+    "parameters": {
+      "content_types_attempted": [
+        "text/plain"
+      ],
+      "executed_sizes_bytes": [
+        1048576,
+        8388608,
+        33554432,
+        67108864,
+        134217728,
+        268435456,
+        536870912
+      ],
+      "failing_size_bytes": 536870912,
+      "concurrency": 1,
+      "transfer": "content-length-streamed"
+    },
+    "loop_variable": "request body byte size",
+    "request_count": 7,
+    "duration_seconds": 98,
+    "bandwidth_notes": "Sequential local HTTP requests only; the 512MiB streamed body caused Router connection reset and target JVM exit."
+  },
+  "resource_observation": {
+    "metric": "heap|rss|http_availability|container_state",
+    "baseline": {
+      "router_health": "HTTP 200 before probe",
+      "router_heap": "DRUID_XMS=1g; DRUID_XMX=1g"
+    },
+    "peak": {
+      "router_observed_rss": "1.736GiB after 256MiB request; 512MiB request reset connection before response",
+      "container_state": "Router exited with ExitCode=3; OOMKilled=false",
+      "failing_request": "512MiB text/plain /druid/v2/sql/ body"
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/compose_all_reinforce.log",
+      "evidence/probe_results.jsonl",
+      "logs/cleanup_reinforce.log"
+    ],
+    "evidence_paths": [
+      "evidence/probe_summary.json",
+      "evidence/router_oom_reinforce_excerpt.txt",
+      "evidence/router_inspect_reinforce.json",
+      "evidence/docker_inspect_reinforce.json"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "官方 Druid Docker quickstart 派生部署中，Router /druid/v2/sql/ 匿名可达；在 DRUID_XMS=1g / DRUID_XMX=1g 的严格补测下，单个 512MiB text/plain SQL body 触发 Router JVM `OutOfMemoryError: Java heap space` 并退出。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "Default quickstart did not reject the probed text/plain SQL body before Router heap OOM.",
+      "Reverse proxy, Jetty, or Druid-level request body limits below the failure threshold would block this exact trigger.",
+      "Authentication, authorization, per-client rate limits, or network isolation of Router reduce external reachability.",
+      "Different Druid versions or a fix that streams or caps raw SQL bodies may change exploitability."
+    ],
+    "not_affected_when": [
+      "The Router /druid/v2/sql/ endpoint is not exposed to low-trust clients.",
+      "Requests with text/plain or form-urlencoded SQL bodies are capped below the memory-pressure threshold.",
+      "The deployment requires authenticated roles not available to the attacker.",
+      "A front proxy rejects large bodies before they reach the Druid JVM."
+    ]
+  },
+  "safety": {
+    "request_cap": 7,
+    "time_cap_seconds": 900,
+    "heap_or_container_limit": "Druid Router DRUID_XMS=1g and DRUID_XMX=1g; no Docker mem_limit set in the case compose",
+    "stop_condition_hit": true,
+    "cleanup_done": true
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "POST /druid/v2/sql/ with Content-Type text/plain or application/x-www-form-urlencoded; Router path also calls SqlQuery.from(HttpServletRequest,ObjectMapper).",
+    "sink": "SqlQuery.from rawQueryExtractor uses IOUtils.toByteArray(request.getInputStream()) and constructs a String before trim/decode.",
+    "driver": "HTTP request body byte volume; concurrent body submissions multiply live byte[]/String pressure.",
+    "missing_static_evidence": [
+      "Actual Jetty max request body behavior for these content types under official default packaging.",
+      "Heap growth threshold and whether reverse proxy examples impose body-size limits."
+    ]
+  },
+  "notes": [
+    "2026-06-30 reinforcement fixed the probe size ladder and streamed request bodies so --max-size 536870912 actually sent a 512MiB request.",
+    "The 512MiB text/plain request caused RemoteDisconnected on the client and Router ExitCode=3 with `Terminating due to java.lang.OutOfMemoryError: Java heap space` in compose logs."
+  ]
+}

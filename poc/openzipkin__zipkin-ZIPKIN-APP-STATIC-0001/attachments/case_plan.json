@@ -1,0 +1,46 @@
+{
+  "case_id": "openzipkin__zipkin-ZIPKIN-APP-STATIC-0001",
+  "target": "openzipkin/zipkin",
+  "slug": "openzipkin__zipkin",
+  "finding_id": "ZIPKIN-APP-STATIC-0001",
+  "probe_id": "PROBE-ZIPKIN-0001",
+  "objective": "Dynamically validate whether the default Zipkin HTTP collector can be driven to OOM or sustained unavailability by anonymous POST /api/v2/spans requests before default request/storage bounds reject the input.",
+  "deployment_plan": {
+    "preferred_source": "official Docker quickstart image",
+    "image": "ghcr.io/openzipkin/zipkin-slim:latest",
+    "port_mapping": "127.0.0.1:19411->9411",
+    "container_name": "dosval-openzipkin-zipkin-static-0001",
+    "container_memory_limit": "384m",
+    "application_heap": "image default for openzipkin/zipkin-slim, documented as 32m",
+    "config_changes": []
+  },
+  "probe_plan": {
+    "entry": "POST /api/v2/spans",
+    "auth": "anonymous",
+    "content_types": ["application/json"],
+    "encoding_modes": ["plain", "gzip"],
+    "body_sizes": "bounded generated valid v2 span JSON batches",
+    "request_cap": 12,
+    "concurrency": 1,
+    "time_cap_seconds": 180,
+    "stop_conditions": [
+      "HTTP 413 or other framework/application rejection",
+      "container exits or restarts",
+      "OutOfMemoryError or GC overhead in logs",
+      "sustained /health unavailability",
+      "probe timeout"
+    ]
+  },
+  "evidence_plan": [
+    "docker pull and image inspect output",
+    "docker run command and startup logs",
+    "per-request HTTP status, latency, body sizes, health status, RSS and docker state",
+    "Zipkin /metrics snapshots",
+    "container logs after probe",
+    "cleanup command output"
+  ],
+  "judgment_rules": {
+    "confirmed": "Only OOM, GC death, restart, thread/connection exhaustion, or sustained HTTP unavailability under default deployment.",
+    "not_confirmed": "413/default rejection, no meaningful growth, or growth without failure before safety caps."
+  }
+}

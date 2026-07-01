@@ -1,0 +1,164 @@
+{
+  "case_id": "dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+  "target": "DependencyTrack/dependency-track",
+  "slug": "dependencytrack__dependency-track",
+  "finding_id": "DTRACK-APP-STATIC-0001",
+  "probe_id": "PROBE-DTRACK-BOM-HEAP-001",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "resource_dimension": "memory",
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_compose",
+    "image_or_version": "ghcr.io/dependencytrack/apiserver:5.0.2, ghcr.io/dependencytrack/frontend:5.0.2, postgres:18-alpine",
+    "commands": [
+      "docker compose -p codex_dtrack_dos_retest_0001 -f docker-compose.yml up -d",
+      "DTRACK_COMPOSE_PROJECT=codex_dtrack_dos_retest_0001 DTRACK_APISERVER_CONTAINER=codex_dtrack_dos_retest_0001-apiserver-1 ./probe.py",
+      "DTRACK_COMPOSE_PROJECT=codex_dtrack_dos_retest_0001 DTRACK_APISERVER_CONTAINER=codex_dtrack_dos_retest_0001-apiserver-1 DTRACK_PUT_DECODED_MIB= DTRACK_POST_PART_MIB=1,4,16,64,128,256,512 DTRACK_REQUEST_TIMEOUT=600 ./probe.py",
+      "DTRACK_COMPOSE_PROJECT=codex_dtrack_dos_retest_0001 DTRACK_APISERVER_CONTAINER=codex_dtrack_dos_retest_0001-apiserver-1 DTRACK_PUT_DECODED_MIB= DTRACK_POST_PART_MIB=768 DTRACK_REQUEST_TIMEOUT=900 ./probe.py",
+      "docker compose -p codex_dtrack_dos_retest_0001 -f docker-compose.yml down -v --remove-orphans"
+    ],
+    "config_changes": [
+      "No application configuration was changed.",
+      "Official compose apiserver memory limit remained 2g.",
+      "Host ports were bound to 127.0.0.1 as in the case-local compose copy."
+    ],
+    "non_default_reason": null
+  },
+  "reachability": {
+    "attacker_model": "low_privilege",
+    "entry": "POST /api/v1/bom multipart/form-data",
+    "auth_required": true,
+    "account_used": "team API key with BOM_UPLOAD only",
+    "network_exposure": "external_http_default",
+    "required_roles": [
+      "BOM_UPLOAD"
+    ]
+  },
+  "data_preparation": {
+    "required": true,
+    "steps": [
+      "Started official Dependency-Track compose and waited for GET /api/version to return HTTP 200.",
+      "Used default admin/admin only for isolated bootstrap; the application required FORCE_PASSWORD_CHANGE, so the probe changed the admin password to a case-local value.",
+      "Created or reused one team named codex-dos-bom-upload-team-0001.",
+      "Assigned only BOM_UPLOAD to the team.",
+      "Generated a team API key and verified /api/v1/team/self with that key.",
+      "Created or reused one project named codex-dos-bom-heap-0001 version 1.0."
+    ],
+    "seed_data": [
+      "one project UUID 947e0d5b-8010-4d16-a8f6-fbb8288b0528",
+      "one BOM_UPLOAD-only API key"
+    ],
+    "low_privilege_account": {
+      "type": "team API key",
+      "permissions": [
+        "BOM_UPLOAD"
+      ],
+      "api_key_secret_recorded": false
+    },
+    "default_credentials_used": true
+  },
+  "trigger": {
+    "request_shape": "POST /api/v1/bom multipart/form-data with project=<uuid> and bom file part containing attacker-controlled JSON bytes",
+    "parameters": {
+      "auth": "X-Api-Key for BOM_UPLOAD-only team",
+      "content_type": "multipart/form-data",
+      "payload_steps_mib": [
+        1,
+        4,
+        16,
+        64,
+        128,
+        256,
+        512,
+        768
+      ],
+      "failing_payload_mib": 768,
+      "failing_content_length": 805306658
+    },
+    "loop_variable": "BOM multipart part byte volume",
+    "request_count": 10,
+    "duration_seconds": 140,
+    "bandwidth_notes": "Single-client, single-concurrency local HTTP probe. 1-512MiB multipart payloads returned application 400 while keeping service healthy; the 768MiB multipart payload returned HTTP 500 and logged Java heap OOM."
+  },
+  "resource_observation": {
+    "metric": "heap|rss|http_availability|target_logs",
+    "baseline": {
+      "api_version_status": 200,
+      "apiserver_health": "healthy",
+      "initial_probe_baseline_memory": "497.3MiB / 2GiB"
+    },
+    "peak": {
+      "after_512m_probe_memory": "1.887GiB / 2GiB",
+      "before_768m_probe_baseline_memory": "1.906GiB / 2GiB",
+      "after_768m_probe_memory": "1.741GiB / 2GiB",
+      "failing_response_status": 500,
+      "final_api_version_status": 200,
+      "container_oom_killed": false,
+      "container_running_after_failure": true
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/docker_compose_up.log",
+      "logs/readiness.json",
+      "logs/admin_bootstrap_login.json",
+      "logs/apiserver_after_multipart_probe.log",
+      "logs/apiserver_after_768_oom.log",
+      "logs/docker_compose_down_after_retest.log"
+    ],
+    "evidence_paths": [
+      "evidence/bootstrap_summary.json",
+      "evidence/probe_observations.put_and_broken_multipart.json",
+      "evidence/probe_observations.multipart_1_512.json",
+      "evidence/probe_observations.json",
+      "evidence/apiserver_inspect_after_768_oom.json",
+      "evidence/api_version_after_768_oom.http",
+      "docker-compose.yml",
+      "probe.py"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "官方 Dependency-Track 5.0.2 compose 默认 apiserver 2GiB 内存下，持有 BOM_UPLOAD 的低权限 API key 可通过单个约 768MiB multipart BOM part 触发目标 JVM Java heap OutOfMemoryError；进程未退出但请求返回 500，日志确认 OOM。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": true,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": true,
+    "limits_or_mitigations": [
+      "BOM upload requires an authenticated principal with BOM_UPLOAD.",
+      "Limit multipart body size, BOM part size, upload rate, and per-project/per-user upload quota before BomResource accumulates the stream.",
+      "Avoid granting BOM_UPLOAD to low-trust users or restrict it to trusted automation paths.",
+      "A reverse proxy or gateway body-size limit below the observed threshold would block this proof."
+    ],
+    "not_affected_when": [
+      "No low-privilege principal has BOM_UPLOAD.",
+      "No accessible project exists for the API key.",
+      "Ingress rejects large multipart requests before they reach the apiserver.",
+      "The application enforces a strict BOM byte limit before IOUtils.toByteArray materializes the part."
+    ]
+  },
+  "safety": {
+    "request_cap": 10,
+    "time_cap_seconds": 1800,
+    "heap_or_container_limit": "Official compose apiserver memory limit 2g",
+    "stop_condition_hit": true,
+    "cleanup_done": true
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "PUT /v1/bom JSON base64 and POST /v1/bom multipart require BOM_UPLOAD; multipart bom part is attacker-controlled by that principal.",
+    "sink": "BomResource reads decoded BOM or multipart part with IOUtils.toByteArray into byte[] before validateBom and processUpload.",
+    "driver": "BOM byte volume per request; repeated accepted uploads also create workflow run metadata with unique upload tokens.",
+    "missing_static_evidence": [
+      "Effective default reverse proxy/container body-size limit",
+      "Jersey multipart provider in-memory versus temp-file behavior for large parts",
+      "Default role/team assignment prevalence for BOM_UPLOAD"
+    ]
+  },
+  "notes": [
+    "The first retest probe fixed admin FORCE_PASSWORD_CHANGE handling and prepared a BOM_UPLOAD-only API key, but the copied multipart sender initially emitted duplicate Host headers; that preliminary file is retained as evidence/probe_observations.put_and_broken_multipart.json.",
+    "After fixing the multipart sender, valid smoke upload returned 200 and invalid 1-512MiB multipart BOMs returned 400 while driving memory close to the 2GiB compose limit.",
+    "The final 768MiB multipart request returned HTTP 500; apiserver logs include jakarta.servlet.ServletException wrapping java.lang.OutOfMemoryError: Java heap space."
+  ]
+}

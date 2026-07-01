@@ -1,0 +1,48 @@
+{
+  "record_id": "ERUPT-APP-STATIC-0001",
+  "app": "erupts__erupt",
+  "source_batch": "p1",
+  "status": "verified_oom",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 3,
+  "strict_1g_evidence": "1g",
+  "log_path": "results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0001.log",
+  "evidence_summary": "endpoint=/erupt-api/code-img; testedHeights=[900000, 1200000, 1600000, 2000000, 2400000]; lastHttpStatus=200; VmHWM=1320520 kB; VmRSS=1320520 kB; Threads=76",
+  "dynamic_finding": {
+    "candidate_id": "ERUPT-APP-STATIC-0001",
+    "app": "erupts__erupt",
+    "title": "Anonymous captcha height drives BufferedImage allocation",
+    "status": "verified_oom",
+    "dynamic_verdict": "confirmed_oom",
+    "true_positive": true,
+    "oom_signal": "java.lang.OutOfMemoryError",
+    "requests_sent": 3,
+    "heap": "1g",
+    "log": "results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0001.log",
+    "evidence": {
+      "heap": "1g",
+      "port": 18141,
+      "endpoint": "/erupt-api/code-img",
+      "testedHeights": [
+        900000,
+        1200000,
+        1600000,
+        2000000,
+        2400000
+      ],
+      "enhancedProbe": true,
+      "lastHttpStatus": 200,
+      "clientException": "",
+      "postProbePortOpen": true,
+      "processExitCode": null,
+      "aliveBeforeStop": true,
+      "processStatus": {
+        "VmHWM": "1320520 kB",
+        "VmRSS": "1320520 kB",
+        "Threads": "76"
+      }
+    },
+    "notes": "Erupt sample 默认 H2 启动，匿名 captcha height 直接驱动 BufferedImage 分配。"
+  }
+}

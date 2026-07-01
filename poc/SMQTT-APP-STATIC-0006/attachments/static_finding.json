@@ -1,0 +1,26 @@
+{
+  "finding_id": "SMQTT-APP-STATIC-0006",
+  "title": "QoS2 half-handshake retains publish messages and retry ack state",
+  "verdict": "likely",
+  "entry": "Default MQTT TCP 1883",
+  "source": "MQTT PUBLISH with QoS2 using attacker-controlled packetId and payload, then omitting PUBREL",
+  "sink": "MqttChannel.qos2MsgCache.put(packetId, wrappedPublishMessage) and TimeAckManager.ackMap via RetryAck.start for PUBREC retries",
+  "driver": "QoS2 packetId count per connection, payload bytes, number of connections, and missing PUBREL acknowledgements",
+  "dimension": [
+    "connection_lifetime_heap",
+    "process_heap_ack_state",
+    "byte_volume"
+  ],
+  "retention": "qos2MsgCache is cleared only by PUBREL or channel close; retry ack state is process-global and static review found no deleteAck on max-retry exhaustion",
+  "bound": "MQTT packetId space bounds one connection to 65535 in-flight ids and messageMaxSize bounds each payload, but no byte quota or timeout for cached QoS2 publishes was found",
+  "impact": "plausible default unauthenticated memory exhaustion vector, especially with large QoS2 payloads across many connections. The ackMap leak component should be dynamically confirmed.",
+  "evidence": [
+    "frameworks/applications/quickmsg__smqtt/smqtt-core/src/main/java/io/github/quickmsg/core/protocol/PublishProtocol.java:73-78",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/channel/MqttChannel.java:71-120",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/channel/MqttChannel.java:273-280",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/retry/TimeAckManager.java:14-33",
+    "frameworks/applications/quickmsg__smqtt/smqtt-common/src/main/java/io/github/quickmsg/common/retry/AbsAck.java:40-67"
+  ],
+  "static_trigger_shape": "CONNECT anonymously, send QoS2 PUBLISH packets with unique packet IDs and payloads, never send PUBREL, keep the connection open or repeat across connections.",
+  "scope_notes": "No disk storage; marked likely for QoS2 cache, with ackMap stale-entry detail needing probe."
+}

@@ -1,0 +1,21 @@
+{
+  "record_id": "apache__hertzbeat-HERTZBEAT-DOS-0001",
+  "app": "apache/hertzbeat",
+  "title": "HERTZBEAT-DOS-0001",
+  "source_batch": "new",
+  "source_file": "new/cases/apache__hertzbeat-HERTZBEAT-DOS-0001/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "默认 HertzBeat 1.8.0 Docker 部署中，匿名客户端可访问 Prometheus push path；在 2g 容器、1g heap/direct 的严格补测下，约 21.7k 个唯一 job/instance 的最小 push 请求触发目标 JVM direct-buffer `OutOfMemoryError`，push 面出现重复 HTTP 502。",
+  "finding_id": "HERTZBEAT-DOS-0001",
+  "probe_id": "PROBE-001",
+  "entry": "POST /api/push/prometheus/job/{job}/instance/{instance}",
+  "failure_signal": "OutOfMemoryError: Cannot reserve 4194304 bytes of direct buffer memory (allocated: 1070396417, limit: 1073741824)",
+  "heap_or_limit": "HertzBeat JAVA_OPTS=-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g; Docker --memory 2g --memory-swap 2g",
+  "requests_sent": 21763,
+  "log_path": "logs/container_full_reinforce.log",
+  "evidence_summary": "request_count=21763; duration_seconds=173; metric=docker memory, Java RSS, Java heap/direct-memory OOM logs, HTTP status, availability; baseline={'root_http_ready': 'GET / returned HTTP 200 before probe', 'heap_direct_limit': 'JAVA_OPTS=...",
+  "strict_1g_evidence": "java_opts=-xms1g"
+}

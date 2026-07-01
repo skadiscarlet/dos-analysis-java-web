@@ -1,0 +1,21 @@
+{
+  "record_id": "XXL-JOB-APP-STATIC-0002",
+  "app": "xuxueli__xxl-job",
+  "title": "Same-job /trigger retains unique logId and TriggerRequest in an unbounded queue",
+  "source_batch": "p0",
+  "source_file": "p0/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "java.lang.OutOfMemoryError",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 1025,
+  "log_path": "results/applications_dynamic_validation/p0/logs/XXL-JOB-APP-STATIC-0002.log",
+  "evidence_summary": "VmHWM=1107136 kB; VmRSS=1103604 kB; Threads=132",
+  "strict_1g_evidence": "1g"
+}

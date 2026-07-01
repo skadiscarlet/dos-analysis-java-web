@@ -1,0 +1,37 @@
+name: tb-dos-thingsboard-static-0001
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: tb-dos-thingsboard-static-0001-postgres
+    environment:
+      POSTGRES_DB: thingsboard
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./runtime/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d thingsboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  tb-node:
+    image: thingsboard/tb-node:latest
+    container_name: tb-dos-thingsboard-static-0001-node
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "18080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/thingsboard
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      TB_QUEUE_TYPE: in-memory
+      TB_SERVICE_TYPE: monolith
+      HTTP_BIND_PORT: "8080"
+      JAVA_OPTS: "-Xms512m -Xmx1024m -Xss384k -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/log/thingsboard"
+    mem_limit: 2g
+    volumes:
+      - ./runtime/tb-logs:/var/log/thingsboard

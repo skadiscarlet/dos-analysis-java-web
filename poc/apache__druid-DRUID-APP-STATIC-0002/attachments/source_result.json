@@ -1,0 +1,134 @@
+{
+  "case_id": "apache__druid-DRUID-APP-STATIC-0002",
+  "target": "apache/druid",
+  "slug": "apache__druid",
+  "finding_id": "DRUID-APP-STATIC-0002",
+  "probe_id": "PROBE-DRUID-0002",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "resource_dimension": "memory",
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_docker_image",
+    "image_or_version": "apache/druid:37.0.0@sha256:0116fb802786649fc3635d6d4ab5be4da8abee3edafbe95c7f358a564d4c82e8",
+    "commands": [
+      "docker compose -p druid_avatica_case -f docker-compose.yml up -d postgres zookeeper coordinator broker router",
+      "python3 probe.py --case-dir \"$PWD\" --compose-project druid_avatica_case --compose-file \"$PWD/docker-compose.yml\" --wait-only",
+      "python3 probe.py --case-dir \"$PWD\" --compose-project druid_avatica_case --compose-file \"$PWD/docker-compose.yml\"",
+      "docker compose -p druid_avatica_case -f docker-compose.yml down -v"
+    ],
+    "config_changes": [
+      "Harness removed fixed container_name values to avoid collisions with other workers.",
+      "Harness bound host ports to 127.0.0.1 and shifted host port numbers for isolation.",
+      "Harness started the Router/Broker/Coordinator/PostgreSQL/ZooKeeper subset required for this Router-to-Broker Avatica path.",
+      "No Druid endpoint, body limit, authentication, heap, or Router/Broker runtime property was changed to enable the issue."
+    ],
+    "non_default_reason": null
+  },
+  "reachability": {
+    "attacker_model": "anonymous",
+    "entry": "POST /druid/v2/sql/avatica-protobuf/ through Router port 8888",
+    "auth_required": false,
+    "account_used": null,
+    "network_exposure": "external_http_default",
+    "required_roles": []
+  },
+  "data_preparation": {
+    "required": false,
+    "steps": [],
+    "seed_data": [],
+    "low_privilege_account": null,
+    "default_credentials_used": false
+  },
+  "trigger": {
+    "request_shape": "HTTP POST to Router /druid/v2/sql/avatica-protobuf/ with Content-Type application/x-protobuf; body is a valid Avatica OpenConnectionRequest plus protobuf unknown length-delimited padding.",
+    "parameters": {
+      "content_type": "application/x-protobuf",
+      "body_sizes_bytes": [
+        134217728,
+        268435456,
+        536870912,
+        805306368
+      ],
+      "last_running_body_size_bytes": 134217728,
+      "failing_body_size_bytes": 268435456,
+      "connection_id": "dos-validator-conn",
+      "padding_field": "protobuf unknown field 2047, wire type length-delimited"
+    },
+    "loop_variable": "protobuf request body byte size",
+    "request_count": 2,
+    "duration_seconds": 59,
+    "bandwidth_notes": "Single-threaded local HTTP probe; 128MiB reached the Router while it stayed running, and 256MiB caused Router exit with Java heap OOM under DRUID_XMX=1g."
+  },
+  "resource_observation": {
+    "metric": "heap|rss|http_availability|container_exit",
+    "baseline": {
+      "router_health": "HTTP 200 /status/health",
+      "router_heap_env": "DRUID_XMS=1g; DRUID_XMX=1g",
+      "router_rss_after_128m": "865.6MiB / 30.99GiB from docker stats"
+    },
+    "peak": {
+      "last_running_body_size_bytes": 134217728,
+      "failing_body_size_bytes": 268435456,
+      "container_exit_code": 3,
+      "final_health": "connection refused",
+      "oom_killed": false
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/router_after_1g_oom.log",
+      "logs/http_responses.jsonl",
+      "logs/probe_observations.jsonl"
+    ],
+    "evidence_paths": [
+      "evidence/router_inspect_after_1g_oom.json",
+      "evidence/open_connection_request.pb",
+      "probe.py",
+      "docker-compose.yml"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "默认未启用认证的 Druid Router Avatica protobuf endpoint 可由匿名客户端用大型合法 protobuf POST 触发 Router JVM heap OOM；1GiB Router heap 复测中，128MiB 请求后 Router 仍运行，256MiB 请求导致 Java heap OOM、Router exit 3 和 HTTP health connection refused。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "HTTP request body size limit or reverse proxy limit below the OOM threshold",
+      "Authentication/authorization preventing anonymous access to /druid/v2/sql/avatica-protobuf/",
+      "Network isolation of Router or JDBC endpoint",
+      "Rate limiting or per-client quota on large POST bodies",
+      "Higher Router heap may raise the threshold but does not remove the unbounded full-body buffering behavior"
+    ],
+    "not_affected_when": [
+      "Router is not exposed to low-trust clients",
+      "Avatica protobuf endpoint is blocked or protected by authentication",
+      "A front proxy or server setting rejects large request bodies before they reach Router",
+      "Druid deployment does not route JDBC/Avatica traffic through Router"
+    ]
+  },
+  "safety": {
+    "request_cap": 4,
+    "time_cap_seconds": 300,
+    "heap_or_container_limit": "Druid Router DRUID_XMS=1g and DRUID_XMX=1g; Docker HostConfig.Memory=0, no container memory limit",
+    "stop_condition_hit": true,
+    "cleanup_done": true
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "POST /druid/v2/sql/avatica-protobuf through Router.",
+    "sink": "AsyncQueryForwardingServlet.service reads the full InputStream into byte[] requestBytes and stores it as AVATICA_QUERY_ATTRIBUTE for proxying.",
+    "driver": "Avatica protobuf request body byte volume; repeated concurrent requests retain byte arrays during broker selection/proxy forwarding.",
+    "missing_static_evidence": [
+      "Official default Router exposure for Avatica protobuf in target deployment.",
+      "Runtime maximum accepted protobuf/request body size."
+    ]
+  },
+  "notes": [
+    "2026-06-30 strict retest set DRUID_XMS=1g and DRUID_XMX=1g for the Druid Router before probing Avatica protobuf.",
+    "The 128MiB protobuf request left the Router running; the 256MiB protobuf request caused Router connection refused and Docker ExitCode=3, OOMKilled=false.",
+    "The retained Router log contains Terminating due to java.lang.OutOfMemoryError: Java heap space, and inspect evidence records DRUID_XMX=1g in the container environment."
+  ]
+}

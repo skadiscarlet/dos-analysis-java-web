@@ -1,0 +1,35 @@
+{
+  "candidate_id": "DCMP-STATIC-0002",
+  "app": "dromara__datacompare",
+  "title": "Default Swagger test user API retains submitted users in a static map",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 14994,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p0/logs/DCMP-STATIC-0002.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18086,
+    "endpoint": "/test/user/save",
+    "mysqlContainer": "p0-dcmp-mysql-2",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33309,
+    "loginStatus": 200,
+    "loginBodyPrefix": "{\"msg\":\"操作成功\",\"code\":0}",
+    "workerThreads": 12,
+    "lastHttpStatus": 200,
+    "lastBodyPrefix": "{\"code\":0,\"msg\":\"操作成功\",\"data\":null}",
+    "clientException": "",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1489980 kB",
+      "VmRSS": "1489980 kB",
+      "Threads": "85"
+    }
+  },
+  "notes": "默认 Shiro 登录后访问 Swagger test static map 写入路径。"
+}

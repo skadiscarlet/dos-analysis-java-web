@@ -1,0 +1,21 @@
+{
+  "record_id": "apache__skywalking-SKYWALKING-APP-STATIC-0002",
+  "app": "apache/skywalking",
+  "title": "SKYWALKING-APP-STATIC-0002",
+  "source_batch": "new",
+  "source_file": "new/cases/apache__skywalking-SKYWALKING-APP-STATIC-0002/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "匿名客户端可访问默认 OAP gRPC 11800 且 pprof receiver 使用默认内存 parser、认证为空时，多个未完成 collect 流用不超过默认 30MiB 的 metadata.contentSize 即可在上传内容和任务完成校验前消耗堆；1GiB JVM heap、2GiB OAP 容器复测中 48 条流触发 Java heap OOM 和 OAP exit 3。",
+  "finding_id": "SKYWALKING-APP-STATIC-0002",
+  "probe_id": "PROBE-SW-002",
+  "entry": "gRPC /skywalking.v10.PprofTask/collect on OAP core gRPC port 11800",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "OAP JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError; Docker mem_limit 2g",
+  "requests_sent": 48,
+  "log_path": "logs/probe-failure-1g-48stream-30m.json",
+  "evidence_summary": "request_count=48; duration_seconds=24; metric=heap/rss/grpc_availability/http_availability/container_exit; baseline={'docker_mem_usage': '1.492GiB / 2GiB', 'grpc_tcp_ready': True, 'http_tcp_ready': True, 'oap_state_before_failure': 'runn...",
+  "strict_1g_evidence": "java_opts=-xms1g"
+}

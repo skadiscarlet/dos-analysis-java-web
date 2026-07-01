@@ -1,0 +1,21 @@
+{
+  "record_id": "openzipkin__zipkin-ZIPKIN-APP-STATIC-0001",
+  "app": "openzipkin/zipkin",
+  "title": "ZIPKIN-APP-STATIC-0001",
+  "source_batch": "new_retest",
+  "source_file": "new_retest/cases/openzipkin__zipkin-ZIPKIN-APP-STATIC-0001/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "默认 Zipkin HTTP collector 匿名开放时，带 gzip 的小 wire-size / 大解压后 Zipkin v2 spans 请求可触发目标 JVM Java heap OOM；1GiB JVM heap、2GiB 容器复测中，160000 spans / 8192-byte tag 的约 3.37MiB gzip 请求导致容器 exit 3 和持续 /health 502。",
+  "finding_id": "ZIPKIN-APP-STATIC-0001",
+  "probe_id": "PROBE-ZIPKIN-0001",
+  "entry": "POST /api/v2/spans with Content-Type: application/json and optional Content-Encoding: gzip",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "JVM -Xms256m -Xmx1g -XX:+ExitOnOutOfMemoryError; Docker --memory=2g --memory-swap=2g",
+  "requests_sent": 4,
+  "log_path": "logs/probe_results_1g_confirmed.jsonl",
+  "evidence_summary": "request_count=4; duration_seconds=47; metric=heap|rss|http_availability|container_exit; baseline={'health_status': 200, 'docker_mem_usage': '316.9MiB / 2GiB', 'container_state': 'running'}; peak={'last_running_mem_before_failure': '333.4...",
+  "strict_1g_evidence": "-xmx1g"
+}

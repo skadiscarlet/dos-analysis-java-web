@@ -1,0 +1,21 @@
+{
+  "record_id": "ERUPT-APP-STATIC-0001",
+  "app": "erupts__erupt",
+  "title": "Anonymous captcha height drives BufferedImage allocation",
+  "source_batch": "p1",
+  "source_file": "p1/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "Erupt sample 默认 H2 启动，匿名 captcha height 直接驱动 BufferedImage 分配。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/erupt-api/code-img",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 3,
+  "log_path": "results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0001.log",
+  "evidence_summary": "endpoint=/erupt-api/code-img; testedHeights=[900000, 1200000, 1600000, 2000000, 2400000]; lastHttpStatus=200; VmHWM=1320520 kB; VmRSS=1320520 kB; Threads=76",
+  "strict_1g_evidence": "1g"
+}

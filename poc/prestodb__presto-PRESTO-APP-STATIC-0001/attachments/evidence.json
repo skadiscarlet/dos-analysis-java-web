@@ -1,0 +1,101 @@
+{
+  "record_id": "prestodb__presto-PRESTO-APP-STATIC-0001",
+  "app": "prestodb/presto",
+  "source_batch": "new",
+  "status": "confirmed_oom",
+  "failure_signal": "OutOfMemoryError",
+  "heap_or_limit": "Presto image default -Xmx1G; Docker harness --memory=2g --memory-swap=2g",
+  "requests_sent": 974,
+  "strict_1g_evidence": "-xmx1g",
+  "log_path": "logs/container_final.log",
+  "evidence_summary": "request_count=974; duration_seconds=87; metric=heap|rss|http_availability|gc|class_histogram; baseline={'heap_used_k': 365307, 'docker_mem_mib': 1001.0, 'query_instances': 0, 'session_context_instances': 0, 'http_availability': 'GET /v1/...",
+  "resource_observation": {
+    "metric": "heap|rss|http_availability|gc|class_histogram",
+    "baseline": {
+      "heap_used_k": 365307,
+      "docker_mem_mib": 1001.0,
+      "query_instances": 0,
+      "session_context_instances": 0,
+      "http_availability": "GET /v1/info 200"
+    },
+    "peak": {
+      "heap_used_k_before_failure": 984946,
+      "docker_mem_mib_before_failure": 1477.632,
+      "class_histogram_checkpoint": "after_800",
+      "query_instances": 800,
+      "session_context_instances": 800,
+      "gc_log_peak_before_oom": "Major GC: 1.10GB -> 1.08GB",
+      "container_exit": "exited 3 false"
+    },
+    "failure_signal": "OutOfMemoryError",
+    "log_paths": [
+      "logs/container_final.log",
+      "logs/probe_events.jsonl",
+      "logs/responses_sample.jsonl",
+      "logs/startup.log",
+      "logs/presto-var-log/http-request.log",
+      "logs/jcmd_heap_after_950.txt",
+      "logs/class_histogram_after_800.txt"
+    ],
+    "evidence_paths": [
+      "evidence/probe_summary.json",
+      "evidence/container_inspect_start.json",
+      "evidence/container_inspect_final.json",
+      "evidence/default_config.txt",
+      "evidence/v1_info_ready.json",
+      "evidence/presto_data_copy_listing.txt",
+      "evidence/presto_var_log_listing.txt"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "默认官方 Presto coordinator 无认证暴露 /v1/statement 时，匿名 HTTP 客户端带 X-Presto-User 连续提交大量约 700KiB SQL 且不轮询 nextUri，可线性保留 Query/session 对象并触发默认 1GiB heap OOM。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "Default query.max-length is 1,000,000 characters, but the observed abandoned-initial-POST path retains the statement before dispatch-time maxQueryLength enforcement.",
+      "The probe did not observe a pre-dispatch request-body cap below 700000 bytes.",
+      "Enabling HTTP authentication or putting /v1/statement behind trusted network access changes attacker reachability.",
+      "Reverse-proxy body-size, rate, or per-client request quotas can raise or remove exploitability.",
+      "A server-side TTL/quota for unpolled queued statements would mitigate this retention path."
+    ],
+    "not_affected_when": [
+      "/v1/statement is not reachable by anonymous or low-trust clients.",
+      "HTTP authentication is enabled and only trusted users can submit statements.",
+      "A proxy or gateway rejects large or high-rate statement submissions before Presto allocates Query state.",
+      "The implementation removes or bounds unpolled queued statements independently of query dispatch completion."
+    ]
+  },
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_docker_image",
+    "image_or_version": "prestodb/presto:0.298.1@sha256:aff53afed348be30818735646c0b73be639b24a5c97e1cf2562a68de527dc34a; runtime /v1/info version 0.298.1-9e1b45f",
+    "commands": [
+      "docker pull prestodb/presto:0.298.1",
+      "docker run -d --name dos-presto-prestodb-presto-static-0001 --memory=2g --memory-swap=2g -p 127.0.0.1:18080:8080 prestodb/presto:0.298.1",
+      "curl -fsS http://127.0.0.1:18080/v1/info",
+      "./probe.py",
+      "docker rm -v dos-presto-prestodb-presto-static-0001"
+    ],
+    "config_changes": [],
+    "non_default_reason": null
+  },
+  "trigger": {
+    "request_shape": "POST http://127.0.0.1:18080/v1/statement with headers X-Presto-User: dos_probe and Content-Type: text/plain; body SELECT '<unique padded literal>'; intentionally do not follow returned nextUri",
+    "parameters": {
+      "body_bytes_per_request": 700000,
+      "successful_submissions_before_failure": 973,
+      "failed_request_index": 974,
+      "concurrency": 1,
+      "request_cap": 1600,
+      "poll_next_uri": false
+    },
+    "loop_variable": "number of abandoned initial statement submissions and SQL body byte size",
+    "request_count": 974,
+    "duration_seconds": 87,
+    "bandwidth_notes": "973 successful submissions * 700000 request-body bytes, about 681 MB of local loopback POST body data before failure"
+  }
+}

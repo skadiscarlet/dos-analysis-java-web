@@ -1,0 +1,105 @@
+{
+  "case_id": "dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+  "target": "DependencyTrack/dependency-track",
+  "slug": "dependencytrack__dependency-track",
+  "finding_id": "DTRACK-APP-STATIC-0001",
+  "probe_id": "PROBE-DTRACK-BOM-HEAP-001",
+  "title": "BOM upload fully accumulates authenticated request body in heap before workflow submission",
+  "worker_scope": {
+    "allowed_write_root": "/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/new/cases/dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+    "repo_root": "/home/furina/new_tool/dos-analysis-web",
+    "target_source": "/home/furina/new_tool/dos-analysis-web/frameworks/applications/dependencytrack__dependency-track"
+  },
+  "deployment_plan": {
+    "model": "official_compose",
+    "compose_source": "https://dependencytrack.org/docker-compose.yml",
+    "compose_copy": "docker-compose.yml",
+    "compose_project": "codex_dtrack_dos_0001",
+    "host_ports": {
+      "apiserver": "127.0.0.1:8080",
+      "frontend": "127.0.0.1:8081"
+    },
+    "images": [
+      "ghcr.io/dependencytrack/apiserver:5.0.2",
+      "ghcr.io/dependencytrack/frontend:5.0.2",
+      "postgres:18-alpine"
+    ],
+    "resource_limits": {
+      "apiserver_compose_memory_limit": "2g",
+      "java_options_from_image": "-XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:MaxGCPauseMillis=250 -XX:MaxRAMPercentage=80.0"
+    },
+    "config_changes": []
+  },
+  "data_preparation_plan": {
+    "bootstrap": [
+      "wait for /api/version",
+      "use default admin/admin only for isolated bootstrap",
+      "force-change admin password if the default account requires it",
+      "create one low-privilege team",
+      "assign only BOM_UPLOAD to the team",
+      "generate one API key for the team",
+      "create one test project"
+    ],
+    "attacker_credential": "team API key with BOM_UPLOAD only",
+    "project_access_model": "default portfolio ACL is disabled; the project is nevertheless created during bootstrap as the target object"
+  },
+  "probe_plan": {
+    "entries": [
+      "PUT /api/v1/bom application/json with base64 bom",
+      "POST /api/v1/bom multipart/form-data with bom part"
+    ],
+    "payload_steps": {
+      "put_decoded_mib": [
+        1,
+        14
+      ],
+      "post_part_mib": [
+        1,
+        4,
+        16,
+        64,
+        128
+      ],
+      "smoke_valid_bom": true
+    },
+    "caps": {
+      "max_requests": 8,
+      "concurrency": 1,
+      "request_timeout_seconds": 300,
+      "time_cap_seconds": 1800,
+      "stop_on": [
+        "OutOfMemoryError",
+        "container restart",
+        "OOMKilled",
+        "sustained HTTP unavailability",
+        "HTTP 413 body-size rejection"
+      ]
+    },
+    "metrics": [
+      "HTTP status",
+      "request latency",
+      "docker memory usage",
+      "target JVM process VmRSS",
+      "thread count",
+      "container restart/OOMKilled state",
+      "target logs"
+    ]
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "PUT /v1/bom JSON base64 and POST /v1/bom multipart require BOM_UPLOAD; multipart bom part is attacker-controlled by that principal.",
+    "sink": "BomResource reads decoded BOM or multipart part with IOUtils.toByteArray into byte[] before validateBom and processUpload.",
+    "driver": "BOM byte volume per request; repeated accepted uploads also create workflow run metadata with unique upload tokens.",
+    "evidence": [
+      "apiserver/src/main/java/org/dependencytrack/resources/v1/BomResource.java:374 PermissionRequired(BOM_UPLOAD)",
+      "apiserver/src/main/java/org/dependencytrack/resources/v1/BomResource.java:504-508 JSON BOM decoded into IOUtils.toByteArray",
+      "apiserver/src/main/java/org/dependencytrack/resources/v1/BomResource.java:706-710 multipart BOM stream read into IOUtils.toByteArray",
+      "apiserver/src/main/java/org/dependencytrack/resources/v1/BomResource.java:734-769 byte[] passed through validate/store/workflow run creation"
+    ],
+    "missing_static_evidence": [
+      "Effective default reverse proxy/container body-size limit",
+      "Jersey multipart provider in-memory versus temp-file behavior for large parts",
+      "Default role/team assignment prevalence for BOM_UPLOAD"
+    ]
+  }
+}

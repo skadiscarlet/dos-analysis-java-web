@@ -1,0 +1,142 @@
+{
+  "case_id": "thingsboard__thingsboard-TB-APP-STATIC-0001",
+  "target": "thingsboard/thingsboard",
+  "slug": "thingsboard__thingsboard",
+  "finding_id": "TB-APP-STATIC-0001",
+  "probe_id": "PROBE-001",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "resource_dimension": "memory/parser_state",
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_docker_image",
+    "image_or_version": "thingsboard/tb-node:latest@sha256:d4aee88fd6999eb54bee829fcd0699d4f42caaf26fc03c1447fbd434a5689da0 reported ThingsBoard v4.3.1.3; postgres:16@sha256:fe03a7605299a34ddf5e4f285dff78c3d7190a576b3c6b46f2fcff69f4bffd54",
+    "commands": [
+      "docker compose -p tb-dos-thingsboard-static-0001 up -d postgres",
+      "docker compose -p tb-dos-thingsboard-static-0001 run --rm -e INSTALL_TB=true -e LOAD_DEMO=false -e JAVA_OPTS='-Xms512m -Xmx1024m -Xss384k' tb-node",
+      "docker compose -p tb-dos-thingsboard-static-0001 up -d tb-node",
+      "./probe.py --token <token-shaped-path-segment> --endpoint telemetry --payload-mode timeseries-large-value --sizes-mib 256,512 --timeout 240 --chunk-bytes 65536 --out logs/probe_results_reinforce_telemetry_large.jsonl"
+    ],
+    "config_changes": [
+      "Mapped HTTP port 8080 to localhost:18080 for isolation.",
+      "Used compose PostgreSQL datasource: jdbc:postgresql://postgres:5432/thingsboard.",
+      "Set TB_SERVICE_TYPE=monolith and TB_QUEUE_TYPE=in-memory, matching image defaults used for single-node deployment.",
+      "Set LOAD_DEMO=false during installation.",
+      "Strict retest harness capped target JVM with -Xms512m -Xmx1024m and container memory with mem_limit=2g.",
+      "Removed non-HTTP host port mappings after an unrelated MQTT port collision; validated entry used HTTP only."
+    ],
+    "non_default_reason": null
+  },
+  "reachability": {
+    "attacker_model": "anonymous",
+    "entry": "POST /api/v1/{deviceToken}/telemetry",
+    "auth_required": false,
+    "account_used": "No valid device token was required for the reinforced OOM observation; the token-shaped path segment returned HTTP 401 for smaller bodies but the 512MiB body failed during handler dispatch with Java heap OOM.",
+    "network_exposure": "external_http_default",
+    "required_roles": []
+  },
+  "data_preparation": {
+    "required": false,
+    "steps": [
+      "Started official tb-node single-node deployment with PostgreSQL.",
+      "Sent telemetry requests with an arbitrary token-shaped path segment. A separate attempt to create a fresh disposable device after OOM was not needed for the confirmed trigger."
+    ],
+    "seed_data": [],
+    "low_privilege_account": null,
+    "default_credentials_used": false
+  },
+  "trigger": {
+    "request_shape": "HTTP/1.1 POST /api/v1/{deviceToken}/telemetry with Transfer-Encoding: chunked, Content-Type: application/json, no Content-Length, and a JSON object shaped as {\"ts\":1,\"values\":{\"k\":\"<large string>\"}}.",
+    "parameters": {
+      "endpoint": "telemetry",
+      "payload_mode": "timeseries-large-value",
+      "headers": [
+        "Transfer-Encoding: chunked",
+        "Content-Type: application/json"
+      ],
+      "executed_sizes_mib": [
+        256,
+        512
+      ],
+      "failing_size_mib": 512,
+      "ancillary_attributes_sizes_mib": [
+        64,
+        128,
+        256,
+        512
+      ],
+      "concurrency": 1
+    },
+    "loop_variable": "body byte volume in one JSON string value",
+    "request_count": 2,
+    "duration_seconds": 12,
+    "bandwidth_notes": "Single external HTTP client, sequential chunked requests. The 512MiB telemetry body returned HTTP 500 with an OutOfMemoryError message under -Xmx1024m."
+  },
+  "resource_observation": {
+    "metric": "heap/rss/http_response/heap_dump",
+    "baseline": {
+      "docker_stats_before_telemetry_256m": "MemUsage=1.672GiB/2GiB, /login status=200 after prior attributes reinforcement probe"
+    },
+    "peak": {
+      "telemetry_512m_response": "HTTP 500 {\"message\":\"Handler dispatch failed: java.lang.OutOfMemoryError: Java heap space\"}",
+      "heap_dump": "runtime/tb-logs/java_pid1.hprof was created at 723M and deleted after recording size",
+      "post_oom_availability": "/login remained HTTP 200; this is externally triggered target-JVM OOME rather than full process death"
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/probe_results_reinforce_telemetry_large.jsonl",
+      "logs/probe_results_reinforce_attributes_large.jsonl",
+      "logs/tb_node_reinforce_full.log",
+      "logs/final_docker_stats_reinforce.json",
+      "logs/final_container_state_reinforce.txt",
+      "logs/heap_dump_reinforce_size.txt",
+      "logs/cleanup_reinforce.log"
+    ],
+    "evidence_paths": [
+      "evidence/oom_reinforce_excerpt.log",
+      "evidence/static_code_snippets.txt"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "官方 ThingsBoard tb-node 单节点部署中，HTTP device telemetry path 会在认证结果返回前读取并绑定 chunked JSON body；在 -Xmx1024m / 2g 容器补测下，单个 512MiB timeseries-large-value telemetry 请求触发目标 JVM `OutOfMemoryError: Java heap space` 并返回 HTTP 500。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "Reverse proxy, servlet container, or Spring request limits that reject chunked/no-Content-Length bodies before controller binding mitigate this path.",
+      "A lower ThingsBoard HTTP transport max payload enforced independently of Content-Length would mitigate this path.",
+      "JSON string length/body complexity limits before @RequestBody String materialization would mitigate this path.",
+      "Authentication alone is insufficient if request body binding precedes token rejection for this endpoint shape."
+    ],
+    "not_affected_when": [
+      "HTTP device transport is not exposed to low-trust clients.",
+      "Chunked request bodies without Content-Length are rejected or capped before Spring binds @RequestBody String.",
+      "Telemetry JSON body size/string length is bounded before JsonParser.parseString and JsonConverter processing."
+    ]
+  },
+  "safety": {
+    "request_cap": 6,
+    "time_cap_seconds": 900,
+    "heap_or_container_limit": "ThingsBoard tb-node JAVA_OPTS=-Xms512m -Xmx1024m -Xss384k; Docker compose mem_limit=2g",
+    "stop_condition_hit": true,
+    "cleanup_done": true
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "Device HTTP transport POST bodies under /api/v1/{deviceToken}/telemetry and /api/v1/{deviceToken}/attributes.",
+    "sink": "Spring @RequestBody String followed by JsonParser.parseString and JsonConverter conversion in DeviceApiController.",
+    "driver": "Body byte volume and JSON key/value or timestamp-array count; especially requests without a positive Content-Length.",
+    "missing_static_evidence": [
+      "Whether embedded servlet container or upstream proxy rejects chunked bodies above configured limits by default.",
+      "Whether Spring/Tomcat request body buffering imposes an independent cap for no Content-Length requests."
+    ]
+  },
+  "notes": [
+    "2026-06-30 reinforcement raised the ThingsBoard target JVM to -Xmx1024m and container memory to 2g.",
+    "The confirmed TB-APP-STATIC-0001 telemetry request used a 512MiB chunked timeseries-large-value JSON body and returned HTTP 500 with `Handler dispatch failed: java.lang.OutOfMemoryError: Java heap space`.",
+    "The reused token-shaped path segment returned HTTP 401 for smaller requests, so the strengthened exploitability statement is anonymous body-binding-before-auth OOM rather than successful device-token telemetry ingestion."
+  ]
+}

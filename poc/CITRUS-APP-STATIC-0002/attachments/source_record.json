@@ -1,0 +1,21 @@
+{
+  "record_id": "CITRUS-APP-STATIC-0002",
+  "app": "yiuman__citrus",
+  "title": "Anonymous /rest/authenticate JSON body is fully buffered and parsed before auth",
+  "source_batch": "p1",
+  "source_file": "p1/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "完整 MySQL/Redis 环境启动，复用 Citrus P0 的 MDA classpath workaround；目标为匿名认证 JSON body buffering/parsing。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/rest/authenticate",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 19,
+  "log_path": "results/applications_dynamic_validation/p1/logs/CITRUS-APP-STATIC-0002.log",
+  "evidence_summary": "endpoint=/rest/authenticate; payloadBytes=20971591; workerThreads=10; lastHttpStatus=200; VmHWM=1547252 kB; VmRSS=910920 kB; Threads=68",
+  "strict_1g_evidence": "1g"
+}

@@ -1,0 +1,51 @@
+{
+  "case_id": "apache__hertzbeat-HERTZBEAT-DOS-0001",
+  "target": "apache/hertzbeat",
+  "slug": "apache__hertzbeat",
+  "finding_id": "HERTZBEAT-DOS-0001",
+  "probe_id": "PROBE-001",
+  "goal": "Validate whether anonymous Prometheus push requests in a default HertzBeat deployment can grow process-lifetime push monitor state until a dynamic DoS signal appears.",
+  "default_deployment_plan": {
+    "preferred_source": "official_docker_image",
+    "documented_command": "docker run -d -p 1157:1157 -p 1158:1158 --name hertzbeat apache/hertzbeat",
+    "selected_image": "docker.m.daocloud.io/apache/hertzbeat:1.8.0",
+    "upstream_image": "apache/hertzbeat:1.8.0",
+    "reason": "The local official compose files pin apache/hertzbeat:1.8.0. Docker Hub direct pull returned EOF, so the same upstream image/tag was pulled through docker.m.daocloud.io.",
+    "harness_changes": [
+      "Map host ports to 2157/2158 to avoid collisions.",
+      "Set Docker memory and memory-swap limit to 768m for an isolated safety cap."
+    ],
+    "application_config_changes": []
+  },
+  "probe_plan": {
+    "entry": "POST /api/push/prometheus/job/{job}/instance/{instance}",
+    "body": "sample_metric 1\\n",
+    "content_type": "text/plain",
+    "attacker_model": "anonymous external HTTP client",
+    "loop_variable": "unique job and instance path segments",
+    "concurrency": 1,
+    "initial_request_cap": 1500,
+    "sample_every": 25,
+    "stop_conditions": [
+      "container OOMKilled or exited",
+      "sustained HTTP unavailability",
+      "HTTP 5xx/error growth with service pressure",
+      "request cap reached"
+    ]
+  },
+  "evidence_to_collect": [
+    "startup logs",
+    "HTTP response samples",
+    "docker stats",
+    "Java process RSS/thread count",
+    "jcmd GC.heap_info",
+    "container inspect state",
+    "post-probe logs containing auto-create monitor events"
+  ],
+  "static_candidate": {
+    "source": "POST /api/push/prometheus/job/{job}/instance/{instance} through PushPrometheusStreamReadingFilter",
+    "sink": "PushGatewayServiceImpl.jobInstanceMap.computeIfAbsent(job + \"_\" + instance, ...)",
+    "driver": "attacker-controlled unique job and instance path segments",
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl"
+  }
+}

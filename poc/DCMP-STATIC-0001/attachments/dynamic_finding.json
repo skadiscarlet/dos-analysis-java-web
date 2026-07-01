@@ -1,0 +1,35 @@
+{
+  "candidate_id": "DCMP-STATIC-0001",
+  "app": "dromara__datacompare",
+  "title": "Default demo operation endpoints retain submitted users in a static map",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 40307,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p0/logs/DCMP-STATIC-0001.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18085,
+    "endpoint": "/demo/operate/add",
+    "mysqlContainer": "p0-dcmp-mysql-1",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33308,
+    "loginStatus": 200,
+    "loginBodyPrefix": "{\"msg\":\"操作成功\",\"code\":0}",
+    "workerThreads": 12,
+    "lastHttpStatus": 200,
+    "lastBodyPrefix": "{\"msg\":\"操作成功\",\"code\":0}",
+    "clientException": "",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1518904 kB",
+      "VmRSS": "1518904 kB",
+      "Threads": "91"
+    }
+  },
+  "notes": "默认 Shiro 登录后访问 demo static map 写入路径。"
+}

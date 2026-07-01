@@ -1,0 +1,60 @@
+{
+  "case_id": "apache__skywalking-SKYWALKING-APP-STATIC-0002",
+  "target": "apache/skywalking",
+  "slug": "apache__skywalking",
+  "finding_id": "SKYWALKING-APP-STATIC-0002",
+  "probe_id": "PROBE-SW-002",
+  "goal": "Validate whether the default SkyWalking OAP pprof gRPC collect path allocates and retains attacker-declared per-stream heap before task validation, and whether a controlled external gRPC probe can trigger target JVM failure.",
+  "deployment_plan": {
+    "model": "official_quickstart_compose_derived",
+    "oap_image": "ghcr.io/apache/skywalking/oap:latest",
+    "oap_image_digest_observed": "ghcr.io/apache/skywalking/oap@sha256:2e91ae75dbc774957bef7680d251d92fcc02dbcba872b2e8049eba5697571873",
+    "banyandb_image": "ghcr.io/apache/skywalking-banyandb:69c8f4d20ebb6532ea4c16a7ed7114dd6ec9770b",
+    "banyandb_image_digest_observed": "ghcr.io/apache/skywalking-banyandb@sha256:73a26d61754c537f5f86f7b52c6fd24caa73e940812112127b47ac5e3c39e027",
+    "ports": {
+      "oap_grpc_container": 11800,
+      "oap_grpc_host": 19180,
+      "oap_http_container": 12800,
+      "oap_http_host": 19280
+    },
+    "harness_limits": {
+      "oap_java_heap": "512m",
+      "oap_container_memory": "1g"
+    },
+    "semantic_config_changes": []
+  },
+  "probe_plan": [
+    {
+      "stage": "smoke",
+      "streams": 1,
+      "content_size": 1048576,
+      "hold_seconds": 5,
+      "expectation": "gRPC metadata accepted and success response returned without service failure"
+    },
+    {
+      "stage": "growth",
+      "streams": 4,
+      "content_size": 31457280,
+      "hold_seconds": 15,
+      "expectation": "RSS/heap grows by roughly contentSize per active stream and service remains reachable"
+    },
+    {
+      "stage": "failure_cap",
+      "streams": 20,
+      "content_size": 31457280,
+      "hold_seconds": 30,
+      "expectation": "Stop on OOM, restart, sustained gRPC/HTTP unavailability, or safety cap"
+    }
+  ],
+  "safety": {
+    "external_target_only": "127.0.0.1 mapped disposable containers",
+    "request_cap": 25,
+    "time_cap_seconds": 90,
+    "stop_conditions": [
+      "OutOfMemoryError in OAP logs",
+      "container exits or OOMKilled",
+      "gRPC/HTTP ports become unavailable",
+      "probe safety cap reached"
+    ]
+  }
+}

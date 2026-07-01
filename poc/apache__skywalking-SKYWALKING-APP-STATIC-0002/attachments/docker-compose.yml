@@ -1,0 +1,42 @@
+services:
+  banyandb:
+    image: ghcr.io/apache/skywalking-banyandb:69c8f4d20ebb6532ea4c16a7ed7114dd6ec9770b
+    container_name: sw-pprof-case-banyandb
+    command: standalone --stream-root-path /tmp/stream-data --measure-root-path /tmp/measure-data
+    networks:
+      - sw-pprof-case
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -nz 127.0.0.1 17912"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 10s
+
+  oap:
+    image: ghcr.io/apache/skywalking/oap:latest
+    container_name: sw-pprof-case-oap
+    depends_on:
+      banyandb:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:19180:11800"
+      - "127.0.0.1:19280:12800"
+    networks:
+      - sw-pprof-case
+    mem_limit: 2g
+    environment:
+      SW_STORAGE: banyandb
+      SW_STORAGE_BANYANDB_TARGETS: banyandb:17912
+      SW_HEALTH_CHECKER: default
+      SW_TELEMETRY: prometheus
+      JAVA_OPTS: "-Xms1g -Xmx1g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/skywalking/logs/heapdump.hprof -XX:+ExitOnOutOfMemoryError"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/12800"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+
+networks:
+  sw-pprof-case:
+    name: sw-pprof-case-net

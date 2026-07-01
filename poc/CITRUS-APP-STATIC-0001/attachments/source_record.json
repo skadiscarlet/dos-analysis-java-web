@@ -1,0 +1,21 @@
+{
+  "record_id": "CITRUS-APP-STATIC-0001",
+  "app": "yiuman__citrus",
+  "title": "Anonymous /rest/verify/captcha creates unbounded HttpSession-retained Captcha objects",
+  "source_batch": "p0",
+  "source_file": "p0/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "完整 MySQL/Redis 环境启动，显式使用 session verification store 触发 HttpSession-retained captcha 路径。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/rest/verify/captcha",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 48950,
+  "log_path": "results/applications_dynamic_validation/p0/logs/CITRUS-APP-STATIC-0001.log",
+  "evidence_summary": "endpoint=/rest/verify/captcha; workerThreads=16; lastHttpStatus=200; VmHWM=1473884 kB; VmRSS=1473884 kB; Threads=90",
+  "strict_1g_evidence": "1g"
+}

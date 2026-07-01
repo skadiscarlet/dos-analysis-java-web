@@ -1,0 +1,28 @@
+{
+  "finding_id": "CITRUS-APP-STATIC-0002",
+  "title": "Anonymous /rest/authenticate JSON body is fully buffered and parsed before authentication",
+  "verdict": "needs_dynamic_probe",
+  "entry": "POST /rest/authenticate with a large non-form JSON body",
+  "source": "permitAll authenticate endpoint request body",
+  "sink": "RequestWrapperFilter.RequestWrapper reads full body; AuthenticateProcessorImpl creates JsonServletRequestWrapper which reads String/byte[] and Jackson Map",
+  "driver": "request body byte volume, JSON object/key count, parser work",
+  "dimension": [
+    "byte_volume",
+    "object_count",
+    "parser_cpu",
+    "request_burst_heap"
+  ],
+  "retention": "request-burst only, during servlet filter/controller authentication processing",
+  "bound": "multipart and form bodies are skipped by RequestWrapperFilter; no application-level JSON body cap was found in application.yml/application-docker.yml/nginx.conf; default compose also publishes backend 8080 directly",
+  "impact": "static evidence for unauthenticated request-burst heap pressure; needs dynamic measurement before promotion to likely/confirmed DoS",
+  "evidence": [
+    "deploy/docker-compose.yml:25-38",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/authorize/SystemAuthorizeConfigProvider.java:28-30",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/authenticate/AuthenticateController.java:31-34",
+    "citrus-support/src/main/java/com/github/yiuman/citrus/support/http/RequestWrapperFilter.java:26-33",
+    "citrus-support/src/main/java/com/github/yiuman/citrus/support/http/RequestWrapperFilter.java:45-48",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/authenticate/AuthenticateProcessorImpl.java:68-81",
+    "citrus-security/src/main/java/com/github/yiuman/citrus/security/authenticate/JsonServletRequestWrapper.java:47-52"
+  ],
+  "dynamic_probe": "send increasing JSON bodies with mode=password to /rest/authenticate under a capped heap; compare backend 8080 direct and nginx 80 path; success requires GC death/OOM/thread starvation or sustained unavailability, not only one failed request"
+}

@@ -1,0 +1,134 @@
+{
+  "case_id": "apache__skywalking-SKYWALKING-APP-STATIC-0002",
+  "target": "apache/skywalking",
+  "slug": "apache__skywalking",
+  "finding_id": "SKYWALKING-APP-STATIC-0002",
+  "probe_id": "PROBE-SW-002",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "resource_dimension": "memory",
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_compose",
+    "image_or_version": "ghcr.io/apache/skywalking/oap:latest@sha256:2e91ae75dbc774957bef7680d251d92fcc02dbcba872b2e8049eba5697571873; OAP runtime 11.0.0-SNAPSHOT-bb16533; BanyanDB ghcr.io/apache/skywalking-banyandb:69c8f4d20ebb6532ea4c16a7ed7114dd6ec9770b@sha256:73a26d61754c537f5f86f7b52c6fd24caa73e940812112127b47ac5e3c39e027",
+    "commands": [
+      "cd /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/new/cases/apache__skywalking-SKYWALKING-APP-STATIC-0002",
+      "docker compose -p sw-pprof-case up -d",
+      "python3 probe.py --streams 1 --content-size 1048576 --hold-seconds 5 --stagger-seconds 0.1 --out logs/probe-smoke-1stream-1m.json",
+      "python3 probe.py --streams 4 --content-size 31457280 --hold-seconds 15 --stagger-seconds 0.25 --out logs/probe-growth-4stream-30m.json",
+      "python3 probe.py --streams 20 --content-size 31457280 --hold-seconds 30 --stagger-seconds 0.1 --out logs/probe-failure-20stream-30m.json",
+      "docker compose -p sw-pprof-case down -v"
+    ],
+    "config_changes": [
+      "Host-only port remap: 127.0.0.1:19180->11800 and 127.0.0.1:19280->12800.",
+      "Storage selected as BanyanDB, following the documented Docker quickstart storage model.",
+      "Safety harness limit: JAVA_OPTS set to -Xms512m -Xmx512m with ExitOnOutOfMemoryError and Compose mem_limit 1g.",
+      "SW_HEALTH_CHECKER=default and SW_TELEMETRY=prometheus were set for readiness/observation.",
+      "No SW_AUTHENTICATION, SW_RECEIVER_PPROF_MAX_SIZE, SW_RECEIVER_PPROF_MEMORY_PARSER_ENABLED, receiver-pprof selector, or receiver-sharing gRPC setting was changed."
+    ],
+    "non_default_reason": null
+  },
+  "reachability": {
+    "attacker_model": "anonymous",
+    "entry": "gRPC /skywalking.v10.PprofTask/collect on OAP core gRPC port 11800",
+    "auth_required": false,
+    "account_used": null,
+    "network_exposure": "external_grpc_default",
+    "required_roles": []
+  },
+  "data_preparation": {
+    "required": false,
+    "steps": [
+      "Extracted pprof/Pprof.proto from the OAP image's apm-network-11.0.0-SNAPSHOT.jar into evidence/proto/.",
+      "Generated local Python protobuf classes under evidence/proto_py/ for the external gRPC client."
+    ],
+    "seed_data": [],
+    "low_privilege_account": null,
+    "default_credentials_used": false
+  },
+  "trigger": {
+    "request_shape": "External anonymous gRPC bidirectional stream to /skywalking.v10.PprofTask/collect. Each stream sends one PprofData metadata frame with type=PPROF_PROFILING_SUCCESS, invalid taskId, and contentSize=31457280, then holds the stream open without completion/content.",
+    "parameters": {
+      "failure_streams": 48,
+      "contentSize_failure_bytes": 31457280,
+      "pprofMaxSize_default_bytes": 31457280,
+      "taskId_variant": "invalid task IDs used to isolate allocation before later task-null handling",
+      "auth": "none"
+    },
+    "loop_variable": "number of simultaneously open gRPC collect streams and declared metadata.contentSize",
+    "request_count": 48,
+    "duration_seconds": 24,
+    "bandwidth_notes": "Low bandwidth: the failure probe sent metadata frames only; no 30MiB content bodies were uploaded."
+  },
+  "resource_observation": {
+    "metric": "heap/rss/grpc_availability/http_availability/container_exit",
+    "baseline": {
+      "docker_mem_usage": "1.492GiB / 2GiB",
+      "grpc_tcp_ready": true,
+      "http_tcp_ready": true,
+      "oap_state_before_failure": "running"
+    },
+    "peak": {
+      "container_exit_code": 3,
+      "grpc_tcp_ready_after_failure": false,
+      "http_tcp_ready_after_failure": false,
+      "oom_killed": false
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/probe-failure-1g-48stream-30m.json",
+      "logs/oap-after-1g-failure.log"
+    ],
+    "evidence_paths": [
+      "evidence/oap-inspect-after-1g-failure.json",
+      "docker-compose.yml",
+      "probe.py"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "匿名客户端可访问默认 OAP gRPC 11800 且 pprof receiver 使用默认内存 parser、认证为空时，多个未完成 collect 流用不超过默认 30MiB 的 metadata.contentSize 即可在上传内容和任务完成校验前消耗堆；1GiB JVM heap、2GiB OAP 容器复测中 48 条流触发 Java heap OOM 和 OAP exit 3。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": false,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": false,
+    "limits_or_mitigations": [
+      "SW_AUTHENTICATION non-empty requires matching gRPC authentication token.",
+      "Not exposing OAP core/receiver gRPC port 11800 to low-trust clients blocks the tested path.",
+      "Disabling receiver-pprof or setting SW_RECEIVER_PPROF_MEMORY_PARSER_ENABLED=false avoids this specific heap-buffer allocation path.",
+      "Lowering SW_RECEIVER_PPROF_MAX_SIZE reduces per-stream heap allocation.",
+      "gRPC concurrent-call limits, rate limits, ingress policy, or per-client quotas can bound the number of held streams.",
+      "The reproduction was repeated with a 1GiB JVM heap; larger heaps raise the stream count needed for OOM but do not add a per-client bound."
+    ],
+    "not_affected_when": [
+      "The pprof receiver is disabled or not packaged.",
+      "The OAP gRPC port is reachable only by trusted agents.",
+      "gRPC authentication is enforced and the attacker lacks the token.",
+      "The pprof receiver uses file mode instead of the memory parser for this path.",
+      "Ingress or OAP configuration bounds concurrent collect streams and declared content size sufficiently."
+    ]
+  },
+  "safety": {
+    "request_cap": 48,
+    "time_cap_seconds": 120,
+    "heap_or_container_limit": "OAP JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError; Docker mem_limit 2g",
+    "stop_condition_hit": true,
+    "cleanup_done": true
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "External gRPC PprofTask.collect stream on default receiver/core gRPC surface with PprofData metadata.",
+    "sink": "PprofByteBufCollectionObserver.onNext allocates ByteBuffer.allocate(contentSize) when contentSize <= pprofMaxSize.",
+    "driver": "PprofData.metadata.contentSize, up to default pprofMaxSize 31457280 bytes per stream.",
+    "missing_static_evidence": [
+      "No runtime proof of concurrent stream acceptance or heap slope.",
+      "No verification of generated gRPC service method exposure beyond handler registration."
+    ]
+  },
+  "notes": [
+    "2026-06-30 strict retest raised OAP JAVA_OPTS to -Xms1g -Xmx1g and Docker mem_limit to 2g.",
+    "The 48-stream metadata-only pprof probe ended with OAP ExitCode=3, OOMKilled=false, and both gRPC/HTTP ports closed.",
+    "The retained OAP log contains java.lang.OutOfMemoryError: Java heap space and Terminating due to java.lang.OutOfMemoryError: Java heap space."
+  ]
+}

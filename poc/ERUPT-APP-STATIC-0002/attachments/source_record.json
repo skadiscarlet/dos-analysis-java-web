@@ -1,0 +1,21 @@
+{
+  "record_id": "ERUPT-APP-STATIC-0002",
+  "app": "erupts__erupt",
+  "title": "Operation-log filter copies /erupt-api JSON body before auth",
+  "source_batch": "p1",
+  "source_file": "p1/findings.jsonl",
+  "schema": "legacy_findings_jsonl",
+  "status": "verified_oom",
+  "verdict": "confirmed_oom",
+  "category": "confirmed_true_positive",
+  "reason": "匿名 POST /erupt-api/data/table/EruptUser JSON body 先经过 operation-log filter 复制；未 OOM 则不提升。",
+  "finding_id": null,
+  "probe_id": null,
+  "entry": "/erupt-api/data/table/EruptUser",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 13,
+  "log_path": "results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0002.log",
+  "evidence_summary": "endpoint=/erupt-api/data/table/EruptUser; payloadBytes=37748747; workerThreads=24; loopsPerWorker=24; lastHttpStatus=401; VmHWM=1470504 kB; VmRSS=1465148 kB; Threads=96",
+  "strict_1g_evidence": "1g"
+}

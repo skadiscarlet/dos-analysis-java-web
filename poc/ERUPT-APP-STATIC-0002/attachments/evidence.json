@@ -1,0 +1,45 @@
+{
+  "record_id": "ERUPT-APP-STATIC-0002",
+  "app": "erupts__erupt",
+  "source_batch": "p1",
+  "status": "verified_oom",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 13,
+  "strict_1g_evidence": "1g",
+  "log_path": "results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0002.log",
+  "evidence_summary": "endpoint=/erupt-api/data/table/EruptUser; payloadBytes=37748747; workerThreads=24; loopsPerWorker=24; lastHttpStatus=401; VmHWM=1470504 kB; VmRSS=1465148 kB; Threads=96",
+  "dynamic_finding": {
+    "candidate_id": "ERUPT-APP-STATIC-0002",
+    "app": "erupts__erupt",
+    "title": "Operation-log filter copies /erupt-api JSON body before auth",
+    "status": "verified_oom",
+    "dynamic_verdict": "confirmed_oom",
+    "true_positive": true,
+    "oom_signal": "java.lang.OutOfMemoryError",
+    "requests_sent": 13,
+    "heap": "1g",
+    "log": "results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0002.log",
+    "evidence": {
+      "heap": "1g",
+      "port": 18142,
+      "endpoint": "/erupt-api/data/table/EruptUser",
+      "payloadBytes": 37748747,
+      "workerThreads": 24,
+      "loopsPerWorker": 24,
+      "enhancedProbe": true,
+      "probeFix": "use real POST /erupt-api/data/table/{erupt} route instead of GET-only /erupt-api/login",
+      "lastHttpStatus": 401,
+      "clientException": "URLError(BrokenPipeError(32, 'Broken pipe'))",
+      "postProbePortOpen": true,
+      "processExitCode": null,
+      "aliveBeforeStop": true,
+      "processStatus": {
+        "VmHWM": "1470504 kB",
+        "VmRSS": "1465148 kB",
+        "Threads": "96"
+      }
+    },
+    "notes": "匿名 POST /erupt-api/data/table/EruptUser JSON body 先经过 operation-log filter 复制；未 OOM 则不提升。"
+  }
+}

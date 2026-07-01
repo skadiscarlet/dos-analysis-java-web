@@ -1,0 +1,163 @@
+{
+  "case_id": "thingsboard__thingsboard-TB-APP-STATIC-0002",
+  "target": "thingsboard/thingsboard",
+  "slug": "thingsboard__thingsboard",
+  "finding_id": "TB-APP-STATIC-0002",
+  "probe_id": "PROBE-002",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "resource_dimension": "memory",
+  "default_deployment": {
+    "is_default": true,
+    "source": "official_docker_image",
+    "image_or_version": "thingsboard/tb-postgres:latest; digest sha256:2d17e4e36edcc1652592d48a3ab25dc7c9d13442b9f8283bc0594eb7b290b65b; observed ThingsBoard v4.2.1.1",
+    "commands": [
+      "docker pull thingsboard/tb-postgres:latest",
+      "docker run -d --name tb-dos-thingsboard-static-0002 --memory=4096m --memory-swap=4096m -e JAVA_OPTS='-Xms512m -Xmx1536m -XX:+ExitOnOutOfMemoryError' -p 127.0.0.1:19090:9090 -p 127.0.0.1:11883:1883 -p 127.0.0.1:15683:5683/udp -p 127.0.0.1:15685:5685/udp -p 127.0.0.1:15686:5686/udp -v <case_dir>/data:/data -v <case_dir>/container-logs:/var/log/thingsboard thingsboard/tb-postgres:latest",
+      "<case_dir>/probe.py --endpoint attributes --sizes-mib 17,64,128,256,384,512 --control-mib 17 --value-len 8192"
+    ],
+    "config_changes": [
+      "Harness-only Docker memory limit: 4096m.",
+      "Harness-only JVM heap limit: -Xms512m -Xmx1536m.",
+      "Harness-only JVM flag: -XX:+ExitOnOutOfMemoryError.",
+      "Host ports mapped to localhost high ports; container HTTP port remained 9090.",
+      "No application source or server.http.max_payload_size setting was changed."
+    ],
+    "non_default_reason": null
+  },
+  "reachability": {
+    "attacker_model": "low_privilege",
+    "entry": "Authenticated HTTP POST /api/plugins/telemetry/DEVICE/{deviceId}/SERVER_SCOPE with Transfer-Encoding: chunked and no Content-Length",
+    "auth_required": true,
+    "account_used": "tenant@thingsboard.org (documented default TENANT_ADMIN account)",
+    "network_exposure": "external_http_default",
+    "required_roles": [
+      "TENANT_ADMIN"
+    ]
+  },
+  "data_preparation": {
+    "required": true,
+    "steps": [
+      "Started official single-container thingsboard/tb-postgres image and waited for HTTP readiness.",
+      "Authenticated using the documented default Tenant Administrator account.",
+      "Created one disposable test device via POST /api/device.",
+      "Used the returned device id in /api/plugins/telemetry/DEVICE/{deviceId}/SERVER_SCOPE."
+    ],
+    "seed_data": [
+      {
+        "type": "DEVICE",
+        "id": "c96cbbe0-738f-11f1-9089-9d353261b3cb",
+        "name_prefix": "dos-static-0002"
+      }
+    ],
+    "low_privilege_account": "tenant@thingsboard.org / TENANT_ADMIN",
+    "default_credentials_used": true
+  },
+  "trigger": {
+    "request_shape": "HTTP/1.1 POST /api/plugins/telemetry/DEVICE/{deviceId}/SERVER_SCOPE with X-Authorization: Bearer <tenant_admin_jwt>, Content-Type: application/json, Transfer-Encoding: chunked, no Content-Length; body is a JSON object with attacker-controlled string attributes.",
+    "parameters": {
+      "endpoint": "attributes",
+      "body_sizes_mib_attempted": [
+        17,
+        64,
+        128,
+        256
+      ],
+      "content_length_control_mib": 17,
+      "json_value_length": 8192,
+      "concurrency": 1,
+      "auth": "documented default TENANT_ADMIN JWT",
+      "headers": [
+        "Transfer-Encoding: chunked",
+        "Content-Type: application/json",
+        "X-Authorization: Bearer <JWT>"
+      ]
+    },
+    "loop_variable": "body byte volume and JSON attribute count",
+    "request_count": 5,
+    "duration_seconds": 35.333,
+    "bandwidth_notes": "Single client, single connection per request. 17 MiB, 64 MiB, and 128 MiB chunked requests returned 200; the 256 MiB chunked request caused remote disconnect and target unavailability."
+  },
+  "resource_observation": {
+    "metric": "heap|rss|http_availability",
+    "baseline": {
+      "docker_rss": "1.799GiB / 4GiB",
+      "jvm_heap_used": "664630K",
+      "jvm_heap_total": "871424K",
+      "http_availability": "GET /api/auth/login returned 401"
+    },
+    "peak": {
+      "before_failure_docker_rss": "2.874GiB / 4GiB after 128MiB chunked request",
+      "before_failure_jvm_heap_used": "1286755K",
+      "before_failure_jvm_heap_total": "1572864K",
+      "failure_request": "256MiB chunked POST",
+      "post_failure_http": "Connection refused",
+      "post_failure_container_state": "status=exited exit=0 oom=false"
+    },
+    "failure_signal": "OutOfMemoryError: Java heap space",
+    "log_paths": [
+      "logs/probe_events.jsonl",
+      "logs/container_state_after_oom.txt",
+      "logs/container_logs_full_after_oom.log.gz",
+      "container-logs/thingsboard.2026-06-29.0.log.gz",
+      "container-logs/gc.log",
+      "logs/docker_stats_after_chunked_128mib.txt",
+      "logs/docker_stats_after_chunked_256mib.txt",
+      "logs/jcmd_heap_after_chunked_128mib.txt",
+      "logs/jcmd_heap_after_chunked_256mib.txt"
+    ],
+    "evidence_paths": [
+      "evidence/http_results.csv",
+      "evidence/probe_summary.json",
+      "evidence/payload_filter_excerpts.txt",
+      "evidence/oom_excerpts.txt",
+      "logs/cleanup.log"
+    ]
+  },
+  "utilization_conditions": {
+    "summary": "官方单容器默认部署中，具备 TENANT_ADMIN 等低权限写设备属性能力的客户端，可用无 Content-Length 的 chunked REST attributes POST 绕过默认 /api/** 16MiB Content-Length 检查；在 1.5GiB 测试堆下 256MiB body 触发目标 JVM Java heap OOM 并导致 HTTP 不可用。",
+    "requires_default_exposure": true,
+    "requires_low_privilege_account": true,
+    "requires_admin": false,
+    "requires_config_change": false,
+    "requires_optional_component": false,
+    "requires_seed_data": true,
+    "limits_or_mitigations": [
+      "Default PayloadSizeFilter rejected the same 17MiB request when Content-Length was present, but did not reject the chunked no-Content-Length variant.",
+      "A reverse proxy, servlet container, or gateway that enforces body size for chunked requests before Spring @RequestBody materialization would mitigate this path.",
+      "Reducing maximum JSON string length, adding per-user/per-device body quotas, rate limits, or streaming parser bounds would reduce exploitability.",
+      "The exact OOM threshold depends on heap/container sizing; this validation used -Xmx1536m and a 4GiB container cap as a bounded harness."
+    ],
+    "not_affected_when": [
+      "The REST /api/plugins/telemetry attributes/timeseries endpoints are not externally reachable.",
+      "Only trusted users can write telemetry or attributes to the target entity.",
+      "All inbound HTTP paths enforce body limits for chunked requests before request body materialization.",
+      "Deployments set sufficiently strict upstream body limits or reject Transfer-Encoding: chunked for these API routes."
+    ]
+  },
+  "safety": {
+    "request_cap": 7,
+    "time_cap_seconds": 360,
+    "heap_or_container_limit": "JVM -Xmx1536m; Docker --memory=4096m --memory-swap=4096m",
+    "stop_condition_hit": true,
+    "cleanup_done": true
+  },
+  "static_traceability": {
+    "static_result_file": "results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl",
+    "source": "Ordinary authenticated /api telemetry/attribute POST body accepted as @RequestBody String.",
+    "sink": "TelemetryController.saveAttributes/saveTelemetry parses full body with JsonParser and converts all entries into lists before asynchronous save.",
+    "driver": "Body byte volume and JSON key/value count when Content-Length is unknown or not trusted.",
+    "missing_static_evidence": [
+      "Runtime behavior for chunked authenticated POST over default embedded server",
+      "Whether deployment normally has reverse proxy body limits that are part of default image/compose"
+    ]
+  },
+  "notes": [
+    "No further probe was executed after the user requested convergence.",
+    "A 17MiB Content-Length control request was rejected or closed early and logged by PayloadSizeFilter as exceeding 16777216 bytes.",
+    "17MiB, 64MiB, and 128MiB chunked no-Content-Length requests returned HTTP 200.",
+    "The 256MiB chunked no-Content-Length request caused RemoteDisconnected on the client, target HTTP connection refused afterward, and target logs containing OutOfMemoryError: Java heap space.",
+    "The final test device could not be deleted through the API after OOM because the service was down; the disposable container was removed and the case data directory was cleared.",
+    "Large raw ThingsBoard logs were gzip-compressed in place; short OOM and payload-filter excerpts are available under evidence/."
+  ]
+}

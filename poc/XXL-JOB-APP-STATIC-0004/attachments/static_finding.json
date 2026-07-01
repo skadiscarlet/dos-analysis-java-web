@@ -1,0 +1,20 @@
+{
+  "finding_id": "XXL-JOB-APP-STATIC-0004",
+  "target": "xuxueli/xxl-job",
+  "module": "xxl-job-core executor Netty remoting",
+  "verdict": "needs_dynamic_probe",
+  "source": "external POST :9999/{trigger,beat,log,...} with near-5MiB body and high concurrency",
+  "sink": "Netty HttpObjectAggregator(5MiB), FullHttpRequest content to UTF-8 String, and bizThreadPool max 200/queue 2000",
+  "driver": "body byte volume, concurrency, queued Runnable count",
+  "dimension": "request-burst heap, worker threads, business queue pressure",
+  "retention": "FullHttpRequest/String/Runnable retained until dispatch completes",
+  "bound": "5MiB per-request body cap, 90 second idle close, max 200 biz threads and 2000 queue are real bounds; service-unavailable threshold needs measurement",
+  "default_reachability": "compose exposes executor 9999; body aggregation and String conversion happen before dispatchRequest token validation",
+  "evidence": [
+    "EmbedServer.java:61-73",
+    "EmbedServer.java:83-87",
+    "EmbedServer.java:160-169",
+    "EmbedServer.java:187-203"
+  ],
+  "dynamic_probe": "Send invalid-token and valid-token near-limit POST bodies under fixed heap, measure heap peak, biz queue saturation, rejection exceptions, latency and sustained availability."
+}

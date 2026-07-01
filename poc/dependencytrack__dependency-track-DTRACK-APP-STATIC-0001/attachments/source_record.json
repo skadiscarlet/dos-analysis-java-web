@@ -1,0 +1,21 @@
+{
+  "record_id": "dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+  "app": "DependencyTrack/dependency-track",
+  "title": "DTRACK-APP-STATIC-0001",
+  "source_batch": "new_retest",
+  "source_file": "new_retest/cases/dependencytrack__dependency-track-DTRACK-APP-STATIC-0001/result.json",
+  "schema": "new_style_result_json",
+  "status": "confirmed_oom",
+  "verdict": "confirmed",
+  "category": "confirmed_true_positive",
+  "reason": "官方 Dependency-Track 5.0.2 compose 默认 apiserver 2GiB 内存下，持有 BOM_UPLOAD 的低权限 API key 可通过单个约 768MiB multipart BOM part 触发目标 JVM Java heap OutOfMemoryError；进程未退出但请求返回 500，日志确认 OOM。",
+  "finding_id": "DTRACK-APP-STATIC-0001",
+  "probe_id": "PROBE-DTRACK-BOM-HEAP-001",
+  "entry": "POST /api/v1/bom multipart/form-data",
+  "failure_signal": "OutOfMemoryError: Java heap space",
+  "heap_or_limit": "Official compose apiserver memory limit 2g",
+  "requests_sent": 10,
+  "log_path": "logs/docker_compose_up.log",
+  "evidence_summary": "request_count=10; duration_seconds=140; metric=heap|rss|http_availability|target_logs; baseline={'api_version_status': 200, 'apiserver_health': 'healthy', 'initial_probe_baseline_memory': '497.3MiB / 2GiB'}; peak={'after_512m_probe_memor...",
+  "strict_1g_evidence": "compose apiserver memory limit 2g"
+}

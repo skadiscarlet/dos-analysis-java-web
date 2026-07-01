@@ -1,0 +1,31 @@
+{
+  "finding_id": "WGCLOUD-APP-STATIC-0002",
+  "title": "Default-token /agent/minTask can drive request-burst heap growth through raw JSON parsing and static BatchData queues",
+  "verdict": "likely",
+  "entry": "POST /wgcloud/agent/minTask",
+  "source": "JSON request body authenticated only by default wgToken md5 65d05df102851c6535322e73b2f99c06",
+  "sink": "@RequestBody String plus JSONUtil.parse, JSONUtil.toList/BeanUtil.copyProperties, BatchData static synchronizedList additions, and commitTask addAll batch copies",
+  "driver": "JSON byte volume, array element count, repeated request rate, and object field sizes",
+  "dimension": [
+    "heap_byte_volume",
+    "object_count",
+    "batch_copy_peak"
+  ],
+  "retention": "parsed request objects survive during request; copied entity objects stay in static BatchData lists until the scheduled one-minute commit task drains them",
+  "bound": "default token is wgcloud in both server and agent configs; no app-level JSON body, array count, list size, per-agent, per-hostname, or rate limit found; commitTask is periodic, not a hard capacity bound",
+  "reachability": "weak-gated by default shared token, not an admin session; default server listens on /wgcloud at port 9999",
+  "impact": "static evidence for external request-triggered heap and GC pressure independent of disk storage; dynamic OOM threshold not measured",
+  "evidence": [
+    "wgcloud-server/src/main/resources/application.yml:46-57",
+    "wgcloud-agent/src/main/resources/application.yml:13-20",
+    "wgcloud-agent/src/main/java/com/wgcloud/RestUtil.java:29-38",
+    "wgcloud-server/src/main/java/com/wgcloud/util/TokenUtils.java:32-45",
+    "wgcloud-server/src/main/java/com/wgcloud/controller/AgentController.java:52-137",
+    "wgcloud-server/src/main/java/com/wgcloud/util/staticvar/BatchData.java:18-56",
+    "wgcloud-server/src/main/java/com/wgcloud/task/ScheduledTask.java:316-430",
+    "bin/server/start.sh:18",
+    "bin/server/start.bat:2"
+  ],
+  "static_poc": "POST /wgcloud/agent/minTask with wgToken=65d05df102851c6535322e73b2f99c06 and large appInfoList/appStateList/logInfo fields; repeat faster than the one-minute commit drain",
+  "dynamic_probe": "run default server with -Xmx512m, vary JSON body size and appInfoList/appStateList cardinality, observe heap slope, BatchData sizes, commitTask pauses, GC, OOM, and HTTP availability"
+}

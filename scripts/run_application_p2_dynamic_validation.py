@@ -400,7 +400,7 @@ def register_sba_cookie_instance(port: int, attacker_port: int, index: int) -> i
         "serviceUrl": f"http://127.0.0.1:{attacker_port}/service/{index}",
         "metadata": {
             "p2": str(index),
-            "pad": "K" * 256,
+            "pad": "K" * 4096,
         },
     }
     status, _, _ = p0.http_request(
@@ -470,10 +470,10 @@ def finish_probe(
 def run_sba_cookie_store(case: Candidate) -> ProbeResult:
     port = free_port()
     attacker_port = free_port()
-    heap = "128m"
+    heap = p0.with_min_heap("128m")
     cookie_value_size = 4096
-    cookies_per_response = 1
-    max_instances = 15000
+    cookies_per_response = 8
+    max_instances = 30000
     server = start_cookie_health_server(attacker_port, cookie_value_size, cookies_per_response)
     process = None
     handle = None
@@ -598,8 +598,8 @@ def merge_results(existing: list[ProbeResult], updates: list[ProbeResult]) -> li
 
 
 def render_report(results: list[ProbeResult]) -> str:
-    verified_oom = [result for result in results if result.status == "verified_oom"]
-    verified_unavailable = [result for result in results if result.status == "verified_service_unavailable"]
+    verified_oom = [result for result in results if result.status == "verified_oom" and p0.strict_true_positive(result)]
+    verified_unavailable = [result for result in results if result.status == "verified_service_unavailable" and p0.strict_true_positive(result)]
     completed = [result for result in results if result.status == "completed_without_oom"]
     blocked = [result for result in results if result.status == "precondition_blocked"]
     not_selected = [result for result in results if result.status == "triage_not_selected"]
@@ -612,7 +612,7 @@ def render_report(results: list[ProbeResult]) -> str:
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"- 输入清单：`{rel(SOURCE_PLAN)}`",
         f"- 输出目录：`{rel(OUT_DIR)}/`",
-        "- 真阳性门槛：必须由真实外部协议/HTTP 请求触发目标 JVM `OutOfMemoryError`、GC death、线程/连接池耗尽或持续服务不可用；短期增长曲线、Redis key 数增长、broker backlog 或环境缺口不提升为真阳性。",
+        "- 真阳性门槛：必须由真实外部协议/HTTP 请求触发目标 JVM `OutOfMemoryError`、GC death、线程/连接池耗尽或持续服务不可用，且目标 JVM 堆至少为 1GiB；小堆 OOM、短期增长曲线、Redis key 数增长、broker backlog 或环境缺口不提升为真阳性。",
         "",
         "## 总览",
         "",
@@ -636,7 +636,7 @@ def render_report(results: list[ProbeResult]) -> str:
         signal = result.oom_signal or ""
         lines.append(
             f"| `{result.candidate_id}` | `{result.app}` | `{result.status}` | "
-            f"{str(result.true_positive).lower()} | `{signal}` | {result.requests_sent} | {log} |"
+            f"{str(p0.strict_true_positive(result)).lower()} | `{signal}` | {result.requests_sent} | {log} |"
         )
     lines.extend(["", "## 真阳性", ""])
     if verified_oom or verified_unavailable:
@@ -689,7 +689,11 @@ def write_results(results: list[ProbeResult]) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    rows = [result_to_dict(result) for result in results]
+    rows = []
+    for result in results:
+        row = result_to_dict(result)
+        row["true_positive"] = p0.strict_true_positive(result)
+        rows.append(row)
     (OUT_DIR / "summary.json").write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     with (OUT_DIR / "findings.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -710,7 +714,9 @@ def write_results(results: list[ProbeResult]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
-            writer.writerow({field: getattr(result, field) for field in fieldnames})
+            row = {field: getattr(result, field) for field in fieldnames}
+            row["true_positive"] = p0.strict_true_positive(result)
+            writer.writerow(row)
     (OUT_DIR / "P2_DYNAMIC_VALIDATION_REPORT.md").write_text(render_report(results), encoding="utf-8")
 
 
@@ -763,11 +769,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case", action="append", default=[], help="P2 candidate id to run; defaults to all")
     parser.add_argument("--recommended-only", action="store_true", help="run only the P2 candidates selected by triage")
     parser.add_argument("--runnable-only", action="store_true", help="run only currently implemented P2 probes")
+    parser.add_argument("--min-heap", default="", help="raise every probe JVM heap to at least this size, e.g. 1g")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    p0.MIN_HEAP_OVERRIDE = args.min_heap
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -782,8 +790,10 @@ def main() -> int:
     except Exception as exc:
         print(f"application P2 dynamic validation failed: {exc}", file=p0.sys.stderr)
         return 1
-    verified_oom = sum(1 for result in results if result.status == "verified_oom")
-    verified_unavailable = sum(1 for result in results if result.status == "verified_service_unavailable")
+    verified_oom = sum(1 for result in results if result.status == "verified_oom" and p0.strict_true_positive(result))
+    verified_unavailable = sum(
+        1 for result in results if result.status == "verified_service_unavailable" and p0.strict_true_positive(result)
+    )
     print(
         f"wrote {rel(OUT_DIR / 'summary.json')} "
         f"verified_oom={verified_oom} verified_service_unavailable={verified_unavailable}"

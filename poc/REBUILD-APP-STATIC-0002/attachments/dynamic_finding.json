@@ -1,0 +1,37 @@
+{
+  "candidate_id": "REBUILD-APP-STATIC-0002",
+  "app": "getrebuild__rebuild",
+  "title": "Anonymous barcode rendering can allocate oversized BitMatrix/BufferedImage",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 3,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p1/logs/REBUILD-APP-STATIC-0002.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18152,
+    "endpoint": "/commons/barcode/render",
+    "testedTextLengths": [
+      12000,
+      20000,
+      28000,
+      32000
+    ],
+    "lastHttpStatus": 200,
+    "clientException": "",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "751496 kB",
+      "VmRSS": "751496 kB",
+      "Threads": "106"
+    },
+    "mysqlContainer": "p1-rebuild-mysql-18152",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33452
+  },
+  "notes": "匿名 Code128 barcode render，文本长度受默认请求行/header 限制；成功条件仍是目标 JVM OOM。"
+}

@@ -1,0 +1,39 @@
+{
+  "candidate_id": "CITRUS-APP-STATIC-0002",
+  "app": "yiuman__citrus",
+  "title": "Anonymous /rest/authenticate JSON body is fully buffered and parsed before auth",
+  "status": "verified_oom",
+  "dynamic_verdict": "confirmed_oom",
+  "true_positive": true,
+  "oom_signal": "java.lang.OutOfMemoryError",
+  "requests_sent": 19,
+  "heap": "1g",
+  "log": "results/applications_dynamic_validation/p1/logs/CITRUS-APP-STATIC-0002.log",
+  "evidence": {
+    "heap": "1g",
+    "port": 18182,
+    "endpoint": "/rest/authenticate",
+    "payloadBytes": 20971591,
+    "workerThreads": 10,
+    "enhancedProbe": true,
+    "mysqlContainer": "p1-citrus-mysql",
+    "mysqlImage": "docker.1ms.run/mysql:5.7",
+    "mysqlPort": 33412,
+    "redisContainer": "p1-citrus-redis",
+    "redisImage": "docker.1ms.run/redis:7-alpine",
+    "redisPort": 36481,
+    "lastHttpStatus": 200,
+    "clientException": "",
+    "startupMode": "mda_autoconfiguration_excluded",
+    "firstStartupError": "Citrus full environment did not serve /rest/verify/captcha on port 18182; see results/applications_dynamic_validation/p1/logs/CITRUS-APP-STATIC-0002.full-startup.log",
+    "postProbePortOpen": true,
+    "processExitCode": null,
+    "aliveBeforeStop": true,
+    "processStatus": {
+      "VmHWM": "1547252 kB",
+      "VmRSS": "910920 kB",
+      "Threads": "68"
+    }
+  },
+  "notes": "完整 MySQL/Redis 环境启动，复用 Citrus P0 的 MDA classpath workaround；目标为匿名认证 JSON body buffering/parsing。"
+}

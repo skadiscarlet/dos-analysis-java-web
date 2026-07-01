@@ -1,0 +1,47 @@
+{
+  "record_id": "JMQTT-APP-STATIC-0002",
+  "app": "cicizz__jmqtt",
+  "source_batch": "p1",
+  "status": "verified_oom",
+  "failure_signal": "java.lang.OutOfMemoryError",
+  "heap_or_limit": "1g",
+  "requests_sent": 2030,
+  "strict_1g_evidence": "1g",
+  "log_path": "results/applications_dynamic_validation/p1/logs/JMQTT-APP-STATIC-0002.log",
+  "evidence_summary": "payloadBytes=512000; VmHWM=1406108 kB; VmRSS=1406108 kB; Threads=134",
+  "dynamic_finding": {
+    "candidate_id": "JMQTT-APP-STATIC-0002",
+    "app": "cicizz__jmqtt",
+    "title": "匿名 QoS2 PUBLISH 半握手保留 DeviceMessage",
+    "status": "verified_oom",
+    "dynamic_verdict": "confirmed_oom",
+    "true_positive": true,
+    "oom_signal": "java.lang.OutOfMemoryError",
+    "requests_sent": 2030,
+    "heap": "1g",
+    "log": "results/applications_dynamic_validation/p1/logs/JMQTT-APP-STATIC-0002.log",
+    "evidence": {
+      "heap": "1g",
+      "port": 18842,
+      "connections": 10,
+      "payloadBytes": 512000,
+      "defaultMaxMsgSizeBytes": 524288,
+      "maxMessages": 5000,
+      "enhancedProbe": true,
+      "estimatedPayloadBytes": 1039360000,
+      "clientException": "",
+      "postProbePortOpen": true,
+      "processExitCode": null,
+      "aliveBeforeStop": true,
+      "processStatus": {
+        "VmHWM": "1406108 kB",
+        "VmRSS": "1406108 kB",
+        "Threads": "134"
+      },
+      "mysqlContainer": "p1-jmqtt-mysql-18842",
+      "mysqlImage": "docker.1ms.run/mysql:5.7",
+      "mysqlPort": 33442
+    },
+    "notes": "JMQTT 匿名 QoS2 PUBLISH 半握手，payload 保持在默认 maxMsgSize 512KiB 内，不发送 PUBREL 并用 PINGREQ 保活；只以目标 JVM OOM 为真阳。"
+  }
+}
