@@ -4,6 +4,30 @@
 
 ---
 
+## [2026-07-02] Java Web DoS v2 重写设计规格
+
+### 修改时间
+2026-07-02 18:11
+
+### 变更类型
+- [文档] v2 重写设计规格
+
+### 核心改动
+- 新增 Java Web resource-exhaustion DoS analyzer v2 顶层设计规格，确定以 `dos-web-analyzer` 统一 CLI 为产品化入口重写旧 Phase 体系。
+- 明确采用 `E -> G -> Flow -> B -> EffectiveB -> StaticFinding` 的静态分析顺序，其中 G 检测严格按 CodeQL raw screening -> ML filter/ranker -> LLM summary -> rule/static verification 执行。
+- 明确 v2 第一版不执行动态验证，`poc/` 和历史动态结果仅作为 oracle、ML positive seeds、benchmark 和论文证据导入。
+
+### 交付成果
+- 新增设计文档：`docs/superpowers/specs/2026-07-02-java-web-dos-v2-rewrite-design.md`
+- 测试/验证结果：文档自审通过；未运行代码测试，因为本次只新增设计规格、未修改可执行分析逻辑。
+
+### 依赖与影响
+- 依赖：用户提供的《面向通用 Java Web 应用的资源耗尽型 DoS 检测方案》设计稿、现有 `poc/` 真阳证据和仓库上下文。
+- 对后续工作的影响：后续实施计划应以该规格为准，原地重写旧 `codeql/`、`scripts/`、`tests/`、CLI 和旧 Phase 结果，同时保留指定证据与数据库目录。
+- 破坏性变更：无；本次仅提交设计文档，不执行清理或实现。
+
+---
+
 ## [2026-06-30] 应用级 29 条真阳性 Security Advisory PoC 生成
 
 ### 修改时间
