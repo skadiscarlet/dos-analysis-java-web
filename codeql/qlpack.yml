@@ -1,5 +1,0 @@
-name: dos-web-analysis
-version: 0.1.0
-dependencies:
-  codeql/java-all: ^9.0.0
-extractor: java
