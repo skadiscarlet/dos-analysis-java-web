@@ -1,0 +1,10 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8 compileJava -x test -x javadoc -x javadocJar",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk"
+  ],
+  "slug": "Netflix/eureka"
+}

@@ -1,0 +1,11 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh -c \"mkdir -p target/codeql-classes && find az-core az-crypto az-exec-util az-flow-trigger-dependency-plugin az-flow-trigger-dependency-type az-hadoop-jobtype-plugin az-hdfs-viewer az-jobsummary az-reportal azkaban-common azkaban-db azkaban-exec-server azkaban-hadoop-security-plugin azkaban-solo-server azkaban-spi azkaban-web-server cached-http-filesystem -path '*/src/main/java/*' -name '*.java' -print0 | xargs -0 -r javac -proc:none -source 8 -target 8 -d target/codeql-classes; true\"",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk",
+    "/usr/lib/jvm/java-22-openjdk"
+  ],
+  "slug": "azkaban/azkaban"
+}

@@ -1,0 +1,11 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh -c \"mkdir -p target/codeql-classes && find zeebe/gateway/src/main/java zeebe/gateway-rest/src/main/java zeebe/broker/src/main/java zeebe/protocol/src/main/java zeebe/protocol-impl/src/main/java zeebe/gateway-protocol/src/main/java zeebe/gateway-protocol-impl/src/main/java service/src/main/java webapp/server/src/main/java operate/src/main/java tasklist/src/main/java authentication/src/main/java identity/src/main/java -name '*.java' -print0 | xargs -0 -r javac -proc:none -d target/codeql-classes; true\"",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk",
+    "/usr/lib/jvm/java-22-openjdk"
+  ],
+  "slug": "camunda/camunda"
+}

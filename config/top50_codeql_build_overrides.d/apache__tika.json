@@ -1,0 +1,9 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh ./mvnw -B -ntp -DskipTests -DskipITs -DskipIT -DskipIntegrationTests -Djacoco.skip=true -Dmdep.skip=true -Dlicense.skip=true -Drat.skip=true -DskipRat=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -DskipFrontend=true -Ddocker.skip=true -DskipDocker=true -DskipDockerBuild=true -pl tika-core,tika-parsers/tika-parsers-standard/tika-parsers-standard-package,tika-server/tika-server-core,tika-server/tika-server-standard,tika-server/tika-server-client -am package",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk"
+  ],
+  "slug": "apache/tika"
+}

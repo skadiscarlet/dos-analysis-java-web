@@ -1,0 +1,12 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [
+    "clean_goal_can_remove_generated_outputs"
+  ],
+  "command": "mvn -B -ntp -f chat2db-server/pom.xml -DskipTests -DskipITs -DskipIT -DskipIntegrationTests -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -DskipRat=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -DskipFrontend=true -Ddocker.skip=true -DskipDocker=true -DskipDockerBuild=true clean compile",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk"
+  ],
+  "slug": "OtterMind/Chat2DB"
+}
