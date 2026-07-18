@@ -187,14 +187,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.overlap_output: json.dumps(overlap_report(document, old_slugs, initial_slugs), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             })
             return 0
-        document, old_slugs, initial_slugs = _selected_and_sets(args)
         _assert_not_input(args.output, (args.selected, args.old_manifest, args.initial_manifest, args.status_events, args.markdown, args.intel))
         _assert_safe_output(args.output, args.source_root, args.db_root)
         try:
-            markdown_slugs = MARKDOWN_SLUG_RE.findall(args.markdown.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError) as exc:
-            raise AnalyzerError("TOP50_INVALID_JSON", f"unable to read Markdown output {args.markdown}: {exc}") from exc
-        try:
+            document, old_slugs, initial_slugs = _selected_and_sets(args)
+            try:
+                markdown_slugs = MARKDOWN_SLUG_RE.findall(args.markdown.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError) as exc:
+                raise AnalyzerError("TOP50_INVALID_JSON", f"unable to read Markdown output {args.markdown}: {exc}") from exc
             report = audit_selection(
                 document,
                 old_slugs,

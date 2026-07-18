@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -138,29 +139,33 @@ def select_targets(
     declared_reserve_slugs = set(reserve_slugs)
     normalized_old = {normalize_slug(slug, "old_slugs") for slug in old_slugs}
     normalized_initial = {normalize_slug(slug, "initial_slugs") for slug in initial_slugs}
-    targets: list[dict[str, object]] = []
-    old_count = 0
-    new_count = 0
-    for record in eligible:
-        target = _project_reviewed(record)
+    candidates = [
+        (_project_reviewed(record), record)
+        for record in eligible
+        if record.get("candidate_id") not in declared_reserve_ids
+        and normalize_slug(record.get("slug"), "reviewed.slug") not in declared_reserve_slugs
+    ]
+
+    @lru_cache(maxsize=None)
+    def choose(position: int, chosen_count: int, old_count: int, new_count: int) -> tuple[int, ...] | None:
+        if chosen_count == 50:
+            return () if new_count >= 17 else None
+        if position == len(candidates) or chosen_count + len(candidates) - position < 50:
+            return None
+        target, _ = candidates[position]
         slug = str(target["slug_normalized"])
-        if record.get("candidate_id") in declared_reserve_ids or slug in declared_reserve_slugs:
-            continue
-        is_old = slug in normalized_old
-        is_new = slug not in normalized_initial
-        slots_left_after = 50 - (len(targets) + 1)
-        new_needed_after = max(0, 17 - (new_count + int(is_new)))
-        if is_old and old_count >= 10:
-            continue
-        if not is_new and slots_left_after < new_needed_after:
-            continue
-        targets.append(target)
-        old_count += int(is_old)
-        new_count += int(is_new)
-        if len(targets) == 50:
-            break
-    if len(targets) != 50:
+        next_old = old_count + int(slug in normalized_old)
+        next_new = min(17, new_count + int(slug not in normalized_initial))
+        if next_old <= 10:
+            included = choose(position + 1, chosen_count + 1, next_old, next_new)
+            if included is not None:
+                return (position,) + included
+        return choose(position + 1, chosen_count, old_count, new_count)
+
+    selected_positions = choose(0, 0, 0, 0)
+    if selected_positions is None:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", "eligible candidates cannot satisfy selection constraints")
+    targets = [candidates[position][0] for position in selected_positions]
     selected_slugs = {str(target["slug_normalized"]) for target in targets}
     validate_reserve_candidates(reserve_records, reviewed_by_id, selected_slugs)
     reserve_pool: list[dict[str, object]] = []

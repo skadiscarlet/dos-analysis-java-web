@@ -374,6 +374,22 @@ class SelectionTests(unittest.TestCase):
         self.assertNotIn("owner/repo-10", {item["slug_normalized"] for item in document["targets"]})
         self.assertIn("owner/repo-50", {item["slug_normalized"] for item in document["targets"]})
 
+    def test_select_backtracks_when_early_old_targets_block_later_old_new_targets(self) -> None:
+        reviewed_by_id = self._reviewed_pool(75)
+        for index in range(75):
+            reviewed_by_id[f"candidate:owner/repo-{index:02d}"]["selection_rank"] = index + 1
+        reserves = [
+            {"candidate_id": f"candidate:owner/repo-{index:02d}", "slug": f"Owner/Repo-{index:02d}", "reserve_rank": index - 59, "eligible_for_replacement": True}
+            for index in range(60, 75)
+        ]
+        old = {f"owner/repo-{index:02d}" for index in range(20)}
+        initial = {f"owner/repo-{index:02d}" for index in list(range(10)) + list(range(20, 53))}
+        document = select_targets(reviewed_by_id, reserves, old, initial)
+        selected = [item["slug_normalized"] for item in document["targets"]]
+        self.assertEqual([f"owner/repo-{index:02d}" for index in range(10, 60)], selected)
+        self.assertEqual(10, len(set(selected) & old))
+        self.assertEqual(17, len(set(selected) - initial))
+
     def test_select_excludes_declared_top_ranked_reserves_from_targets(self) -> None:
         reviewed_by_id = self._reviewed_pool()
         for index in range(65):
@@ -670,6 +686,34 @@ class SelectionTests(unittest.TestCase):
             with mock.patch("dosweb.top50.selection._git_head", return_value="a" * 40):
                 with self.assertRaisesRegex(AnalyzerError, "verified capture"):
                     audit_selection(document, set(), set(), source_root, db_root, statuses)
+
+    def test_audit_cli_replaces_stale_passed_report_when_selected_json_is_malformed(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected = root / "selected.json"
+            selected.write_text('{"targets":', encoding="utf-8")
+            old = root / "old.json"
+            old.write_text('{"slugs": []}', encoding="utf-8")
+            initial = root / "initial.json"
+            initial.write_text('{"slugs": []}', encoding="utf-8")
+            statuses = root / "status.jsonl"
+            statuses.write_text('{}\n', encoding="utf-8")
+            markdown = root / "selection.md"
+            markdown.write_text("# selection\n", encoding="utf-8")
+            intel = root / "intel.json"
+            intel.write_text('{"targets": []}', encoding="utf-8")
+            output = root / "audit.json"
+            output.write_text('{"status": "passed"}\n', encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "scripts/reselect_java_web_dos_top50.py", "audit", "--selected", str(selected), "--old-manifest", str(old), "--initial-manifest", str(initial), "--source-root", str(root / "sources"), "--db-root", str(root / "dbs"), "--status-events", str(statuses), "--markdown", str(markdown), "--intel", str(intel), "--output", str(output)],
+                cwd=repository_root, text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(0, result.returncode)
+            failure = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual("failed", failure["status"])
+            self.assertEqual("TOP50_INVALID_JSON", failure["error_code"])
+            self.assertIn("selected.json", failure["failure_summary"])
 
     def test_render_transaction_stages_all_before_publish_and_rolls_back(self) -> None:
         from dosweb.top50.selection import write_render_transaction
