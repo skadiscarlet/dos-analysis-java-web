@@ -11,6 +11,7 @@ from dosweb.errors import AnalyzerError
 from dosweb.top50 import EXACT_TARGET_COUNT, MAX_OLD_TOP50_OVERLAP, MIN_NEW_TARGETS
 
 SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 def normalize_slug(slug: object, location: str) -> str:
@@ -60,21 +61,57 @@ def write_json_atomically(path: Path, document: Mapping[str, object]) -> None:
 def write_jsonl_atomically(path: Path, records: Iterable[Mapping[str, object]]) -> None:
     document = "".join(json.dumps(record, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n" for record in records)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(document, encoding="utf-8")
-    os.replace(temporary, path)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(document)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _validated_record_slug(record: Mapping[str, object], location: str) -> str:
+    slug = record.get("slug")
+    normalized = normalize_slug(slug, f"{location}.slug")
+    slug_normalized = record.get("slug_normalized")
+    if slug_normalized != normalized:
+        raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.slug_normalized: must equal normalized slug")
+    return normalized
+
+
+def validate_reviewed_candidates(records: Iterable[Mapping[str, object]]) -> None:
+    seen: set[str] = set()
+    for index, record in enumerate(records):
+        location = f"records[{index}]"
+        if not isinstance(record, Mapping):
+            raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{location}: record must be an object")
+        normalized = _validated_record_slug(record, location)
+        commit_sha = record.get("commit_sha")
+        if not isinstance(commit_sha, str) or not COMMIT_SHA_RE.fullmatch(commit_sha):
+            raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.commit_sha: expected 40-character SHA")
+        if normalized in seen:
+            raise AnalyzerError("TOP50_DUPLICATE_SLUG", f"{location}: duplicate slug {normalized}")
+        seen.add(normalized)
+
+
+def _normalize_slug_set(slugs: Iterable[str], location: str) -> set[str]:
+    return {normalize_slug(slug, f"{location}[{index}]") for index, slug in enumerate(slugs)}
 
 
 def validate_selected_targets(document: Mapping[str, object], old_slugs: set[str], initial_slugs: set[str]) -> None:
     targets = document.get("targets")
     if not isinstance(targets, list) or len(targets) != EXACT_TARGET_COUNT:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", f"selected targets must contain exactly {EXACT_TARGET_COUNT} projects")
-    normalized = [normalize_slug(item.get("slug_normalized"), f"targets[{index}]") for index, item in enumerate(targets) if isinstance(item, dict)]
+    normalized = [
+        _validated_record_slug(item, f"targets[{index}]")
+        for index, item in enumerate(targets)
+        if isinstance(item, Mapping)
+    ]
     if len(normalized) != EXACT_TARGET_COUNT or len(set(normalized)) != EXACT_TARGET_COUNT:
         raise AnalyzerError("TOP50_DUPLICATE_SLUG", "selected targets contain duplicate normalized slugs")
-    overlap = len(set(normalized) & old_slugs)
+    overlap = len(set(normalized) & _normalize_slug_set(old_slugs, "old_slugs"))
     if overlap > MAX_OLD_TOP50_OVERLAP:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", f"old Top-50 overlap is {overlap}, maximum is {MAX_OLD_TOP50_OVERLAP}")
-    new_count = len(set(normalized) - initial_slugs)
+    new_count = len(set(normalized) - _normalize_slug_set(initial_slugs, "initial_slugs"))
     if new_count < MIN_NEW_TARGETS:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", f"selection requires at least {MIN_NEW_TARGETS} new projects, found {new_count}")

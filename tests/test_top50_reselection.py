@@ -6,7 +6,12 @@ import unittest
 from pathlib import Path
 
 from dosweb.errors import AnalyzerError
-from dosweb.top50.contracts import read_jsonl_strict, validate_selected_targets
+from dosweb.top50.contracts import (
+    read_jsonl_strict,
+    validate_reviewed_candidates,
+    validate_selected_targets,
+    write_jsonl_atomically,
+)
 
 
 def target(slug: str, *, old: bool = False, new: bool = True) -> dict[str, object]:
@@ -57,3 +62,36 @@ class StrictArtifactTests(unittest.TestCase):
         initial = {item["slug_normalized"] for item in targets[16:]}
         with self.assertRaisesRegex(AnalyzerError, "at least 17"):
             validate_selected_targets({"targets": targets, "reserve_pool": []}, set(), initial)
+
+    def test_reviewed_candidates_validates_identity_and_shape(self) -> None:
+        validate_reviewed_candidates([target("Owner/Repo")])
+        incomplete = target("owner/repo")
+        incomplete.pop("commit_sha")
+        with self.assertRaisesRegex(AnalyzerError, "commit_sha"):
+            validate_reviewed_candidates([incomplete])
+
+    def test_selected_targets_rejects_spoofed_normalized_slug(self) -> None:
+        targets = [target(f"owner/repo-{index}") for index in range(50)]
+        targets[0]["slug_normalized"] = "owner/different-repo"
+        with self.assertRaisesRegex(AnalyzerError, "slug_normalized"):
+            validate_selected_targets({"targets": targets, "reserve_pool": []}, set(), set())
+
+    def test_selected_targets_normalizes_comparison_sets(self) -> None:
+        targets = [target(f"owner/repo-{index}") for index in range(50)]
+        old = {str(item["slug_normalized"]).upper() for item in targets[:11]}
+        with self.assertRaisesRegex(AnalyzerError, "old Top-50 overlap"):
+            validate_selected_targets({"targets": targets, "reserve_pool": []}, old, set())
+
+        initial = {str(item["slug_normalized"]).upper() for item in targets[16:]}
+        with self.assertRaisesRegex(AnalyzerError, "at least 17"):
+            validate_selected_targets({"targets": targets, "reserve_pool": []}, set(), initial)
+
+    def test_jsonl_writer_uses_unique_temporary_file_and_cleans_up(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            stale_temp = path.with_name(f".{path.name}.tmp")
+            stale_temp.write_text("keep", encoding="utf-8")
+            write_jsonl_atomically(path, [{"slug": "owner/repo"}])
+            self.assertEqual('{"slug": "owner/repo"}\n', path.read_text(encoding="utf-8"))
+            self.assertEqual("keep", stale_temp.read_text(encoding="utf-8"))
+            self.assertEqual([stale_temp], list(path.parent.glob(f".{path.name}.*")))
