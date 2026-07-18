@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import tempfile
@@ -20,17 +21,34 @@ def normalize_slug(slug: object, location: str) -> str:
     return slug.casefold()
 
 
+def _reject_nonfinite(value: object) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("non-finite number")
+    if isinstance(value, dict):
+        for nested in value.values():
+            _reject_nonfinite(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _reject_nonfinite(nested)
+
+
 def _parse_json(text: str, location: str) -> object:
     try:
-        return json.loads(text, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+        value = json.loads(text, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+        _reject_nonfinite(value)
+        return value
     except (json.JSONDecodeError, ValueError) as exc:
         raise AnalyzerError("TOP50_INVALID_JSON", f"{location}: invalid JSON: {exc}") from exc
 
 
 def read_jsonl_strict(path: Path, artifact_name: str) -> list[dict[str, object]]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise AnalyzerError("TOP50_INVALID_JSON", f"{path}: invalid UTF-8: {exc}") from exc
     records: list[dict[str, object]] = []
     seen: set[str] = set()
-    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_no, line in enumerate(lines, start=1):
         if not line.strip():
             raise AnalyzerError("TOP50_INVALID_JSONL", f"{path}:{line_no}: blank line in {artifact_name}")
         value = _parse_json(line, f"{path}:{line_no}")

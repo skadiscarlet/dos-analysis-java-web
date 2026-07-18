@@ -37,13 +37,27 @@ def target(slug: str, *, old: bool = False, new: bool = True) -> dict[str, objec
 
 class StrictArtifactTests(unittest.TestCase):
     def test_jsonl_rejects_blank_non_object_and_nonfinite_records(self) -> None:
-        for content, code in (("\n", "TOP50_INVALID_JSONL"), ("[]\n", "TOP50_RECORD_NOT_OBJECT"), ('{"x": NaN}\n', "TOP50_INVALID_JSON")):
+        for content, code in (
+            ("\n", "TOP50_INVALID_JSONL"),
+            ("[]\n", "TOP50_RECORD_NOT_OBJECT"),
+            ('{"x": NaN}\n', "TOP50_INVALID_JSON"),
+            ('{"nested": [1e9999]}\n', "TOP50_INVALID_JSON"),
+        ):
             with self.subTest(content=content), tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "records.jsonl"
                 path.write_text(content, encoding="utf-8")
                 with self.assertRaises(AnalyzerError) as raised:
                     read_jsonl_strict(path, "records")
                 self.assertEqual(code, raised.exception.code)
+
+    def test_jsonl_converts_invalid_utf8_to_analyzer_error_with_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            path.write_bytes(b'{"x":"\xff"}\n')
+            with self.assertRaises(AnalyzerError) as raised:
+                read_jsonl_strict(path, "records")
+            self.assertEqual("TOP50_INVALID_JSON", raised.exception.code)
+            self.assertIn(str(path), raised.exception.message)
 
     def test_selected_targets_requires_exactly_fifty(self) -> None:
         document = {"targets": [target(f"owner/repo-{index}") for index in range(49)], "reserve_pool": []}
