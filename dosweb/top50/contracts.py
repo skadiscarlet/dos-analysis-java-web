@@ -9,7 +9,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from dosweb.errors import AnalyzerError
-from dosweb.top50 import EXACT_TARGET_COUNT, MAX_OLD_TOP50_OVERLAP, MIN_NEW_TARGETS
+from dosweb.top50 import EXACT_TARGET_COUNT, MAX_OLD_TOP50_OVERLAP, MIN_NEW_TARGETS, MIN_RESERVE_COUNT
 
 SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -164,31 +164,24 @@ SCORE_LIMITS = {
 
 def _validate_reviewed_commit(record: Mapping[str, object], location: str) -> None:
     selection_commit = record.get("selection_commit")
-    selection_sha: object = None
-    if selection_commit is not None:
-        if not isinstance(selection_commit, Mapping):
-            raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.selection_commit: expected object")
-        selection_sha = selection_commit.get("commit_sha")
-        if not isinstance(selection_sha, str) or not COMMIT_SHA_RE.fullmatch(selection_sha):
-            raise AnalyzerError(
-                "TOP50_INVALID_FIELD",
-                f"{location}.selection_commit.commit_sha: expected 40-character SHA",
-            )
+    if not isinstance(selection_commit, Mapping):
+        raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.selection_commit: expected object")
+    selection_sha = selection_commit.get("commit_sha")
+    if not isinstance(selection_sha, str) or not COMMIT_SHA_RE.fullmatch(selection_sha):
+        raise AnalyzerError(
+            "TOP50_INVALID_FIELD",
+            f"{location}.selection_commit.commit_sha: expected 40-character SHA",
+        )
 
     legacy_sha = record.get("commit_sha")
     if legacy_sha is not None:
         if not isinstance(legacy_sha, str) or not COMMIT_SHA_RE.fullmatch(legacy_sha):
             raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.commit_sha: expected 40-character SHA")
-        if selection_sha is not None and legacy_sha != selection_sha:
+        if legacy_sha != selection_sha:
             raise AnalyzerError(
                 "TOP50_INVALID_FIELD",
                 f"{location}.commit_sha: must match selection_commit.commit_sha",
             )
-    elif selection_sha is None:
-        raise AnalyzerError(
-            "TOP50_INVALID_FIELD",
-            f"{location}.selection_commit.commit_sha: expected 40-character SHA",
-        )
 
 
 def _official_evidence_ids(record: Mapping[str, object]) -> tuple[set[str], set[str]]:
@@ -261,6 +254,11 @@ def validate_reserve_candidates(
     selected_slugs: set[str],
 ) -> None:
     reserve_records = list(records)
+    if len(reserve_records) < MIN_RESERVE_COUNT:
+        raise AnalyzerError(
+            "TOP50_INVALID_REVIEW",
+            f"reserve pool requires at least {MIN_RESERVE_COUNT} candidates",
+        )
     if [item.get("reserve_rank") if isinstance(item, Mapping) else None for item in reserve_records] != list(
         range(1, len(reserve_records) + 1)
     ):
@@ -272,7 +270,11 @@ def validate_reserve_candidates(
             raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{location}: record must be an object")
         candidate_id = item.get("candidate_id")
         reviewed = reviewed_by_id.get(candidate_id) if isinstance(candidate_id, str) else None
-        if reviewed is None or item.get("eligible_for_replacement") is not True:
+        if (
+            reviewed is None
+            or reviewed.get("review_outcome") != "eligible"
+            or item.get("eligible_for_replacement") is not True
+        ):
             raise AnalyzerError("TOP50_INVALID_REVIEW", "every reserve must reference a fully reviewed eligible candidate")
         if _validated_record_slug(reviewed, f"{location}.reviewed") in normalized_selected_slugs:
             raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", "main selection and reserve pool overlap")

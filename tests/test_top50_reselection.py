@@ -157,14 +157,11 @@ class StrictArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(AnalyzerError, "at least 17"):
             validate_selected_targets({"targets": targets, "reserve_pool": []}, set(), initial)
 
-    def test_reviewed_candidates_accepts_legacy_commit_shape(self) -> None:
+    def test_reviewed_candidates_rejects_legacy_only_commit_shape(self) -> None:
         legacy = reviewed("Owner/Repo")
         legacy["commit_sha"] = legacy.pop("selection_commit")["commit_sha"]  # type: ignore[index]
-        validate_reviewed_candidates([legacy])
-        incomplete = dict(legacy)
-        incomplete.pop("commit_sha")
-        with self.assertRaisesRegex(AnalyzerError, "commit_sha"):
-            validate_reviewed_candidates([incomplete])
+        with self.assertRaisesRegex(AnalyzerError, "selection_commit"):
+            validate_reviewed_candidates([legacy])
 
     def test_selected_targets_rejects_spoofed_normalized_slug(self) -> None:
         targets = [target(f"owner/repo-{index}") for index in range(50)]
@@ -232,9 +229,23 @@ class ReviewContractTests(unittest.TestCase):
         with self.assertRaisesRegex(AnalyzerError, "commit_sha"):
             validate_reviewed_candidates([item])
 
-    def test_reserve_requires_contiguous_rank_and_full_review(self) -> None:
+    def test_reserve_rejects_fewer_than_fifteen_contiguous_records(self) -> None:
         item = reviewed("Owner/Repo")
         reviewed_by_id = validate_reviewed_candidates([item])
-        reserve = [{"candidate_id": item["candidate_id"], "slug": item["slug"], "reserve_rank": 2, "eligible_for_replacement": True}]
-        with self.assertRaisesRegex(AnalyzerError, "reserve ranks"):
-            validate_reserve_candidates(reserve, reviewed_by_id, set())
+        reserves = [
+            {"candidate_id": item["candidate_id"], "slug": item["slug"], "reserve_rank": rank, "eligible_for_replacement": True}
+            for rank in range(1, 15)
+        ]
+        with self.assertRaisesRegex(AnalyzerError, "at least 15"):
+            validate_reserve_candidates(reserves, reviewed_by_id, set())
+
+    def test_reserve_rejects_reviewed_candidate_without_eligible_outcome(self) -> None:
+        item = reviewed("Owner/Repo")
+        item["review_outcome"] = "ineligible"
+        reviewed_by_id = validate_reviewed_candidates([item])
+        reserves = [
+            {"candidate_id": item["candidate_id"], "slug": item["slug"], "reserve_rank": rank, "eligible_for_replacement": True}
+            for rank in range(1, 16)
+        ]
+        with self.assertRaisesRegex(AnalyzerError, "eligible candidate"):
+            validate_reserve_candidates(reserves, reviewed_by_id, set())
