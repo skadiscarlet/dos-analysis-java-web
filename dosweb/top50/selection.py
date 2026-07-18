@@ -112,6 +112,9 @@ def select_targets(
     eligible.sort(key=_selection_key)
     if len(eligible) < 50:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", "fewer than 50 reviewed eligible candidates are available")
+    reserve_records = [dict(record) for record in reserves]
+    declared_reserve_ids = {record.get("candidate_id") for record in reserve_records}
+    declared_reserve_slugs = {normalize_slug(record.get("slug"), "reserve.slug") for record in reserve_records}
     normalized_old = {normalize_slug(slug, "old_slugs") for slug in old_slugs}
     normalized_initial = {normalize_slug(slug, "initial_slugs") for slug in initial_slugs}
     targets: list[dict[str, object]] = []
@@ -120,6 +123,8 @@ def select_targets(
     for record in eligible:
         target = _project_reviewed(record)
         slug = str(target["slug_normalized"])
+        if record.get("candidate_id") in declared_reserve_ids or slug in declared_reserve_slugs:
+            continue
         is_old = slug in normalized_old
         is_new = slug not in normalized_initial
         slots_left_after = 50 - (len(targets) + 1)
@@ -136,7 +141,6 @@ def select_targets(
     if len(targets) != 50:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", "eligible candidates cannot satisfy selection constraints")
     selected_slugs = {str(target["slug_normalized"]) for target in targets}
-    reserve_records = [dict(record) for record in reserves]
     validate_reserve_candidates(reserve_records, reviewed_by_id, selected_slugs)
     reserve_pool: list[dict[str, object]] = []
     for reserve in reserve_records:
@@ -185,7 +189,17 @@ def choose_replacement(
         if slug in failed or any(item.get("slug_normalized") == slug for item in targets):
             continue
         remaining_reserves = [item for item in reserves if item is not reserve]
-        if len(remaining_reserves) < MIN_RESERVE_COUNT:
+        remaining_target_slugs = {normalize_slug(item.get("slug"), "targets.slug") for item in targets} | {slug}
+        usable_reserves = [
+            item
+            for item in remaining_reserves
+            if isinstance(item, Mapping)
+            and item.get("eligible_for_replacement") is True
+            and item.get("review_outcome") == "eligible"
+            and normalize_slug(item.get("slug"), "reserve.slug") not in failed
+            and normalize_slug(item.get("slug"), "reserve.slug") not in remaining_target_slugs
+        ]
+        if len(usable_reserves) < MIN_RESERVE_COUNT:
             continue
         candidate = {
             **result,

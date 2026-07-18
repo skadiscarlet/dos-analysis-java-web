@@ -374,6 +374,29 @@ class SelectionTests(unittest.TestCase):
         self.assertNotIn("owner/repo-10", {item["slug_normalized"] for item in document["targets"]})
         self.assertIn("owner/repo-50", {item["slug_normalized"] for item in document["targets"]})
 
+    def test_select_excludes_declared_top_ranked_reserves_from_targets(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        for index in range(65):
+            reviewed_by_id[f"candidate:owner/repo-{index:02d}"]["selection_rank"] = index + 1
+        reserves = [
+            {
+                "candidate_id": f"candidate:owner/repo-{index:02d}",
+                "slug": f"Owner/Repo-{index:02d}",
+                "reserve_rank": index + 1,
+                "eligible_for_replacement": True,
+            }
+            for index in range(15)
+        ]
+        document = select_targets(reviewed_by_id, reserves, set(), set())
+        self.assertEqual(
+            {f"owner/repo-{index:02d}" for index in range(15, 65)},
+            {item["slug_normalized"] for item in document["targets"]},
+        )
+        self.assertEqual(
+            {f"owner/repo-{index:02d}" for index in range(15)},
+            {item["slug_normalized"] for item in document["reserve_pool"]},
+        )
+
     def test_select_targets_projects_reviewed_commit_and_reserves(self) -> None:
         reviewed_by_id = self._reviewed_pool()
         document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
@@ -403,6 +426,20 @@ class SelectionTests(unittest.TestCase):
             [{"outgoing_slug": "owner/repo-20", "incoming_slug": "fresh/extra"}],
             result["replacement_history"],
         )
+
+    def test_replacement_rejects_when_prefailed_reserve_leaves_fourteen_usable(self) -> None:
+        targets = [target(f"owner/repo-{index}") for index in range(50)]
+        reserves = [target(f"reserve/repo-{index}") for index in range(16)]
+        for rank, reserve in enumerate(reserves, start=1):
+            reserve.update({"reserve_rank": rank, "eligible_for_replacement": True, "review_outcome": "eligible"})
+        with self.assertRaisesRegex(AnalyzerError, "reserve"):
+            choose_replacement(
+                {"targets": targets, "reserve_pool": reserves},
+                "owner/repo-0",
+                {"reserve/repo-0"},
+                set(),
+                set(),
+            )
 
     def test_replacement_rejects_consuming_fifteenth_reserve(self) -> None:
         targets = [target(f"owner/repo-{index}") for index in range(50)]
