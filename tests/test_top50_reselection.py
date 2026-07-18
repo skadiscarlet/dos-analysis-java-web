@@ -9,6 +9,7 @@ from unittest import mock
 from dosweb.errors import AnalyzerError
 from dosweb.top50.contracts import (
     read_jsonl_strict,
+    validate_reserve_candidates,
     validate_reviewed_candidates,
     validate_selected_targets,
     write_jsonl_atomically,
@@ -33,6 +34,38 @@ def target(slug: str, *, old: bool = False, new: bool = True) -> dict[str, objec
         },
         "hard_gates": {"passed": True},
         "negative_review": {"outcome": "passed"},
+    }
+
+
+def reviewed(slug: str) -> dict[str, object]:
+    official = {
+        "evidence_id": "e-1",
+        "source_kind": "repository_readme",
+        "url": "https://github.com/o/r/blob/a/README.md",
+        "claim": "default public HTTP service",
+        "official": True,
+    }
+    return {
+        "candidate_id": f"candidate:{slug.casefold()}",
+        "slug": slug,
+        "slug_normalized": slug.casefold(),
+        "selection_commit": {"default_branch": "main", "commit_sha": "a" * 40},
+        "deployment": {"protocol": "http", "required_external_dependencies": ["postgresql"]},
+        "evidence": [official],
+        "hard_gate_evidence_ids": ["e-1"],
+        "score": {
+            "default_public_entry": 20,
+            "dos_relevance": 24,
+            "low_privilege_reachability": 10,
+            "impact_usage": 10,
+            "codeql_feasibility": 8,
+            "maintenance_evidence": 4,
+            "total": 76,
+        },
+        "hard_gates": {"passed": True},
+        "negative_review": {"outcome": "passed"},
+        "build_plan": {"strategy": "maven", "expected_coverage_status": "complete"},
+        "review_outcome": "eligible",
     }
 
 
@@ -124,9 +157,11 @@ class StrictArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(AnalyzerError, "at least 17"):
             validate_selected_targets({"targets": targets, "reserve_pool": []}, set(), initial)
 
-    def test_reviewed_candidates_validates_identity_and_shape(self) -> None:
-        validate_reviewed_candidates([target("Owner/Repo")])
-        incomplete = target("owner/repo")
+    def test_reviewed_candidates_accepts_legacy_commit_shape(self) -> None:
+        legacy = reviewed("Owner/Repo")
+        legacy["commit_sha"] = legacy.pop("selection_commit")["commit_sha"]  # type: ignore[index]
+        validate_reviewed_candidates([legacy])
+        incomplete = dict(legacy)
         incomplete.pop("commit_sha")
         with self.assertRaisesRegex(AnalyzerError, "commit_sha"):
             validate_reviewed_candidates([incomplete])
@@ -164,3 +199,42 @@ class StrictArtifactTests(unittest.TestCase):
             with self.assertRaises(AnalyzerError) as raised:
                 write_jsonl_atomically(Path(tmp) / "records.jsonl", [["not", "a record"]])  # type: ignore[list-item]
             self.assertEqual("TOP50_RECORD_NOT_OBJECT", raised.exception.code)
+
+
+class ReviewContractTests(unittest.TestCase):
+    def test_review_recomputes_score_and_thresholds(self) -> None:
+        item = reviewed("Owner/Repo")
+        item["score"]["total"] = 99  # type: ignore[index]
+        with self.assertRaisesRegex(AnalyzerError, "score total"):
+            validate_reviewed_candidates([item])
+
+    def test_review_rejects_dependency_count_above_three(self) -> None:
+        item = reviewed("Owner/Repo")
+        item["deployment"]["required_external_dependencies"] = ["a", "b", "c", "d"]  # type: ignore[index]
+        with self.assertRaisesRegex(AnalyzerError, "zero to three"):
+            validate_reviewed_candidates([item])
+
+    def test_review_rejects_third_party_only_hard_gate_evidence(self) -> None:
+        item = reviewed("Owner/Repo")
+        item["evidence"][0]["source_kind"] = "third_party_discovery"  # type: ignore[index]
+        item["evidence"][0]["official"] = False  # type: ignore[index]
+        with self.assertRaisesRegex(AnalyzerError, "official evidence"):
+            validate_reviewed_candidates([item])
+
+    def test_review_accepts_canonical_selection_commit_and_legacy_commit_sha_when_matching(self) -> None:
+        item = reviewed("Owner/Repo")
+        item["commit_sha"] = "a" * 40
+        self.assertEqual({item["candidate_id"]: item}, validate_reviewed_candidates([item]))
+
+    def test_review_rejects_mismatched_selection_and_legacy_commits(self) -> None:
+        item = reviewed("Owner/Repo")
+        item["commit_sha"] = "b" * 40
+        with self.assertRaisesRegex(AnalyzerError, "commit_sha"):
+            validate_reviewed_candidates([item])
+
+    def test_reserve_requires_contiguous_rank_and_full_review(self) -> None:
+        item = reviewed("Owner/Repo")
+        reviewed_by_id = validate_reviewed_candidates([item])
+        reserve = [{"candidate_id": item["candidate_id"], "slug": item["slug"], "reserve_rank": 2, "eligible_for_replacement": True}]
+        with self.assertRaisesRegex(AnalyzerError, "reserve ranks"):
+            validate_reserve_candidates(reserve, reviewed_by_id, set())

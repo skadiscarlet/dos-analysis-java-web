@@ -144,17 +144,138 @@ def _validate_record_commit(record: Mapping[str, object], location: str) -> None
         raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.commit_sha: expected 40-character SHA")
 
 
-def validate_reviewed_candidates(records: Iterable[Mapping[str, object]]) -> None:
-    seen: set[str] = set()
+OFFICIAL_EVIDENCE_KINDS = {
+    "repository_readme",
+    "official_deployment_doc",
+    "official_compose",
+    "official_dockerfile",
+    "default_config",
+    "repository_metadata",
+}
+SCORE_LIMITS = {
+    "default_public_entry": (0, 25, 18),
+    "dos_relevance": (0, 30, 18),
+    "low_privilege_reachability": (0, 15, 8),
+    "impact_usage": (0, 15, None),
+    "codeql_feasibility": (0, 10, None),
+    "maintenance_evidence": (0, 5, None),
+}
+
+
+def _validate_reviewed_commit(record: Mapping[str, object], location: str) -> None:
+    selection_commit = record.get("selection_commit")
+    selection_sha: object = None
+    if selection_commit is not None:
+        if not isinstance(selection_commit, Mapping):
+            raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.selection_commit: expected object")
+        selection_sha = selection_commit.get("commit_sha")
+        if not isinstance(selection_sha, str) or not COMMIT_SHA_RE.fullmatch(selection_sha):
+            raise AnalyzerError(
+                "TOP50_INVALID_FIELD",
+                f"{location}.selection_commit.commit_sha: expected 40-character SHA",
+            )
+
+    legacy_sha = record.get("commit_sha")
+    if legacy_sha is not None:
+        if not isinstance(legacy_sha, str) or not COMMIT_SHA_RE.fullmatch(legacy_sha):
+            raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.commit_sha: expected 40-character SHA")
+        if selection_sha is not None and legacy_sha != selection_sha:
+            raise AnalyzerError(
+                "TOP50_INVALID_FIELD",
+                f"{location}.commit_sha: must match selection_commit.commit_sha",
+            )
+    elif selection_sha is None:
+        raise AnalyzerError(
+            "TOP50_INVALID_FIELD",
+            f"{location}.selection_commit.commit_sha: expected 40-character SHA",
+        )
+
+
+def _official_evidence_ids(record: Mapping[str, object]) -> tuple[set[str], set[str]]:
+    evidence = record.get("evidence")
+    hard_gate_evidence_ids = record.get("hard_gate_evidence_ids")
+    if not isinstance(evidence, list) or not isinstance(hard_gate_evidence_ids, list):
+        return set(), set()
+    hard_ids = {item for item in hard_gate_evidence_ids if isinstance(item, str)}
+    if len(hard_ids) != len(hard_gate_evidence_ids):
+        return set(), set()
+    official_ids = {
+        item["evidence_id"]
+        for item in evidence
+        if isinstance(item, Mapping)
+        and isinstance(item.get("evidence_id"), str)
+        and item.get("official") is True
+        and item.get("source_kind") in OFFICIAL_EVIDENCE_KINDS
+    }
+    return hard_ids, official_ids
+
+
+def validate_reviewed_candidates(records: Iterable[Mapping[str, object]]) -> dict[str, dict[str, object]]:
+    reviewed: dict[str, dict[str, object]] = {}
+    seen_slugs: set[str] = set()
     for index, record in enumerate(records):
-        location = f"records[{index}]"
+        location = f"reviewed[{index}]"
         if not isinstance(record, Mapping):
             raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{location}: record must be an object")
+        candidate_id = record.get("candidate_id")
+        if not isinstance(candidate_id, str) or candidate_id in reviewed:
+            raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: unique candidate_id is required")
         normalized = _validated_record_slug(record, location)
-        _validate_record_commit(record, location)
-        if normalized in seen:
+        if normalized in seen_slugs:
             raise AnalyzerError("TOP50_DUPLICATE_SLUG", f"{location}: duplicate slug {normalized}")
-        seen.add(normalized)
+        _validate_reviewed_commit(record, location)
+
+        deployment = record.get("deployment")
+        dependencies = deployment.get("required_external_dependencies") if isinstance(deployment, Mapping) else None
+        if not isinstance(dependencies, list) or not 0 <= len(dependencies) <= 3:
+            raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: zero to three external dependencies are required")
+
+        score = record.get("score")
+        if not isinstance(score, Mapping):
+            raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: score object is required")
+        total = 0
+        for name, (minimum, maximum, gate) in SCORE_LIMITS.items():
+            value = score.get(name)
+            if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
+                raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: invalid score {name}")
+            if gate is not None and value < gate:
+                raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: score {name} is below hard gate {gate}")
+            total += value
+        if score.get("total") != total or total < 70:
+            raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: score total must equal {total} and be at least 70")
+
+        hard_ids, official_ids = _official_evidence_ids(record)
+        if not hard_ids or not hard_ids <= official_ids:
+            raise AnalyzerError("TOP50_INVALID_EVIDENCE", f"{location}: hard gates require official evidence")
+        if record.get("hard_gates") != {"passed": True} or record.get("negative_review") != {"outcome": "passed"}:
+            raise AnalyzerError("TOP50_INVALID_REVIEW", f"{location}: hard gates and negative review must pass")
+
+        reviewed[candidate_id] = record if isinstance(record, dict) else dict(record)
+        seen_slugs.add(normalized)
+    return reviewed
+
+
+def validate_reserve_candidates(
+    records: Iterable[Mapping[str, object]],
+    reviewed_by_id: Mapping[str, Mapping[str, object]],
+    selected_slugs: set[str],
+) -> None:
+    reserve_records = list(records)
+    if [item.get("reserve_rank") if isinstance(item, Mapping) else None for item in reserve_records] != list(
+        range(1, len(reserve_records) + 1)
+    ):
+        raise AnalyzerError("TOP50_INVALID_REVIEW", "reserve ranks must be contiguous starting at one")
+    normalized_selected_slugs = _normalize_slug_set(selected_slugs, "selected_slugs")
+    for index, item in enumerate(reserve_records):
+        location = f"reserve[{index}]"
+        if not isinstance(item, Mapping):
+            raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{location}: record must be an object")
+        candidate_id = item.get("candidate_id")
+        reviewed = reviewed_by_id.get(candidate_id) if isinstance(candidate_id, str) else None
+        if reviewed is None or item.get("eligible_for_replacement") is not True:
+            raise AnalyzerError("TOP50_INVALID_REVIEW", "every reserve must reference a fully reviewed eligible candidate")
+        if _validated_record_slug(reviewed, f"{location}.reviewed") in normalized_selected_slugs:
+            raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", "main selection and reserve pool overlap")
 
 
 def _normalize_slug_set(slugs: Iterable[str], location: str) -> set[str]:
