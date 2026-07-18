@@ -296,11 +296,11 @@ class SelectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             selected = root / "selected.json"
-            old_manifest = root / "old.txt"
-            initial_manifest = root / "initial.txt"
+            old_manifest = root / "old.json"
+            initial_manifest = root / "initial.json"
             selected.write_text(json.dumps({"targets": [target(f"owner/repo-{index}") for index in range(49)]}), encoding="utf-8")
-            old_manifest.write_text("owner/old\n", encoding="utf-8")
-            initial_manifest.write_text("owner/initial\n", encoding="utf-8")
+            old_manifest.write_text('{"slugs": ["owner/old"]}', encoding="utf-8")
+            initial_manifest.write_text('{"slugs": ["owner/initial"]}', encoding="utf-8")
             result = subprocess.run(
                 [
                     sys.executable,
@@ -512,11 +512,11 @@ class SelectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             selected = root / "selected.json"
-            old_manifest = root / "old.txt"
-            initial_manifest = root / "initial.txt"
+            old_manifest = root / "old.json"
+            initial_manifest = root / "initial.json"
             selected.write_text(json.dumps(document), encoding="utf-8")
-            old_manifest.write_text("owner/old\n", encoding="utf-8")
-            initial_manifest.write_text("owner/initial\n", encoding="utf-8")
+            old_manifest.write_text('{"slugs": ["owner/old"]}', encoding="utf-8")
+            initial_manifest.write_text('{"slugs": ["owner/initial"]}', encoding="utf-8")
             output = root / "shared-output"
             result = subprocess.run(
                 [
@@ -553,7 +553,7 @@ class SelectionTests(unittest.TestCase):
                 for item in document["targets"]
                 for event in (
                     {"slug": item["slug"], "status": "source_ready", "stage": "source", "commit": "a" * 40},
-                    {"slug": item["slug"], "status": "success", "verification_status": "verified", "compilation_unit_count": 1, "coverage_status": "complete"},
+                    {"slug": item["slug"], "status": "success", "commit_sha": "a" * 40, "source_verification_status": "verified", "verification_status": "verified", "compilation_unit_count": 1, "coverage_status": "complete"},
                 )
             ]
             with mock.patch("dosweb.top50.selection._git_head", return_value="a" * 40):
@@ -610,3 +610,95 @@ class SelectionTests(unittest.TestCase):
             ]
             with self.assertRaisesRegex(AnalyzerError, "partial"):
                 audit_selection(document, set(), set(), source_root, db_root, statuses)
+
+    def test_old_manifest_rejects_markdown_input(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected = root / "selected.json"
+            selected.write_text("{}", encoding="utf-8")
+            old_manifest = root / "old.md"
+            old_manifest.write_text("# old\\n`owner/repo`\\n", encoding="utf-8")
+            initial = root / "initial.json"
+            initial.write_text('{"slugs": []}', encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "scripts/reselect_java_web_dos_top50.py", "render", "--selected", str(selected), "--old-manifest", str(old_manifest), "--initial-manifest", str(initial), "--markdown-output", str(root / "out.md"), "--intel-output", str(root / "out.json"), "--overlap-output", str(root / "overlap.json")],
+                cwd=repository_root, text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("JSON", result.stderr)
+
+    def test_select_rejects_unhashable_reserve_fields_as_analyzer_error(self) -> None:
+        reviewed_by_id = self._reviewed_pool(66)
+        reserves = self._reserves(reviewed_by_id)
+        reserves[0]["candidate_id"] = ["not", "hashable"]
+        with self.assertRaises(AnalyzerError) as raised:
+            select_targets(reviewed_by_id, reserves, set(), set())
+        self.assertEqual("TOP50_INVALID_FIELD", raised.exception.code)
+
+    def test_select_counts_unique_usable_reserves(self) -> None:
+        reviewed_by_id = self._reviewed_pool(66)
+        reserves = self._reserves(reviewed_by_id)
+        duplicate = dict(reserves[0])
+        duplicate["reserve_rank"] = 16
+        reserves.append(duplicate)
+        with self.assertRaisesRegex(AnalyzerError, "reserve"):
+            select_targets(reviewed_by_id, reserves, set(), set())
+
+    def test_audit_requires_success_event_selected_commit_and_source_verification(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "sources"
+            db_root = root / "dbs"
+            for item in document["targets"]:
+                safe_name = item["safe_name"]
+                (source_root / safe_name).mkdir(parents=True)
+                database = db_root / f"{safe_name}-db"
+                (database / "db-java").mkdir(parents=True)
+                (database / "codeql-database.yml").write_text("name: test\\n", encoding="utf-8")
+                (database / "db-java" / "default").write_text("test", encoding="utf-8")
+            statuses = [
+                event
+                for item in document["targets"]
+                for event in (
+                    {"slug": item["slug"], "status": "source_ready", "stage": "source", "commit": "b" * 40},
+                    {"slug": item["slug"], "status": "success", "commit_sha": "b" * 40, "source_verification_status": "verified", "verification_status": "verified", "compilation_unit_count": 1, "coverage_status": "complete"},
+                )
+            ]
+            with mock.patch("dosweb.top50.selection._git_head", return_value="a" * 40):
+                with self.assertRaisesRegex(AnalyzerError, "verified capture"):
+                    audit_selection(document, set(), set(), source_root, db_root, statuses)
+
+    def test_render_transaction_stages_all_before_publish_and_rolls_back(self) -> None:
+        from dosweb.top50.selection import write_render_transaction
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs = {root / "a.md": "new-a", root / "b.json": "new-b", root / "c.json": "new-c"}
+            for path in outputs:
+                path.write_text(f"old-{path.name}", encoding="utf-8")
+            real_replace = __import__("os").replace
+            calls = 0
+            def fail_on_publish(source: str, destination: str) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("publish failed")
+                real_replace(source, destination)
+            with mock.patch("dosweb.top50.selection.os.replace", side_effect=fail_on_publish):
+                with self.assertRaises(AnalyzerError):
+                    write_render_transaction(outputs)
+            self.assertEqual([f"old-{path.name}" for path in outputs], [path.read_text(encoding="utf-8") for path in outputs])
+
+    def test_render_transaction_staging_failure_publishes_none(self) -> None:
+        from dosweb.top50.selection import write_render_transaction
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs = {root / "a.md": "new-a", root / "b.json": "new-b", root / "c.json": "new-c"}
+            with mock.patch("dosweb.top50.selection.tempfile.mkstemp", side_effect=OSError("stage failed")):
+                with self.assertRaises(AnalyzerError):
+                    write_render_transaction(outputs)
+            self.assertFalse(any(path.exists() for path in outputs))

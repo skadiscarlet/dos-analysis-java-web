@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
+import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterable, Mapping
@@ -100,6 +101,12 @@ def _project_reviewed(record: Mapping[str, object]) -> dict[str, object]:
     return result
 
 
+def _candidate_identity(value: object, location: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}: expected non-empty string")
+    return value
+
+
 def select_targets(
     reviewed: Mapping[str, Mapping[str, object]],
     reserves: Iterable[Mapping[str, object]],
@@ -107,14 +114,28 @@ def select_targets(
     initial_slugs: set[str],
 ) -> dict[str, object]:
     """Select a stable, eligible Top-50 and a validated ranked reserve pool."""
-    reviewed_by_id = {candidate_id: dict(record) for candidate_id, record in reviewed.items()}
+    try:
+        reviewed_by_id = {candidate_id: dict(record) for candidate_id, record in reviewed.items()}
+    except (TypeError, ValueError) as exc:
+        raise AnalyzerError("TOP50_INVALID_FIELD", "reviewed candidates have invalid identities") from exc
     eligible = [record for record in reviewed_by_id.values() if record.get("review_outcome") == "eligible"]
     eligible.sort(key=_selection_key)
     if len(eligible) < 50:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", "fewer than 50 reviewed eligible candidates are available")
-    reserve_records = [dict(record) for record in reserves]
-    declared_reserve_ids = {record.get("candidate_id") for record in reserve_records}
-    declared_reserve_slugs = {normalize_slug(record.get("slug"), "reserve.slug") for record in reserve_records}
+    reserve_records = []
+    for index, record in enumerate(reserves):
+        if not isinstance(record, Mapping):
+            raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"reserve[{index}] must be an object")
+        reserve_copy = dict(record)
+        _candidate_identity(reserve_copy.get("candidate_id"), f"reserve[{index}].candidate_id")
+        normalize_slug(reserve_copy.get("slug"), f"reserve[{index}].slug")
+        reserve_records.append(reserve_copy)
+    reserve_ids = [_candidate_identity(record.get("candidate_id"), f"reserve[{index}].candidate_id") for index, record in enumerate(reserve_records)]
+    reserve_slugs = [normalize_slug(record.get("slug"), f"reserve[{index}].slug") for index, record in enumerate(reserve_records)]
+    if len(set(reserve_ids)) != len(reserve_ids) or len(set(reserve_slugs)) != len(reserve_slugs):
+        raise AnalyzerError("TOP50_INVALID_REVIEW", "reserve candidates must have unique candidate IDs and normalized slugs")
+    declared_reserve_ids = set(reserve_ids)
+    declared_reserve_slugs = set(reserve_slugs)
     normalized_old = {normalize_slug(slug, "old_slugs") for slug in old_slugs}
     normalized_initial = {normalize_slug(slug, "initial_slugs") for slug in initial_slugs}
     targets: list[dict[str, object]] = []
@@ -180,7 +201,21 @@ def choose_replacement(
     reserves = result.get("reserve_pool")
     if not isinstance(reserves, list):
         raise AnalyzerError("TOP50_INVALID_FIELD", "reserve_pool must be a list")
-    for reserve in sorted(reserves, key=lambda item: int(item.get("reserve_rank", 0)) if isinstance(item, Mapping) else 0):
+    reserve_slugs: list[str] = []
+    reserve_ids: list[str] = []
+    reserve_ranks: list[int] = []
+    for index, reserve in enumerate(reserves):
+        if not isinstance(reserve, Mapping):
+            raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"reserve_pool[{index}] must be an object")
+        reserve_slugs.append(normalize_slug(reserve.get("slug"), f"reserve_pool[{index}].slug"))
+        reserve_ids.append(_candidate_identity(reserve.get("candidate_id", reserve.get("slug")), f"reserve_pool[{index}].candidate_id"))
+        rank = reserve.get("reserve_rank")
+        if not isinstance(rank, int) or isinstance(rank, bool):
+            raise AnalyzerError("TOP50_INVALID_FIELD", f"reserve_pool[{index}].reserve_rank must be an integer")
+        reserve_ranks.append(rank)
+    if len(set(reserve_slugs)) != len(reserve_slugs) or len(set(reserve_ids)) != len(reserve_ids):
+        raise AnalyzerError("TOP50_INVALID_REVIEW", "reserve pool must contain unique candidate IDs and normalized slugs")
+    for reserve in sorted(reserves, key=lambda item: item["reserve_rank"]):
         if not isinstance(reserve, Mapping):
             continue
         slug = normalize_slug(reserve.get("slug"), "reserve.slug")
@@ -267,26 +302,16 @@ def render_intel_json(document: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+_TERMINAL_STATUS_NAMES = {"success", "failed", "skipped_existing_db"}
+
+
 def _latest_statuses(records: Iterable[Mapping[str, object]]) -> dict[str, tuple[int, Mapping[str, object]]]:
     latest: dict[str, tuple[int, Mapping[str, object]]] = {}
     for index, record in enumerate(records):
         slug = normalize_slug(record.get("slug"), f"status_events[{index}].slug")
-        latest[slug] = (index, record)
+        if record.get("status") in _TERMINAL_STATUS_NAMES:
+            latest[slug] = (index, record)
     return latest
-
-
-def _status_captures_selected_commit(
-    records: Iterable[Mapping[str, object]], slug: str, commit_sha: str, success_index: int
-) -> bool:
-    for index, record in enumerate(records):
-        if index > success_index or record.get("stage") != "source":
-            continue
-        if normalize_slug(record.get("slug"), f"status_events[{index}].slug") != slug:
-            continue
-        recorded_commit = record.get("commit")
-        if isinstance(recorded_commit, str) and recorded_commit.casefold() == commit_sha.casefold():
-            return True
-    return False
 
 
 def _git_head(source_dir: Path) -> str:
@@ -343,7 +368,9 @@ def audit_selection(
             and not isinstance(status.get("compilation_unit_count"), bool)
             and status.get("compilation_unit_count", 0) > 0
             and status.get("coverage_status") in {"complete", "limited"}
-            and _status_captures_selected_commit(status_records, slug, commit_sha, success_index)
+            and isinstance(status.get("commit_sha"), str)
+            and status.get("commit_sha", "").casefold() == commit_sha.casefold()
+            and status.get("source_verification_status") == "verified"
         ):
             raise AnalyzerError("TOP50_AUDIT_FAILED", f"{slug}: database does not have verified capture status")
     if markdown_slugs is not None:
@@ -377,19 +404,69 @@ def read_status_events(path: Path) -> list[dict[str, object]]:
     return records
 
 
-def write_text_atomically(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+def _fsync_directory(path: Path) -> None:
+    directory_fd = os.open(path, os.O_RDONLY)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        directory_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        os.fsync(directory_fd)
     finally:
-        Path(temporary).unlink(missing_ok=True)
+        os.close(directory_fd)
+
+
+def write_text_atomically(path: Path, text: str) -> None:
+    write_render_transaction({path: text})
+
+
+def write_render_transaction(payloads: Mapping[Path, str]) -> None:
+    """Stage all render artifacts, then publish them with rollback on failure."""
+    destinations = list(payloads)
+    if not destinations or len({path.resolve(strict=False) for path in destinations}) != len(destinations):
+        raise AnalyzerError("TOP50_OUTPUT_EXISTS", "render destinations must be unique")
+    staged: list[tuple[Path, Path]] = []
+    backups: list[tuple[Path, Path | None]] = []
+    try:
+        for destination in destinations:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+            temporary_path = Path(temporary)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(payloads[destination])
+                handle.flush()
+                os.fsync(handle.fileno())
+            staged.append((destination, temporary_path))
+        for destination in destinations:
+            backup: Path | None = None
+            if destination.exists():
+                fd, backup_name = tempfile.mkstemp(prefix=f".{destination.name}.bak.", dir=destination.parent)
+                os.close(fd)
+                backup = Path(backup_name)
+                shutil.copy2(destination, backup)
+            backups.append((destination, backup))
+        published: list[Path] = []
+        try:
+            for destination, temporary in staged:
+                os.replace(temporary, destination)
+                published.append(destination)
+            for destination in destinations:
+                _fsync_directory(destination.parent)
+        except OSError as exc:
+            for destination in published:
+                destination.unlink(missing_ok=True)
+            for destination, backup in backups:
+                if backup is not None and backup.exists():
+                    os.replace(backup, destination)
+            for destination in destinations:
+                _fsync_directory(destination.parent)
+            raise AnalyzerError("TOP50_OUTPUT_WRITE_FAILED", f"unable to publish render outputs: {exc}") from exc
+        for _, backup in backups:
+            if backup is not None:
+                backup.unlink(missing_ok=True)
+    except AnalyzerError:
+        raise
+    except OSError as exc:
+        raise AnalyzerError("TOP50_OUTPUT_WRITE_FAILED", f"unable to stage render outputs: {exc}") from exc
+    finally:
+        for _, temporary in staged:
+            temporary.unlink(missing_ok=True)
+        for _, backup in backups:
+            if backup is not None:
+                backup.unlink(missing_ok=True)

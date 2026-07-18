@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import json
 import re
 import stat
 import sys
@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from dosweb.errors import AnalyzerError
 from dosweb.top50.contracts import (
+    normalize_slug,
     read_jsonl_strict,
     validate_reserve_candidates,
     validate_reviewed_candidates,
@@ -31,7 +32,7 @@ from dosweb.top50.selection import (
     render_intel_json,
     render_markdown,
     select_targets,
-    write_text_atomically,
+    write_render_transaction,
 )
 
 
@@ -41,26 +42,34 @@ DEFAULT_DB_ROOT = REPO_ROOT / "databases" / "applications"
 
 
 def _load_slugs(path: Path) -> list[str]:
-    if path.suffix.casefold() == ".json":
-        snapshot = read_json_object(path, "initial snapshot")
-        projects = snapshot.get("projects")
-        if not isinstance(projects, list):
-            raise AnalyzerError("TOP50_INVALID_FIELD", f"initial snapshot {path} requires projects list")
+    suffix = path.suffix.casefold()
+    if suffix == ".json":
+        document = read_json_object(path, "slug snapshot")
+        slugs = document.get("slugs")
+        if not isinstance(slugs, list) or not all(isinstance(slug, str) for slug in slugs):
+            projects = document.get("projects")
+            if isinstance(projects, list):
+                slugs = [item.get("slug_normalized") for item in projects if isinstance(item, dict)]
+            else:
+                raise AnalyzerError("TOP50_INVALID_FIELD", f"{path}: JSON snapshot requires a slugs string list")
+        normalized: list[str] = []
+        for index, slug in enumerate(slugs):
+            normalized.append(normalize_slug(slug, f"{path}.slugs[{index}]"))
+        if len(set(normalized)) != len(normalized):
+            raise AnalyzerError("TOP50_DUPLICATE_SLUG", f"{path}: duplicate normalized slug")
+        return normalized
+    if suffix == ".jsonl":
+        records = read_jsonl_strict(path, "slug records")
         slugs: list[str] = []
-        for index, project in enumerate(projects):
-            if not isinstance(project, dict) or not isinstance(project.get("slug_normalized"), str):
-                raise AnalyzerError("TOP50_INVALID_FIELD", f"initial snapshot {path} projects[{index}] requires slug_normalized")
-            slugs.append(project["slug_normalized"])
+        for index, record in enumerate(records):
+            slug = record.get("slug_normalized", record.get("slug"))
+            if not isinstance(slug, str):
+                raise AnalyzerError("TOP50_INVALID_FIELD", f"{path}:{index + 1}: slug or slug_normalized is required")
+            slugs.append(normalize_slug(slug, f"{path}:{index + 1}.slug"))
+        if len(set(slugs)) != len(slugs):
+            raise AnalyzerError("TOP50_DUPLICATE_SLUG", f"{path}: duplicate normalized slug")
         return slugs
-    spec = importlib.util.spec_from_file_location("top50_builder_manifest", REPO_ROOT / "scripts" / "build_top50_codeql_dbs.py")
-    if spec is None or spec.loader is None:
-        raise AnalyzerError("TOP50_INVALID_FIELD", "unable to load old Top-50 manifest parser")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    try:
-        return module.load_slugs(path)
-    except (FileNotFoundError, ValueError) as exc:
-        raise AnalyzerError("TOP50_INVALID_FIELD", str(exc)) from exc
+    raise AnalyzerError("TOP50_INVALID_JSON", f"{path}: slug artifacts must use .json or .jsonl; Markdown/plain text is not accepted")
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -79,6 +88,12 @@ def _assert_safe_output(path: Path, source_root: Path, db_root: Path, *, immutab
         raise AnalyzerError("TOP50_OUTPUT_EXISTS", f"output path is not a regular file: {path}")
     if immutable and path.exists():
         raise AnalyzerError("TOP50_OUTPUT_EXISTS", f"refusing to overwrite immutable output: {path}")
+
+
+def _assert_not_input(path: Path, inputs: tuple[Path, ...]) -> None:
+    resolved = path.resolve(strict=False)
+    if any(resolved == candidate.resolve(strict=False) for candidate in inputs):
+        raise AnalyzerError("TOP50_OUTPUT_EXISTS", f"output must not overwrite command input: {path}")
 
 
 def _write_new_json(path: Path, document: dict[str, object], source_root: Path, db_root: Path) -> None:
@@ -156,34 +171,49 @@ def main(argv: list[str] | None = None) -> int:
             validate_reserve_candidates(reserves, reviewed or {}, set())
             return 0
         if args.command == "select":
+            _assert_not_input(args.output, (args.reviewed, args.reserves, args.old_manifest, args.initial_manifest))
             reserves = read_jsonl_strict(args.reserves, "reserve_candidates")
             document = select_targets(reviewed or {}, reserves, set(_load_slugs(args.old_manifest)), set(_load_slugs(args.initial_manifest)))
             _assert_safe_output(args.output, DEFAULT_SOURCE_ROOT, DEFAULT_DB_ROOT)
             write_json_atomically(args.output, document)
             return 0
-        document, old_slugs, initial_slugs = _selected_and_sets(args)
         if args.command == "render":
+            document, old_slugs, initial_slugs = _selected_and_sets(args)
             _assert_distinct_render_paths(args)
             validate_selected_targets(document, old_slugs, initial_slugs)
-            write_text_atomically(args.markdown_output, render_markdown(document))
-            write_json_atomically(args.intel_output, render_intel_json(document))
-            write_json_atomically(args.overlap_output, overlap_report(document, old_slugs, initial_slugs))
+            write_render_transaction({
+                args.markdown_output: render_markdown(document),
+                args.intel_output: json.dumps(render_intel_json(document), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                args.overlap_output: json.dumps(overlap_report(document, old_slugs, initial_slugs), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            })
             return 0
+        document, old_slugs, initial_slugs = _selected_and_sets(args)
+        _assert_not_input(args.output, (args.selected, args.old_manifest, args.initial_manifest, args.status_events, args.markdown, args.intel))
         _assert_safe_output(args.output, args.source_root, args.db_root)
         try:
             markdown_slugs = MARKDOWN_SLUG_RE.findall(args.markdown.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError) as exc:
             raise AnalyzerError("TOP50_INVALID_JSON", f"unable to read Markdown output {args.markdown}: {exc}") from exc
-        report = audit_selection(
-            document,
-            old_slugs,
-            initial_slugs,
-            args.source_root,
-            args.db_root,
-            read_status_events(args.status_events),
-            markdown_slugs,
-            read_json_object(args.intel, "intel JSON"),
-        )
+        try:
+            report = audit_selection(
+                document,
+                old_slugs,
+                initial_slugs,
+                args.source_root,
+                args.db_root,
+                read_status_events(args.status_events),
+                markdown_slugs,
+                read_json_object(args.intel, "intel JSON"),
+            )
+        except AnalyzerError as exc:
+            failure = {
+                "schema_version": "1.0",
+                "status": "failed",
+                "failure_summary": exc.message,
+                "error_code": exc.code,
+            }
+            write_json_atomically(args.output, failure)
+            raise
         write_json_atomically(args.output, report)
         return 0
     except AnalyzerError as exc:
