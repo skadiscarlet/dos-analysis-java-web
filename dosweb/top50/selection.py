@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
 import subprocess
 import tempfile
@@ -10,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from dosweb.errors import AnalyzerError
-from dosweb.top50 import TOP50_SCHEMA_VERSION
+from dosweb.top50 import MIN_RESERVE_COUNT, TOP50_SCHEMA_VERSION
 from dosweb.top50.contracts import (
     normalize_slug,
+    read_json_strict,
+    read_jsonl_strict,
     validate_reserve_candidates,
     validate_selected_targets,
 )
@@ -183,10 +184,13 @@ def choose_replacement(
             continue
         if slug in failed or any(item.get("slug_normalized") == slug for item in targets):
             continue
+        remaining_reserves = [item for item in reserves if item is not reserve]
+        if len(remaining_reserves) < MIN_RESERVE_COUNT:
+            continue
         candidate = {
             **result,
             "targets": targets + [dict(reserve)],
-            "reserve_pool": [item for item in reserves if item is not reserve],
+            "reserve_pool": remaining_reserves,
         }
         try:
             validate_selected_targets(candidate, old_slugs, initial_slugs)
@@ -320,8 +324,11 @@ def audit_selection(
         success_index, status = latest[slug]
         if not (
             status.get("status") == "success"
-            and status.get("database_structure") == "valid"
-            and status.get("coverage_status") == "capture_completed"
+            and status.get("verification_status") == "verified"
+            and isinstance(status.get("compilation_unit_count"), int)
+            and not isinstance(status.get("compilation_unit_count"), bool)
+            and status.get("compilation_unit_count", 0) > 0
+            and status.get("coverage_status") in {"complete", "limited"}
             and _status_captures_selected_commit(status_records, slug, commit_sha, success_index)
         ):
             raise AnalyzerError("TOP50_AUDIT_FAILED", f"{slug}: database does not have verified capture status")
@@ -346,31 +353,13 @@ def audit_selection(
 
 
 def read_json_object(path: Path, label: str) -> dict[str, object]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AnalyzerError("TOP50_INVALID_JSON", f"unable to read {label} {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise AnalyzerError("TOP50_INVALID_JSON", f"{label} {path} must be a JSON object")
-    return value
+    return read_json_strict(path, label)
 
 
 def read_status_events(path: Path) -> list[dict[str, object]]:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise AnalyzerError("TOP50_INVALID_JSONL", f"unable to read status events {path}: {exc}") from exc
-    records: list[dict[str, object]] = []
-    for number, line in enumerate(lines, start=1):
-        if not line.strip():
-            raise AnalyzerError("TOP50_INVALID_JSONL", f"{path}:{number}: blank status event")
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise AnalyzerError("TOP50_INVALID_JSON", f"{path}:{number}: invalid status event: {exc}") from exc
-        if not isinstance(item, dict):
-            raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{path}:{number}: status event must be an object")
-        records.append(item)
+    records = read_jsonl_strict(path, "status events")
+    for index, record in enumerate(records):
+        normalize_slug(record.get("slug"), f"status_events[{index}].slug")
     return records
 
 

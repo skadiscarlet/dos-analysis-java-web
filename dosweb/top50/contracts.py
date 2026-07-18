@@ -54,6 +54,18 @@ def _parse_json(text: str, location: str) -> object:
         raise AnalyzerError("TOP50_INVALID_JSON", f"{location}: invalid JSON: {exc}") from exc
 
 
+def read_json_strict(path: Path, artifact_name: str) -> dict[str, object]:
+    try:
+        value = _parse_json(path.read_text(encoding="utf-8"), str(path))
+    except UnicodeDecodeError as exc:
+        raise AnalyzerError("TOP50_INVALID_JSON", f"{path}: invalid UTF-8: {exc}") from exc
+    except OSError as exc:
+        raise AnalyzerError("TOP50_INVALID_JSON", f"{path}: unable to read {artifact_name}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{path}: {artifact_name} must be an object")
+    return value
+
+
 def _physical_jsonl_lines(text: str) -> list[str]:
     if not text:
         return []

@@ -10,6 +10,7 @@ from unittest import mock
 
 from dosweb.errors import AnalyzerError
 from dosweb.top50.contracts import (
+    read_json_strict,
     read_jsonl_strict,
     validate_reserve_candidates,
     validate_reviewed_candidates,
@@ -389,8 +390,9 @@ class SelectionTests(unittest.TestCase):
 
     def test_replacement_skips_candidate_that_breaks_old_overlap(self) -> None:
         targets = [target(f"owner/repo-{index}", old=index < 10, new=index < 20) for index in range(50)]
-        reserves = [target("legacy/extra", old=True), target("fresh/extra", old=False)]
-        for reserve in reserves:
+        reserves = [target("legacy/extra", old=True), target("fresh/extra", old=False)] + [target(f"reserve/extra-{index}") for index in range(14)]
+        for rank, reserve in enumerate(reserves, start=1):
+            reserve["reserve_rank"] = rank
             reserve["eligible_for_replacement"] = True
             reserve["review_outcome"] = "eligible"
         document = {"targets": targets, "reserve_pool": reserves, "replacement_history": []}
@@ -402,6 +404,37 @@ class SelectionTests(unittest.TestCase):
             result["replacement_history"],
         )
 
+    def test_replacement_rejects_consuming_fifteenth_reserve(self) -> None:
+        targets = [target(f"owner/repo-{index}") for index in range(50)]
+        reserves = [target(f"reserve/repo-{index}") for index in range(15)]
+        for rank, reserve in enumerate(reserves, start=1):
+            reserve.update({"reserve_rank": rank, "eligible_for_replacement": True, "review_outcome": "eligible"})
+        with self.assertRaisesRegex(AnalyzerError, "reserve"):
+            choose_replacement({"targets": targets, "reserve_pool": reserves}, "owner/repo-0", set(), set(), set())
+
+    def test_strict_json_object_and_status_readers_reject_malformed_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            document = root / "document.json"
+            for content, code in (('{"x": 1, "x": 2}', "TOP50_INVALID_JSON"), ('{"x": NaN}', "TOP50_INVALID_JSON"), ("[]", "TOP50_RECORD_NOT_OBJECT")):
+                with self.subTest(content=content):
+                    document.write_text(content, encoding="utf-8")
+                    with self.assertRaises(AnalyzerError) as raised:
+                        read_json_strict(document, "document")
+                    self.assertEqual(code, raised.exception.code)
+            document.write_bytes(b'{"x":"\xff"}')
+            with self.assertRaises(AnalyzerError) as raised:
+                read_json_strict(document, "document")
+            self.assertEqual("TOP50_INVALID_JSON", raised.exception.code)
+            with mock.patch.object(Path, "read_text", side_effect=OSError("unavailable")):
+                with self.assertRaises(AnalyzerError) as raised:
+                    read_json_strict(document, "document")
+            self.assertEqual("TOP50_INVALID_JSON", raised.exception.code)
+            statuses = root / "status.jsonl"
+            statuses.write_text('{"slug":"owner/repo"}\n\n', encoding="utf-8")
+            with self.assertRaisesRegex(AnalyzerError, "blank line"):
+                read_jsonl_strict(statuses, "status events")
+
     def test_rendering_derives_markdown_and_intel_from_same_selected_targets(self) -> None:
         reviewed_by_id = self._reviewed_pool()
         document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
@@ -412,6 +445,28 @@ class SelectionTests(unittest.TestCase):
             [item["slug_normalized"] for item in document["targets"]],
             [item["slug_normalized"] for item in intel["targets"]],
         )
+
+    def test_snapshot_cli_rejects_asset_file_output(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "sources"
+            db_root = root / "dbs"
+            project = source_root / "owner__repo"
+            project.mkdir(parents=True)
+            pom = project / "pom.xml"
+            pom.write_text("<project />", encoding="utf-8")
+            marker = db_root / "owner__repo-db" / "codeql-database.yml"
+            marker.parent.mkdir(parents=True)
+            marker.write_text("name: test\n", encoding="utf-8")
+            for output, original in ((pom, "<project />"), (marker, "name: test\n")):
+                with self.subTest(output=output):
+                    result = subprocess.run(
+                        [sys.executable, "scripts/reselect_java_web_dos_top50.py", "snapshot", "--source-root", str(source_root), "--db-root", str(db_root), "--output", str(output)],
+                        cwd=repository_root, text=True, capture_output=True, check=False,
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertEqual(original, output.read_text(encoding="utf-8"))
 
     def test_render_cli_rejects_colliding_outputs(self) -> None:
         repository_root = Path(__file__).resolve().parents[1]
@@ -461,12 +516,38 @@ class SelectionTests(unittest.TestCase):
                 for item in document["targets"]
                 for event in (
                     {"slug": item["slug"], "status": "source_ready", "stage": "source", "commit": "a" * 40},
-                    {"slug": item["slug"], "status": "success", "database_structure": "valid", "coverage_status": "capture_completed"},
+                    {"slug": item["slug"], "status": "success", "verification_status": "verified", "compilation_unit_count": 1, "coverage_status": "complete"},
                 )
             ]
             with mock.patch("dosweb.top50.selection._git_head", return_value="a" * 40):
                 with self.assertRaisesRegex(AnalyzerError, "intel JSON"):
                     audit_selection(document, set(), set(), source_root, db_root, statuses, [item["slug"] for item in document["targets"]], intel)
+
+    def test_audit_requires_verified_terminal_database_status(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "sources"
+            db_root = root / "dbs"
+            for item in document["targets"]:
+                safe_name = item["safe_name"]
+                (source_root / safe_name).mkdir(parents=True)
+                database = db_root / f"{safe_name}-db"
+                (database / "db-java").mkdir(parents=True)
+                (database / "codeql-database.yml").write_text("name: test\n", encoding="utf-8")
+                (database / "db-java" / "default").write_text("test", encoding="utf-8")
+            statuses = [
+                event
+                for item in document["targets"]
+                for event in (
+                    {"slug": item["slug"], "status": "source_ready", "stage": "source", "commit": "a" * 40},
+                    {"slug": item["slug"], "status": "success", "verification_status": "unverified", "compilation_unit_count": 1, "coverage_status": "complete"},
+                )
+            ]
+            with mock.patch("dosweb.top50.selection._git_head", return_value="a" * 40):
+                with self.assertRaisesRegex(AnalyzerError, "verified"):
+                    audit_selection(document, set(), set(), source_root, db_root, statuses)
 
     def test_audit_rejects_partial_database_status(self) -> None:
         reviewed_by_id = self._reviewed_pool()

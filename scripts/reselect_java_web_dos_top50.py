@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -35,6 +36,8 @@ from dosweb.top50.selection import (
 
 
 MARKDOWN_SLUG_RE = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
+DEFAULT_SOURCE_ROOT = REPO_ROOT / "frameworks" / "applications"
+DEFAULT_DB_ROOT = REPO_ROOT / "databases" / "applications"
 
 
 def _load_slugs(path: Path) -> list[str]:
@@ -60,9 +63,26 @@ def _load_slugs(path: Path) -> list[str]:
         raise AnalyzerError("TOP50_INVALID_FIELD", str(exc)) from exc
 
 
-def _write_new_json(path: Path, document: dict[str, object]) -> None:
-    if path.exists():
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=False))
+        return True
+    except ValueError:
+        return False
+
+
+def _assert_safe_output(path: Path, source_root: Path, db_root: Path, *, immutable: bool = False) -> None:
+    resolved = path.resolve(strict=False)
+    if _is_within(resolved, source_root) or _is_within(resolved, db_root):
+        raise AnalyzerError("TOP50_OUTPUT_EXISTS", f"output must not overwrite source or database assets: {path}")
+    if path.is_symlink() or (path.exists() and (path.is_dir() or stat.S_ISFIFO(path.stat().st_mode) or stat.S_ISSOCK(path.stat().st_mode) or stat.S_ISCHR(path.stat().st_mode) or stat.S_ISBLK(path.stat().st_mode))):
+        raise AnalyzerError("TOP50_OUTPUT_EXISTS", f"output path is not a regular file: {path}")
+    if immutable and path.exists():
         raise AnalyzerError("TOP50_OUTPUT_EXISTS", f"refusing to overwrite immutable output: {path}")
+
+
+def _write_new_json(path: Path, document: dict[str, object], source_root: Path, db_root: Path) -> None:
+    _assert_safe_output(path, source_root, db_root, immutable=True)
     write_json_atomically(path, document)
 
 
@@ -112,6 +132,8 @@ def _assert_distinct_render_paths(args: argparse.Namespace) -> None:
     outputs = [args.markdown_output.resolve(strict=False), args.intel_output.resolve(strict=False), args.overlap_output.resolve(strict=False)]
     if len(set(outputs)) != len(outputs) or any(path in inputs for path in outputs):
         raise AnalyzerError("TOP50_OUTPUT_EXISTS", "render outputs must be distinct and must not overwrite inputs")
+    for output in (args.markdown_output, args.intel_output, args.overlap_output):
+        _assert_safe_output(output, DEFAULT_SOURCE_ROOT, DEFAULT_DB_ROOT)
 
 
 def _selected_and_sets(args: argparse.Namespace) -> tuple[dict[str, object], set[str], set[str]]:
@@ -126,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "snapshot":
-            _write_new_json(args.output, capture_snapshot(args.source_root, args.db_root))
+            _write_new_json(args.output, capture_snapshot(args.source_root, args.db_root), args.source_root, args.db_root)
             return 0
         reviewed = validate_reviewed_candidates(read_jsonl_strict(args.reviewed, "reviewed_candidates")) if args.command in {"validate-review", "select"} else None
         if args.command == "validate-review":
@@ -136,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "select":
             reserves = read_jsonl_strict(args.reserves, "reserve_candidates")
             document = select_targets(reviewed or {}, reserves, set(_load_slugs(args.old_manifest)), set(_load_slugs(args.initial_manifest)))
+            _assert_safe_output(args.output, DEFAULT_SOURCE_ROOT, DEFAULT_DB_ROOT)
             write_json_atomically(args.output, document)
             return 0
         document, old_slugs, initial_slugs = _selected_and_sets(args)
@@ -146,7 +169,11 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomically(args.intel_output, render_intel_json(document))
             write_json_atomically(args.overlap_output, overlap_report(document, old_slugs, initial_slugs))
             return 0
-        markdown_slugs = MARKDOWN_SLUG_RE.findall(args.markdown.read_text(encoding="utf-8"))
+        _assert_safe_output(args.output, args.source_root, args.db_root)
+        try:
+            markdown_slugs = MARKDOWN_SLUG_RE.findall(args.markdown.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            raise AnalyzerError("TOP50_INVALID_JSON", f"unable to read Markdown output {args.markdown}: {exc}") from exc
         report = audit_selection(
             document,
             old_slugs,
