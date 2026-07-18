@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,14 @@ from dosweb.top50.contracts import (
     validate_reviewed_candidates,
     validate_selected_targets,
     write_jsonl_atomically,
+)
+from dosweb.top50.selection import (
+    audit_selection,
+    capture_snapshot,
+    choose_replacement,
+    render_intel_json,
+    render_markdown,
+    select_targets,
 )
 
 
@@ -249,3 +259,236 @@ class ReviewContractTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(AnalyzerError, "eligible candidate"):
             validate_reserve_candidates(reserves, reviewed_by_id, set())
+
+
+class SelectionTests(unittest.TestCase):
+    def _reviewed_pool(self, count: int = 65) -> dict[str, dict[str, object]]:
+        records = [reviewed(f"Owner/Repo-{index:02d}") for index in range(count)]
+        return validate_reviewed_candidates(records)
+
+    def _reserves(self, reviewed_by_id: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+        return [
+            {
+                "candidate_id": f"candidate:owner/repo-{index:02d}",
+                "slug": f"Owner/Repo-{index:02d}",
+                "reserve_rank": index - 49,
+                "eligible_for_replacement": True,
+            }
+            for index in range(50, 65)
+        ]
+
+    def test_cli_help_runs_from_repository_root(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "scripts/reselect_java_web_dos_top50.py", "--help"],
+            cwd=repository_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("validate-review", result.stdout)
+        self.assertIn("audit", result.stdout)
+
+    def test_render_cli_rejects_selected_document_without_exactly_fifty_targets(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected = root / "selected.json"
+            old_manifest = root / "old.txt"
+            initial_manifest = root / "initial.txt"
+            selected.write_text(json.dumps({"targets": [target(f"owner/repo-{index}") for index in range(49)]}), encoding="utf-8")
+            old_manifest.write_text("owner/old\n", encoding="utf-8")
+            initial_manifest.write_text("owner/initial\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/reselect_java_web_dos_top50.py",
+                    "render",
+                    "--selected",
+                    str(selected),
+                    "--old-manifest",
+                    str(old_manifest),
+                    "--initial-manifest",
+                    str(initial_manifest),
+                    "--markdown-output",
+                    str(root / "selected.md"),
+                    "--intel-output",
+                    str(root / "intel.json"),
+                    "--overlap-output",
+                    str(root / "overlap.json"),
+                ],
+                cwd=repository_root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertFalse((root / "selected.md").exists())
+
+    def test_snapshot_captures_only_initial_first_level_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets = root / "assets"
+            (assets / "Owner__Repo").mkdir(parents=True)
+            (assets / ".temporary").mkdir()
+            source_link = root / "sources"
+            source_link.symlink_to(assets, target_is_directory=True)
+            document = capture_snapshot(source_link, root / "dbs")
+            self.assertEqual(["owner/repo"], [item["slug_normalized"] for item in document["projects"]])
+            self.assertEqual(str(assets / "Owner__Repo"), document["projects"][0]["source_dir"])
+
+    def test_snapshot_preserves_safe_name_with_double_underscore_in_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp) / "sources"
+            (source_root / "Owner__repo__extra").mkdir(parents=True)
+            document = capture_snapshot(source_root, Path(tmp) / "dbs")
+            self.assertEqual("owner/repo__extra", document["projects"][0]["slug_normalized"])
+            self.assertEqual("Owner__repo__extra", document["projects"][0]["safe_name"])
+
+    def test_snapshot_rejects_unsafe_source_directory_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp) / "sources"
+            (source_root / "owner__").mkdir(parents=True)
+            with self.assertRaisesRegex(AnalyzerError, "owner__repository"):
+                capture_snapshot(source_root, Path(tmp) / "dbs")
+
+    def test_select_uses_snapshot_json_and_skips_ranked_old_overlap(self) -> None:
+        reviewed_by_id = self._reviewed_pool(66)
+        for index in range(11):
+            reviewed_by_id[f"candidate:owner/repo-{index:02d}"]["selection_rank"] = index + 1
+        for index in range(11, 50):
+            reviewed_by_id[f"candidate:owner/repo-{index:02d}"]["selection_rank"] = index + 1
+        reviewed_by_id["candidate:owner/repo-50"]["selection_rank"] = 51
+        reserves = [
+            {"candidate_id": f"candidate:owner/repo-{index:02d}", "slug": f"Owner/Repo-{index:02d}", "reserve_rank": index - 50, "eligible_for_replacement": True}
+            for index in range(51, 66)
+        ]
+        document = select_targets(
+            reviewed_by_id,
+            reserves,
+            {f"owner/repo-{index:02d}" for index in range(11)},
+            set(),
+        )
+        self.assertNotIn("owner/repo-10", {item["slug_normalized"] for item in document["targets"]})
+        self.assertIn("owner/repo-50", {item["slug_normalized"] for item in document["targets"]})
+
+    def test_select_targets_projects_reviewed_commit_and_reserves(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        self.assertEqual(50, len(document["targets"]))
+        self.assertEqual(15, len(document["reserve_pool"]))
+        self.assertEqual("a" * 40, document["targets"][0]["commit_sha"])
+        self.assertEqual(
+            "a" * 40,
+            document["targets"][0]["reviewed_selection_commit"]["commit_sha"],
+        )
+        self.assertEqual("owner/repo-00", document["targets"][0]["slug_normalized"])
+        self.assertEqual("owner__repo-00", document["targets"][0]["safe_name"])
+        validate_selected_targets(document, set(), set())
+
+    def test_replacement_skips_candidate_that_breaks_old_overlap(self) -> None:
+        targets = [target(f"owner/repo-{index}", old=index < 10, new=index < 20) for index in range(50)]
+        reserves = [target("legacy/extra", old=True), target("fresh/extra", old=False)]
+        for reserve in reserves:
+            reserve["eligible_for_replacement"] = True
+            reserve["review_outcome"] = "eligible"
+        document = {"targets": targets, "reserve_pool": reserves, "replacement_history": []}
+        old = {item["slug_normalized"] for item in targets[:10]} | {"legacy/extra"}
+        result = choose_replacement(document, "owner/repo-20", set(), old, {item["slug_normalized"] for item in targets[20:]})
+        self.assertEqual("fresh/extra", result["targets"][-1]["slug_normalized"])
+        self.assertEqual(
+            [{"outgoing_slug": "owner/repo-20", "incoming_slug": "fresh/extra"}],
+            result["replacement_history"],
+        )
+
+    def test_rendering_derives_markdown_and_intel_from_same_selected_targets(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        markdown = render_markdown(document)
+        intel = render_intel_json(document)
+        self.assertIn("`owner/repo-00`", markdown)
+        self.assertEqual(
+            [item["slug_normalized"] for item in document["targets"]],
+            [item["slug_normalized"] for item in intel["targets"]],
+        )
+
+    def test_render_cli_rejects_colliding_outputs(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected = root / "selected.json"
+            old_manifest = root / "old.txt"
+            initial_manifest = root / "initial.txt"
+            selected.write_text(json.dumps(document), encoding="utf-8")
+            old_manifest.write_text("owner/old\n", encoding="utf-8")
+            initial_manifest.write_text("owner/initial\n", encoding="utf-8")
+            output = root / "shared-output"
+            result = subprocess.run(
+                [
+                    sys.executable, "scripts/reselect_java_web_dos_top50.py", "render",
+                    "--selected", str(selected), "--old-manifest", str(old_manifest),
+                    "--initial-manifest", str(initial_manifest), "--markdown-output", str(output),
+                    "--intel-output", str(output), "--overlap-output", str(root / "overlap.json"),
+                ], cwd=repository_root, text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertFalse(output.exists())
+
+    def test_audit_accepts_uppercase_commit_sha_and_rejects_non_object_intel_target(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        for item in document["targets"]:
+            item["commit_sha"] = "A" * 40
+        intel = render_intel_json(document)
+        intel["targets"].append("unexpected")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "sources"
+            db_root = root / "dbs"
+            for item in document["targets"]:
+                safe_name = item["safe_name"]
+                (source_root / safe_name).mkdir(parents=True)
+                database = db_root / f"{safe_name}-db"
+                database.mkdir(parents=True)
+                (database / "codeql-database.yml").write_text("name: test\n", encoding="utf-8")
+                (database / "db-java").mkdir()
+                (database / "db-java" / "default").write_text("test", encoding="utf-8")
+            statuses = [
+                event
+                for item in document["targets"]
+                for event in (
+                    {"slug": item["slug"], "status": "source_ready", "stage": "source", "commit": "a" * 40},
+                    {"slug": item["slug"], "status": "success", "database_structure": "valid", "coverage_status": "capture_completed"},
+                )
+            ]
+            with mock.patch("dosweb.top50.selection._git_head", return_value="a" * 40):
+                with self.assertRaisesRegex(AnalyzerError, "intel JSON"):
+                    audit_selection(document, set(), set(), source_root, db_root, statuses, [item["slug"] for item in document["targets"]], intel)
+
+    def test_audit_rejects_partial_database_status(self) -> None:
+        reviewed_by_id = self._reviewed_pool()
+        document = select_targets(reviewed_by_id, self._reserves(reviewed_by_id), set(), set())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "sources"
+            db_root = root / "dbs"
+            for item in document["targets"]:
+                safe_name = item["safe_name"]
+                (source_root / safe_name).mkdir(parents=True)
+                database = db_root / f"{safe_name}-db"
+                database.mkdir(parents=True)
+                (database / "codeql-database.yml").write_text("name: test\n", encoding="utf-8")
+            statuses = [
+                {
+                    "slug": item["slug"],
+                    "status": "success",
+                    "database_structure": "valid",
+                    "coverage_status": "capture_completed",
+                }
+                for item in document["targets"][:-1]
+            ]
+            with self.assertRaisesRegex(AnalyzerError, "partial"):
+                audit_selection(document, set(), set(), source_root, db_root, statuses)
