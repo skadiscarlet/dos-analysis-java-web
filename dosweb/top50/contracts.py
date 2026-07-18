@@ -32,20 +32,44 @@ def _reject_nonfinite(value: object) -> None:
             _reject_nonfinite(nested)
 
 
+def _object_without_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, nested in pairs:
+        if key in value:
+            raise ValueError(f"duplicate object key {key!r}")
+        value[key] = nested
+    return value
+
+
 def _parse_json(text: str, location: str) -> object:
     try:
-        value = json.loads(text, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+        value = json.loads(
+            text,
+            object_pairs_hook=_object_without_duplicate_keys,
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+        )
         _reject_nonfinite(value)
         return value
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise AnalyzerError("TOP50_INVALID_JSON", f"{location}: invalid JSON: {exc}") from exc
+
+
+def _physical_jsonl_lines(text: str) -> list[str]:
+    if not text:
+        return []
+    lines = text.split("\n")
+    if text.endswith("\n"):
+        lines.pop()
+    return [line[:-1] if line.endswith("\r") else line for line in lines]
 
 
 def read_jsonl_strict(path: Path, artifact_name: str) -> list[dict[str, object]]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = _physical_jsonl_lines(path.read_text(encoding="utf-8"))
     except UnicodeDecodeError as exc:
         raise AnalyzerError("TOP50_INVALID_JSON", f"{path}: invalid UTF-8: {exc}") from exc
+    except OSError as exc:
+        raise AnalyzerError("TOP50_INVALID_JSONL", f"{path}: unable to read {artifact_name}: {exc}") from exc
     records: list[dict[str, object]] = []
     seen: set[str] = set()
     for line_no, line in enumerate(lines, start=1):
@@ -64,26 +88,43 @@ def read_jsonl_strict(path: Path, artifact_name: str) -> list[dict[str, object]]
     return records
 
 
+def _fsync_directory(path: Path) -> None:
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def write_json_atomically(path: Path, document: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(document, handle, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
             handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
 
 def write_jsonl_atomically(path: Path, records: Iterable[Mapping[str, object]]) -> None:
-    document = "".join(json.dumps(record, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n" for record in records)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(document)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            for index, record in enumerate(records):
+                if not isinstance(record, Mapping):
+                    raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"records[{index}]: record must be an object")
+                json.dump(record, handle, ensure_ascii=False, sort_keys=True, allow_nan=False)
+                handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -97,6 +138,12 @@ def _validated_record_slug(record: Mapping[str, object], location: str) -> str:
     return normalized
 
 
+def _validate_record_commit(record: Mapping[str, object], location: str) -> None:
+    commit_sha = record.get("commit_sha")
+    if not isinstance(commit_sha, str) or not COMMIT_SHA_RE.fullmatch(commit_sha):
+        raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.commit_sha: expected 40-character SHA")
+
+
 def validate_reviewed_candidates(records: Iterable[Mapping[str, object]]) -> None:
     seen: set[str] = set()
     for index, record in enumerate(records):
@@ -104,9 +151,7 @@ def validate_reviewed_candidates(records: Iterable[Mapping[str, object]]) -> Non
         if not isinstance(record, Mapping):
             raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"{location}: record must be an object")
         normalized = _validated_record_slug(record, location)
-        commit_sha = record.get("commit_sha")
-        if not isinstance(commit_sha, str) or not COMMIT_SHA_RE.fullmatch(commit_sha):
-            raise AnalyzerError("TOP50_INVALID_FIELD", f"{location}.commit_sha: expected 40-character SHA")
+        _validate_record_commit(record, location)
         if normalized in seen:
             raise AnalyzerError("TOP50_DUPLICATE_SLUG", f"{location}: duplicate slug {normalized}")
         seen.add(normalized)
@@ -117,14 +162,18 @@ def _normalize_slug_set(slugs: Iterable[str], location: str) -> set[str]:
 
 
 def validate_selected_targets(document: Mapping[str, object], old_slugs: set[str], initial_slugs: set[str]) -> None:
+    if not isinstance(document, Mapping):
+        raise AnalyzerError("TOP50_INVALID_FIELD", "selected targets document must be an object")
     targets = document.get("targets")
     if not isinstance(targets, list) or len(targets) != EXACT_TARGET_COUNT:
         raise AnalyzerError("TOP50_CONSTRAINT_VIOLATION", f"selected targets must contain exactly {EXACT_TARGET_COUNT} projects")
-    normalized = [
-        _validated_record_slug(item, f"targets[{index}]")
-        for index, item in enumerate(targets)
-        if isinstance(item, Mapping)
-    ]
+    normalized = []
+    for index, item in enumerate(targets):
+        if not isinstance(item, Mapping):
+            raise AnalyzerError("TOP50_RECORD_NOT_OBJECT", f"targets[{index}]: record must be an object")
+        location = f"targets[{index}]"
+        normalized.append(_validated_record_slug(item, location))
+        _validate_record_commit(item, location)
     if len(normalized) != EXACT_TARGET_COUNT or len(set(normalized)) != EXACT_TARGET_COUNT:
         raise AnalyzerError("TOP50_DUPLICATE_SLUG", "selected targets contain duplicate normalized slugs")
     overlap = len(set(normalized) & _normalize_slug_set(old_slugs, "old_slugs"))
