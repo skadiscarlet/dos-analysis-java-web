@@ -51,13 +51,24 @@ Current design documents:
 
 The lifecycle-centered design supersedes the old Stage 0–5 research direction. It does not replace the v2 engineering baseline.
 
+## Canonical Java Web Corpus
+
+The current research corpus contains exactly **200 Java Web projects** with source snapshots under `frameworks/applications/` and Java CodeQL databases under `databases/applications/`.
+
+- Corpus definition: `docs/java-web-200-corpus.md`
+- Machine-readable canonical inventory: `intel/applications/java_web_200_targets.json`
+- Local generated run: `results/application_dbs/java_web_200_20260725/`
+
+Earlier 50-project and 183-project inventories are retained only as historical evidence and do not define current corpus membership.
+
 ## Development Utilities
 
-- `scripts/build_top50_codeql_dbs.py` validates an explicit target manifest and prepares bounded CodeQL database builds.
+- `scripts/repair_java_web_200_inventory.py` validates a replacement target, creates its source-only Java CodeQL database, and publishes the canonical 200-project inventory.
 - `scripts/aggregate_java_web_dos_batch.py` aggregates static v2 artifacts only.
 - `scripts/prepare_dynamic_validation_output.py` and `scripts/sync_dynamic_validation_status.py` are opt-in helpers for an independently authorized dynamic-validation workflow.
+- `scripts/build_top50_codeql_dbs.py` and `scripts/reselect_java_web_dos_top50.py` are retained for reproducing superseded historical selection runs; they are not current corpus entry points.
 
-Use `--help` on each script for its input and safety requirements. The build script does not clone or build targets in `--dry-run` mode.
+Use `--help` on each script for its input and safety requirements. Dry-run modes do not clone, build, or publish target assets.
 
 ## Status
 

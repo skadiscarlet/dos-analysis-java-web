@@ -42,13 +42,21 @@ class BuildInfrastructureTests(unittest.TestCase):
                 BUILD.load_slugs(manifest)
 
     def test_markdown_manifest_ignores_prose_and_loads_repository_table(self) -> None:
-        manifest = REPO_ROOT / "frameworks" / "2026-07-04-github-java-web-app-top50.md"
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.md"
+            manifest.write_text(
+                "# Explicit target manifest\n\n"
+                "This prose mentions owner/ignored but is not a table row.\n\n"
+                "| # | Repository |\n"
+                "|---:|---|\n"
+                "| 1 | `owner/first` |\n"
+                "| 2 | `owner/second` |\n",
+                encoding="utf-8",
+            )
 
-        slugs = BUILD.load_slugs(manifest)
+            slugs = BUILD.load_slugs(manifest)
 
-        self.assertEqual(50, len(slugs))
-        self.assertEqual("apolloconfig/apollo", slugs[0])
-        self.assertEqual("MarkerHub/vueblog", slugs[-1])
+        self.assertEqual(["owner/first", "owner/second"], slugs)
 
     def test_manifest_rejects_invalid_repository_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
