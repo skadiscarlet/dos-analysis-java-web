@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create, select, render, and audit a reproducible Java Web DoS Top-50."""
+"""Reproduce the historical, superseded Java Web DoS Top-50 selection."""
 
 from __future__ import annotations
 

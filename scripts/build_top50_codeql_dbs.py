@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Build Java CodeQL databases from an explicit, validated manifest.
 
+Historical compatibility utility for superseded Top-50 runs. The canonical corpus
+is maintained by ``repair_java_web_200_inventory.py``.
+
 The builder is resumable but never clones unless --clone-missing is supplied.
 ``--dry-run`` is read-only: it prints actions without creating logs, results, or
 CodeQL database directories.

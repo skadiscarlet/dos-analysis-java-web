@@ -1,5 +1,7 @@
 # Java Web DoS Top-50 重选与 CodeQL 建库设计
 
+> **历史文档（已废止）：** 本设计记录早期 183/50/17 约束及其决策过程，仅用于追溯。当前权威目标集是 `docs/java-web-200-corpus.md` 与 `intel/applications/java_web_200_targets.json` 定义的 200 项 corpus；下文数字不得作为当前清单口径。
+
 ## 1. 背景与目标
 
 当前本地 `frameworks/applications/` 下有 183 个 Java Web 项目源码，其中 182 个具有包含 `codeql-database.yml` 的现有 CodeQL 数据库。旧清单 `frameworks/2026-07-04-github-java-web-app-top50.md` 的筛选精度不足：它过度依赖 GitHub stars 和宽泛的 Web/server 信号，不能充分证明默认部署入口、低权限可达性或具体资源耗尽机制。
