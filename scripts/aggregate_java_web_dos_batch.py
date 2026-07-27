@@ -22,7 +22,11 @@ JSONL_AGGREGATES = {
     "rejected.jsonl": "aggregate_rejected.jsonl",
     "subagent_reviews.jsonl": "aggregate_subagent_reviews.jsonl",
 }
-STATIC_VERDICTS = {"static_vulnerable", "static_safe", "static_unknown"}
+STATIC_VERDICTS = {
+    "static_vulnerable",
+    "bounded_under_modeled_assumptions",
+    "static_unknown",
+}
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -91,20 +95,39 @@ def add_meta(row: dict[str, Any], manifest_row: dict[str, Any], source_file: str
 
 
 def record_static_verdict(row: dict[str, Any], path: Path, line_no: int) -> str:
-    fields = [key for key in ("verdict", "static_verdict", "static_status", "static_conclusion") if key in row]
-    if len(fields) != 1:
-        raise ValueError(f"{path}:{line_no}: finding requires exactly one static verdict field")
-    verdict = row[fields[0]]
+    aliases = [key for key in ("static_verdict", "static_status", "static_conclusion") if key in row]
+    if aliases:
+        raise ValueError(
+            f"{path}:{line_no}: unsupported static verdict field alias {aliases[0]!r}; use 'verdict'"
+        )
+    if "verdict" not in row:
+        raise ValueError(f"{path}:{line_no}: finding requires the canonical verdict field")
+    verdict = row["verdict"]
     if not isinstance(verdict, str) or verdict not in STATIC_VERDICTS:
         raise ValueError(f"{path}:{line_no}: invalid static verdict {verdict!r}; expected one of {', '.join(sorted(STATIC_VERDICTS))}")
     return verdict
 
 
 def read_findings(path: Path) -> tuple[list[dict[str, Any]], Counter[str]]:
-    rows = read_jsonl(path)
+    rows: list[dict[str, Any]] = []
     counts: Counter[str] = Counter()
-    for line_no, row in enumerate(rows, 1):
-        counts[f"verdict:{record_static_verdict(row, path, line_no)}"] += 1
+    if not path.exists():
+        return rows, counts
+    if not path.is_file():
+        raise ValueError(f"{path}: expected a file")
+    with path.open("r", encoding="utf-8") as fh:
+        for line_no, line in enumerate(fh, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                row = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{line_no}: invalid JSON: {exc.msg}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"{path}:{line_no}: JSONL record must be an object")
+            counts[f"verdict:{record_static_verdict(row, path, line_no)}"] += 1
+            rows.append(row)
     return rows, counts
 
 

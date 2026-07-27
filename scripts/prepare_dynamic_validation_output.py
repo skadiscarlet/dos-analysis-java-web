@@ -16,6 +16,11 @@ from typing import Any
 
 
 CASE_ID_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+STATIC_VERDICTS = {
+    "static_vulnerable",
+    "bounded_under_modeled_assumptions",
+    "static_unknown",
+}
 
 
 def reject_json_constant(value: str) -> None:
@@ -121,17 +126,14 @@ def normalize_record(
         probe_id = optional_text(row, "probe_id", location)
     else:
         probe_id = optional_text(row, "dynamic_probe_id", location)
-    verdict_values = [
-        row[key]
-        for key in ("verdict", "static_verdict", "static_status", "static_conclusion")
-        if row.get(key) is not None
-    ]
-    if len(verdict_values) > 1:
-        raise ValueError(f"{location}: expected at most one static verdict field")
-    static_verdict = verdict_values[0] if verdict_values else None
+    aliases = [key for key in ("static_verdict", "static_status", "static_conclusion") if key in row]
+    if aliases:
+        raise ValueError(
+            f"{location}: unsupported static verdict field alias {aliases[0]!r}; use 'verdict'"
+        )
+    static_verdict = row.get("verdict")
     if static_verdict is not None and (
-        not isinstance(static_verdict, str)
-        or static_verdict not in {"static_vulnerable", "static_safe", "static_unknown"}
+        not isinstance(static_verdict, str) or static_verdict not in STATIC_VERDICTS
     ):
         raise ValueError(f"{location}: invalid static verdict {static_verdict!r}")
     case_id = "-".join(
@@ -247,6 +249,7 @@ def initial_result(record: dict[str, Any]) -> dict[str, Any]:
         },
         "static_traceability": {
             "static_result_file": record.get("static_result_file"),
+            "static_verdict": record.get("static_verdict"),
             "source": as_text(record.get("source")),
             "sink": as_text(record.get("sink")),
             "driver": as_text(record.get("driver")),

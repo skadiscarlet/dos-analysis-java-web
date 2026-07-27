@@ -157,6 +157,41 @@ class AggregationTests(unittest.TestCase):
             inventory = json.loads((batch_root / "aggregate_inventory.json").read_text(encoding="utf-8"))
             self.assertEqual(1, inventory["totals"]["verdict:static_vulnerable"])
 
+    def test_aggregate_accepts_bounded_modeled_verdict_and_rejects_legacy_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            batch_root = Path(tmp)
+            self.write_static_target(batch_root, "bounded_under_modeled_assumptions")
+            AGGREGATE.aggregate(batch_root)
+            inventory = json.loads((batch_root / "aggregate_inventory.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                1,
+                inventory["totals"]["verdict:bounded_under_modeled_assumptions"],
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            batch_root = Path(tmp)
+            self.write_static_target(batch_root, "static_safe")
+            with self.assertRaisesRegex(
+                ValueError,
+                r"target-a/findings\.jsonl:1.*static_safe",
+            ):
+                AGGREGATE.aggregate(batch_root)
+
+    def test_aggregate_reports_physical_finding_line_after_blank_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            batch_root = Path(tmp)
+            self.write_static_target(batch_root, "static_unknown")
+            findings = batch_root / "target-a" / "findings.jsonl"
+            findings.write_text(
+                "\n" + json.dumps({"finding_id": "F-1", "verdict": "static_safe"}) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                r"target-a/findings\.jsonl:2.*static_safe",
+            ):
+                AGGREGATE.aggregate(batch_root)
+
     def test_aggregate_rejects_non_static_verdict_at_source_line(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             batch_root = Path(tmp)
@@ -164,6 +199,22 @@ class AggregationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, r"target-a/findings\.jsonl:1.*likely"):
                 AGGREGATE.aggregate(batch_root)
+
+    def test_aggregate_rejects_static_verdict_field_aliases_at_source_line(self) -> None:
+        for field in ("static_verdict", "static_status", "static_conclusion"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                batch_root = Path(tmp)
+                self.write_static_target(batch_root, "static_unknown")
+                findings = batch_root / "target-a" / "findings.jsonl"
+                findings.write_text(
+                    json.dumps({"finding_id": "F-1", field: "static_unknown"}) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"target-a/findings\.jsonl:1.*{field}.*use 'verdict'",
+                ):
+                    AGGREGATE.aggregate(batch_root)
 
 
 if __name__ == "__main__":

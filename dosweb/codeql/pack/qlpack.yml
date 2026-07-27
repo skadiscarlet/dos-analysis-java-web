@@ -1,0 +1,4 @@
+name: dosweb/p0-java-resource-dos
+version: 0.1.0
+dependencies:
+  codeql/java-all: "*"

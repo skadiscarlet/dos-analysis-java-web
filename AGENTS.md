@@ -4,7 +4,7 @@
 
 ## 当前定位
 
-`dos-analysis-web` v2 是面向 Java Web 与相邻 Java 网络服务的资源耗尽型 DoS 静态分析平台。旧阶段化流程、legacy verdict compatibility、历史验证样例叙事和旧动态验证执行链不再作为当前上下文。
+`dos-analysis-web` v2 是面向 Java Web 与相邻 Java 网络服务的资源耗尽型 DoS 静态分析平台。`docs/superpowers/specs/2026-07-18-java-web-dos-p0-analyzer-design.md` 是唯一实施标准；不得恢复、兼容或引用已取代的工程设计或计划。旧阶段化流程、legacy verdict compatibility、历史验证样例叙事和旧动态验证执行链不再作为当前上下文。
 
 v2 核心模型：
 
@@ -34,7 +34,6 @@ E extraction
 - `results/static_hunts/`
 - `results/application*`
 - `results/java_web_dos_batch/`
-- `docs/superpowers/specs/2026-07-02-java-web-dos-v2-rewrite-design.md`
 
 `poc/` 是证据归档，保持原样，不英文化、不重写 advisory。
 
@@ -43,6 +42,7 @@ E extraction
 - 不恢复旧阶段化流程。
 - 不恢复 legacy verdict compatibility。
 - 不把静态结论表述为动态 confirmed。
+- P0 不证明异步 Release；后台消费者、过期、回调或清理路径无法被支持的同步资源减少证据证明时，必须保留 unresolved 并输出 `static_unknown`。
 - v2 工具本身不内置、不自动运行动态 DoS 验证；普通 v2 静态扫描只输出静态结论。
 - 用户明确要求动态验证时，agent 可以在本地一次性、隔离、受控环境中执行动态验证，并将产物写入独立结果目录；动态结论必须与静态结论分开标注。
 - 不修改 AOSP 侧 `../dos-analysis/`。
@@ -50,11 +50,13 @@ E extraction
 
 ## 输出口径
 
-普通扫描输出：
+普通扫描输出且仅输出：
 
 - `static_vulnerable`
-- `static_safe`
+- `bounded_under_modeled_assumptions`
 - `static_unknown`
+
+`bounded_under_modeled_assumptions` 仅表示在已建模假设下，适用 assertions 被有效 Guard、Bound 或同步 Release 证据反驳，不是无条件安全结论。candidate-relevant coverage gap、partial flow、未知配置或未解决 lifecycle 证据必须输出 `static_unknown`。
 
 Benchmark 模式才映射 oracle label。`binary_truth_collection` 可作为 static positive seeds 和评估 oracle，但不能等同于动态 confirmed vulnerability。
 

@@ -72,6 +72,20 @@ class PrepareDynamicValidationOutputTests(unittest.TestCase):
             self.assertIn("not part of the static analysis pipeline", plan)
             self.assertIn("does not execute probes", plan)
 
+    def test_current_static_verdict_vocabulary_is_enforced(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidates = self.write_candidates(
+                root,
+                [self.candidate(verdict="bounded_under_modeled_assumptions")],
+            )
+            PREPARE.prepare(candidates, root / "output")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidates = self.write_candidates(root, [self.candidate(verdict="static_safe")])
+            with self.assertRaisesRegex(ValueError, r"static_safe"):
+                PREPARE.prepare(candidates, root / "output")
+
     def test_identical_candidates_are_rejected_with_both_source_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -140,17 +154,28 @@ class PrepareDynamicValidationOutputTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, r"slug must be a non-empty string"):
                 PREPARE.prepare(candidates, root / "output")
 
-    def test_supports_static_conclusion_and_legacy_probe_id(self) -> None:
+    def test_supports_legacy_probe_id_without_verdict_field_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             candidates = self.write_candidates(
                 root,
-                [self.candidate(probe_id=None, dynamic_probe_id="DP-1", verdict=None, static_conclusion="static_unknown")],
+                [self.candidate(probe_id=None, dynamic_probe_id="DP-1", verdict="static_unknown")],
             )
             PREPARE.prepare(candidates, root / "output")
             manifest = json.loads((root / "output" / "manifest.normalized.jsonl").read_text(encoding="utf-8"))
             self.assertEqual("DP-1", manifest["probe_id"])
             self.assertEqual("static_unknown", manifest["static_verdict"])
+
+    def test_rejects_static_verdict_field_aliases(self) -> None:
+        for field in ("static_verdict", "static_status", "static_conclusion"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                candidates = self.write_candidates(
+                    root,
+                    [self.candidate(verdict=None, **{field: "static_unknown"})],
+                )
+                with self.assertRaisesRegex(ValueError, rf"candidates\.jsonl:1.*{field}.*use 'verdict'"):
+                    PREPARE.prepare(candidates, root / "output")
 
 
 class SyncDynamicValidationStatusTests(unittest.TestCase):
