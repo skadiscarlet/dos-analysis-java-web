@@ -15,7 +15,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from dosweb.batch.corpus import load_canonical_corpus
-from dosweb.batch.plan import build_batch_plan, load_batch_plan, publish_batch_plan
+from dosweb.batch.plan import build_batch_plan, ensure_batch_plan_archive, load_batch_plan, publish_batch_plan
 from dosweb.batch.runner import run_batch
 from dosweb.errors import AnalyzerError
 
@@ -158,9 +158,17 @@ def main(
             return 0
         if arguments.mode == "full":
             if not arguments.allow_remote_llm:
-                raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires --allow-remote-llm.")
+                raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch execution requires --allow-remote-llm.")
+            if plan.provider.get("allow_remote_llm") is not True:
+                raise AnalyzerError(
+                    "BATCH_REMOTE_LLM_NOT_AUTHORIZED",
+                    "Published full plan does not authorize remote execution; create a new plan with --allow-remote-llm.",
+                )
             if not environment.get("DEEPSEEK_API_KEY", "").strip():
                 raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires provider credentials.")
+        # Execution output is the canonical P0 archive even when the immutable
+        # plan was loaded from elsewhere. Never replace conflicting metadata.
+        ensure_batch_plan_archive(plan, arguments.output)
         if pipeline_factory is None:
             from dosweb.production import build_production_pipeline
 

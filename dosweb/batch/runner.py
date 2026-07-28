@@ -28,6 +28,7 @@ Clock = Callable[[], datetime | str]
 _RETRYABLE_ERROR_CODES = frozenset({
     "LLM_RETRYABLE_HTTP",
     "LLM_NETWORK_RETRYABLE",
+    "LLM_RETRIES_EXHAUSTED",
     "BATCH_TARGET_FAILED",
 })
 
@@ -330,6 +331,32 @@ class BatchRunner:
         expected = {"plan_id": self.plan.plan_id, "plan_digest": self.plan.plan_digest, "run_id": self.plan.run_id, "mode": self.plan.mode, "target": target.to_dict()}
         return binding == expected and isinstance(run, Mapping) and run.get("status") == "completed"
 
+    def _normalize_completed_gaps(self) -> None:
+        """Convert exhausted completed records with missing artifacts to gaps."""
+        assert self._state is not None
+        changed = False
+        for target in self.plan.targets:
+            record = self._state.targets[target.target_id]
+            attempt = record.get("attempt", 0)
+            if (
+                record.get("state") == "completed"
+                and isinstance(attempt, int)
+                and not isinstance(attempt, bool)
+                and attempt >= self.max_attempts
+                and not self._completed_artifacts_reusable(target)
+            ):
+                self._state.update_target(
+                    target.target_id,
+                    state="completed_with_gaps",
+                    status="completed_with_gaps",
+                    error_code="BATCH_TARGET_ARTIFACTS_MISSING",
+                    error_message="Completed target artifacts are missing or mismatched after exhausting attempts.",
+                    finished_at=record.get("finished_at") or _timestamp(self.clock),
+                )
+                changed = True
+        if changed:
+            self._publish(self._state)
+
     def _eligible(self, target: BatchTargetPlan, record: Mapping[str, object]) -> bool:
         state = record.get("state", target.initial_state)
         attempt = record.get("attempt", 0)
@@ -352,9 +379,21 @@ class BatchRunner:
         assert self._state is not None
         record = self._state.targets[target.target_id]
         attempt = int(record.get("attempt", 0)) + 1
-        output = _target_directory(self.output_directory, target)
-        output.mkdir(parents=True, exist_ok=True)
         try:
+            # Persist the attempt before any target-directory setup so mkdir,
+            # path, and binding failures remain isolated to this target.
+            self._update(
+                target.target_id,
+                state="retrying" if attempt > 1 else "running",
+                status="retrying" if attempt > 1 else "running",
+                attempt=attempt,
+                started_at=_timestamp(self.clock),
+                finished_at=None,
+                error_code=None,
+                error_message=None,
+            )
+            output = _target_directory(self.output_directory, target)
+            output.mkdir(parents=True, exist_ok=True)
             binding_path = output / "batch_target.json"
             if binding_path.exists():
                 try:
@@ -366,16 +405,6 @@ class BatchRunner:
                     raise AnalyzerError("BATCH_TARGET_IDENTITY_MISMATCH", "Existing target output belongs to another identity.")
             else:
                 write_target_binding(self.plan, target, output)
-            self._update(
-                target.target_id,
-                state="retrying" if attempt > 1 else "running",
-                status="retrying" if attempt > 1 else "running",
-                attempt=attempt,
-                started_at=_timestamp(self.clock),
-                finished_at=None,
-                error_code=None,
-                error_message=None,
-            )
             values: dict[str, object] = {
                 "command": "entries" if self.plan.mode == "entries" else "analyze",
                 "database": _resolve_input(self.repo_root, target.identity.database_path),
@@ -443,6 +472,7 @@ class BatchRunner:
             with batch_lock(self.lock_path, blocking=False):
                 self.output_directory.mkdir(parents=True, exist_ok=True)
                 self._state = self._load_or_create_state()
+                self._normalize_completed_gaps()
                 self._state.set_status("running", updated_at=_timestamp(self.clock))
                 self._publish(self._state)
                 self._install_signal_handlers()
@@ -483,6 +513,7 @@ class BatchRunner:
                         submit_available()
                 if self._interrupt.is_set():
                     self._mark_interrupted()
+                self._normalize_completed_gaps()
                 states = Counter(record.get("state", "queued") for record in self._state.targets.values())
                 if self._interrupt.is_set() or states.get("interrupted"):
                     final = "interrupted"

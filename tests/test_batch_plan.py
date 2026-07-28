@@ -67,6 +67,19 @@ class BatchPlanTests(unittest.TestCase):
             ).hexdigest()
             self.assertEqual(_tree_fingerprint(root), expected)
 
+    def test_load_rejects_noncanonical_target_output_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_batch_plan(self._corpus(1), run_id="run", mode="entries")
+            path, _ = publish_batch_plan(plan, root)
+            value = json.loads(path.read_text())
+            value["targets"][0]["output_path"] = "other/targets/001-owner1__repo1"
+            value["plan_digest"] = sha256_canonical_json({key: value[key] for key in value if key not in {"plan_id", "plan_digest"}})
+            value["plan_id"] = f"plan:{value['plan_digest'][:24]}"
+            path.write_text(json.dumps(value))
+            with self.assertRaises(AnalyzerError):
+                load_batch_plan(path)
+
     def test_tampered_plan_and_unsafe_path_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

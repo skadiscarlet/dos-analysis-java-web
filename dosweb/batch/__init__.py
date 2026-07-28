@@ -10,11 +10,11 @@ from .models import (
     TargetIdentity,
     TargetStatus,
 )
-from .plan import build_batch_plan, load_batch_plan, publish_batch_plan, write_target_binding
+from .plan import build_batch_plan, ensure_batch_plan_archive, load_batch_plan, publish_batch_plan, write_target_binding
 
 __all__ = [
     "AggregateSummary", "BatchPlan", "BatchTargetPlan", "CanonicalCorpus", "CorpusTarget",
     "TargetCapability", "TargetIdentity", "TargetStatus", "build_batch_plan",
-    "load_batch_plan", "load_canonical_corpus", "load_corpus", "publish_batch_plan",
+    "ensure_batch_plan_archive", "load_batch_plan", "load_canonical_corpus", "load_corpus", "publish_batch_plan",
     "resolve_repo_relative", "write_target_binding",
 ]

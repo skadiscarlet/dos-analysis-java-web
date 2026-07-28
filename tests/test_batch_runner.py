@@ -26,6 +26,9 @@ class _Pipeline:
         self.calls.append({**self.values, "run_command": command})
         if self.fail:
             raise RuntimeError("secret detail must not persist")
+        output = self.values.get("output")
+        if isinstance(output, Path):
+            (output / "run.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
         return {"status": "completed"}
 
 
@@ -173,6 +176,42 @@ class BatchRunnerTests(unittest.TestCase):
     def test_concurrency_is_bounded_to_five(self) -> None:
         with self.assertRaises(AnalyzerError):
             BatchRunner(_plan(count=1), "out", pipeline_factory=lambda values: None, max_workers=6)
+
+    def test_completed_target_missing_artifacts_becomes_gap_at_attempt_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); plan = _plan(count=1); self._tree(root, plan)
+            output = root / "out"
+            class NoArtifacts:
+                def run(self, _command: str) -> dict[str, str]:
+                    return {"status": "completed"}
+            state = run_batch(plan, output, pipeline_factory=lambda values, environ: NoArtifacts(), repo_root=root, environ={}, max_attempts=2)
+            state = run_batch(plan, output, pipeline_factory=lambda values, environ: NoArtifacts(), repo_root=root, environ={}, max_attempts=2)
+            record = state["targets"][plan.targets[0].target_id]
+            self.assertEqual(record["state"], "completed_with_gaps")
+            self.assertEqual(state["status"], "completed_with_gaps")
+
+    def test_target_output_setup_error_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); plan = _plan(count=2); self._tree(root, plan)
+            output = root / "out"
+            blocked = output / "targets" / f"001-{plan.targets[0].identity.slug}"
+            blocked.parent.mkdir(parents=True)
+            blocked.write_text("not a directory", encoding="utf-8")
+            state = run_batch(plan, output, pipeline_factory=lambda values, environ: _Pipeline(dict(values), []), repo_root=root, environ={})
+            self.assertEqual(state["targets"][plan.targets[0].target_id]["state"], "failed")
+            self.assertEqual(state["targets"][plan.targets[1].target_id]["state"], "completed")
+            self.assertEqual(state["status"], "completed_with_failures")
+
+    def test_exhausted_llm_retries_are_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); plan = _plan(count=1); self._tree(root, plan); calls = []
+            class Exhausted:
+                def run(self, _command: str) -> dict[str, str]:
+                    raise AnalyzerError("LLM_RETRIES_EXHAUSTED", "transient")
+            run_batch(plan, root / "out", pipeline_factory=lambda values, environ: Exhausted(), repo_root=root, environ={})
+            state = run_batch(plan, root / "out", pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls), repo_root=root, environ={}, retry_failed=True)
+            self.assertEqual(state["status"], "completed")
+            self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

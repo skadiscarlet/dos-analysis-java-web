@@ -13,7 +13,7 @@ This changelog starts at the v2 cleanup baseline. Older analyzer runs and case-l
 
 ### Verification
 
-- Added network-free batch plan, runner, aggregation, resume, authorization, identity, concurrency, stale-artifact recovery, and compatibility regressions; the complete default suite now passes 487 tests with 6 guarded integrations skipped.
+- Added network-free batch plan, runner, aggregation, resume, authorization, identity, concurrency, stale-artifact recovery, and compatibility regressions; the complete default suite now passes 494 tests with 6 guarded integrations skipped.
 - No real DeepSeek request, corpus analysis run, service launch, attack traffic, or dynamic DoS validation was performed.
 
 ## [2026-07-28] Complete the production P0 analyzer

@@ -211,18 +211,86 @@ def _atomic_write(path: Path, data: bytes) -> None:
         raise AnalyzerError("BATCH_PLAN_PUBLISH_FAILED", "Could not publish batch plan.") from exc
 
 
+def _published_plan_payloads(plan: BatchPlan) -> tuple[bytes, bytes]:
+    payload = canonical_json(plan.to_dict()) + b"\n"
+    lines = [canonical_json(target.to_dict()) for target in plan.targets]
+    manifest = b"\n".join(lines) + (b"\n" if lines else b"")
+    return payload, manifest
+
+
 def publish_batch_plan(plan: BatchPlan, output_directory: Path | str) -> tuple[Path, Path]:
     """Atomically publish canonical JSON and compatibility JSONL plan files."""
     if not plan.verify_digest():
         raise _invalid("PLAN_DIGEST_MISMATCH")
     root = Path(output_directory)
-    payload = canonical_json(plan.to_dict()) + b"\n"
+    payload, manifest = _published_plan_payloads(plan)
     json_path = root / "batch_plan.json"
     _atomic_write(json_path, payload)
-    lines = [canonical_json(target.to_dict()) for target in plan.targets]
     jsonl_path = root / "manifest.normalized.jsonl"
-    _atomic_write(jsonl_path, b"\n".join(lines) + (b"\n" if lines else b""))
+    _atomic_write(jsonl_path, manifest)
     return json_path, jsonl_path
+
+
+def _create_or_verify_metadata(path: Path, expected: bytes) -> None:
+    """Create immutable archive metadata or verify an identical existing file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise AnalyzerError("BATCH_PLAN_CONFLICT", "Existing batch archive metadata conflicts with the execution plan.")
+    try:
+        existing = path.read_bytes()
+    except FileNotFoundError:
+        existing = None
+    except OSError as exc:
+        raise AnalyzerError("BATCH_PLAN_CONFLICT", "Existing batch archive metadata could not be verified.") from exc
+    if existing is not None:
+        if existing != expected:
+            raise AnalyzerError("BATCH_PLAN_CONFLICT", "Existing batch archive metadata conflicts with the execution plan.")
+        return
+
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(expected)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if path.is_symlink() or path.read_bytes() != expected:
+                raise AnalyzerError("BATCH_PLAN_CONFLICT", "Existing batch archive metadata conflicts with the execution plan.")
+        descriptor = os.open(path.parent, os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except AnalyzerError:
+        raise
+    except OSError as exc:
+        raise AnalyzerError("BATCH_PLAN_PUBLISH_FAILED", "Could not publish batch archive metadata.") from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def ensure_batch_plan_archive(plan: BatchPlan, output_directory: Path | str) -> tuple[Path, Path]:
+    """Make an execution output self-contained without replacing metadata."""
+    if not plan.verify_digest() or plan.plan_id != f"plan:{plan.plan_digest[:24]}":
+        raise _invalid("PLAN_DIGEST_MISMATCH")
+    root = Path(output_directory)
+    payload, manifest = _published_plan_payloads(plan)
+    paths = (
+        (root / "batch_plan.json", payload),
+        (root / "manifest.normalized.jsonl", manifest),
+    )
+    # Check all existing files before creating either, so known conflicts do not
+    # leave a newly-created partial metadata pair behind.
+    for path, expected in paths:
+        if path.exists() or path.is_symlink():
+            _create_or_verify_metadata(path, expected)
+    for path, expected in paths:
+        _create_or_verify_metadata(path, expected)
+    return paths[0][0], paths[1][0]
 
 
 def load_batch_plan(path: Path | str) -> BatchPlan:
@@ -272,6 +340,10 @@ def load_batch_plan(path: Path | str) -> BatchPlan:
         indexes = [target.identity.index for target in targets]
         ids = [target.target_id for target in targets]
         outputs = [_effective_output_key(target.output_path) for target in targets]
+        for target in targets:
+            expected_output = f"{output_root}/targets/{target.identity.index:03d}-{target.identity.slug}"
+            if target.output_path != expected_output:
+                raise ValueError("noncanonical output path")
         if len(set(indexes)) != len(indexes) or len(set(ids)) != len(ids) or len(set(outputs)) != len(outputs):
             raise ValueError("duplicate target")
     except (TypeError, ValueError, KeyError, AttributeError, AnalyzerError) as exc:
@@ -288,4 +360,4 @@ def write_target_binding(plan: BatchPlan, target: BatchTargetPlan, output_direct
     _atomic_write(path, canonical_json(binding) + b"\n")
     return path
 
-__all__ = ["build_batch_plan", "load_batch_plan", "publish_batch_plan", "write_target_binding"]
+__all__ = ["build_batch_plan", "ensure_batch_plan_archive", "load_batch_plan", "publish_batch_plan", "write_target_binding"]
