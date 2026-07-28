@@ -249,6 +249,37 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertFalse((root / "old.jsonl").exists())
             self.assertEqual((root / "keep.jsonl").read_bytes(), b"v2\n")
 
+    def test_non_resume_replacement_uses_prior_manifest_but_preserves_unknown_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Pipeline(root, {"entries": lambda _context: StageOutput({"old.jsonl": b"old\n"})}, database_fingerprint="a").run("entries")
+            unknown_file = root / "unknown.txt"
+            unknown_file.write_bytes(b"keep")
+            unknown_directory = root / "unknown-dir"
+            unknown_directory.mkdir()
+            (unknown_directory / "nested.txt").write_bytes(b"keep nested")
+
+            Pipeline(root, {"entries": lambda _context: StageOutput({"new.jsonl": b"new\n"})}, database_fingerprint="b", resume=False).run("entries")
+
+            self.assertFalse((root / "old.jsonl").exists())
+            self.assertEqual((root / "new.jsonl").read_bytes(), b"new\n")
+            self.assertEqual(unknown_file.read_bytes(), b"keep")
+            self.assertEqual((unknown_directory / "nested.txt").read_bytes(), b"keep nested")
+
+    def test_malformed_prior_manifest_does_not_authorize_deletion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidate = root / "unmanifested.jsonl"
+            candidate.write_bytes(b"keep\n")
+            manifests = root / ".stage-manifests"
+            manifests.mkdir()
+            (manifests / "entries.json").write_text("{malformed", encoding="utf-8")
+
+            Pipeline(root, {"entries": lambda _context: StageOutput({"new.jsonl": b"new\n"})}, resume=False).run("entries")
+
+            self.assertEqual(candidate.read_bytes(), b"keep\n")
+            self.assertEqual((root / "new.jsonl").read_bytes(), b"new\n")
+
     def test_first_publication_failure_removes_new_stage_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

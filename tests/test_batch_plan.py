@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from dosweb.artifacts.identifiers import sha256_canonical_json
+from dosweb.batch.models import CanonicalCorpus, CorpusTarget, TargetCapability, TargetIdentity
+from dosweb.batch.plan import build_batch_plan, load_batch_plan, publish_batch_plan, write_target_binding
+from dosweb.batch.corpus import _tree_fingerprint, resolve_repo_relative
+from dosweb.errors import AnalyzerError
+
+
+class BatchPlanTests(unittest.TestCase):
+    def _corpus(self, total: int = 2) -> CanonicalCorpus:
+        targets = []
+        for index in range(1, total + 1):
+            identity = TargetIdentity(
+                index=index,
+                name=f"owner{index}/repo{index}",
+                fingerprint_type="git-commit",
+                fingerprint="a" * 40,
+                source_path=f"frameworks/applications/owner{index}__repo{index}",
+                database_path=f"databases/applications/owner{index}__repo{index}-db",
+            )
+            targets.append(CorpusTarget(
+                identity=identity,
+                source=Path(identity.source_path),
+                database=Path(identity.database_path),
+                capability=TargetCapability(True, f"https://github.com/{identity.name}", "git-commit"),
+                database_fingerprint="b" * 64,
+            ))
+        return CanonicalCorpus(1, "canonical", "java-web-200", total, "c" * 64, tuple(targets), Path("manifest.json"))
+
+    def test_plan_identity_and_json_publication_are_deterministic(self) -> None:
+        corpus = self._corpus()
+        first = build_batch_plan(corpus, run_id="run-1", mode="entries")
+        second = build_batch_plan(corpus, run_id="run-1", mode="entries")
+        self.assertEqual(first.plan_id, second.plan_id)
+        self.assertTrue(first.verify_digest())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            json_path, jsonl_path = publish_batch_plan(first, root)
+            loaded = load_batch_plan(json_path)
+            self.assertEqual(loaded.plan_digest, first.plan_digest)
+            self.assertEqual(jsonl_path.read_text().count("\n"), 2)
+            binding = write_target_binding(first, first.targets[0], root / "target")
+            payload = json.loads(binding.read_text())
+            self.assertEqual(payload["plan_id"], first.plan_id)
+            self.assertNotIn("DEEPSEEK_API_KEY", binding.read_text())
+
+    def test_full_pauses_tree_attestation(self) -> None:
+        corpus = self._corpus(1)
+        identity = TargetIdentity(1, "owner/repo", "tree-sha256", "b" * 64, "src", "db")
+        target = CorpusTarget(identity, Path("src"), Path("db"), TargetCapability(False, None, "tree-sha256", "attestation_unavailable"))
+        corpus = CanonicalCorpus(1, "canonical", "java-web-200", 1, "d" * 64, (target,), Path("manifest.json"))
+        plan = build_batch_plan(corpus, run_id="run", mode="full")
+        self.assertEqual(plan.targets[0].initial_state, "paused")
+
+    def test_tree_fingerprint_uses_inventory_nul_separators(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Fixture.java").write_bytes(b"class Fixture {}\n")
+            expected = __import__("hashlib").sha256(
+                b"Fixture.java\0class Fixture {}\n\0"
+            ).hexdigest()
+            self.assertEqual(_tree_fingerprint(root), expected)
+
+    def test_tampered_plan_and_unsafe_path_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_batch_plan(self._corpus(1), run_id="run", mode="plan")
+            path, _ = publish_batch_plan(plan, root)
+            value = json.loads(path.read_text())
+            value["run_id"] = "other"
+            path.write_text(json.dumps(value))
+            with self.assertRaises(AnalyzerError):
+                load_batch_plan(path)
+            with self.assertRaises(AnalyzerError):
+                resolve_repo_relative(root, "../outside")
+
+
+if __name__ == "__main__":
+    unittest.main()

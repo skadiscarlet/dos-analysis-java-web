@@ -8,6 +8,7 @@ _EXIT_STATUS_BY_PREFIX = {
     "LLM_": 4,
     "ARTIFACT_": 5,
     "TOP50_": 5,
+    "BATCH_": 5,
     "ANALYSIS_": 6,
     "COVERAGE_": 6,
     "INTERNAL_": 6,

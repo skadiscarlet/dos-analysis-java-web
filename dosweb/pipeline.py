@@ -182,7 +182,7 @@ class Pipeline:
         self.resume = resume
         self.preflight = preflight
         self._run: dict[str, object] = {}
-        self._prior_stage_metadata: Mapping[str, object] = {}
+        self._prior_stage_metadata: dict[str, Mapping[str, object]] = {}
 
     @property
     def run_path(self) -> Path:
@@ -211,6 +211,7 @@ class Pipeline:
         with self._locked_output():
             if self.preflight is not None:
                 self.preflight()
+            self._prior_stage_metadata = self._load_prior_stage_manifests()
             self._run = self._load_run() if self.resume else self._new_run()
             self._run.update(status="running", error=None)
             self._write_run()
@@ -219,7 +220,6 @@ class Pipeline:
             for stage in STAGES:
                 expected = self._fingerprint(stage, upstream_hashes)
                 if not self._reusable(stage, expected):
-                    self._prior_stage_metadata = dict(self._stage_meta(stage))
                     self._invalidate_from(stage)
                     try:
                         self._publish(stage, expected, self._execute(stage, expected, upstream))
@@ -258,6 +258,36 @@ class Pipeline:
 
     def _write_run(self) -> None:
         _atomic_json(self.run_path, self._run)
+
+    def _load_prior_stage_manifests(self) -> dict[str, Mapping[str, object]]:
+        """Snapshot only prior manifests whose artifact ownership is provable."""
+        prior: dict[str, Mapping[str, object]] = {}
+        manifest_root = self.output_root / ".stage-manifests"
+        for stage in STAGES:
+            path = manifest_root / f"{stage}.json"
+            try:
+                _assert_no_symlink_path(path)
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError, AnalyzerError):
+                continue
+            if not isinstance(value, Mapping) or value.get("stage") != stage:
+                continue
+            artifacts = value.get("artifacts")
+            if not isinstance(artifacts, list):
+                continue
+            valid = True
+            for artifact in artifacts:
+                if not isinstance(artifact, Mapping) or not isinstance(artifact.get("path"), str):
+                    valid = False
+                    break
+                try:
+                    _safe_relative(artifact["path"])
+                except AnalyzerError:
+                    valid = False
+                    break
+            if valid:
+                prior[stage] = dict(value)
+        return prior
 
     def _fingerprint(self, stage: str, upstream: Mapping[str, str]) -> StageFingerprint:
         return StageFingerprint(schema_version=self.schema_version, tool_version=self.tool_version, implementation_version=self.implementation_versions.get(stage, "v1"), database_fingerprint=self.database_fingerprint, query_pack_hash=self.query_pack_hash, config_hash=self.config_hash, upstream_hashes=dict(upstream), stage=stage, model_fingerprint=self.model_fingerprint if stage != "entries" else "", report_fingerprint=self.report_fingerprint if stage == "report" else "", config_fingerprint=self.config_fingerprint)
@@ -352,7 +382,7 @@ class Pipeline:
                 stream.write(canonical_json(manifest) + b"\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            old = self._prior_stage_metadata
+            old = self._prior_stage_metadata.get(stage, {})
             old_paths = {item.get("path") for item in old.get("artifacts", []) if isinstance(item, Mapping) and isinstance(item.get("path"), str)} if isinstance(old.get("artifacts"), list) else set()
             new_paths = {item[0] for item in written}
             backups: list[tuple[Path, Path]] = []
@@ -401,6 +431,7 @@ class Pipeline:
             stages = self._run["stages"]
             assert isinstance(stages, dict)
             stages[stage] = manifest
+            self._prior_stage_metadata[stage] = manifest
         finally:
             shutil.rmtree(temporary_root, ignore_errors=True)
 

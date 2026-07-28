@@ -187,10 +187,30 @@ The research corpus contains exactly **200 Java Web projects**, with source snap
 
 Earlier 50-project and 183-project inventories are historical evidence and do not define current corpus membership.
 
+The canonical batch layer validates all source fingerprints and CodeQL database source roots before publishing an immutable plan. Planning is local and network-free:
+
+```bash
+python scripts/run_java_web_dos_batch.py plan \
+  --run-id java-web-200-plan \
+  --output results/java_web_dos_batch/java-web-200-plan
+```
+
+`entries` runs only local Entry extraction with bounded concurrency and strips any inherited provider credential. `full` requires both `--allow-remote-llm` and `DEEPSEEK_API_KEY` for execution. Use `full --plan-only` to construct and publish a non-executing full plan without a key or network; this still records only non-secret provider settings (`--model`, `--base-url`, `--timeout-seconds`, `--max-retries`, `--temperature`, `--cache-dir`, `--config`, and `--codeql-binary`) in the digest-bound plan. Targets represented only by `tree-sha256` remain explicitly paused because that fingerprint cannot satisfy public Git commit attestation. Per-target stage reuse remains governed by the production pipeline's strict manifests and hashes:
+
+```bash
+python scripts/run_java_web_dos_batch.py entries \
+  --run-id java-web-200-entries \
+  --output results/java_web_dos_batch/java-web-200-entries \
+  --max-workers 3
+```
+
+These commands do not authorize service startup, attack traffic, or dynamic DoS validation. A real corpus run—especially `full` mode—is a separate operational action and is not part of the default test suite.
+
 Development utilities:
 
 - `scripts/repair_java_web_200_inventory.py` validates a replacement target, creates its source-only Java CodeQL database, and publishes the canonical inventory;
-- `scripts/aggregate_java_web_dos_batch.py` aggregates static v2 artifacts only;
+- `scripts/run_java_web_dos_batch.py` creates or resumes canonical `plan`, local `entries`, and explicitly authorized `full` batches;
+- `scripts/aggregate_java_web_dos_batch.py --format p0` validates and aggregates normative P0 batch artifacts; `--format historical` preserves old hunter archives. Omitting `--format` is permitted only when every manifest row is unambiguously historical and explicitly contains `hunter_output_dir`; ambiguous manifests are rejected rather than interpreted as historical;
 - `scripts/prepare_dynamic_validation_output.py` and `scripts/sync_dynamic_validation_status.py` manage the separate opt-in dynamic evidence scaffold;
 - `scripts/build_top50_codeql_dbs.py` and `scripts/reselect_java_web_dos_top50.py` reproduce superseded historical selection runs only.
 
