@@ -1,5 +1,65 @@
 # dos-analysis-web v2 CHANGELOG
 
+## [2026-08-12] Validate CommaFeed dynamic group bounded refresh-queue behavior
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `athou__commafeed` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflections, and terminal result files.
+- Bootstrapped the official `athou/commafeed:latest-h2` Docker image locally with only isolation-only host-port remapping and a fixed session-encryption key for repeatable local login cookies; the default deployment otherwise remained unchanged and used the built-in H2 database.
+- Completed the default `POST /rest/user/initialSetup` flow to create the first admin account, then created one ordinary `USER` account through the default admin API because `commafeed.users.allow-registrations=false` in the default deployment.
+- Tried a case-local delayed mock feed first, but the default fetch path rejected `host.docker.internal` as a local address, so the executed bounded probe conservatively switched to five public RSS/Atom feeds reachable under the default deployment.
+- Classified `athou__commafeed-F0002` as `not_reproduced_under_tested_bounds` because two overlapping authenticated `GET /rest/feed/refreshAll` calls over five persisted subscriptions caused `FeedRefreshEngine.queue.size` to rise only transiently to `5`, with default `worker.active` peaking at `3` and draining back to `0` within about two seconds, without sustained retained queue growth or service unavailability.
+
+### Verification
+
+- Launched the official CommaFeed Docker image locally, verified `/rest/server/get`, completed initial setup, authenticated as both admin and ordinary user, and collected `/rest/admin/metrics` evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/athou__commafeed-F0002/`.
+- Executed a bounded concurrency-2 `refreshAll` probe and captured queue-depth, worker-activity, feed-fetch meter, server info, container logs, and container inspect evidence under the CommaFeed case directory.
+
+## [2026-08-12] Validate Bonita dynamic group auth preflight
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `bonitasoft__bonita-engine` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, changes, startup/container logs, route/auth probe evidence, per-case plan, blocked preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `bonita:latest` Docker image locally with a disposable `postgres:15-alpine` companion on an isolated Docker network. Two targeted compatibility-only repairs were required before readiness: retrying startup after the Postgres companion became ready, and creating the expected `businessdb` / `businessuser` companion database objects required by the image defaults.
+- Confirmed that the default deployment serves `/bonita/` and redirects anonymous `/bonita/portal/fileUpload` requests to `login.jsp`. The default `install/install` account can authenticate and complete a tiny multipart upload, but this run did not establish a documented ordinary non-admin account for the queued low-privilege attacker model.
+- Conservatively classified `bonitasoft__bonita-engine-FND1` as `auth_blocked` because the static probe plan requires an ordinary authenticated non-admin user for `/portal/fileUpload`, and only installer-level credentials were validated before semantic preflight stopped.
+- Ran the required aggregate step after writing artifacts; the shared `aggregate_dynamic_validation.py` script still exited non-zero on this output root without emitting diagnostics, so the worker preserved artifacts and updated `validation_status.jsonl` directly.
+
+### Verification
+
+- Pulled and launched the official Bonita image with an isolated Postgres companion, captured successful Tomcat/Bonita startup evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/bonitasoft__bonita-engine-default/`, and recorded the compatibility repairs applied during bootstrap.
+- Verified anonymous login redirection, successful `install/install` authentication, and a tiny authenticated multipart upload under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/bonitasoft__bonita-engine-FND1/rounds/round-1/evidence/auth_and_upload_probe.json`, while preserving the low-privilege auth gap as the terminal blocker.
+
+## [2026-08-12] Validate OpenMeetings dynamic group startup and preflight
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `apache__openmeetings` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, changes, clean rebuild workspace notes, per-case plans, blocked semantic preflight, observations, reflection, and terminal result files.
+- The repository snapshot’s local static-analysis artifacts under `frameworks/applications/apache__openmeetings/results/` caused the documented `mvn ... -PallModules` build path to fail the ASF RAT gate, so one targeted mechanical repair rebuilt the official release package from a clean case-local source copy that excluded those non-upstream result files.
+- Bootstrapped the clean official `apache-openmeetings-9.2.0-SNAPSHOT` release package locally with isolation-only port remapping from `5080/5443` to `15080/15443`; Tomcat and the OpenMeetings webapp reached runtime startup, but the bundled `admin.sh` default-H2 install attempt still left the application redirecting `/openmeetings/signin` back to `/openmeetings/install`.
+- Conservatively classified `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` as `environment_blocked` because the candidate requires a fully installed deployment plus an authenticated presenter already inside a room with a live `omws-upload-sid`, and that semantic room bootstrap could not begin while the default deployment remained in install mode.
+- Ran the required aggregate step after writing artifacts; as with other groups on this shared output root, central re-aggregation may still need controller-side review if the shared script continues exiting non-zero without detailed diagnostics.
+
+### Verification
+
+- Rebuilt the documented release package from a clean case-local source copy, extracted the official tarball, applied only isolated port remaps, and captured successful Tomcat/OpenMeetings startup plus persistent install-mode evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default/`.
+- Verified that `/openmeetings/services/UserService?wsdl` was deployed while `/openmeetings/signin` still redirected to `/openmeetings/install`, preventing any valid presenter-room upload preflight.
+
+## [2026-08-12] Validate Airavata dynamic group bootstrap and block state
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `apache__airavata` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, compose override/bootstrap records, container inspection, token/bootstrap evidence, per-case planning, environment/data-prep notes, reflection, launch-attempt logs, and terminal result files.
+- Built the repository-native `airavata-server:dev` and `airavata-slurm:dev` images from the checked-out source and bootstrapped a case-local approximation of the documented quickstart stack (`compose.yml`) in isolated Docker networking because this worker host lacks the repository's expected Tilt/Colima/mkcert devstack substrate.
+- Applied one targeted environment-side repair by changing the case-local Keycloak hostname override from `localhost` to the in-network service name `keycloak`, so JWT `iss` values became resolvable by the Airavata server container for JWKS verification without changing target business code.
+- Classified `apache__airavata-FND-200-1` as `precondition_blocked` because the default documented stack became healthy and the seeded default-admin token could enumerate the seeded `Default Project`, `Echo`, `slurm`, and `sftp` resources, but the only safe default-flow route to an own-process file failed earlier at the SDK's seeded SFTP experiment-directory bootstrap with `paramiko` SSH protocol-banner errors, so no semantic preflight or bounded file-download probe could begin.
+- Recorded that the shared `aggregate_dynamic_validation.py` script still exits with status `1` and no diagnostics on this output root, so the Airavata worker preserved all artifacts and updated `validation_status.jsonl` directly after executing the required aggregation step.
+
+### Verification
+
+- Built the Airavata server and SLURM images locally, launched the documented dependency stack plus the local server image in isolated Docker networking, and captured healthy HTTP, Keycloak, SFTP, MariaDB, and SLURM readiness evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__airavata-default/`.
+- Retrieved a real default-admin Keycloak token over the Docker network, verified the repaired issuer claim, confirmed seeded project/application/resource visibility over the live Airavata gRPC API, and captured the blocking SFTP bootstrap failure under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1/`.
+
 ## [2026-08-12] Validate Dependency-Track dynamic group outcomes
 
 ### Changed
