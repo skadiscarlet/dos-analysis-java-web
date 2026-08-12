@@ -13,7 +13,7 @@ _MAX_ROWS: Final = 4096
 _PROVENANCE_FIELDS: Final = frozenset(
     {"query_name", "query_sha256", "handler_location", "registration_location"}
 )
-_FRAMEWORKS: Final = ("mqtt", "netty", "servlet", "spring_mvc")
+_FRAMEWORKS: Final = ("grpc", "jax_rs", "mqtt", "netty", "servlet", "spring_mvc")
 _COVERAGE_STATUSES: Final = frozenset({"complete", "partial", "unsupported"})
 
 
@@ -205,6 +205,8 @@ def _validate_gap_fields(
         "servlet": "http",
         "netty": "tcp",
         "mqtt": "mqtt",
+        "jax_rs": "http",
+        "grpc": "grpc",
     }
     if not isinstance(framework, str) or framework not in expected_protocols:
         raise _coverage_invalid("FRAMEWORK_INVALID", field="framework", row=row_number)
@@ -247,6 +249,7 @@ def _validate_gap_fields(
         "request_parameter",
         "path_parameter",
         "header",
+        "model_attribute",
         "message_payload",
         "stream",
         "unknown",

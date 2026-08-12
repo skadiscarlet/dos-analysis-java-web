@@ -11,8 +11,8 @@ from dosweb.artifacts.schemas import validate_records
 from dosweb.errors import AnalyzerError
 
 
-_FRAMEWORKS: Final = frozenset({"spring_mvc", "servlet", "netty", "mqtt"})
-_PROTOCOLS: Final = frozenset({"http", "tcp", "mqtt"})
+_FRAMEWORKS: Final = frozenset({"spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"})
+_PROTOCOLS: Final = frozenset({"http", "tcp", "mqtt", "grpc"})
 _AUTH_CONTEXTS: Final = frozenset(
     {"unauthenticated", "low_privilege", "privileged", "unknown"}
 )
@@ -23,6 +23,7 @@ _INPUT_KINDS: Final = frozenset(
     {
         "request_body",
         "request_parameter",
+        "model_attribute",
         "path_parameter",
         "header",
         "message_payload",
@@ -36,6 +37,7 @@ _REGISTRATION_KINDS: Final = frozenset(
         "static_registration",
         "pipeline_registration",
         "subscription_registration",
+        "broker_registration",
     }
 )
 _FRAMEWORK_PROTOCOLS: Final = {
@@ -43,16 +45,23 @@ _FRAMEWORK_PROTOCOLS: Final = {
     "servlet": "http",
     "netty": "tcp",
     "mqtt": "mqtt",
+    "jax_rs": "http",
+    "grpc": "grpc",
 }
 _FRAMEWORK_REGISTRATIONS: Final = {
     "spring_mvc": frozenset({"annotation_mapping", "static_registration"}),
     "servlet": frozenset({"annotation_mapping", "static_registration"}),
     "netty": frozenset({"pipeline_registration"}),
-    "mqtt": frozenset({"subscription_registration"}),
+    "mqtt": frozenset({"subscription_registration", "broker_registration"}),
+    "jax_rs": frozenset({"annotation_mapping", "static_registration"}),
+    "grpc": frozenset({"static_registration"}),
 }
 _COVERAGE_STATUSES: Final = frozenset({"complete", "partial", "unsupported"})
 _COVERAGE_EFFECTS: Final = frozenset({"none", "forces_unknown"})
 _MAX_STRING_BYTES: Final = 65536
+_HTTP_METHODS: Final = frozenset(
+    {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
+)
 
 _RAW_FIELDS: Final = frozenset(
     {
@@ -137,9 +146,18 @@ def _source_path(value: object, field: str) -> str:
 
 def canonical_route(value: object, framework: str) -> str:
     route = _nonempty_string(value, "route_or_event")
-    if framework == "spring_mvc" or framework == "servlet":
-        parts = [part for part in route.replace("\\", "/").split("/") if part]
-        return "/" + "/".join(parts) if parts else "/"
+    if framework in {"spring_mvc", "servlet", "jax_rs"}:
+        head, separator, path = route.partition(" ")
+        method = head.upper() if separator and head.upper() in _HTTP_METHODS else ""
+        raw_path = path if method else route
+        parts = [part for part in raw_path.replace("\\", "/").split("/") if part]
+        normalized = "/" + "/".join(parts) if parts else "/"
+        return f"{method} {normalized}" if method else normalized
+    if framework == "netty":
+        head, separator, path = route.partition(" ")
+        if separator and head.upper() in _HTTP_METHODS and path.startswith("/"):
+            parts = [part for part in path.replace("\\", "/").split("/") if part]
+            return head.upper() + " /" + "/".join(parts) if parts else head.upper() + " /"
     return route
 
 

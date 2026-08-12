@@ -13,6 +13,7 @@ from dosweb.artifacts.identifiers import sha256_canonical_json
 from dosweb.batch.models import BatchPlan, BatchTargetPlan, TargetCapability, TargetIdentity
 from dosweb.batch.runner import BatchRunner, run_batch
 from dosweb.batch.state import batch_lock
+from dosweb.codeql.database import DatabaseInfo
 from dosweb.errors import AnalyzerError
 
 
@@ -32,13 +33,26 @@ class _Pipeline:
         return {"status": "completed"}
 
 
-def _plan(mode: str = "entries", count: int = 2, *, paused_last: bool = False) -> BatchPlan:
+def _plan(
+    mode: str = "entries",
+    count: int = 2,
+    *,
+    paused_last: bool = False,
+    database_fingerprint: str = "",
+) -> BatchPlan:
     targets = []
     for index in range(1, count + 1):
         identity = TargetIdentity(index, f"owner/repo{index}", "git-commit", f"{index:040x}", f"sources/repo{index}", f"db/repo{index}")
         capability = TargetCapability(True, f"https://github.com/{identity.name}", "git-commit")
         initial = "paused" if paused_last and index == count else "queued"
-        targets.append(BatchTargetPlan(identity, f"batch/targets/{index:03d}-{identity.slug}", capability, initial, identity.identity_id))
+        targets.append(BatchTargetPlan(
+            identity,
+            f"batch/targets/{index:03d}-{identity.slug}",
+            capability,
+            initial,
+            identity.identity_id,
+            database_fingerprint,
+        ))
     provider = {"allow_remote_llm": mode == "full"}
     unsigned = {
         "schema_version": 1, "tool_version": "test", "batch_schema_version": "test-v1",
@@ -73,6 +87,92 @@ class BatchRunnerTests(unittest.TestCase):
                 run_batch(_plan("full", 1), output, pipeline_factory=lambda values: None, environ={})
             self.assertEqual(raised.exception.code, "BATCH_REMOTE_LLM_NOT_AUTHORIZED")
             self.assertFalse(output.exists())
+
+    def test_database_binding_is_revalidated_before_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fingerprint = "b" * 64
+            plan = _plan(count=1, database_fingerprint=fingerprint)
+            self._tree(root, plan)
+            calls: list[dict[str, object]] = []
+            events: list[str] = []
+
+            def validator(database: Path) -> DatabaseInfo:
+                events.append("validated")
+                return DatabaseInfo(
+                    database.resolve(),
+                    (root / plan.targets[0].identity.source_path).resolve(),
+                    fingerprint,
+                )
+
+            def factory(values, environ):
+                events.append("pipeline")
+                return _Pipeline(dict(values), calls)
+
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=factory,
+                repo_root=root,
+                environ={},
+                database_validator=validator,
+            )
+
+            self.assertEqual("completed", state["status"])
+            self.assertEqual(["validated", "pipeline"], events)
+
+    def test_database_fingerprint_drift_fails_before_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = _plan(count=1, database_fingerprint="b" * 64)
+            self._tree(root, plan)
+            pipeline_calls: list[dict[str, object]] = []
+
+            def validator(database: Path) -> DatabaseInfo:
+                return DatabaseInfo(
+                    database.resolve(),
+                    (root / plan.targets[0].identity.source_path).resolve(),
+                    "c" * 64,
+                )
+
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), pipeline_calls),
+                repo_root=root,
+                environ={},
+                database_validator=validator,
+            )
+
+            record = state["targets"][plan.targets[0].target_id]
+            self.assertEqual("BATCH_DATABASE_FINGERPRINT_MISMATCH", record["error_code"])
+            self.assertEqual([], pipeline_calls)
+
+    def test_database_source_root_drift_fails_before_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fingerprint = "b" * 64
+            plan = _plan(count=1, database_fingerprint=fingerprint)
+            self._tree(root, plan)
+            other = root / "sources" / "other"
+            other.mkdir(parents=True)
+            pipeline_calls: list[dict[str, object]] = []
+
+            def validator(database: Path) -> DatabaseInfo:
+                return DatabaseInfo(database.resolve(), other.resolve(), fingerprint)
+
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), pipeline_calls),
+                repo_root=root,
+                environ={},
+                database_validator=validator,
+            )
+
+            record = state["targets"][plan.targets[0].target_id]
+            self.assertEqual("BATCH_DATABASE_SOURCE_ROOT_MISMATCH", record["error_code"])
+            self.assertEqual([], pipeline_calls)
 
     def test_failure_isolated_and_error_is_redacted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

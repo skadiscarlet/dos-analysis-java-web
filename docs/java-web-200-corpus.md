@@ -1,6 +1,6 @@
 # Canonical Java Web 200 Corpus
 
-The active research corpus contains exactly **200** Java Web server/service projects selected for static resource-exhaustion DoS analysis.
+This preserved historical corpus contains exactly **200** Java Web server/service projects selected for static resource-exhaustion DoS analysis. The active corpus is now the 205-project union documented in `docs/java-web-205-corpus.md`; this document retains the original 200-project repair and inventory semantics.
 
 ## Canonical sources
 

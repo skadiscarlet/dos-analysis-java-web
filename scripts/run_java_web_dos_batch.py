@@ -29,7 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="run_java_web_dos_batch.py")
     parser.add_argument("mode", choices=("plan", "entries", "full"))
     parser.add_argument("--plan", type=Path, help="execute an existing batch_plan.json")
-    parser.add_argument("--manifest", type=Path, default=REPO_ROOT / "intel/applications/java_web_200_targets.json")
+    parser.add_argument("--manifest", type=Path, default=REPO_ROOT / "intel/applications/java_web_205_targets.json")
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--run-id")

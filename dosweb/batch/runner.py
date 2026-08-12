@@ -17,9 +17,11 @@ from dosweb.artifacts.identifiers import canonical_json
 from dosweb.batch.models import BatchPlan, BatchTargetPlan
 from dosweb.batch.plan import write_target_binding
 from dosweb.batch.state import BatchState, atomic_write_json, batch_lock
+from dosweb.codeql.database import DatabaseInfo, validate_database
 from dosweb.errors import AnalyzerError
 
 PipelineFactory = Callable[..., object]
+DatabaseValidator = Callable[..., DatabaseInfo]
 Clock = Callable[[], datetime | str]
 
 # Retry decisions are made from the persisted error code, never from a message
@@ -142,6 +144,7 @@ class BatchRunner:
         repo_root: Path | str | None = None,
         environ: Mapping[str, str] | None = None,
         clock: Clock = _utcnow,
+        database_validator: DatabaseValidator = validate_database,
     ) -> None:
         if not plan.verify_digest() or plan.plan_id != f"plan:{plan.plan_digest[:24]}":
             raise AnalyzerError("BATCH_PLAN_INVALID", "Batch plan digest or canonical identity does not match its contents.")
@@ -166,6 +169,7 @@ class BatchRunner:
         self.repo_root = Path(repo_root or Path.cwd()).resolve()
         self.environ = dict(os.environ if environ is None else environ)
         self.clock = clock
+        self.database_validator = database_validator
         self.state_path = self.output_directory / "batch_state.json"
         self.lock_path = self.output_directory / ".batch.lock"
         self._state_lock = threading.Lock()
@@ -357,6 +361,49 @@ class BatchRunner:
         if changed:
             self._publish(self._state)
 
+    def _validate_database_binding(
+        self,
+        target: BatchTargetPlan,
+        database: Path,
+        source_checkout: Path,
+    ) -> None:
+        if not target.database_fingerprint:
+            return
+        try:
+            info = self.database_validator(database)
+        except AnalyzerError:
+            raise
+        except Exception as exc:
+            raise AnalyzerError(
+                "BATCH_DATABASE_VALIDATION_FAILED",
+                "Target CodeQL database could not be validated.",
+            ) from exc
+        if not isinstance(info, DatabaseInfo):
+            raise AnalyzerError(
+                "BATCH_DATABASE_VALIDATION_FAILED",
+                "Target CodeQL database validator returned an invalid result.",
+            )
+        if info.fingerprint != target.database_fingerprint:
+            raise AnalyzerError(
+                "BATCH_DATABASE_FINGERPRINT_MISMATCH",
+                "Target CodeQL database no longer matches the execution plan.",
+            )
+        try:
+            source_matches = (
+                info.source_root.resolve(strict=False)
+                == source_checkout.resolve(strict=False)
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise AnalyzerError(
+                "BATCH_DATABASE_SOURCE_ROOT_INVALID",
+                "Target CodeQL database source root could not be resolved.",
+            ) from exc
+        if not source_matches:
+            raise AnalyzerError(
+                "BATCH_DATABASE_SOURCE_ROOT_MISMATCH",
+                "Target CodeQL database does not belong to the planned source checkout.",
+            )
+
     def _eligible(self, target: BatchTargetPlan, record: Mapping[str, object]) -> bool:
         state = record.get("state", target.initial_state)
         attempt = record.get("attempt", 0)
@@ -392,6 +439,13 @@ class BatchRunner:
                 error_code=None,
                 error_message=None,
             )
+            database = _resolve_input(self.repo_root, target.identity.database_path)
+            analysis_source = _resolve_input(self.repo_root, target.identity.source_path)
+            self._validate_database_binding(target, database, analysis_source)
+            source_checkout = _resolve_input(
+                self.repo_root,
+                target.capability.provider_source_path or target.identity.source_path,
+            )
             output = _target_directory(self.output_directory, target)
             output.mkdir(parents=True, exist_ok=True)
             binding_path = output / "batch_target.json"
@@ -407,10 +461,10 @@ class BatchRunner:
                 write_target_binding(self.plan, target, output)
             values: dict[str, object] = {
                 "command": "entries" if self.plan.mode == "entries" else "analyze",
-                "database": _resolve_input(self.repo_root, target.identity.database_path),
+                "database": database,
                 "output": output,
-                "source_checkout": _resolve_input(self.repo_root, target.identity.source_path),
-                "source_commit_sha": target.identity.fingerprint,
+                "source_checkout": source_checkout,
+                "source_commit_sha": target.capability.provider_source_commit or target.identity.fingerprint,
                 "public_source_url": target.capability.public_source_url,
                 "resume": self.resume,
                 "allow_remote_llm": self.plan.mode == "full",
@@ -554,6 +608,7 @@ def run_batch(
     repo_root: Path | str | None = None,
     environ: Mapping[str, str] | None = None,
     clock: Clock = _utcnow,
+    database_validator: DatabaseValidator = validate_database,
 ) -> Mapping[str, object]:
     return BatchRunner(
         plan,
@@ -566,7 +621,8 @@ def run_batch(
         repo_root=repo_root,
         environ=environ,
         clock=clock,
+        database_validator=database_validator,
     ).run()
 
 
-__all__ = ["BatchRunner", "Clock", "PipelineFactory", "run_batch"]
+__all__ = ["BatchRunner", "Clock", "DatabaseValidator", "PipelineFactory", "run_batch"]

@@ -257,9 +257,10 @@ class ProductionFactoryTests(unittest.TestCase):
             self.assertEqual(result["status"], "completed")
             self.assertEqual(queries, [
                 "SpringMvcEntries.ql", "ServletEntries.ql", "NettyEntries.ql", "MqttEntries.ql",
+                "JaxRsEntries.ql", "GrpcEntries.ql",
             ])
             self.assertEqual(validations, [database])
-            self.assertEqual(query_databases, [info] * 4)
+            self.assertEqual(query_databases, [info] * 6)
             self.assertEqual(
                 {path.name for path in (root / "output").iterdir()},
                 {"entry_facts.jsonl", "coverage.json", "run.json", ".stage-manifests", ".pipeline.lock"},
@@ -553,7 +554,7 @@ class ProductionFactoryTests(unittest.TestCase):
             self.assertEqual(len(excerpt_calls), 2)
             self.assertEqual({call[1] for call in excerpt_calls}, {"a" * 40})
             self.assertEqual({call[2:] for call in excerpt_calls}, {("src/Handler.java", 8), ("src/Handler.java", 24)})
-            self.assertEqual(len(query_calls), 12)
+            self.assertEqual(len(query_calls), 14)
             self.assertEqual(
                 {item["path"] for item in result["stages"]["conclude"]["artifacts"]},
                 {"lifecycle_certificates.jsonl", "static_findings.jsonl"},

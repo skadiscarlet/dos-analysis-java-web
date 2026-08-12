@@ -15,10 +15,10 @@ from dosweb.codeql.database import DatabaseInfo, validate_database
 from dosweb.errors import AnalyzerError
 from dosweb.batch.models import CanonicalCorpus, CorpusTarget, TargetCapability, TargetIdentity
 
-_DEFAULT_MANIFEST = "intel/applications/java_web_200_targets.json"
+_DEFAULT_MANIFEST = "intel/applications/java_web_205_targets.json"
 _FINGERPRINT_RE = {"git-commit": re.compile(r"^[0-9a-f]{40}$"), "tree-sha256": re.compile(r"^[0-9a-f]{64}$")}
 _OWNER_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-_EXCLUDED_TREE_PARTS = frozenset({".git", ".gradle", ".idea", ".mvn", "build", "node_modules", "out", "target"})
+_EXCLUDED_TREE_PARTS = frozenset({".agents", ".git", ".gradle", ".idea", ".mvn", "build", "node_modules", "out", "target"})
 _MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 _MAX_JSON_DEPTH = 32
 _MAX_JSON_NODES = 100_000
@@ -81,6 +81,9 @@ def _own_git_head(source: Path) -> str | None:
 
 def _iter_source_files(source: Path):
     for path in source.rglob("*"):
+        relative = path.relative_to(source)
+        if any(part in _EXCLUDED_TREE_PARTS for part in relative.parts):
+            continue
         try:
             info = path.lstat()
         except OSError as exc:
@@ -88,9 +91,6 @@ def _iter_source_files(source: Path):
         if stat.S_ISLNK(info.st_mode):
             raise _invalid("SOURCE_SYMLINK_UNSUPPORTED", path=path.name)
         if not stat.S_ISREG(info.st_mode):
-            continue
-        relative = path.relative_to(source)
-        if any(part in _EXCLUDED_TREE_PARTS for part in relative.parts):
             continue
         yield path
 
@@ -206,7 +206,7 @@ def load_canonical_corpus(
     manifest_path: Path | str | None = None,
     *,
     repo_root: Path | str | None = None,
-    expected_total: int = 200,
+    expected_total: int = 205,
     database_validator: Callable[..., DatabaseInfo] = validate_database,
 ) -> CanonicalCorpus:
     """Load and validate the canonical inventory before any batch output is created."""
@@ -225,10 +225,13 @@ def load_canonical_corpus(
     raw = _strict_json_load(manifest)
     if not isinstance(raw, Mapping):
         raise _invalid("MANIFEST_NOT_OBJECT")
-    if raw.get("schema_version") != 1 or raw.get("status") != "canonical" or raw.get("corpus") != "java-web-200":
+    expected_corpus = f"java-web-{expected_total}"
+    if raw.get("schema_version") != 1 or raw.get("status") != "canonical" or raw.get("corpus") != expected_corpus:
         raise _invalid("MANIFEST_IDENTITY_INVALID")
     if raw.get("total") != expected_total:
         raise _invalid("TOTAL_MISMATCH", expected=expected_total)
+    if raw.get("batch_ready", True) is not True or raw.get("valid_codeql_databases", expected_total) != expected_total:
+        raise _invalid("CORPUS_NOT_READY", ready=raw.get("valid_codeql_databases"), expected=expected_total)
     projects = raw.get("projects")
     if not isinstance(projects, list) or len(projects) != expected_total:
         raise _invalid("PROJECT_COUNT_INVALID")
@@ -246,7 +249,7 @@ def load_canonical_corpus(
         raise _invalid("INDICES_NOT_CONTIGUOUS")
     inventory_digest = sha256_canonical_json(raw)
     return CanonicalCorpus(
-        schema_version=1, status="canonical", corpus="java-web-200", total=expected_total,
+        schema_version=1, status="canonical", corpus=expected_corpus, total=expected_total,
         inventory_digest=inventory_digest, targets=tuple(targets), manifest_path=manifest,
         generated_at=raw.get("generated_at") if isinstance(raw.get("generated_at"), str) else None,
     )

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Repair and publish the canonical 200-project Java Web corpus.
+"""Repair and publish the preserved canonical 200-project Java Web corpus.
 
-This is the current corpus-maintenance entry point. Historical Top-50 tooling remains
-available for reproducing old runs, but does not define current corpus membership.
+This utility retains the original Java Web 200 repair and publication semantics.
+The active 205-project inventory is constructed separately by
+``generate_java_web_205_inventory.py``.
 """
 
 from __future__ import annotations

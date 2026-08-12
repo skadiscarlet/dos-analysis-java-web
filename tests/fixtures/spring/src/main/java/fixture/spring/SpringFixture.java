@@ -1,10 +1,19 @@
 package fixture.spring;
 
 @interface Controller {}
-@interface RequestMapping { String value() default ""; }
-@interface PostMapping { String value() default ""; }
+@interface RestController {}
+enum RequestMethod { GET, POST, PUT, DELETE, PATCH }
+@interface RequestMapping { String[] value() default {}; String[] path() default {}; RequestMethod[] method() default {}; }
+@interface PostMapping { String[] value() default {}; String[] path() default {}; }
+@interface GetMapping { String[] value() default {}; String[] path() default {}; }
 @interface RequestBody {}
 @interface RequestParam { String value() default ""; }
+@interface PathVariable { String value() default ""; }
+@interface RequestHeader { String value() default ""; }
+@interface ModelAttribute { String value() default ""; }
+class HttpServletRequest {}
+class BindingResult {}
+class Model {}
 class ByteBuffer {
     static byte[] allocate(int size) { return new byte[size]; }
 }
@@ -26,6 +35,12 @@ public class SpringFixture {
         }
     }
 
+    @GetMapping({"/items", "/alias"})
+    public void arrayRoute(HttpServletRequest request, Model model, BindingResult errors) {}
+
+    @RequestMapping(path = "/command", method = {RequestMethod.POST})
+    public void command(CommandObject command) {}
+
     byte[] materialize(byte[] body) { return body.clone(); }
     void consume(byte[] value) {}
 
@@ -34,6 +49,10 @@ public class SpringFixture {
     public void dynamicGap(String controllerName) throws Exception {
         Class.forName(controllerName);
     }
+}
+
+class CommandObject {
+    String value;
 }
 
 class SpringLookalike {

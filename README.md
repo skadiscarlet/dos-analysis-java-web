@@ -179,28 +179,29 @@ Supporting research and paper documents provide context only:
 
 ## Canonical Java Web corpus and utilities
 
-The research corpus contains exactly **200 Java Web projects**, with source snapshots under `frameworks/applications/` and Java CodeQL databases under `databases/applications/`.
+The active research corpus contains exactly **205 Java Web projects**, with source snapshots under `frameworks/applications/` and Java CodeQL databases under `databases/applications/`. It is the case-insensitive repository union of the preserved canonical Java Web 200 inventory and the PoC-29 repository set: 200 original targets plus 5 previously absent repositories.
 
-- Corpus definition: `docs/java-web-200-corpus.md`
-- Canonical inventory: `intel/applications/java_web_200_targets.json`
-- Local generated run: `results/application_dbs/java_web_200_20260725/`
+- Active corpus definition: `docs/java-web-205-corpus.md`
+- Active canonical inventory: `intel/applications/java_web_205_targets.json`
+- Deterministic inventory generator: `scripts/generate_java_web_205_inventory.py`
+- Preserved Java Web 200 definition/inventory: `docs/java-web-200-corpus.md` and `intel/applications/java_web_200_targets.json`
 
-Earlier 50-project and 183-project inventories are historical evidence and do not define current corpus membership.
+Earlier 50-project and 183-project inventories, the Java Web 200 generated run, and its repair outputs are historical evidence and do not define current corpus membership. Membership and readiness are distinct: the active dataset has 205 targets, while the current tracked manifest reports 150 strictly ready databases and 55 incomplete databases.
 
 The canonical batch layer validates all source fingerprints and CodeQL database source roots before publishing an immutable plan. Planning is local and network-free:
 
 ```bash
 python scripts/run_java_web_dos_batch.py plan \
-  --run-id java-web-200-plan \
-  --output results/java_web_dos_batch/java-web-200-plan
+  --run-id java-web-205-plan \
+  --output results/java_web_dos_batch/java-web-205-plan
 ```
 
 `entries` runs only local Entry extraction with bounded concurrency and strips any inherited provider credential. `full` requires both `--allow-remote-llm` and `DEEPSEEK_API_KEY` for execution. Use `full --plan-only` to construct and publish a non-executing full plan without a key or network; this still records only non-secret provider settings (`--model`, `--base-url`, `--timeout-seconds`, `--max-retries`, `--temperature`, `--cache-dir`, `--config`, and `--codeql-binary`) in the digest-bound plan. Targets represented only by `tree-sha256` remain explicitly paused because that fingerprint cannot satisfy public Git commit attestation. Per-target stage reuse remains governed by the production pipeline's strict manifests and hashes:
 
 ```bash
 python scripts/run_java_web_dos_batch.py entries \
-  --run-id java-web-200-entries \
-  --output results/java_web_dos_batch/java-web-200-entries \
+  --run-id java-web-205-entries \
+  --output results/java_web_dos_batch/java-web-205-entries \
   --max-workers 3
 ```
 
@@ -208,7 +209,8 @@ These commands do not authorize service startup, attack traffic, or dynamic DoS 
 
 Development utilities:
 
-- `scripts/repair_java_web_200_inventory.py` validates a replacement target, creates its source-only Java CodeQL database, and publishes the canonical inventory;
+- `scripts/generate_java_web_205_inventory.py` deterministically constructs the active 205 inventory from the preserved 200 inventory and PoC-29 repository set, recording strict readiness without rebuilding databases;
+- `scripts/repair_java_web_200_inventory.py` remains the historical Java Web 200 replacement/database repair and publication utility;
 - `scripts/run_java_web_dos_batch.py` creates or resumes canonical `plan`, local `entries`, and explicitly authorized `full` batches;
 - `scripts/aggregate_java_web_dos_batch.py --format p0` validates and aggregates normative P0 batch artifacts; `--format historical` preserves old hunter archives. Omitting `--format` is permitted only when every manifest row is unambiguously historical and explicitly contains `hunter_output_dir`; ambiguous manifests are rejected rather than interpreted as historical;
 - `scripts/prepare_dynamic_validation_output.py` and `scripts/sync_dynamic_validation_status.py` manage the separate opt-in dynamic evidence scaffold;

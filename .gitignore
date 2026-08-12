@@ -42,6 +42,7 @@ __pycache__/
 # Temp and local log files.
 *.tmp
 *.log
+*.txt
 
 # Local agent state.
 .codex/

@@ -55,11 +55,18 @@ def _codeql_wrapper(directory: Path) -> Path:
     return wrapper
 
 
-@unittest.skipUnless(
-    _RUN_FIXTURES and _CODEQL and _JAVAC,
-    "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
-)
-class CodeqlEntryQueryTests(unittest.TestCase):
+class CodeqlEntryQueryContractTests(unittest.TestCase):
+    def test_direct_and_embedded_entry_query_packs_are_byte_identical(self):
+        root = Path(__file__).parents[1]
+        direct = root / "codeql" / "dosweb" / "Entries"
+        embedded = root / "dosweb" / "codeql" / "pack" / "dosweb" / "Entries"
+        direct_files = {path.name for path in direct.glob("*.ql") if not path.name.startswith(".")}
+        embedded_files = {path.name for path in embedded.glob("*.ql") if not path.name.startswith(".")}
+        self.assertEqual(direct_files, embedded_files)
+        for name in sorted(direct_files):
+            with self.subTest(query=name):
+                self.assertEqual((direct / name).read_bytes(), (embedded / name).read_bytes())
+
     def test_entry_queries_use_the_exact_shared_table_contract(self):
         root = Path(__file__).parents[1]
         query_root = root / "codeql" / "dosweb" / "Entries"
@@ -68,6 +75,8 @@ class CodeqlEntryQueryTests(unittest.TestCase):
             "ServletEntries.ql",
             "NettyEntries.ql",
             "MqttEntries.ql",
+            "JaxRsEntries.ql",
+            "GrpcEntries.ql",
         )
         self.assertEqual(len(ENTRY_COLUMNS), 17)
         for query_name in query_names:
@@ -78,13 +87,23 @@ class CodeqlEntryQueryTests(unittest.TestCase):
                 for column in ENTRY_COLUMNS:
                     self.assertIn(f'"{column}"', source)
 
+
+
+@unittest.skipUnless(
+    _RUN_FIXTURES and _CODEQL and _JAVAC,
+    "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+)
+class CodeqlEntryQueryFixtureTests(unittest.TestCase):
     def test_registered_entries_and_dynamic_gaps_against_temporary_databases(self):
         root = Path(__file__).parents[1]
         fixtures = {
             "spring": ("SpringMvcEntries.ql", "spring_mvc", "SpringFixture.handle"),
             "servlet": ("ServletEntries.ql", "servlet", "ServletFixture.doPost"),
             "netty": ("NettyEntries.ql", "netty", "RegisteredHandler.channelRead"),
-            "mqtt": ("MqttEntries.ql", "mqtt", "RegisteredListener.messageArrived"),
+            "mqtt": ("MqttEntries.ql", "mqtt", "NettyMqttHandler.channelRead"),
+            "armeria": ("SpringMvcEntries.ql", "spring_mvc", "RegisteredCollector.uploadSpans"),
+            "jax_rs": ("JaxRsEntries.ql", "jax_rs", "RegisteredResource.get"),
+            "grpc": ("GrpcEntries.ql", "grpc", "RegisteredService.unary"),
         }
         with tempfile.TemporaryDirectory() as tmp:
             temporary = Path(tmp)
@@ -95,7 +114,7 @@ class CodeqlEntryQueryTests(unittest.TestCase):
                     database_path = temporary / f"{fixture}-database"
                     classes = temporary / f"{fixture}-classes"
                     classes.mkdir()
-                    java_file = next(source_root.rglob("*.java"))
+                    java_files = sorted(path.relative_to(source_root) for path in source_root.rglob("*.java"))
                     completed = subprocess.run(
                         [
                             _CODEQL,
@@ -104,7 +123,7 @@ class CodeqlEntryQueryTests(unittest.TestCase):
                             str(database_path),
                             "--language=java",
                             f"--source-root={source_root}",
-                            f"--command={_JAVAC} -d {classes} {java_file.relative_to(source_root)}",
+                            f"--command={_JAVAC} -d {classes} " + " ".join(str(path) for path in java_files),
                             "--overwrite",
                         ],
                         check=False,
@@ -191,25 +210,79 @@ class CodeqlEntryQueryTests(unittest.TestCase):
                         ),
                         entries,
                     )
+                    if fixture == "mqtt":
+                        broker_handlers = {
+                            entry["handler"]["callable"]
+                            for entry in entries
+                            if entry["registration"]["kind"] == "broker_registration"
+                            and entry["route_or_event"] == "mqtt_protocol"
+                        }
+                        self.assertTrue(
+                            any(name.endswith("NettyMqttHandler.channelRead") for name in broker_handlers),
+                            entries,
+                        )
+                    if fixture == "armeria":
+                        self.assertTrue(
+                            any(
+                                entry["route_or_event"] == "/api/v2/spans"
+                                and entry["registration"]["kind"] == "static_registration"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                    if fixture == "jax_rs":
+                        routes = {
+                            entry["route_or_event"]
+                            for entry in entries
+                            if entry["framework"] == framework
+                        }
+                        self.assertIn("GET /api/items/{id}", routes)
+                        self.assertIn("POST /api/items", routes)
+                    if fixture == "grpc":
+                        self.assertTrue(
+                            any(
+                                entry["route_or_event"]
+                                == "/fixture.grpc.RegisteredService/unary"
+                                and entry["materialization_phase"] == "in_handler"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
                     self.assertFalse(
                         any(
                             any(
                                 marker in entry["handler"]["callable"]
-                                for marker in ("Unregistered", "Lookalike", "Fake")
+                                for marker in ("Unregistered", "Lookalike", "Fake", "Dynamic", "Ambiguous")
                             )
                             for entry in entries
                         ),
                         entries,
                     )
-                    self.assertTrue(
-                        any(
-                            record["framework"] == framework
-                            and record["status"] == "partial"
-                            and record["effect_on_verdict"] == "forces_unknown"
-                            for record in coverage
-                        ),
-                        coverage,
-                    )
+                    if fixture not in {"armeria"}:
+                        self.assertTrue(
+                            any(
+                                record["framework"] == framework
+                                and record["status"] == "partial"
+                                and record["effect_on_verdict"] == "forces_unknown"
+                                for record in coverage
+                            ),
+                            coverage,
+                        )
+                    if fixture in {"jax_rs", "grpc"}:
+                        unresolved_handlers = {
+                            row["handler_fqn"]
+                            for row in rows
+                            if row["framework"] == framework
+                            and row["registration_kind"] == "dynamic_unresolved"
+                        }
+                        self.assertFalse(
+                            any(name.endswith(handler_suffix) for name in unresolved_handlers),
+                            unresolved_handlers,
+                        )
+                        self.assertTrue(
+                            any("Unregistered" in name for name in unresolved_handlers),
+                            unresolved_handlers,
+                        )
 
 
 if __name__ == "__main__":

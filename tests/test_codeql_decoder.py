@@ -62,7 +62,7 @@ class CodeqlDecoderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             source = self._source(Path(tmp))
             invalid_framework = list(self._entry_row())
-            invalid_framework[0] = "jax_rs"
+            invalid_framework[0] = "unsupported"
             invalid_line = list(self._entry_row())
             invalid_line[4] = "10"
             boolean_line = list(self._entry_row())

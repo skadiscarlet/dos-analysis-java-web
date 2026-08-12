@@ -69,14 +69,21 @@ class TargetCapability:
     public_source_url: str | None = None
     attestation: Literal["git-commit", "tree-sha256", "unavailable"] = "unavailable"
     reason: str | None = None
+    provider_source_path: str | None = None
+    provider_source_commit: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "provider_eligible": self.provider_eligible,
             "public_source_url": self.public_source_url,
             "attestation": self.attestation,
             "reason": self.reason,
         }
+        if self.provider_source_path is not None:
+            payload["provider_source_path"] = self.provider_source_path
+        if self.provider_source_commit is not None:
+            payload["provider_source_commit"] = self.provider_source_commit
+        return payload
 
 
 @dataclass(frozen=True)
@@ -162,15 +169,19 @@ class BatchTargetPlan:
     capability: TargetCapability
     initial_state: TargetState
     target_id: str
+    database_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "target_id": self.target_id,
             "identity": self.identity.to_dict(),
             "output_path": self.output_path,
             "capability": self.capability.to_dict(),
             "initial_state": self.initial_state,
         }
+        if self.database_fingerprint:
+            payload["database_fingerprint"] = self.database_fingerprint
+        return payload
 
 
 @dataclass(frozen=True)

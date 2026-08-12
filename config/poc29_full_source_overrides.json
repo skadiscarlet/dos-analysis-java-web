@@ -1,0 +1,50 @@
+{
+  "apache/druid": {
+    "source_path": "build/poc29-full-sources/apache__druid-c2d15dfc",
+    "commit": "c2d15dfc55d965e63b55dd11d698ca10ced99b4e",
+    "public_source_url": "https://github.com/apache/druid",
+    "analysis_tree_sha256": "86263208a9038f00928b837c2df8fa7e4b18125ff6d411cd8212a87bb0c841c9"
+  },
+  "apache/hertzbeat": {
+    "source_path": "build/poc29-full-sources/apache__hertzbeat-87062df9",
+    "commit": "87062df97d01d14ea857b76936e97f4385cf609e",
+    "public_source_url": "https://github.com/apache/hertzbeat",
+    "analysis_tree_sha256": "8b7284ddd05dae7084b7cdd423e639811b210e44ff17909fbcc0039ea7f844ef"
+  },
+  "apache/skywalking": {
+    "source_path": "build/poc29-full-sources/apache__skywalking-bb165330",
+    "commit": "bb16533009a597dbb41ab6f013ac300509abbb3e",
+    "public_source_url": "https://github.com/apache/skywalking",
+    "analysis_tree_sha256": "bb3201bdb276009e02cb11ff07b0f661cdae31381a39d065fef369e0bcc5dcbb"
+  },
+  "apache/solr": {
+    "source_path": "build/poc29-full-sources/apache__solr-c54251ea",
+    "commit": "c54251ea1614a6635410083839011cf20bfe189b",
+    "public_source_url": "https://github.com/apache/solr",
+    "analysis_tree_sha256": "c589bab56566016865896ed5be24ddff6769eea0cd7e7a359cf09d015076201a"
+  },
+  "dependencytrack/dependency-track": {
+    "source_path": "build/poc29-full-sources/dependencytrack__dependency-track-f4bffa0a",
+    "commit": "f4bffa0aee1980387e1c40d7f01f13622a4c7720",
+    "public_source_url": "https://github.com/dependencytrack/dependency-track",
+    "analysis_tree_sha256": "341ab42b51bc262e617b367f6882d2e2af6439547198831d380b03ff4742ae98"
+  },
+  "openzipkin/zipkin": {
+    "source_path": "build/poc29-full-sources/openzipkin__zipkin-878ce2a1",
+    "commit": "878ce2a1fad54ca941d17fdcf2e1d924b148eb1f",
+    "public_source_url": "https://github.com/openzipkin/zipkin",
+    "analysis_tree_sha256": "16896d90ea02eebfb31ee3789f40dbf100989a2acd4c1bbf4b36d6bfa0cee468"
+  },
+  "prestodb/presto": {
+    "source_path": "build/poc29-full-sources/prestodb__presto-913a6411",
+    "commit": "913a64110299a3ae0f6314af1558255c1488fec8",
+    "public_source_url": "https://github.com/prestodb/presto",
+    "analysis_tree_sha256": "85510e107d6906bf3dc6f2303cfdbe507e3094720928389cf2119fb757935558"
+  },
+  "thingsboard/thingsboard": {
+    "source_path": "build/poc29-full-sources/thingsboard__thingsboard-e7029879",
+    "commit": "e70298792acaa41b986ed8662fb2a760c35ee5e6",
+    "public_source_url": "https://github.com/thingsboard/thingsboard",
+    "analysis_tree_sha256": "bf92109a4da088ac1d2fcfaf78fe5d3a3ba76badb6164e00fc0cc5d48a469672"
+  }
+}

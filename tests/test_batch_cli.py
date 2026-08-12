@@ -28,6 +28,10 @@ AGG = load_script("aggregate_java_web_dos_batch_cli", "aggregate_java_web_dos_ba
 
 
 class BatchCliTests(unittest.TestCase):
+    def test_parser_defaults_to_active_java_web_205_manifest(self) -> None:
+        arguments = RUN._parser().parse_args(["plan", "--output", "out", "--run-id", "run"])
+        self.assertEqual(ROOT / "intel/applications/java_web_205_targets.json", arguments.manifest)
+
     def corpus(self, total: int = 200) -> CanonicalCorpus:
         targets = []
         for index in range(1, total + 1):
@@ -42,7 +46,7 @@ class BatchCliTests(unittest.TestCase):
             ))
         return CanonicalCorpus(1, "canonical", "java-web-200", total, "a" * 64, tuple(targets), Path("local.json"))
 
-    def test_full_plan_only_builds_canonical_200_without_key_or_pipeline(self) -> None:
+    def test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested(self) -> None:
         manifest = ROOT / "intel/applications/java_web_200_targets.json"
         raw = json.loads(manifest.read_text(encoding="utf-8"))
         fingerprint_by_source = {
@@ -75,13 +79,13 @@ class BatchCliTests(unittest.TestCase):
             status = RUN.main(
                 [
                     "full", "--plan-only", "--run-id", "canonical-200",
-                    "--output", str(output), "--allow-remote-llm",
+                    "--manifest", str(manifest), "--output", str(output), "--allow-remote-llm",
                     "--model", "deepseek-v4-flash", "--base-url", "https://example.invalid/",
                     "--timeout-seconds", "17", "--max-retries", "2", "--temperature", "0.2",
                     "--cache-dir", str(output / "cache"), "--codeql-binary", "codeql-local",
                 ],
                 corpus_loader=lambda path, **kwargs: load_canonical_corpus(
-                    path, database_validator=lightweight_database, **kwargs
+                    path, expected_total=200, database_validator=lightweight_database, **kwargs
                 ),
                 pipeline_factory=forbidden_factory,
                 environ={},

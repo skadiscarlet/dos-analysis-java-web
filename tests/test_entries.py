@@ -148,9 +148,24 @@ class EntryNormalizationTests(unittest.TestCase):
         )
         validate_records("entry_facts", first)
 
-    def test_spring_route_is_canonicalized_after_class_and_method_merge(self):
-        normalized = normalize_entry_rows([self._row(route_or_event="//api///items/")])
-        self.assertEqual(normalized[0]["route_or_event"], "/api/items")
+    def test_http_routes_preserve_optional_method_during_canonicalization(self):
+        cases = (
+            (self._row(route_or_event="//api///items/"), "/api/items"),
+            (self._row(route_or_event="POST //api///items/"), "POST /api/items"),
+            (
+                self._row(
+                    framework="jax_rs",
+                    protocol="http",
+                    registration_kind="static_registration",
+                    route_or_event="GET //api//items/{id}",
+                ),
+                "GET /api/items/{id}",
+            ),
+        )
+        for row, expected in cases:
+            with self.subTest(framework=row["framework"], route=row["route_or_event"]):
+                normalized = normalize_entry_rows([row])
+                self.assertEqual(normalized[0]["route_or_event"], expected)
 
     def test_framework_specific_registration_is_required(self):
         cases = (
@@ -208,9 +223,22 @@ class EntryNormalizationTests(unittest.TestCase):
                 attacker_input_kind="message_payload",
                 materialization_phase="streaming",
             ),
+            self._row(
+                framework="mqtt",
+                protocol="mqtt",
+                handler_fqn="org.jmqtt.mqtt.netty.NettyMqttHandler.channelRead",
+                registration_kind="broker_registration",
+                registration_fqn="org.jmqtt.mqtt.netty.MqttRemotingServer.initChannel",
+                route_or_event="mqtt_protocol",
+                attacker_input_name="message",
+                attacker_input_type="io.netty.handler.codec.mqtt.MqttMessage",
+                attacker_input_kind="message_payload",
+                materialization_phase="streaming",
+            ),
         )
         normalized = normalize_entry_rows(rows)
         self.assertEqual({entry["framework"] for entry in normalized}, {"servlet", "netty", "mqtt"})
+        self.assertIn("broker_registration", {entry["registration"]["kind"] for entry in normalized})
 
     def test_unknown_auth_is_not_promoted_to_unauthenticated(self):
         normalized = normalize_entry_rows([self._row(auth_context="unknown")])
@@ -245,7 +273,7 @@ class EntryNormalizationTests(unittest.TestCase):
         )
         self.assertEqual(normalize_entry_rows([dynamic]), [])
         coverage = normalize_framework_coverage([dynamic])
-        self.assertEqual(len(coverage), 4)
+        self.assertEqual(len(coverage), 6)
         self.assertIn(
             {
                 "framework": "spring_mvc",
@@ -269,7 +297,7 @@ class EntryNormalizationTests(unittest.TestCase):
                 self._row(coverage_note="spring_annotation_mapping"),
             ]
         )
-        self.assertEqual(len(coverage), 4)
+        self.assertEqual(len(coverage), 6)
         self.assertIn(
             {
                 "framework": "spring_mvc",
@@ -314,7 +342,7 @@ class EntryNormalizationTests(unittest.TestCase):
         coverage = normalize_framework_coverage([])
         self.assertEqual(
             {record["framework"] for record in coverage},
-            {"spring_mvc", "servlet", "netty", "mqtt"},
+            {"spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"},
         )
         self.assertTrue(
             all(

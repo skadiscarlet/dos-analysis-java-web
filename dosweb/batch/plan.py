@@ -30,7 +30,7 @@ def _safe_output(value: str | Path) -> str:
 
 _PROVIDER_KEYS = frozenset({
     "model", "base_url", "temperature", "timeout_seconds", "max_retries",
-    "allow_remote_llm", "cache_dir", "config", "codeql_binary",
+    "allow_remote_llm", "pilot_skipped", "cache_dir", "config", "codeql_binary",
 })
 _FINGERPRINT_TYPES = frozenset({"git-commit", "tree-sha256"})
 _ATTESTATIONS = frozenset({"git-commit", "tree-sha256", "unavailable"})
@@ -45,7 +45,7 @@ def _provider_settings(settings: Mapping[str, object] | None) -> dict[str, objec
     for key, value in settings.items():
         if key not in _PROVIDER_KEYS:
             raise _invalid("PROVIDER_KEY_INVALID", key=key)
-        if key == "allow_remote_llm":
+        if key in {"allow_remote_llm", "pilot_skipped"}:
             if not isinstance(value, bool):
                 raise _invalid("PROVIDER_TYPE_INVALID", key=key)
         elif key in {"timeout_seconds", "max_retries"}:
@@ -67,7 +67,9 @@ def _validate_string(value: object, reason: str) -> str:
 
 
 def _validate_loaded_target(item: Mapping[str, object]) -> BatchTargetPlan:
-    if set(item) != {"target_id", "identity", "output_path", "capability", "initial_state"}:
+    legacy_fields = {"target_id", "identity", "output_path", "capability", "initial_state"}
+    fields = set(item)
+    if fields != legacy_fields and fields != legacy_fields | {"database_fingerprint"}:
         raise ValueError("target fields")
     identity = item["identity"]
     capability = item["capability"]
@@ -97,21 +99,51 @@ def _validate_loaded_target(item: Mapping[str, object]) -> BatchTargetPlan:
     target_identity = TargetIdentity(index, name, identity["fingerprint_type"], fingerprint, identity["source_path"], identity["database_path"])
     if identity["slug"] != target_identity.slug or identity["target_id"] != target_identity.identity_id:
         raise ValueError("target id or slug")
-    expected_capability = {"provider_eligible", "public_source_url", "attestation", "reason"}
-    if set(capability) != expected_capability:
+    legacy_capability = {"provider_eligible", "public_source_url", "attestation", "reason"}
+    capability_fields = set(capability)
+    provider_capability = legacy_capability | {"provider_source_path", "provider_source_commit"}
+    if capability_fields != legacy_capability and capability_fields != provider_capability:
         raise ValueError("capability fields")
     if not isinstance(capability["provider_eligible"], bool) or capability["attestation"] not in _ATTESTATIONS:
         raise ValueError("capability type")
     for key in ("public_source_url", "reason"):
         if capability[key] is not None and not isinstance(capability[key], str):
             raise ValueError("capability value")
+    provider_source_path = capability.get("provider_source_path")
+    provider_source_commit = capability.get("provider_source_commit")
+    if provider_source_path is not None:
+        if not isinstance(provider_source_path, str):
+            raise ValueError("provider source path")
+        path = PurePosixPath(provider_source_path.replace("\\", "/"))
+        if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts) or path.as_posix() != provider_source_path:
+            raise ValueError("provider source path")
+    if provider_source_commit is not None and (
+        not isinstance(provider_source_commit, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", provider_source_commit)
+    ):
+        raise ValueError("provider source commit")
+    if (provider_source_path is None) != (provider_source_commit is None):
+        raise ValueError("provider source binding")
     output_path = item["output_path"]
     if not isinstance(output_path, str):
         raise ValueError("output path")
     initial_state = item["initial_state"]
     if initial_state not in _TARGET_STATES:
         raise ValueError("initial state")
-    return BatchTargetPlan(target_identity, _safe_output(output_path), TargetCapability(**dict(capability)), initial_state, item["target_id"])
+    database_fingerprint = item.get("database_fingerprint", "")
+    if (
+        not isinstance(database_fingerprint, str)
+        or (database_fingerprint and not re.fullmatch(r"[0-9a-f]{64}", database_fingerprint))
+    ):
+        raise ValueError("database fingerprint")
+    return BatchTargetPlan(
+        target_identity,
+        _safe_output(output_path),
+        TargetCapability(**dict(capability)),
+        initial_state,
+        item["target_id"],
+        database_fingerprint,
+    )
 
 
 def _effective_output_key(value: str) -> str:
@@ -143,6 +175,8 @@ def build_batch_plan(
     output = _safe_output(output_root)
     targets: list[BatchTargetPlan] = []
     for target in corpus.targets:
+        if not re.fullmatch(r"[0-9a-f]{64}", target.database_fingerprint):
+            raise _invalid("DATABASE_FINGERPRINT_INVALID", target_id=target.identity.identity_id)
         target_output = f"{output}/targets/{target.index:03d}-{target.slug}"
         if mode == "full" and not target.capability.provider_eligible:
             state = "paused"
@@ -154,6 +188,7 @@ def build_batch_plan(
             capability=target.capability,
             initial_state=state,
             target_id=target.identity.identity_id,
+            database_fingerprint=target.database_fingerprint,
         ))
     indexes: set[int] = set()
     target_ids: set[str] = set()

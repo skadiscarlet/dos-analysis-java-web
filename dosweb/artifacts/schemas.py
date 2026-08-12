@@ -76,8 +76,8 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
             }
         ),
         enum_fields={
-            "framework": frozenset({"spring_mvc", "servlet", "netty", "mqtt"}),
-            "protocol": frozenset({"http", "tcp", "mqtt"}),
+            "framework": frozenset({"spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"}),
+            "protocol": frozenset({"http", "tcp", "mqtt", "grpc"}),
             "auth_context": frozenset(
                 {"unauthenticated", "low_privilege", "privileged", "unknown"}
             ),
@@ -399,13 +399,41 @@ def _matches_kind(value: object, kind: str) -> bool:
 
 def _validate_entry(record: Mapping[str, object], artifact_name: str, line: int) -> None:
     handler = record["handler"]
-    assert isinstance(handler, Mapping)
-    for field, kind in {"callable": "string", "file": "string", "start_line": "positive_int"}.items():
-        if field not in handler or not _matches_nested_kind(handler[field], kind):
+    registration = record["registration"]
+    assert isinstance(handler, Mapping) and isinstance(registration, Mapping)
+    nested_specs = {
+        "handler": (handler, {"callable": "string", "file": "string", "start_line": "positive_int"}),
+        "registration": (
+            registration,
+            {"kind": "string", "callable": "string", "file": "string", "start_line": "positive_int"},
+        ),
+    }
+    for nested_name, (nested, fields) in nested_specs.items():
+        if set(nested) != set(fields):
             raise _error(
-                "ARTIFACT_INVALID_RECORD", f"Entry handler requires {field}.",
-                artifact_name, line, "handler",
+                "ARTIFACT_INVALID_RECORD", f"Entry {nested_name} fields are not exact.",
+                artifact_name, line, nested_name,
             )
+        for field, kind in fields.items():
+            if not _matches_nested_kind(nested[field], kind):
+                raise _error(
+                    "ARTIFACT_INVALID_RECORD", f"Entry {nested_name} requires {field}.",
+                    artifact_name, line, nested_name,
+                )
+    registration_kind = registration["kind"]
+    allowed_registration_kinds = {
+        "spring_mvc": {"annotation_mapping", "static_registration"},
+        "servlet": {"annotation_mapping", "static_registration"},
+        "netty": {"pipeline_registration"},
+        "mqtt": {"subscription_registration", "broker_registration"},
+        "jax_rs": {"annotation_mapping", "static_registration"},
+        "grpc": {"static_registration"},
+    }
+    if registration_kind not in allowed_registration_kinds[record["framework"]]:
+        raise _error(
+            "ARTIFACT_INVALID_ENUM", "Entry registration kind is invalid for its framework.",
+            artifact_name, line, "registration",
+        )
 
 
 def _validate_growth(record: Mapping[str, object], artifact_name: str, line: int) -> None:

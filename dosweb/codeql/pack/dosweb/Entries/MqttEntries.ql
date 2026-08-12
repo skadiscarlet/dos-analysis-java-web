@@ -1,6 +1,6 @@
 /**
  * @name MQTT registered entries
- * @description Extracts statically recoverable MQTT subscribe/listener callback registrations.
+ * @description Extracts statically recoverable MQTT client subscriptions and broker protocol registrations.
  * @kind table
  * @id dosweb/mqtt-entries
  */
@@ -18,6 +18,58 @@ predicate isMqttType(RefType type, string simpleName) {
   type.getASourceSupertype*().hasQualifiedName("fixture.mqtt", simpleName)
   or
   type.getASourceSupertype*().hasQualifiedName("org.eclipse.paho.client.mqttv3", simpleName)
+}
+
+predicate isNettyBrokerType(RefType type, string simpleName) {
+  type.getASourceSupertype*().hasQualifiedName("fixture.mqtt", simpleName)
+  or
+  type.getASourceSupertype*().hasQualifiedName("io.netty.channel", simpleName)
+}
+
+predicate isMqttMessageType(Type type) {
+  type.(RefType).getASourceSupertype*().hasQualifiedName("fixture.mqtt", "BrokerMqttMessage")
+  or
+  type.(RefType).getASourceSupertype*().hasQualifiedName("io.netty.handler.codec.mqtt", "MqttMessage")
+}
+
+predicate jmqttBrokerRegistration(
+  Method callback, Method register, MethodCall addLast, Parameter message
+) {
+  callback.getName() = "channelRead" and
+  isNettyBrokerType(callback.getDeclaringType(), "ChannelDuplexHandler") and
+  message = callback.getParameter(1) and
+  register.getName() = "initChannel" and
+  register.getDeclaringType() instanceof AnonymousClass and
+  isNettyBrokerType(register.getDeclaringType(), "ChannelInitializer") and
+  addLast.getEnclosingCallable() = register and
+  addLast.getMethod().getName() = "addLast" and
+  isNettyBrokerType(addLast.getMethod().getDeclaringType(), "ChannelPipeline") and
+  addLast.getNumArgument() = 2 and
+  addLast.getArgument(0) instanceof CompileTimeConstantExpr and
+  addLast.getArgument(1).(ClassInstanceExpr).getConstructedType().getSourceDeclaration() =
+    callback.getDeclaringType() and
+  isMqttMessageType(message.getType())
+}
+
+predicate jmqttObjectCallback(Method callback, Method register, MethodCall addLast, Parameter message) {
+  callback.getName() = "channelRead" and
+  isNettyBrokerType(callback.getDeclaringType(), "ChannelDuplexHandler") and
+  message = callback.getParameter(1) and message.getType().(RefType).hasQualifiedName("java.lang", "Object") and
+  register.getName() = "initChannel" and register.getDeclaringType() instanceof AnonymousClass and
+  isNettyBrokerType(register.getDeclaringType(), "ChannelInitializer") and
+  addLast.getEnclosingCallable() = register and addLast.getMethod().getName() = "addLast" and
+  isNettyBrokerType(addLast.getMethod().getDeclaringType(), "ChannelPipeline") and
+  addLast.getNumArgument() = 2 and addLast.getArgument(0) instanceof CompileTimeConstantExpr and
+  addLast.getArgument(1).(ClassInstanceExpr).getConstructedType().getSourceDeclaration() = callback.getDeclaringType() and
+  exists(CastExpr cast, MethodCall processor |
+    cast.getEnclosingCallable() = callback and
+    cast.getExpr().(VarAccess).getVariable() = message and
+    isMqttMessageType(cast.getType()) and
+    processor.getEnclosingCallable() = callback and processor.getNumArgument() > 0 and
+    (processor.getArgument(0) = cast or
+     processor.getArgument(0).(VarAccess).getVariable().getInitializer() = cast) and
+    processor.getMethod().getName() = "process"
+  )
 }
 
 predicate mqttRow(
@@ -49,6 +101,57 @@ predicate mqttRow(
     inputName = message.getName() and inputType = message.getType().toString() and
     inputKind = "message_payload" and materializationPhase = "streaming" and
     coverageStatus = "complete" and coverageNote = "mqtt_subscription_registration"
+  )
+  or
+  exists(Method callback, Method register, MethodCall registration, Parameter message |
+    jmqttBrokerRegistration(callback, register, registration, message) and
+    coverageNote = "jmqtt_anonymous_channel_initializer" and
+    framework = "mqtt" and protocol = "mqtt" and
+    handlerFqn = callback.getDeclaringType().getQualifiedName() + "." + callback.getName() and
+    handlerFile = callback.getLocation().getFile().getRelativePath() and
+    handlerLine = callback.getLocation().getStartLine() and
+    registrationKind = "broker_registration" and
+    registrationFqn = register.getDeclaringType().getQualifiedName() + "." + register.getName() and
+    registrationFile = registration.getLocation().getFile().getRelativePath() and
+    registrationLine = registration.getLocation().getStartLine() and
+    routeOrEvent = "mqtt_protocol" and authContext = "unknown" and
+    inputName = message.getName() and inputType = message.getType().toString() and
+    inputKind = "message_payload" and materializationPhase = "streaming" and
+    coverageStatus = "complete"
+  )
+  or
+  exists(Method callback, Method register, MethodCall registration, Parameter message |
+    jmqttObjectCallback(callback, register, registration, message) and
+    framework = "mqtt" and protocol = "mqtt" and
+    handlerFqn = callback.getDeclaringType().getQualifiedName() + "." + callback.getName() and
+    handlerFile = callback.getLocation().getFile().getRelativePath() and handlerLine = callback.getLocation().getStartLine() and
+    registrationKind = "broker_registration" and registrationFqn = register.getDeclaringType().getQualifiedName() + "." + register.getName() and
+    registrationFile = registration.getLocation().getFile().getRelativePath() and registrationLine = registration.getLocation().getStartLine() and
+    routeOrEvent = "mqtt_protocol" and authContext = "unknown" and inputName = message.getName() and
+    inputType = message.getType().toString() and inputKind = "message_payload" and materializationPhase = "streaming" and
+    coverageStatus = "complete" and coverageNote = "jmqtt_object_callback_mqtt_conversion"
+  )
+  or
+  exists(Method register, MethodCall doOnConnection |
+    register.getDeclaringType().hasQualifiedName(
+      ["fixture.mqtt", "io.github.quickmsg.core.mqtt"], "MqttReceiver"
+    ) and
+    doOnConnection.getEnclosingCallable() = register and
+    doOnConnection.getMethod().getName() = "doOnConnection" and
+    doOnConnection.getMethod().getDeclaringType().hasQualifiedName(
+      ["fixture.mqtt", "reactor.netty.tcp"], "TcpServer"
+    ) and
+    framework = "mqtt" and protocol = "mqtt" and
+    handlerFqn = register.getDeclaringType().getQualifiedName() + "." + register.getName() and
+    handlerFile = register.getLocation().getFile().getRelativePath() and
+    handlerLine = register.getLocation().getStartLine() and
+    registrationKind = "dynamic_unresolved" and registrationFqn = handlerFqn and
+    registrationFile = doOnConnection.getLocation().getFile().getRelativePath() and
+    registrationLine = doOnConnection.getLocation().getStartLine() and
+    routeOrEvent = "mqtt_protocol" and authContext = "unknown" and
+    inputName = "unknown" and inputType = "unknown" and inputKind = "unknown" and
+    materializationPhase = "unknown" and coverageStatus = "partial" and
+    coverageNote = "smqtt_protocol_dispatch_binding_unresolved"
   )
   or
   exists(MethodCall subscribe, Method register |

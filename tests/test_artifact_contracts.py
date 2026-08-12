@@ -84,7 +84,7 @@ class ArtifactContractTests(unittest.TestCase):
         records = [{
             "entry_id": "entry:a", "framework": "servlet", "protocol": "http",
             "handler": {"callable": "A.run", "file": "A.java", "start_line": 1},
-            "registration": {}, "route_or_event": "/a", "auth_context": "unknown",
+            "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1}, "route_or_event": "/a", "auth_context": "unknown",
             "attacker_inputs": [], "materialization_phase": "unknown",
         }]
         other = [{**records[0], "entry_id": "entry:b", "route_or_event": "/b"}]
@@ -172,7 +172,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "framework": "servlet",
                 "protocol": "http",
                 "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
-                "registration": {},
+                "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
                 "route_or_event": "/b",
                 "auth_context": "unknown",
                 "attacker_inputs": [],
@@ -183,7 +183,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "framework": "servlet",
                 "protocol": "http",
                 "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
-                "registration": {},
+                "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
                 "route_or_event": "/a",
                 "auth_context": "unknown",
                 "attacker_inputs": [],
@@ -224,7 +224,7 @@ class ArtifactContractTests(unittest.TestCase):
             "framework": "spring_mvc",
             "protocol": "http",
             "handler": {"callable": "a", "file": "A.java", "start_line": 1},
-            "registration": {},
+            "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
             "route_or_event": "/a",
             "auth_context": "unauthenticated",
             "attacker_inputs": [],
@@ -242,7 +242,7 @@ class ArtifactContractTests(unittest.TestCase):
             "framework": "servlet",
             "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
-            "registration": {},
+            "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
             "route_or_event": "/",
             "auth_context": "unknown",
             "attacker_inputs": [],
@@ -380,7 +380,7 @@ class ArtifactContractTests(unittest.TestCase):
         entry = {
             "entry_id": "entry:1", "framework": "servlet", "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
-            "registration": {}, "route_or_event": "/", "auth_context": "unknown",
+            "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1}, "route_or_event": "/", "auth_context": "unknown",
             "attacker_inputs": [], "materialization_phase": "unknown",
         }
         for records in ((entry, entry), ({**entry, "entry_id": "wrong"},)):
@@ -627,7 +627,7 @@ class ArtifactContractTests(unittest.TestCase):
             "framework": "servlet",
             "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
-            "registration": {},
+            "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
             "route_or_event": "/",
             "auth_context": "unknown",
             "attacker_inputs": [],
@@ -663,7 +663,7 @@ class ArtifactContractTests(unittest.TestCase):
             "framework": "servlet",
             "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
-            "registration": {},
+            "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
             "route_or_event": "/",
             "auth_context": "unknown",
             "attacker_inputs": [],

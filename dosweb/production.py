@@ -44,7 +44,10 @@ from dosweb.report.summary import build_summary
 _IMPLEMENTATION_VERSIONS: Final = {stage: "production-v2" for stage in STAGES}
 _QUERY_PACK_DIR: Final = Path(__file__).resolve().parent / "codeql" / "pack"
 _ENTRY_QUERY_DIR: Final = _QUERY_PACK_DIR / "dosweb" / "Entries"
-_ENTRY_QUERIES: Final = ("SpringMvcEntries.ql", "ServletEntries.ql", "NettyEntries.ql", "MqttEntries.ql")
+_ENTRY_QUERIES: Final = (
+    "SpringMvcEntries.ql", "ServletEntries.ql", "NettyEntries.ql", "MqttEntries.ql",
+    "JaxRsEntries.ql", "GrpcEntries.ql",
+)
 _QUERY_FAMILIES: Final[dict[str, tuple[str, ...]]] = {
     "growth": ("InputMaterialization.ql", "DirectAllocation.ql", "ContainerGrowth.ql", "AsyncWorkGrowth.ql"),
     "flows": ("EntryToGrowth.ql",),
