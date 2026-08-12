@@ -14,6 +14,13 @@ docs/superpowers/
 # Local build and dependency caches.
 .build-cache/
 dynamic-verification/target/
+build/
+codeql/
+dos_analysis_web.egg-info/
+
+# Local Qoder state.
+.qoder-cn/
+.qoder/
 
 # Private coordinated disclosure material. Existing tracked PoC evidence remains
 # in Git, but new disclosure artifacts are not added implicitly.
