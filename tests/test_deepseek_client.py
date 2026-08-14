@@ -113,7 +113,7 @@ def _process_cache_producer(cache_dir: str, key: str, identity: dict[str, object
                     "requested_model": "deepseek-v4-pro", "actual_model": "deepseek-v4-pro",
                     "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
                     "allow_remote_llm": True, "public_source_url": "https://github.com/example/public-repository",
-                    "source_commit_sha": "a" * 40, "verified_public": True, "verified_clean_checkout": True,
+                    "source_commit_sha": "a" * 40, "verified_public": False, "verified_clean_checkout": True,
                 },
             )
             produced.put(True)
@@ -726,7 +726,7 @@ class DeepSeekClientTests(unittest.TestCase):
                 "requested_model": "deepseek-v4-pro", "actual_model": "deepseek-v4-pro",
                 "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
                 "allow_remote_llm": True, "public_source_url": "https://github.com/example/public-repository",
-                "source_commit_sha": "a" * 40, "verified_public": True, "verified_clean_checkout": True,
+                "source_commit_sha": "a" * 40, "verified_public": False, "verified_clean_checkout": True,
             }))
         self.assertEqual(ContractCache(nested, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put"})), validate_growth_contract(VALID_CONTRACT))
         self.assertEqual(stat.S_IMODE((nested.parent.parent).stat().st_mode), 0o700)
@@ -1741,7 +1741,6 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             self.assertEqual(command[:5], ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"])
             self.assertIn("status.showUntrackedFiles=all", command)
-            self.assertIn("fsck.skipList=", command)
             self.assertEqual(command[command.index("--no-pager"):command.index("--no-pager") + 3], ["--no-pager", "-C", "/fixture"])
             self.assertEqual(
                 kwargs["env"],
@@ -1760,47 +1759,105 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
         attestation = GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
 
-        self.assertTrue(attestation.verified_public)
+        self.assertFalse(attestation.verified_public)
         self.assertTrue(attestation.verified_clean_checkout)
-        self.assertEqual(len(requests), 3)
-        for request in requests:
-            self.assertIsNone(request.get_header("Authorization"))
+        self.assertEqual(attestation.public_source_url, "https://github.com/example/public-repository")
+        self.assertEqual(requests, [])
 
-    def test_default_verifier_rejects_commit_unreachable_from_default_branch(self) -> None:
+    def test_verify_local_checkout_against_public_source_reuses_strict_checkout_checks(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        with mock.patch("dosweb.llm.deepseek.GitHubPublicSourceVerifier") as verifier_cls:
+            verifier = verifier_cls.return_value
+            verifier._verify_checkout.side_effect = lambda checkout, sha, source_url=None: calls.append((str(checkout), sha, source_url))
+            from dosweb.llm.deepseek import verify_local_checkout_against_public_source
+            verify_local_checkout_against_public_source(Path("/fixture"), "https://github.com/example/public-repository", "B" * 40)
+        self.assertEqual(calls, [("/fixture", "b" * 40, "https://github.com/example/public-repository")])
+
+    def test_default_verifier_allows_local_commit_binding_without_public_source_url(self) -> None:
+        config = LlmConfig(
+            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            Path("cache"), True,
+            None, "b" * 40, Path("/fixture"),
+        )
+
+        def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            arguments = command[command.index("/fixture") + 1:]
+            if arguments[:2] == ["rev-parse", "--show-toplevel"]:
+                output = "/fixture"
+            elif arguments[:1] == ["rev-parse"]:
+                output = "b" * 40
+            else:
+                output = ""
+            return subprocess.CompletedProcess(command, 0, output, "")
+
+        attestation = GitHubPublicSourceVerifier(runner=runner).verify(config)
+
+        self.assertFalse(attestation.verified_public)
+        self.assertTrue(attestation.verified_clean_checkout)
+        self.assertIsNone(attestation.public_source_url)
+
+    def test_default_verifier_prefers_local_commit_binding_even_with_public_source_url(self) -> None:
         config = LlmConfig(
             "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/example/public-repository", "b" * 40, Path("/fixture"),
         )
-        payloads = iter((
-            {"private": False, "default_branch": "main"},
-            {"sha": "b" * 40},
-            {"status": "diverged"},
-        ))
 
-        class Response:
-            status = 200
-            def __init__(self, payload: object, url: str) -> None:
-                self.payload = json.dumps(payload).encode()
-                self.url = url
-            def getcode(self) -> int: return 200
-            def geturl(self) -> str: return self.url
-            def read(self, size: int) -> bytes:
-                chunk, self.payload = self.payload[:size], self.payload[size:]
-                return chunk
-            def __enter__(self): return self
-            def __exit__(self, *args: object) -> None: return None
+        def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            arguments = command[command.index("/fixture") + 1:]
+            if arguments[:2] == ["rev-parse", "--show-toplevel"]:
+                output = "/fixture"
+            elif arguments[:1] == ["rev-parse"]:
+                output = "b" * 40
+            else:
+                output = ""
+            return subprocess.CompletedProcess(command, 0, output, "")
 
-        def opener(request: object, timeout: float) -> Response:
-            return Response(next(payloads), request.full_url)
+        opener = mock.Mock(side_effect=AssertionError("GitHub API should not be called"))
+        attestation = GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
 
-        runner = mock.Mock()
-        with self.assertRaises(AnalyzerError) as raised:
-            GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
-        self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
-        runner.assert_not_called()
+        self.assertFalse(attestation.verified_public)
+        self.assertTrue(attestation.verified_clean_checkout)
+        self.assertEqual(attestation.public_source_url, "https://github.com/example/public-repository")
+        opener.assert_not_called()
 
-    def test_verify_api_and_git_steps_share_one_absolute_deadline(self) -> None:
+    def test_source_requirements_canonicalize_public_github_url(self) -> None:
+        config = LlmConfig(
+            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            Path("cache"), True,
+            "https://github.com/Cicizz/jmqtt", "b" * 40, Path("/fixture"),
+        )
+        from dosweb.llm.deepseek import _source_requirements
+        self.assertEqual(
+            _source_requirements(config),
+            ("https://github.com/cicizz/jmqtt", "b" * 40, Path("/fixture")),
+        )
+
+    def test_default_verifier_ignores_default_branch_reachability_when_local_commit_is_pinned(self) -> None:
+        config = LlmConfig(
+            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            Path("cache"), True,
+            "https://github.com/example/public-repository", "b" * 40, Path("/fixture"),
+        )
+
+        def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            arguments = command[command.index("/fixture") + 1:]
+            if arguments[:2] == ["rev-parse", "--show-toplevel"]:
+                output = "/fixture"
+            elif arguments[:1] == ["rev-parse"]:
+                output = "b" * 40
+            else:
+                output = ""
+            return subprocess.CompletedProcess(command, 0, output, "")
+
+        opener = mock.Mock(side_effect=AssertionError("GitHub API should not be called"))
+        attestation = GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
+        self.assertFalse(attestation.verified_public)
+        self.assertTrue(attestation.verified_clean_checkout)
+        opener.assert_not_called()
+
+    def test_verify_local_git_steps_share_one_absolute_deadline(self) -> None:
         config = LlmConfig("deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
         current = -0.01
         def clock() -> float:
@@ -1808,47 +1865,21 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
             current += 0.01
             return current
         timeouts: list[float] = []
-        github_calls = 0
-
-        class Response:
-            status = 200
-            headers: dict[str, str] = {}
-            def __init__(self, payload: object, url: str) -> None:
-                self.payload = json.dumps(payload).encode()
-                self.url = url
-                self.done = False
-            def getcode(self) -> int: return 200
-            def geturl(self) -> str: return self.url
-            def read(self, size: int) -> bytes:
-                if self.done: return b""
-                self.done = True
-                return self.payload
-            def __enter__(self): return self
-            def __exit__(self, *args: object) -> None: return None
-
-        def opener(request: object, timeout: float) -> Response:
-            nonlocal github_calls
-            github_calls += 1
-            timeouts.append(timeout)
-            payload = (
-                {"private": False, "default_branch": "main"}
-                if github_calls == 1
-                else ({"sha": "b" * 40} if github_calls == 2 else {"status": "ahead"})
-            )
-            return Response(payload, request.full_url)
 
         def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             timeouts.append(float(kwargs["timeout"]))
             arguments = command[command.index("/fixture") + 1:]
-            if arguments[:2] == ["rev-parse", "--show-toplevel"]: output = "/fixture"
-            elif arguments[:2] == ["remote", "get-url"]: output = "https://github.com/example/public-repository.git"
-            elif arguments[:1] == ["rev-parse"]: output = "b" * 40
-            else: output = ""
+            if arguments[:2] == ["rev-parse", "--show-toplevel"]:
+                output = "/fixture"
+            elif arguments[:1] == ["rev-parse"]:
+                output = "b" * 40
+            else:
+                output = ""
             return subprocess.CompletedProcess(command, 0, output, "")
 
-        verifier = GitHubPublicSourceVerifier(opener=opener, runner=runner, monotonic=clock, git_timeout_seconds=1)
+        verifier = GitHubPublicSourceVerifier(opener=mock.Mock(), runner=runner, monotonic=clock, git_timeout_seconds=1)
         attestation = verifier.verify(config)
-        self.assertTrue(attestation.verified_public)
+        self.assertFalse(attestation.verified_public)
         self.assertGreaterEqual(len(timeouts), 3)
         self.assertTrue(all(later <= earlier for earlier, later in zip(timeouts, timeouts[1:])))
         self.assertLess(timeouts[-1], timeouts[0])
@@ -1974,13 +2005,19 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
         self.assertLess(time.monotonic() - started, 0.5)
 
+    def test_canonical_origin_url_accepts_github_proxy_wrapper(self) -> None:
+        from dosweb.llm.deepseek import _canonical_origin_url
+        self.assertEqual(
+            _canonical_origin_url("https://gh-proxy.com/https://github.com/Cicizz/jmqtt.git"),
+            "https://github.com/cicizz/jmqtt",
+        )
+
     def test_git_command_overrides_malicious_status_and_fsck_config(self) -> None:
         runner = mock.Mock(return_value=subprocess.CompletedProcess(["git"], 0, "", ""))
         verifier = GitHubPublicSourceVerifier(runner=runner)
         verifier._run(Path("/fixture"), "status", "--porcelain")
         command = runner.call_args.args[0]
         self.assertIn("status.showUntrackedFiles=all", command)
-        self.assertIn("fsck.skipList=", command)
         self.assertIn("fsck.missingEmail=error", command)
 
     def test_git_output_overflow_is_rejected_with_bounded_collection(self) -> None:
@@ -2071,7 +2108,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
         verifier._run = run  # type: ignore[method-assign]
         verifier.verify(config)
-        self.assertEqual(calls[0], ("fsck", "--strict", "--no-dangling", "--no-reflogs", "b" * 40))
+        self.assertEqual(calls[0], ("fsck", "--strict", "--no-dangling", "--no-reflogs", "--", "b" * 40))
 
 
 if __name__ == "__main__":

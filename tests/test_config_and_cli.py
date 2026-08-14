@@ -138,6 +138,7 @@ class ConfigTests(unittest.TestCase):
                     "public_source_url": "https://github.com/cli/repository/",
                     "source_commit_sha": "cli-sha",
                     "source_checkout": Path("checkout"),
+                    "analysis_source_root": Path("analysis-checkout"),
                 },
                 config_path=config,
                 environ={"DEEPSEEK_API_KEY": "test-secret"},
@@ -146,6 +147,20 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(result.llm.public_source_url, "https://github.com/cli/repository")
         self.assertEqual(result.llm.source_commit_sha, "cli-sha")
         self.assertEqual(result.llm.source_checkout, Path("checkout"))
+        self.assertEqual(result.llm.analysis_source_root, Path("analysis-checkout"))
+
+    def test_analysis_source_root_defaults_to_source_checkout(self):
+        result = load_config(
+            cli_values={
+                "database": Path("db"),
+                "output": Path("out"),
+                "source_checkout": Path("checkout"),
+            },
+            config_path=None,
+            environ={},
+        )
+        self.assertEqual(result.llm.source_checkout, Path("checkout"))
+        self.assertEqual(result.llm.analysis_source_root, Path("checkout"))
 
     def test_llm_numeric_bounds_reject_zero_negative_nonfinite_and_excessive_temperature(self):
         for values in (

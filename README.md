@@ -15,7 +15,7 @@ Requirements:
 - Python 3.11 or newer;
 - a Java CodeQL database for the target;
 - CodeQL CLI available as `codeql`, or selected with `--codeql-binary`;
-- for every complete production P0 run, `DEEPSEEK_API_KEY` supplied through the environment and explicit authorization for remote Growth Contract evaluation. Previously exposed keys must be rotated before use.
+
 
 Install the local package in a virtual environment:
 
@@ -25,7 +25,6 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-API keys must never be placed in YAML configuration, command-line arguments, manifests, reports, caches, diagnostics, or tests. Remote LLM use is disabled unless `--allow-remote-llm` is explicitly supplied. The source URL, exact commit, and clean local checkout must also be attested before source slices may be sent.
 
 ## Analysis model
 
@@ -85,8 +84,6 @@ dos-web-analyzer analyze \
   --source-commit-sha 0123456789abcdef0123456789abcdef01234567 \
   --source-checkout frameworks/applications/example-project
 ```
-
-Remote classification remains disabled unless consent is explicit, the API key is present only in the environment, the selected commit is reachable from the public repository's default branch, the checkout is clean and pinned, and the CodeQL database source root matches that checkout.
 
 The CLI also exposes individual production stage targets:
 

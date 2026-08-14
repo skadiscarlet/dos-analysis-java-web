@@ -99,7 +99,7 @@ def cache_identity(config: object, slice_: BoundedSlice) -> tuple[str, dict[str,
         "request_method": "POST",
         "request_url": f"{canonical_base_url(getattr(config, 'base_url'))}chat/completions",
         "allow_remote_llm": getattr(config, "allow_remote_llm"),
-        "verified_public": True,
+        "verified_public": False,
         "verified_clean_checkout": True,
     }
     return sha256_canonical_json(identity), identity

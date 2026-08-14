@@ -66,7 +66,7 @@ run_query = _run_query
 def _non_secret_config(config: AnalyzerConfig) -> dict[str, object]:
     return {
         "codeql_binary": config.codeql_binary, "database": str(config.database),
-        "llm": {"allow_remote_llm": config.llm.allow_remote_llm, "base_url": config.llm.base_url,
+        "llm": {"allow_remote_llm": config.llm.allow_remote_llm, "analysis_source_root": str(config.llm.analysis_source_root) if config.llm.analysis_source_root else None, "base_url": config.llm.base_url,
                 "cache_dir": str(config.llm.cache_dir), "max_retries": config.llm.max_retries,
                 "model": config.llm.model, "public_source_url": config.llm.public_source_url,
                 "source_checkout": str(config.llm.source_checkout) if config.llm.source_checkout else None,
@@ -258,18 +258,78 @@ def _candidate_from_record(record: Mapping[str, object]) -> GrowthCandidate:
     return GrowthCandidate.create(site=SourceLocation(site["file"], site["start_line"]), kind=record["kind"], operation=record["operation"], resource_dimension=resource["dimension"], receiver=resource["receiver"], field_path=resource["field_path"], demand_inputs=demands, escape_scope=record["escape_scope"], evidence_ids=frozenset(record["candidate_evidence"]), coverage_status=record["coverage_status"], coverage_notes=record["coverage_notes"])
 
 
+def _entry_registration_identity(entry: EntryFact) -> tuple[str, str, str, int]:
+    return (
+        entry.registration.kind,
+        entry.registration.callable,
+        entry.registration.file,
+        entry.registration.start_line,
+    )
+
+
+def _entry_semantic_key(entry: EntryFact) -> tuple[object, ...]:
+    return (
+        entry.framework,
+        entry.protocol,
+        entry.handler.callable,
+        entry.handler.file,
+        entry.handler.start_line,
+        entry.route_or_event,
+        entry.auth_context,
+        tuple((item.name, item.type, item.kind) for item in entry.attacker_inputs),
+        entry.materialization_phase,
+    )
+
+
+def _candidate_demand_names(candidate: GrowthCandidate) -> frozenset[str]:
+    return frozenset(item.name for item in candidate.demand_inputs)
+
+
+def _canonical_entry(matches: Sequence[EntryFact], candidate: GrowthCandidate) -> EntryFact:
+    demand_names = _candidate_demand_names(candidate)
+    narrowed = tuple(matches)
+    if demand_names:
+        demand_matched = tuple(
+            entry for entry in narrowed
+            if demand_names & {item.name for item in entry.attacker_inputs}
+        )
+        if demand_matched:
+            narrowed = demand_matched
+    if len(narrowed) == 1:
+        return narrowed[0]
+    semantic_keys = {_entry_semantic_key(entry) for entry in narrowed}
+    if len(semantic_keys) == 1:
+        return min(narrowed, key=lambda entry: (_entry_registration_identity(entry), entry.entry_id))
+    registration_keys = {_entry_registration_identity(entry) for entry in narrowed}
+    if len(registration_keys) == 1:
+        return min(narrowed, key=lambda entry: entry.entry_id)
+    raise AnalyzerError(
+        "ANALYSIS_GROWTH_ENTRY_AMBIGUOUS",
+        "Growth candidate must map to exactly one normalized entry.",
+        {"growth_id": candidate.growth_id, "match_count": len(narrowed)},
+    )
+
+
 def _entry_for_candidate(entries: Mapping[str, EntryFact], candidate: GrowthCandidate) -> EntryFact:
-    matches = tuple(sorted(
-        (entry for entry in entries.values() if entry.handler.file == candidate.site.file and entry.handler.start_line <= candidate.site.start_line),
-        key=lambda entry: entry.entry_id,
-    ))
-    if len(matches) != 1:
+    matches = tuple(
+        entry for entry in entries.values()
+        if entry.handler.file == candidate.site.file and entry.handler.start_line <= candidate.site.start_line
+    )
+    if not matches:
+        all_entries = tuple(sorted(entries.values(), key=lambda entry: entry.entry_id))
+        if all_entries and len({_entry_semantic_key(entry) for entry in all_entries}) == 1:
+            return _canonical_entry(all_entries, candidate)
         raise AnalyzerError(
             "ANALYSIS_GROWTH_ENTRY_AMBIGUOUS",
             "Growth candidate must map to exactly one normalized entry.",
-            {"growth_id": candidate.growth_id, "match_count": len(matches)},
+            {"growth_id": candidate.growth_id, "match_count": 0},
         )
-    return matches[0]
+    nearest_line = max(entry.handler.start_line for entry in matches)
+    narrowed = tuple(sorted(
+        (entry for entry in matches if entry.handler.start_line == nearest_line),
+        key=lambda entry: entry.entry_id,
+    ))
+    return _canonical_entry(narrowed, candidate)
 
 
 def _slice_for(
@@ -609,13 +669,13 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
         if not isinstance(database, DatabaseInfo): raise AnalyzerError("CODEQL_DATABASE_INVALID", "CodeQL database validation failed.")
         try:
             source_root = database.source_root.resolve(strict=True)
-            checkout = config.llm.source_checkout.resolve(strict=True)
-        except (OSError, RuntimeError) as exc:
+            analysis_root = config.llm.analysis_source_root.resolve(strict=True)
+        except (AttributeError, OSError, RuntimeError) as exc:
             raise AnalyzerError(
                 "CODEQL_DATABASE_INVALID",
                 "CodeQL database source provenance does not match the configured checkout.",
             ) from exc
-        if source_root != checkout:
+        if source_root != analysis_root:
             raise AnalyzerError(
                 "CODEQL_DATABASE_INVALID",
                 "CodeQL database source provenance does not match the configured checkout.",

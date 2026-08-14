@@ -34,6 +34,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--public-source-url")
     parser.add_argument("--source-commit-sha")
     parser.add_argument("--source-checkout", type=Path)
+    parser.add_argument("--analysis-source-root", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--timeout-seconds", type=int)

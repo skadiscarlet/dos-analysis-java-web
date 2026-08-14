@@ -682,7 +682,7 @@ def _publish_outputs_unlocked(batch_root: Path, aggregate_rows: dict[str, list[d
         outputs[name] = _jsonl_bytes(rows)
     outputs["aggregate_status.jsonl"] = _jsonl_bytes(statuses)
     gaps = [row for row in statuses if row.get("status") != "completed"]
-    inventory = {"batch_root": str(batch_root), "format": format, "targets": statuses, "status_counts": dict(Counter(row["status"] for row in statuses)), "totals": dict(totals), "verdict_counts": {key.removeprefix("verdict:"): value for key, value in totals.items() if key.startswith("verdict:")}}
+    inventory = {"batch_root": str(batch_root), "format": format, "targets": statuses, "status_counts": dict(Counter(row["status"] for row in statuses)), "authoritative_status_counts": dict(Counter(str(row.get("authoritative_status")) for row in statuses if row.get("authoritative_status") is not None)), "totals": dict(totals), "verdict_counts": {key.removeprefix("verdict:"): value for key, value in totals.items() if key.startswith("verdict:")}}
     outputs["aggregate_inventory.json"] = (json.dumps(inventory, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
     summary = ["# Java Web DoS Static Batch Summary", "", f"Format: `{format}`", "", "## Status", ""]
     summary.extend(f"- {key}: {value}" for key, value in sorted(inventory["status_counts"].items()))
@@ -695,7 +695,7 @@ def _publish_outputs_unlocked(batch_root: Path, aggregate_rows: dict[str, list[d
         gap_lines.append("No target gaps.")
     else:
         for row in gaps:
-            gap_lines.append(f"- `{row.get('batch_target_name', row.get('batch_target_slug', 'unknown'))}`: {row.get('status')}; missing={row.get('missing_artifacts', [])}; malformed={row.get('malformed_artifacts', [])}")
+            gap_lines.append(f"- `{row.get('batch_target_name', row.get('batch_target_slug', 'unknown'))}`: {row.get('status')} (authoritative={row.get('authoritative_status')}, failure={row.get('failure_reason')}); missing={row.get('missing_artifacts', [])}; malformed={row.get('malformed_artifacts', [])}")
     outputs["aggregate_gaps.md"] = (historical_gaps if historical_gaps is not None else "\n".join(gap_lines) + "\n").encode()
     quality = {
         "format": format, "target_count": len(manifest), "completed": inventory["status_counts"].get("completed", 0),

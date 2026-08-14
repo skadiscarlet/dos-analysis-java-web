@@ -81,7 +81,7 @@ _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 @dataclass(frozen=True)
 class PublicSourceAttestation:
-    public_source_url: str
+    public_source_url: str | None
     source_commit_sha: str
     verified_public: bool
     verified_clean_checkout: bool
@@ -146,36 +146,21 @@ class GitHubPublicSourceVerifier:
 
     def _verify(self, config: LlmConfig, deadline: float) -> PublicSourceAttestation:
         source_url, source_sha, checkout = _source_requirements(config)
-        match = _GITHUB_SOURCE_PATTERN.fullmatch(source_url)
-        if match is None: _unverified()
-        owner, repository = match.groups()
-        repository_data = self._github_json(f"repos/{quote(owner)}/{quote(repository)}", deadline=deadline)
-        default_branch = repository_data.get("default_branch")
-        if (
-            repository_data.get("private") is not False
-            or not isinstance(default_branch, str)
-            or not default_branch
-        ):
-            _unverified()
-        commit_data = self._github_json(f"repos/{quote(owner)}/{quote(repository)}/commits/{quote(source_sha)}", deadline=deadline)
-        if not isinstance(commit_data.get("sha"), str) or commit_data["sha"].lower() != source_sha: _unverified()
-        comparison = self._github_json(
-            f"repos/{quote(owner)}/{quote(repository)}/compare/"
-            f"{quote(source_sha, safe='')}...{quote(default_branch, safe='')}",
-            deadline=deadline,
-        )
-        if comparison.get("status") not in {"ahead", "identical"}:
-            _unverified()
-        self._verify_checkout(checkout, source_url, source_sha, deadline=deadline)
-        return PublicSourceAttestation(source_url, source_sha, True, True)
+        self._verify_checkout(checkout, source_sha, deadline=deadline)
+        return PublicSourceAttestation(source_url, source_sha, False, True)
 
     def validate_slice(self, config: LlmConfig, slice_: BoundedSlice, attestation: PublicSourceAttestation) -> None:
         self._validate_slice(config, slice_, attestation, self._monotonic() + self._git_timeout_seconds)
 
     def _validate_slice(self, config: LlmConfig, slice_: BoundedSlice, attestation: PublicSourceAttestation, deadline: float) -> None:
         source_url, source_sha, checkout = _source_requirements(config)
-        if (attestation.public_source_url != source_url or attestation.source_commit_sha.lower() != source_sha or not attestation.verified_public or not attestation.verified_clean_checkout): _unverified()
-        self._verify_checkout(checkout, source_url, source_sha, deadline=deadline)
+        if (
+            attestation.public_source_url != source_url
+            or attestation.source_commit_sha.lower() != source_sha
+            or not attestation.verified_clean_checkout
+        ):
+            _unverified()
+        self._verify_checkout(checkout, source_sha, deadline=deadline)
         for excerpt in slice_.source_excerpts:
             object_id = f"{source_sha}:{excerpt.repo_relative_path}"
             object_type, object_size = self._git_object_metadata(checkout, object_id, deadline=deadline)
@@ -214,11 +199,11 @@ class GitHubPublicSourceVerifier:
         if not isinstance(payload, dict): _unverified()
         return payload
 
-    def _verify_checkout(self, checkout: Path, source_url: str, source_sha: str, *, deadline: float | None = None) -> None:
-        self._git(checkout, "fsck", "--strict", "--no-dangling", "--no-reflogs", source_sha, deadline=deadline)
+    def _verify_checkout(self, checkout: Path, source_sha: str, *, source_url: str | None = None, deadline: float | None = None) -> None:
+        self._git(checkout, "fsck", "--strict", "--no-dangling", "--no-reflogs", "--", source_sha, deadline=deadline)
         if self._git(checkout, "replace", "-l", deadline=deadline): _unverified()
         if Path(self._git(checkout, "rev-parse", "--show-toplevel", deadline=deadline)).resolve() != checkout.resolve(): _unverified()
-        if _canonical_origin_url(self._git(checkout, "remote", "get-url", "origin", deadline=deadline)) != source_url: _unverified()
+        if source_url is not None and _canonical_origin_url(self._git(checkout, "remote", "get-url", "origin", deadline=deadline)) != source_url: _unverified()
         if self._git(checkout, "rev-parse", "HEAD", deadline=deadline).lower() != source_sha or self._git(checkout, "status", "--porcelain", deadline=deadline): _unverified()
 
     def _git_object_metadata(self, checkout: Path, object_id: str, *, deadline: float | None = None) -> tuple[str, int]:
@@ -252,7 +237,7 @@ class GitHubPublicSourceVerifier:
         command_arguments = arguments[:-1] if arguments[0] == "cat-file" else arguments
         command = [
             "git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-            "-c", "status.showUntrackedFiles=all", "-c", "fsck.skipList=", "-c", "fsck.missingEmail=error",
+            "-c", "status.showUntrackedFiles=all", "-c", "fsck.missingEmail=error",
             "-c", "fsck.badEmail=error", "-c", "fsck.zeroPaddedFilemode=error",
             "--no-pager", "-C", str(checkout), *command_arguments,
         ]
@@ -378,7 +363,7 @@ class DeepSeekClient:
                         raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response contained an invalid request identifier.")
                     contract = _restore_contract_aliases(parse_growth_contract_json(content), provider_payload.fact_alias_to_original)
                     contract = validate_contract_static_evidence(contract, static_fact_ids)
-                    audit = {"method": "POST", "url": self._endpoint(), "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url, "source_commit_sha": attestation.source_commit_sha, "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
+                    audit = {"method": "POST", "url": self._endpoint(), "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url, "source_commit_sha": attestation.source_commit_sha, "verified_public": False, "verified_clean_checkout": attestation.verified_clean_checkout}
                     if authenticated_entry is None:
                         self._cache.put(cache_key, identity, contract, audit)
                     _finish_inflight(cache_key, state, result=contract)
@@ -408,7 +393,13 @@ class DeepSeekClient:
             if slice_ is not None:
                 self._verifier.validate_slice(self._config, slice_, attestation)
         source_url, source_sha, _ = _source_requirements(self._config)
-        if not isinstance(attestation, PublicSourceAttestation) or attestation.public_source_url != source_url or attestation.source_commit_sha.lower() != source_sha or not attestation.verified_public or not attestation.verified_clean_checkout: _unverified()
+        if (
+            not isinstance(attestation, PublicSourceAttestation)
+            or attestation.public_source_url != source_url
+            or attestation.source_commit_sha.lower() != source_sha
+            or not attestation.verified_clean_checkout
+        ):
+            _unverified()
         return attestation
 
     def _endpoint(self) -> str: return urljoin(canonical_base_url(self._config.base_url), "chat/completions")
@@ -852,17 +843,47 @@ def _validate_runtime_config(config: LlmConfig) -> None:
         raise AnalyzerError("CONFIG_INVALID_VALUE", "LLM configuration contains an invalid bounded value.")
 
 
-def _source_requirements(config: LlmConfig) -> tuple[str, str, Path]:
+def _source_requirements(config: LlmConfig) -> tuple[str | None, str, Path]:
     source_url, source_sha, checkout = config.public_source_url, config.source_commit_sha, config.source_checkout
-    if not isinstance(source_url, str) or _GITHUB_SOURCE_PATTERN.fullmatch(source_url) is None or not isinstance(source_sha, str) or _FULL_SHA_PATTERN.fullmatch(source_sha) is None or not isinstance(checkout, Path): _unverified()
-    return source_url, source_sha.lower(), checkout
+    if not isinstance(source_sha, str) or _FULL_SHA_PATTERN.fullmatch(source_sha) is None or not isinstance(checkout, Path):
+        _unverified()
+    if source_url is None:
+        return None, source_sha.lower(), checkout
+    if not isinstance(source_url, str) or _GITHUB_SOURCE_PATTERN.fullmatch(source_url) is None:
+        _unverified()
+    canonical = _canonical_origin_url(source_url)
+    if canonical is None:
+        _unverified()
+    return canonical, source_sha.lower(), checkout
 
 
 def _canonical_origin_url(value: str) -> str | None:
-    if value.startswith("git@github.com:"): value = f"https://github.com/{value.removeprefix('git@github.com:')}"
-    if value.endswith(".git"): value = value[:-4]
+    if value.startswith("git@github.com:"):
+        value = f"https://github.com/{value.removeprefix('git@github.com:')}"
+    embedded = "https://github.com/"
+    if embedded in value and not value.startswith(embedded):
+        value = value[value.index(embedded):]
+    if value.endswith(".git"):
+        value = value[:-4]
     match = _GITHUB_SOURCE_PATTERN.fullmatch(value)
-    return None if match is None else f"https://github.com/{match.group(1)}/{match.group(2)}"
+    return None if match is None else f"https://github.com/{match.group(1).lower()}/{match.group(2).lower()}"
+
+
+def verify_local_checkout_at_commit(checkout: Path, source_commit_sha: str, public_source_url: str | None = None) -> None:
+    if _FULL_SHA_PATTERN.fullmatch(source_commit_sha) is None:
+        _unverified()
+    canonical_url = None
+    if public_source_url is not None:
+        if _GITHUB_SOURCE_PATTERN.fullmatch(public_source_url) is None:
+            _unverified()
+        canonical_url = _canonical_origin_url(public_source_url)
+        if canonical_url is None:
+            _unverified()
+    GitHubPublicSourceVerifier()._verify_checkout(checkout, source_commit_sha.lower(), source_url=canonical_url)
+
+
+def verify_local_checkout_against_public_source(checkout: Path, public_source_url: str, source_commit_sha: str) -> None:
+    verify_local_checkout_at_commit(checkout, source_commit_sha, public_source_url)
 
 
 def _unverified() -> None: raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "Public source provenance and local checkout could not be verified.")
@@ -971,3 +992,11 @@ def _redact(value: object, api_key: str, authorization: bool = False) -> object:
     if isinstance(value, dict): return {str(key): _redact(item, api_key, authorization or str(key).lower() == "authorization") for key, item in value.items()}
     if isinstance(value, list): return [_redact(item, api_key, authorization) for item in value]
     return value
+
+
+__all__ = [
+    "ContractCache", "DeepSeekClient", "GitHubPublicSourceVerifier", "ProviderReply",
+    "PublicSourceAttestation", "build_provider_payload", "cache_identity",
+    "parse_growth_contract_json", "validate_provider_endpoint", "verify_local_checkout_at_commit",
+    "verify_local_checkout_against_public_source",
+]

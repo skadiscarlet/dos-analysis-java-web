@@ -1,5 +1,838 @@
 # dos-analysis-web v2 CHANGELOG
 
+## [2026-08-14] Tighten Cryostat blocked verdict to image packaging plus notifications-route mismatch
+
+### 修改时间
+2026-08-14 05:20
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `cryostatio__cryostat-legacy-F-WS-001` 做最后一轮官方镜像/README 口径复核，先重读既有 `result.json`、`environment.md`、共享环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl` 与失败日志，再确认旧 blocker 仍主要停留在 “H2 datasource/Flyway 启动失败” 的粒度。
+- 在不修改业务代码、不引入组外 case 的前提下，新增两条最小机械复测：其一是按仓库 `compose/compose-postgres.yaml` 的文档化 PostgreSQL companion 路径重启官方镜像；其二是在同一 PostgreSQL companion 基础上，只额外补入未文档化但与打包 Quarkus 运行时相匹配的 `QUARKUS_DATASOURCE_JDBC_URL/USERNAME/PASSWORD` bridge，目的是压缩 blocker，而不是把该路径当作默认验证成功。
+- 新证据进一步收紧了官方镜像缺陷：镜像 `/deployments/lib/main` 中实际只包含 `io.quarkus.quarkus-jdbc-postgresql`、`org.postgresql.postgresql` 与 PostgreSQL 侧 Flyway 依赖，并无 H2 JDBC jar，因此 README 与 compose 默认声称支持的 `CRYOSTAT_JDBC_*` H2 file / H2 mem 路径在打包镜像里天然不可用；而文档化 PostgreSQL companion 路径本身也仍不会激活默认 datasource，只有补入未文档化 `QUARKUS_DATASOURCE_*` bridge 后 `/health` 才首次返回 200。
+- 即便如此，bridge 仅用于诊断的问题仍未结束：在该 health-ready 诊断路径上，`GET /api/v1/notifications_url` 与 `GET /api/v1/notifications` 依旧返回前端 SPA `text/html`，而不是源码/文档声明的 JSON notificationsUrl 语义或可继续预检的通知 WebSocket 入口。因此保留 `environment_blocked`，但将失败点压缩为 “官方镜像 latest 的打包 datasource 合约与 README/compose 不一致，且即便桥接到健康状态，通知 API 路由仍与文档语义不符”。同步更新 `result.json`、`environment.md`、`data_prep.md`、`rounds/round-1/preflight.json`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 与批次 `validation_status.jsonl`。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的 PostgreSQL bridge 诊断路径包装成默认部署成功。
+- 新证据表明当前 blocker 已精确推进为：官方 latest 镜像与 README/compose 的 datasource/notifications API 契约不一致；只有当官方镜像重新对齐其文档化 datasource 路径，并真实暴露 `/api/v1/notifications_url` JSON 语义后，通知 WebSocket 的默认动态验证才可继续。
+
+## [2026-08-14] Confirm lamp-cloud has no default-compatible prebuilt fallback path
+
+### 修改时间
+2026-08-14 02:08
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `dromara__lamp-cloud-FND-001` 复核既有 `environment_blocked` 结论，先重读 case `result/environment/logs/changes` 与批次 `validation_status.jsonl`，确认旧 blocker 已收紧到缺失 sibling `lamp-util` 派生 parent artifact，但仍缺少“是否存在官方替代交付路径”的最终证据。
+- 在不修改业务代码前提下，补做默认兼容 fallback 路径审查：重读仓库 `README.md`、`lamp-dependencies-parent/pom.xml`、`A极其重要/01-docs/docker/03.docker运行项目.md`，枚举仓库内 `jar/compose/Dockerfile` 资产，并额外检查 `dromara/lamp-cloud` 官方 GitHub Releases / Packages 页面是否存在 release、镜像或可下载预构建产物。
+- 新证据表明默认路径没有可替代发布方式：仓库只文档化“先编译整个项目再构建镜像”的路径，明确声明编译顺序必须是 `lamp-util -> lamp-cloud -> lamp-job`；仓库内不存在可直接运行的 gateway jar、也不存在自包含 compose；GitHub Releases 页面明确显示 “There aren’t any releases here”，Packages 页面也未显示任何 `lamp-cloud` 包或镜像。
+- 因此该案继续保留 `environment_blocked`，并把阻塞点精确固定为“默认构建硬依赖缺失的 sibling 资产”：即 `top.tangyh.basic:lamp-parent:5.10.0` 既不在 workspace sibling、也不在配置镜像仓库、也不在本地 Maven 缓存中，同时不存在仓库内或官方发布面上的默认兼容预构建替代路径。同步更新 `result.json`、`environment.md`、`data_prep.md`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`notes.txt`、`changes.jsonl` 与批次 `validation_status.jsonl`，随后重新运行聚合脚本刷新汇总。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未伪造 sibling 项目、手工补 parent POM、切换非官方镜像或采用未文档化交付方式来制造 gateway 就绪。
+- 新证据将 lamp-cloud 的默认阻塞点最终固定为：默认构建链硬依赖缺失的 sibling `lamp-util` 派生 parent artifact，且仓库内与官方发布面上都不存在默认兼容的预构建替代路径；只有当官方默认构建所需的 `top.tangyh.basic:lamp-parent:5.10.0` 能通过 sibling 项目正常安装到本地仓库后，Nacos + gateway + downstream swagger baseline 才能继续。
+
+## [2026-08-14] Tighten lamp-cloud blocked verdict to unresolved sibling parent artifact
+
+### 修改时间
+2026-08-14 01:43
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `dromara__lamp-cloud-FND-001` 做最后一轮默认部署/默认流程口径复核，先重读既有 `result.json`、`environment.md`、共享环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl` 与批次 `validation_status.jsonl`，确认旧 blocker 仍停留在“缺失 sibling lamp-util 项目”的较粗粒度表述。
+- 在不修改业务代码、不引入组外 case 的前提下，补做两次环境修复尝试：其一是按文档化路径重跑 `mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package`；其二是 `-o` 离线重试，验证是否已有可复用的本地 Maven 缓存足以支撑默认构建。
+- 新证据表明 blocker 可进一步收紧：两次 Maven 尝试都在 `lamp-dependencies-parent/pom.xml` 处因 `top.tangyh.basic:lamp-parent:5.10.0` 解析失败而在运行前终止；配置的 `aliyunmaven` mirror 不提供该 parent POM，而本机 `~/.m2/repository/top/tangyh/basic/lamp-parent/5.10.0/` 仅有 `lamp-parent-5.10.0.pom.lastUpdated`，并不存在可复用的已安装 parent artifact。
+- 因此该案继续保留 `environment_blocked`，但把阻塞点从泛化的“缺失 sibling lamp-util 源码树”推进为“默认构建所需的 sibling lamp-util 派生 parent POM 既不在镜像仓库中，也不在本地 Maven 缓存中”；同时保留另一默认前提：即便 Nacos export archive 已随仓库提供，仍需成功构建 gateway 与至少一个下游 swagger 服务才能进入 `/v3/api-docs/swagger-config` 语义预检。同步更新 `result.json`、`environment.md`、`data_prep.md`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`notes.txt`、`changes.jsonl` 与批次 `validation_status.jsonl`。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过伪造 sibling 项目、手工补 parent POM、切换非官方构建路径或启用非默认 feature flag 来制造 gateway 就绪。
+- 新证据把 lamp-cloud 的默认阻塞点精确推进为：默认构建链在 sibling lamp-util 派生 parent artifact 缺失处即终止；只有当官方默认构建所需的 `top.tangyh.basic:lamp-parent:5.10.0` 能通过 sibling 项目正常安装到本地仓库后，Nacos + gateway + downstream swagger baseline 才能继续。
+
+## [2026-08-14] Tighten Rill Flow blocked verdict to JDK cgroup v2 deployment failure
+
+### 修改时间
+2026-08-14 01:25
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `weibocom__rill-flow-F-001`、`weibocom__rill-flow-F-002`、`weibocom__rill-flow-F-003` 做最后一轮默认部署/默认流程复核，先重读既有 `result.json`、共享环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl`、启动日志与批次 `validation_status.jsonl`，确认旧 blocker 仍停留在较粗粒度的 “Micrometer ProcessorMetrics NPE”。
+- 在不修改业务代码、不启用非默认 feature 的前提下，补做一轮运行时兼容性诊断：继续保留官方 compose、官方镜像与仅隔离 host 端口的部署口径，同时新增官方镜像 `--cgroupns=host` + `/sys/fs/cgroup:ro` 诊断采样，记录镜像内 `/proc/self/cgroup`、`/proc/self/mountinfo` 与 `/sys/fs/cgroup` 视图到 `cgroup_diag_20260814.txt`。
+- 新证据把 blocker 收紧为默认镜像/JDK/运行时组合问题：`weibocom/rill-flow:latest` 内置 OpenJDK `17.0.2+8-86` 在当前 cgroup v2 + systemd scope 宿主布局下始终把 controller 解析为空，先在 OpenTelemetry runtime metrics 初始化阶段抛错，再在 Spring Boot Micrometer `processorMetrics` bean 创建时以同一 `anyController=null` 终止 webapp 部署；即便容器状态保持 `running`，最终对 `http://127.0.0.1:18083/flow/bg/manage/descriptor/get_business.json` 的探测也只得到 TCP reset，而不是可用 HTTP 响应。
+- 因此三案继续保留 `environment_blocked`，但阻塞点已从“backend 启动失败”推进为“官方默认镜像绑定的 OpenJDK 17.0.2 无法在当前 cgroup v2/systemd scope 运行时完成部署”；同步更新三份 `result.json`、三份 `environment.md`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 与批次 `validation_status.jsonl`，随后重新运行聚合脚本刷新汇总。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-001`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-002`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-003`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过禁用 tracing、关闭 metrics、切换非官方镜像或引入非默认 feature flag 来制造 backend 就绪。
+- 新证据表明三条候选路径当前都被同一个默认镜像/JDK/cgroup 兼容性问题阻断；只有当官方镜像或宿主运行时允许该镜像不改行为地完成 Spring Boot/Tomcat 部署后，cron trigger、Kafka trigger 与 foreach submit 的默认语义预检才可继续。
+
+## [2026-08-14] Tighten Cryostat blocked verdict to packaged datasource bootstrap failure
+
+### 修改时间
+2026-08-14 01:11
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `cryostatio__cryostat-legacy-F-WS-001` 做最后一轮默认部署/默认流程口径复核，先重读既有 `result.json`、环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl` 与失败日志，再确认旧 blocker 仍停留在“datasource 未激活 / build-time db-kind 不匹配”的较粗粒度表述。
+- 在不修改业务代码、不引入组外 case 的前提下，补做两条最终官方镜像路径验证：其一是仓库 `run-docker.sh` 等价的 `NoopAuthManager` 路径；其二是按 `smoketest-docker.sh` 文档化方式补齐 `cryostat-users.properties` 后的 `BasicAuthManager` 路径。两条路径都继续保留隔离端口、官方镜像、官方 bind-mount 目录和仅为满足打包运行时所需的有界 `QUARKUS_S3_*` 值。
+- 新证据表明 blocker 可进一步收紧：在 `quarkus.s3.*` 已补齐后，官方镜像不仅会拒绝此前已见的 README 支持 H2 file URL，连 README 明确支持的 H2 mem URL 也会在 Noop 与带文档化用户文件的 BasicAuth 两条官方路径上，被打包镜像内置 Agroal/Flyway 一致报出 `Driver does not support the provided URL`；容器均在 `/health` 绑定前退出，`/api/v1/notifications_url` 与通知 WebSocket 始终不可达。
+- 因此保留 `environment_blocked`，但把阻塞点从“缺少默认 BasicAuth 用户文件/Quarkus datasource 未激活”推进为“官方镜像打包的 datasource/Flyway 启动链对 README 支持的 H2 file 与 H2 mem URL 都不可用”，并同步更新 `result.json`、`environment.md`、`data_prep.md`、共享环境 `feasibility/readiness/snapshot/changes`、批次 `validation_status.jsonl` 与 `blocked_or_rejected.jsonl`。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过非默认 feature flag、关闭鉴权或自定义 sibling 资产绕过默认路径。
+- 新证据证明即便按官方 `smoketest-docker.sh` 口径补齐 BasicAuth 用户文件，真正阻塞点仍位于官方镜像自身打包的 datasource/Flyway 启动链，因此当前默认镜像无法进入 WebSocket 语义预检阶段。
+
+## [2026-08-14] Tighten OpenMeetings blocked verdict from room preconditions to office-conversion environment
+
+### 修改时间
+2026-08-14 00:55
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 只针对 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` 继续执行最后一轮默认部署/默认流程口径复核，先重读既有 `result.json`、`environment.md`、`data_prep.md`、`preflight.json`、`observations.json`、共享环境 `readiness/feasibility/inventory/snapshot` 与运行日志，确认旧 `precondition_blocked` 描述已经落后于最新证据。
+- 复核结果表明默认业务前置其实已经补齐：默认 H2 安装和前后台登录均已成功；通过默认 service API 创建 public non-moderated room 后，low-privilege external attendee 已经经正常 `/hash` UI/WebSocket 流程进入房间，页面真实暴露 `omws-upload-sid`，且同源 benign `.docx` `POST /openmeetings/room/file/upload` 返回 `{"status":"SUCCESS","message":"OK"}`。
+- 新终态阻塞不再是 presenter 会话或 room SID，而是默认转换环境：accepted office 文档进入 `DocumentConverter` 后，`openmeetings.log` 记录 `doJodConvert` 在 `DocumentConverter.createOfficeManager()` 处抛出 `java.lang.NullPointerException: officeHome must not be null`；同时宿主侧 `command -v libreoffice` 与 `command -v soffice` 均为空，说明当前 documented source-build release runtime 未自动发现 LibreOffice/OpenOffice，也未完成 `path.office` bootstrap。
+- 因此将该 case 从 `precondition_blocked` 收紧推进为 `environment_blocked`，并同步改写 `result.json`、`case_plan.json`、`environment.md`、`data_prep.md`、共享环境 `readiness.json`、`feasibility.json`、`inventory.json`、`snapshot.json`、`changes.jsonl` 与批次 `validation_status.jsonl`，使 blocker 精确落到默认 office conversion 依赖缺失，随后重新运行聚合脚本刷新批次汇总。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过手工设置 `path.office`、安装非文档化自定义组件或绕过默认 room/upload 鉴权来制造成功。
+- 新证据将 OpenMeetings 的剩余 blocked 点从“默认 low-privilege presenter/room 前置未补齐”精确推进为“默认 source-build release runtime 缺少可用 office conversion bootstrap，因此 accepted upload 在进入真正 worker 压力前即失败”。
+
+## [2026-08-14] Re-drive Airavata default launch and bounded file-download preflight
+
+### 修改时间
+2026-08-14 00:35
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `apache__airavata-FND-200-1` 复核既有 `precondition_blocked` 结论，先重读该 case 的 result/environment/data-prep/log 工件，再在不修改业务代码、不启用非默认 feature 的前提下，重新尝试默认部署与默认流程口径下的实验/文件前置补齐。
+- 新证据表明真正可行的默认路径不是 host-side `AiravataOperator.make_experiment_dir()`：该 SDK 路径仍会把 `default-admin` bearer token 当作 SFTP 密码而失败；但默认 server-side `LaunchExperiment` 会按 seeded storage preference 的 `login_user_name=airavata` 成功创建实验目录、启动 Echo 作业并产出 own-process `Echo.stdout` 文件。
+- 随后完成了目标入口的语义预检：`GET /api/v1/files/list/false/{processId}` 与 `GET /api/v1/files/download/false/{processId}/Echo.stdout` 在 bearer token 下均返回 200，服务端日志明确记录 `AirvataFileService` 通过 SFTP 下载远端 `Echo.stdout` 到本地临时文件后再由 `FileController` 返回响应，说明静态候选路由已真实可达。
+- 在默认路径上执行单轮有界小文件下载爬坡（33B / 129B / 241B 响应体），同步记录 `docker stats` 与健康检查；Airavata 容器内存稳定在约 1.278-1.282 GiB，健康始终 200，未出现 OOM、重启、持续 5xx 或持续不可用，因此该案从 `precondition_blocked` 推进为 `not_reproduced_under_tested_bounds`。
+- 同时记录新的默认业务上界：继续放大同一 seeded Echo 路径时，`CreateExperiment` 会先被默认数据库 `RESEARCH_IO_PARAM.PARAM_VALUE=tinytext` 拦截，1024B 及以上输入直接报 `Data too long`，因此本轮未再进入更大下载压力阶段。
+- 同步更新该 case 的 `result.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`、新增 `rounds/round-1/` 工件，并回写批次 `validation_status.jsonl`，准备重新运行聚合脚本刷新共享汇总报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未关闭鉴权、伪造 portal、改 seed 或启用非默认配置来制造成功。
+- 新证据把 Airavata 的默认阻塞结论推进为真实可执行后的终态：默认 server-side launch 与文件下载链路可达，但在当前默认 seeded Echo 业务路径下，只观察到有界小文件成功下载，未观察到资源耗尽；更大的同路径输入会先命中默认数据库 tinytext 上界。
+
+## [2026-08-14] Remove GitHub attestation fallback from full-mode local commit verification
+
+### 修改时间
+2026-08-14 00:18
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续收紧 `dosweb/llm/deepseek.py` 的 provenance 逻辑：即使旧 `batch_plan.json` 或 target capability 仍带有 `public_source_url`，full 模式也不再回退到 GitHub API 做 public-source attestation，而是统一只验证本地 `source_checkout + source_commit_sha` 的 clean commit 绑定。
+- 同步修正 `dosweb/llm/cache.py` 与 request audit 写入逻辑，确保缓存身份、审计字段和新的本地 commit 证明口径一致，避免 `invalid cache entry` 回归。
+- 新增 `tests/test_deepseek_client.py` 回归测试，覆盖“带 `public_source_url` 但仍只走本地 commit 校验且不访问 GitHub API”的场景。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/deepseek.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/cache.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_deepseek_client.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+
+### 依赖与影响
+- 旧 plan 无需重建也能直接受益；只要本地 checkout 和 commit 可验证，full batch 就不会再被 GitHub provenance 卡住。
+
+## [2026-08-13] Re-drive Bonita low-privilege default bootstrap and upload probe
+
+### 修改时间
+2026-08-14 00:10
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 只针对 `bonitasoft__bonita-engine-FND1` 继续复核既有 `auth_blocked` 结论，重读该 case 的 `result.json`、preflight、environment 工件与 Bonita 默认权限/REST 路径源码，不修改业务代码、不启用非默认 feature、不用管理员账号直接代替低权限攻击者。
+- 在官方 `bonita:latest` 默认镜像与兼容 Postgres companion 的隔离复现环境中，确认首次阻塞并非“默认流程无法得到普通用户”，而是默认镜像只暴露 `install/install` bootstrap 技术账号、不会自动 seed 组织成员；但该默认 bootstrap 账号可通过内置 `API/identity/{group,role,user,membership}` 与 `API/portal/profileMember` 路径完成最小组织初始化，创建普通非管理员 `lowuser` 并赋予默认 `User` profile。
+- 进一步以该 `lowuser` 完成语义预检：`GET /portal/fileUpload` 对低权限用户返回 403，但静态入口对应的 `POST /portal/fileUpload` multipart 上传在默认会话下返回 200，因此真正相关的是已认证 POST 语义，而不是 GET 页面访问。
+- 在低权限账号下执行有界 multipart part-count 爬坡（1 / 100 / 400 个 16B 文本 part），同步记录容器内存与 HTTP 可用性；三轮请求全部 200，Bonita 容器内存维持在约 459-460 MiB，未触发 OOM、重启、持续 5xx 或持续不可用，因此该案从 `auth_blocked` 收紧改判为 `not_reproduced_under_tested_bounds`。
+- 同步更新该 case 的 `case_plan.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`、`result.json`、新增 `round-2/` 工件，并回写批次 `validation_status.jsonl`，准备重新运行聚合脚本刷新共享汇总报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/bonitasoft__bonita-engine-FND1`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过管理员账号直接充当攻击者、关闭鉴权、恢复非默认行为或注入自定义 seed 制造成功。
+- 新证据将 Bonita 的默认阻塞点从“拿不到普通账号”精确收紧为：默认镜像不会自动给出普通用户，但 bootstrap 管理员可经内置默认组织/profile API 创建最小低权限账号；即便如此，在当前有界 part-count 与单请求测试范围内仍未复现动态资源耗尽。
+
+## [2026-08-13] Tighten Airavata dynamic precondition blocker semantics
+
+### 修改时间
+2026-08-13 23:59
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续复核 `apache__airavata-FND-200-1` 的既有 `precondition_blocked` 证据，只沿默认文档化 quickstart、默认 Keycloak、默认 SDK 和现有 companion services 检查是否还能补齐 Echo 实验/项目/文件前置，不修改业务代码。
+- 新增宿主侧与容器网络内认证探测工件，明确区分两类现象：宿主 `127.0.0.1:18080` 并未暴露可直接使用的 Keycloak token endpoint；但在默认 Docker 网络内，`keycloak:18080` 可成功签发默认 `pga` client 的 token，且该 token 能通过 gRPC 成功枚举 seeded `Default Project`，说明默认 API 认证链本身并未缺失。
+- 进一步以容器内 `AiravataOperator` 复核默认 SDK 业务链：`get_project_id("Default Project")` 与 `get_preferred_storage()` 都成功返回，且 seeded storage preference 明确解析到 `storage_resource_id=sftp_877f4ac0-0670-4d4e-94dc-726ab14db77a`、`login_user_name=airavata`、`root=/storage`；真正阻塞发生在 `make_experiment_dir()`，SDK 默认以 `username=default-admin` 且 `password=<bearer token>` 对 `sftp:22` 做 Paramiko 认证并返回 `Authentication failed`，因此实验目录、进程文件与下载路由预检仍无法建立。
+- 保留并收紧另一条阻塞：README 文档化的 portal UI 备选路径仍依赖 sibling `airavata-portals` 仓库，而当前 worker 主机缺失 `/home/furina/new_tool/airavata-portals`，因此无法通过该默认 UI 流程补齐 Echo 实验。
+- 同步更新该 case 的 `result.json`、批次 `validation_status.jsonl` 与证据路径，并准备重新运行聚合脚本刷新共享汇总。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过关闭鉴权、伪造 portal、手工改 seed、替换 storage 凭据或引入非默认 feature flag 制造成功。
+- 新证据把该案阻塞点从泛化的“默认 SDK 路径缺认证”收紧为：默认 API 鉴权可达，但默认 SDK/seeded storage preference 组合无法为 `default-admin` 建立实验目录所需的 SFTP 认证；同时文档化 UI 备选路径所需 sibling portal 资产缺失。
+
+## [2026-08-13] Re-drive OpenMeetings install-to-login transition
+
+### 修改时间
+2026-08-13 23:59
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 只针对 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` 继续沿文档化 source-build release package / 默认 H2 安装路径排查，不修改业务代码、不切换部署模型。
+- 复读既有 case/environment 工件、运行日志、访问日志与默认 `persistence.xml` 后，确认此前“日志 ready 但前台仍回 install”的根因不是默认 H2 永久不可安装，而是 `startup.sh` 与 `admin.sh` 共用 `jdbc:h2:./omdb`：当二者从不同工作目录执行时，会各自落到不同的相对 H2 文件。
+- 在同一 release runtime 目录内重跑 `./bin/startup.sh` 与 `./admin.sh -i ...` 后，runtime-local `omdb.mv.db` 明确增长，`GET /openmeetings/signin` 返回 200 登录页，前台 `POST /openmeetings/signin` 对 `omadmin` 返回 302 到 `.`，REST `POST /openmeetings/services/user/login` 也返回成功 SID，证明默认安装态已真正推进到可登录前台。
+- 同时收紧该案终态：当前已不再是 `environment_blocked`，而是 `precondition_blocked`。剩余阻塞点是默认低权限 presenter 业务前置仍未补齐——尚未通过默认 room UI/WebSocket 流程建立 low-privilege presenter 房间会话并捕获实时 `omws-upload-sid`，因此仍不能合法执行 `/room/file/upload` 动态探测。
+- 同步更新该 case 的 `result.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`，共享环境 `readiness.json`、`changes.jsonl`，以及批次 `validation_status.jsonl`，并准备重新运行聚合脚本刷新汇总报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- environment 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过关闭安全控制、管理员替代低权限攻击模型或非默认 feature flag 制造成功。
+- 新证据把 OpenMeetings 的默认阻塞点从“安装未完成”收紧为“安装与管理员登录已成功，但 low-privilege presenter 房间会话 / `omws-upload-sid` 业务前置仍缺失”。
+
+## [2026-08-13] Re-drive Openfire default autosetup and BOSH preflight
+
+### 修改时间
+2026-08-13 23:59
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 只针对 `igniterealtime__openfire-F0154` 继续沿官方 GHCR 镜像与仓库 `documentation/install-guide.html` 的文档化 autosetup 路径排查，不修改业务代码，不切换非官方镜像，也不关闭任何安全/资源控制。
+- 复盘第一次 case-local autosetup 失败后，进一步提取官方镜像 `/sbin/entrypoint.sh` 与默认 `conf_org`/`security_org` 布局，确认此前的空指针并非“autosetup 本身不可用”，而是第一次修复只替换了 `conf/openfire.xml`，却没有保留镜像默认 `conf/security.xml` 与 `conf/security/` 资产，导致 `JiveGlobals.setupPropertyEncryptionAlgorithm` 在旧算法值为空时崩溃。
+- 新建第二个 case-local `/var/lib/openfire` 数据目录，保留镜像默认 `conf/security.xml`、`conf/security/`、`crowd.properties` 等 entrypoint 期望资产，仅按文档化 autosetup 方式替换 `conf/openfire.xml`。在该布局下，官方镜像成功完成 embedded-database setup、安装 schema，并明确记录 `HTTP bind service started`。
+- 在修通后的默认兼容环境上完成匿名 `/http-bind/` 语义预检：最小有效 BOSH POST 返回 200 且包含正常 `stream:features`。随后执行 3 个单请求体爬坡（128KiB、512KiB、1MiB），分别记录 JVM RSS 与 `docker stats` 容器内存，结果仅出现小幅正增长，未触发 OOM、重启、请求拒绝或持续不可用，因此该案从 `environment_blocked` 改为 `observed_growth_not_confirmed`。
+- 同步更新该 case 的 `result.json`、`reflection.jsonl`、`environment.md`、`data_prep.md`，共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl`，以及批次 `validation_status.jsonl`，并准备重新运行聚合脚本刷新汇总报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/igniterealtime__openfire-F0154`
+- environment 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/igniterealtime__openfire-default`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过管理员-only 路径、非默认 feature flag 或关闭安全控制制造成功。
+- 新证据将 Openfire 的默认安装阻塞点从“官方 autosetup 空指针”精确收紧为“第一次 case-local bootstrap 缺失镜像默认 security 资产”；一旦按官方 entrypoint 预期保留这些资产，默认文档化 autosetup 即可成立，后续阻塞不再是环境，而是仅观察到 bounded growth、尚未达到动态确认阈值。
+
+## [2026-08-13] Re-drive rill-flow default-image startup failure group
+
+### 修改时间
+2026-08-13 23:59
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续复核 `weibocom__rill-flow-F-001`、`weibocom__rill-flow-F-002`、`weibocom__rill-flow-F-003` 的既有 blocked 原因、环境工件与默认 compose 路径，只允许默认部署、隔离端口/资源、文档化 companion services 和行为中性的运行时兼容修复，不修改业务代码、不关闭安全控制。
+- 在此前已修复 host 端口冲突与 MySQL `setup.sql` 可读性的基础上，确认官方 `weibocom/rill-flow:latest` backend 仍会在默认镜像启动链内于 Spring Boot 2.7 / Micrometer `ProcessorMetrics` 初始化阶段触发 `jdk.internal.platform.cgroupv2.CgroupV2Subsystem.getInstance` 的 `anyController` 空指针，导致 `processorMetrics` bean 创建失败，HTTP 路由始终无法 ready。
+- 新增一次兼容性重试：复用同一默认 companion services、相同环境变量和官方镜像，仅额外施加 `--cgroupns=host` 与只读 `/sys/fs/cgroup` 挂载，验证是否是容器 cgroup 可见性问题。结果该重试仍复现同一 `anyController null -> processorMetrics` 崩溃，说明阻塞点不是启动顺序、伴随服务缺失或简单 cgroup namespace 可见性，而是官方默认镜像内 OpenJDK 17.0.2 与当前 cgroup v2 宿主组合下的运行时缺陷。
+- 同步更新共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 与三个 case 的 `result.json`、`reflection.jsonl`、批次 `validation_status.jsonl`，将 blocked 语义进一步收紧为“默认镜像/运行时组合缺陷导致 backend 无法进入语义预检”，并准备重新运行聚合脚本刷新汇总报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- 新增环境日志：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default/backend_cgroupns_host_retry_20260813.log`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过关闭鉴权、关闭指标、变更 feature flag 或替换非官方镜像制造成功。
+- 新证据把 `weibocom/rill-flow` 三案的默认环境阻塞原因从泛化的“backend 未 ready”进一步收紧为：官方 backend 镜像携带的 OpenJDK 17.0.2 / Micrometer `ProcessorMetrics` 在当前 cgroup v2 宿主上启动即崩，而不是 MySQL、Redis、Jaeger、sample-executor、端口或 descriptor seed 缺失。
+
+## [2026-08-13] Trust local pinned commits for full batch provenance
+
+### 修改时间
+2026-08-13 23:58
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 调整 `dosweb/llm/deepseek.py` 的 provenance 语义：当 `source_checkout` 与 `source_commit_sha` 已提供时，full 模式允许不再要求每次通过 GitHub public-source API 重新证明；未配置 `public_source_url` 时改为仅校验本地 git checkout 绑定到目标 commit、工作树干净且无 replace refs。
+- 保留已有公开源码校验路径：只有显式提供 `public_source_url` 时才继续执行 GitHub public-source attestation 与 origin 一致性检查，因此公开仓库基线仍可复用原有严格证明逻辑。
+- 调整 `dosweb/batch/runner.py` 与 `dosweb/batch/plan.py`：full batch 不再因为 `provider_eligible=false` 自动 paused；对非 `git-commit` 指纹目标，runner 会直接从本地 provider checkout 解析当前 `HEAD` 作为 provider commit，并在必要时用 detached worktree 固定到该 commit 后继续执行。
+- 调整 `dosweb/llm/cache.py` 与相关测试，使本地 provenance 模式下 `verified_public=false`、`verified_clean_checkout=true` 的缓存身份和校验逻辑保持一致。
+- 新增并更新 `tests/test_deepseek_client.py`、`tests/test_batch_runner.py`、`tests/test_batch_plan.py` 回归测试，覆盖本地 commit 绑定、tree-sha256 full 调度、worktree fallback 与 helper 语义更新。
+- 运行 `python -m pytest -q tests/test_deepseek_client.py tests/test_batch_runner.py tests/test_batch_plan.py tests/test_config_and_cli.py`，结果 `157 passed`。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/deepseek.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/batch/runner.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/batch/plan.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/cache.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_deepseek_client.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_batch_runner.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_batch_plan.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+
+### 依赖与影响
+- full 模式现在默认信任“已在本地固定并可自校验的当前 commit”，不再把重复 GitHub attestation 当作运行前置，因此可继续处理已验证过一轮的本地源码样本。
+- 若调用方仍提供 `public_source_url`，原有公开来源证明链保持启用，不影响需要严格 public-source provenance 的场景。
+
+## [2026-08-13] Re-drive lamp-cloud non-simple environment-blocked case
+
+### 修改时间
+2026-08-13 23:42
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 复核 `dromara__lamp-cloud-FND-001` 的既有 blocked 原因、环境工件、默认部署文档与 round-1 阻塞日志，继续只按默认 `lamp-cloud` 路径检查可补齐的环境前置，不修改业务代码、不启用非默认行为。
+- 重新执行文档化构建命令 `mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package`，再次确认默认启动链在 bootstrap 之前就被 `lamp-dependencies-parent/pom.xml` 的外部前置拦住：该仓库明确要求先单独下载并构建 sibling `lamp-util`，把 `top.tangyh.basic:lamp-parent:5.10.0` 等 artifacts 安装进本地 Maven 仓库；当前 workspace 中缺失该 sibling 源码，且配置镜像也不提供该 parent POM。
+- 纠正此前过泛的“Nacos 配置缺失”表述：仓库实际内置了 `A极其重要/01-third-party/nacos/nacos_config_export_20260615232624.zip`，其中包含 `common.yml`、`redis.yml`、`mysql.yml`、`rabbitmq.yml` 与 `lamp-gateway-server.yml`。因此本轮将 `inventory.json`、`readiness.json`、`notes.txt`、`changes.jsonl`、`environment.md`、`result.json` 与 `validation_status.jsonl` 全部收紧为更精确的阻塞语义——默认路径真正无法补齐的是缺失的 `lamp-util` 构建资产，以及由此无法启动 gateway/downstream services。
+- 保持该案终态为 `environment_blocked`：即使 Nacos seed material 可用，默认 `/v3/api-docs/swagger-config` 聚合路径仍需要 buildable gateway 和至少一个向 Nacos 注册 swagger route 的下游 lamp 服务；在缺失 `lamp-util` sibling 源码的当前 workspace 中，这一步无法通过默认流程完成。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- environment 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过管理员路径、关闭安全控制、非默认 feature flag 或伪造服务图来制造成功。
+- 新证据把阻塞点从笼统的“默认环境缺配置”收紧为：默认源码构建依赖仓库外的 `lamp-util` sibling 资产，而当前 workspace 未提供它；因此该案属于默认流程下无法机械补齐的外部构建资产缺失。
+
+## [2026-08-13] Re-drive environment-repairable dynamic blocked group
+
+### 修改时间
+2026-08-13 20:35
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 复核并重试 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`、`cryostatio__cryostat-legacy-F-WS-001`、`igniterealtime__openfire-F0154`、`weibocom__rill-flow-F-001`、`weibocom__rill-flow-F-002`、`weibocom__rill-flow-F-003` 的既有 blocked 原因、环境工件与默认部署路径，只允许默认部署、隔离端口/资源与文档化 companion services。
+- 对 `weibocom/rill-flow` 先修复共享工作站上的 host 端口冲突：把 backend/UI/Jaeger/MySQL 映射改为 `18083/18003/16689/13316` 后，官方 compose 已能完整拉起容器，从而确认早先 `backend_inspect.json` 里的 18080 bind 错误只是外部冲突；但 backend 随后仍在默认镜像启动链内因 OpenTelemetry/Micrometer 访问 cgroup v2 时 `anyController` 为空而空指针退出，`processorMetrics` bean 创建失败，三案继续 `environment_blocked`，阻塞语义已从泛化的“未 ready”收紧为默认镜像内部启动失败。
+- 对 `cryostatio/cryostat-legacy` 继续按官方 `run-docker.sh`/README 路径补齐环境变量：新增三次 bounded retry，分别验证文档化 `CRYOSTAT_JDBC_*`、其与 `QUARKUS_S3_*` 的组合，以及再叠加 `QUARKUS_DATASOURCE_*` 的情况。结果表明官方镜像始终在 HTTP 监听前退出：先要求 `quarkus.s3.*`，再无法激活默认 Quarkus datasource，继续强行叠加后又暴露 `quarkus.datasource.db-kind` 构建期固定与 Agroal/Flyway 拒绝文档化 H2 URL 的不兼容，因此继续 `environment_blocked`，且阻塞点已更精确。
+- 对 `igniterealtime/openfire` 重读仓库 `documentation/install-guide.html`，确认 autosetup 的确是文档化默认路径之一；结合既有容器日志，将 blocked 原因收紧为：official image 的 case-local embedded autosetup 在 `JiveGlobals.setupPropertyEncryptionAlgorithm` 处因旧算法值为空而空指针退出，而不是笼统的“autosetup 失败”。
+- 对 `apache/openmeetings` 复核启动日志后收紧 blocked 原因：clean case-local 源码副本构建出的默认 release 包实际已经启动并记录 `Openmeetings is up and ready to use`，但 `admin.sh -i` 后前台 HTTPS signin 仍回落到 `/install`，说明默认 H2 安装态并未真正完成到可登录 UI，因此仍无法补齐 presenter 房间会话与 upload SID。
+- 同步更新六案 `result.json`、共享环境 `changes.jsonl`、新增 retry 日志工件、批次 `validation_status.jsonl`，并准备重新运行聚合脚本刷新汇总报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- 新增环境日志：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default/retry_20260813.log`
+- 新增环境日志：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default/backend_retry_20260813.log`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过管理员-only 路径、非默认 feature flag 或关闭安全控制制造成功。
+- `weibocom/rill-flow` 的 retry 证明当前首要阻塞已不再是 host 端口冲突，而是默认 backend 镜像自身在 cgroup 指标初始化阶段的启动失败。
+- `cryostatio/cryostat-legacy` 的 retry 证明即使沿文档化 JDBC 路径继续补齐，官方镜像仍卡在 Quarkus datasource/build-time 属性不兼容，无法进入 `/health`。
+
+## [2026-08-13] Re-drive blocked dynamic preconditions for Airavata, Bonita, and Stirling
+
+### 修改时间
+2026-08-13 20:20
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 复核 `apache__airavata-FND-200-1`、`bonitasoft__bonita-engine-FND1` 与 `stirling-tools__stirling-pdf-F-vulnerable-decompression` 的既有 blocked 原因、环境工件、轮次证据与 `result.json`，重点重新检查默认部署、普通账号/业务前置与默认流程可补齐性。
+- 对 Stirling 进一步排除了持久化配置副作用：保留官方 `latest` 镜像与仅隔离资源余量，清空旧 `/configs` 后按文档化无登录默认模式 `SECURITY_ENABLELOGIN=false` 重启，补做 round-2 单请求语义预检与 round-3 32 路并发有界解压验证。新证据显示匿名 `POST /api/v1/misc/decompress-pdf` 在默认无登录模式下可达，32/32 请求均返回 200，峰值容器内存约 `1.274GiB / 1.5GiB`，但未触发 OOM、重启或持续不可用，因此将该案从 `auth_blocked` 修正为 `not_reproduced_under_tested_bounds`。
+- 对 Bonita 进一步收紧阻塞表述：环境已证明默认镜像可启动且会种入 `Administrator`/`User` profile，但本轮仍未找到默认自助注册或普通非管理员账号创建链路，只有 `install/install` bootstrap 账号有证据，因此继续保持 `auth_blocked`。
+- 对 Airavata 进一步收紧阻塞表述：环境、默认资源与管理员认证仍正常，但默认 Echo 实验/文件前置仍卡在 seeded SFTP 存储认证，且 README 依赖的 sibling `airavata-portals` 仓库仍缺失，故继续保持 `precondition_blocked`。
+- 同步更新三案的 `reflection.jsonl`、Stirling 的新增 `round-2/round-3` 工件、三案 `result.json`/共享 `validation_status.jsonl`，并准备重新运行聚合脚本刷新总表与报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- Airavata case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1`
+- Bonita case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/bonitasoft__bonita-engine-FND1`
+- Stirling case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/stirling-tools__stirling-pdf-F-vulnerable-decompression`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未通过非默认 feature flag、关闭安全控制或管理员替代低权限模型来制造成功。
+- Stirling 的修正说明此前 `auth_blocked` 结论受持久化配置副作用干扰；在恢复官方默认无登录路径后，该案已不再 blocked，但在测试边界内仍未动态确认。
+- Airavata 与 Bonita 仍 blocked，且阻塞点已细化到默认流程中具体无法补齐的步骤。
+
+## [2026-08-13] Final aggressive round for zfile multipart growth-only case
+
+### 修改时间
+2026-08-13 23:03
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 复核 `/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zfile-dev__zfile-ZFILE-APP-STATIC-0001/` 的既有 `rounds/`、`reflection.jsonl` 与 `result.json`，确认该案仍处于 `observed_growth_not_confirmed` 且还剩最后一轮预算，因此仅新增并执行唯一允许的 round-3 更激进但仍有界确认尝试。
+- 将默认 local-build 隔离实例在相同 runtime-home 上重启到更低但仍安全的 `-Xmx384m`，为 round-3 新增 `hypothesis.json`、`preflight.json`、`probe.py`、`observations.json`、`metrics.jsonl` 与目标侧日志证据，并把攻击强化为三波连续的 8 路并发 1000-part metadata-only multipart burst。
+- 新证据显示 24 个请求全部继续返回 200，`/api/install/status` 在每波后与最终等待后始终返回 200；目标 RSS 从约 `511512 kB` 台阶式抬升到约 `547392 kB` 并保留，线程/fd 很快回落，但未触发 OOM、重启、默认 parser rejection 或持续不可用，因此终态保持 `observed_growth_not_confirmed`。
+- 同步更新该 case 的 `reflection.jsonl`、`result.json`、批次 `validation_status.jsonl`，并重新运行共享聚合脚本刷新总表与报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- zfile case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zfile-dev__zfile-ZFILE-APP-STATIC-0001`
+- zfile environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zfile-dev__zfile-default`
+
+### 依赖与影响
+- 本次只执行一轮新增 destructive probe，严格停在第 3 轮上限内，且未通过关闭默认安全控制或启用非默认功能制造成功。
+- 当前证据证明默认路径匿名 multipart metadata burst 仍可带来目标侧 retained RSS growth，但即使在更低隔离堆下连续多波也未跨过失败阈值，因此不得误报为 confirmed。
+
+## [2026-08-13] Final aggressive round for GoCD fresh-session growth-only case
+
+### 修改时间
+2026-08-13 18:55
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 复核 `/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/gocd__gocd-F-GOCD-V2HP-001/` 的既有 `rounds/`、`reflection.jsonl` 与 `result.json`，确认该案仍有一轮预算，因此仅新增一轮更激进但仍有界的确认尝试。
+- 为 round-2 新增 `hypothesis.json`、`preflight.json`、`probe.py`、`observations.json`、`metrics.jsonl` 与目标侧日志证据，在 fresh official GoCD 容器上把隔离上限收紧到 `768m` 容器/`512m` JVM heap，并提升到 2048 个匿名 fresh session、并发 32 的 `/go/api/v1/health` burst。
+- 最终轮中全部 2048 个请求仍返回 200 且发放 2048 个唯一 `JSESSIONID`；target-side JVM `VmHWM` 升到 `755076 kB`、线程从 128 升到 150、容器内存升到 `762.6MiB / 768MiB`，20 秒后几乎不回落，但未触发 OOM、重启、拒绝请求或持续不可用，因此终态保持 `observed_growth_not_confirmed`。
+- 更新 `case_plan.json`、`reflection.jsonl`、`result.json`、`validation_status.jsonl`，并准备重新运行共享聚合脚本刷新汇总结果。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- GoCD case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/gocd__gocd-F-GOCD-V2HP-001`
+- round-2 观测：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/gocd__gocd-F-GOCD-V2HP-001/rounds/round-2/observations.json`
+- 共享状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
+
+### 依赖与影响
+- 仅执行一轮新增 destructive probe，未新增第 3 轮之后的越界尝试，也未通过关闭默认安全控制制造成功。
+- 当前证据证明更强的默认路径 session/heap/thread growth，但仍不能表述为 confirmed DoS；后续如无新的默认路径证据，应继续保持非 confirmed 口径。
+
+## [2026-08-13] Re-drive QuickDrop upload-task case
+
+### 修改时间
+2026-08-13 02:10
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 复核 `roastslav__quickdrop-FND-QUICKDROP-UPLOAD-TASKS` 的既有 `result.json`、`reflection.jsonl`、`preflight.json`、`probe.sh` 与前两轮证据，确认上轮并非语义未打通，而是只做了串行 16 次低强度 staircase，尚未检验 cached-thread burst growth 是否会跨过默认容量阈值。
+- 在不新增第 4 轮的前提下补齐并执行现有 `round-3`：复用官方 `roastslav/quickdrop:latest` 默认镜像与既有持久化数据目录，只提高 distinct incomplete upload 基数到 96、并发到 8，并持续采集 `/proc/1/status` 线程/RSS、fd 数、`/app/files` 文件数、`/actuator/health` 与根路由状态。
+- 新证据显示 96 个匿名不完整上传全部返回 200，threads 从 58 升至 159、fd 从 23 升至 120、持久文件数从 22 升至 118，10 秒后仍几乎完全保留；但健康检查始终 `UP`、root 维持默认 302，未触发 OOM、重启或持续不可用，因此终态仍必须保守维持为 `observed_growth_not_confirmed`。
+- 同步更新该 case 的 `case_plan.json`、`environment.md`、`data_prep.md`、`hypothesis.json`、`preflight.json`、`probe.sh`、`metrics.jsonl`、`observations.json`、`reflection.jsonl`、`result.json` 与批次 `validation_status.jsonl`，并准备重新运行共享聚合脚本刷新总表与报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- QuickDrop case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/roastslav__quickdrop-FND-QUICKDROP-UPLOAD-TASKS`
+- QuickDrop environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/roastslav__quickdrop-default`
+
+### 依赖与影响
+- 依赖官方 `roastslav/quickdrop:latest` 默认镜像、既有一次性 admin setup 结果与持久化 `/app/db` `/app/log` `/app/files` 数据目录；本次未修改业务代码、认证语义或默认路由行为。
+- 该 case 已在三轮上限内完成更强 PoC 重打：第三轮把证据从低强度串行增长推进到 96 请求 burst 后仍保留的高 threads/fd/file growth，但仍不能误报为 confirmed。
+- 后续若继续，只能基于新的 failure 假设或不同默认边界单开任务，不能在本轮再追加第 4 个 destructive round。
+
+## [2026-08-13] Re-drive Guacamole dynamic group
+
+### 修改时间
+2026-08-13 01:47
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 复核 `apache__guacamole-client-GUAC-APP-STATIC-0001` 与 `apache__guacamole-client-GUAC-APP-STATIC-0002` 的既有 `result.json`、`reflection.jsonl`、`preflight.json`、`probe.py` 与 round-3 证据，确认两案上轮卡点都不是语义未打通，而是压力与目标特异指标还不够强：0001 仅做到 4000 retained sessions，0002 仅做到 96 tunnel/84 activeConnections。
+- 在不新增第 4 轮的前提下直接重打现有 round-3：0001 提升到 12000 次成功登录、24 并发、180 秒 hold；0002 提升到 256 次 tunnel、32 路 burst、180 秒 keepalive，并保留 fresh-container 默认部署语义。
+- 0001 新证据显示 GuacamoleSession 最终与成功 token 数对齐到 12000，容器内存约从 280.7MiB 升至 539.8MiB、堆升至约 125225 KiB 且 180 秒内未自动回落，但根路径持续 200，仍只能保守维持 `observed_growth_not_confirmed`。
+- 0002 新证据显示 activeConnections 峰值达到 160、guacd TCP 达到 187，active set 清零后 Guacamole RSS/线程仍继续爬升到约 695268 KiB / 250 threads，说明默认路径存在更强的目标侧增长信号；但根路径始终 200，仍未达到 confirmed failure threshold，因此同样维持 `observed_growth_not_confirmed`。
+- 同步更新两个 case 的 `case_plan.json`、`hypothesis.json`、`preflight.json`、`observations.json`、`reflection.jsonl`、`result.json` 与批次 `validation_status.jsonl`，并重新运行共享聚合脚本刷新总表与报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- Guacamole cases：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__guacamole-client-GUAC-APP-STATIC-0001`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__guacamole-client-GUAC-APP-STATIC-0002`
+- Guacamole environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__guacamole-client-default`
+
+### 依赖与影响
+- 依赖官方 `guacamole/guacamole:1.6.0`、`guacamole/guacd:1.6.0` 与 PostgreSQL 默认镜像路径；本次未修改业务代码、认证语义或默认部署行为，只强化了现有第 3 轮探针。
+- 两案现都完成了三轮上限内的更强重打：0001 证明更大 retained session 基数仍未触发失败，0002 则把证据从短暂 active-set 增长推进到 cleanup 后仍保留的高 RSS/线程增长，但都不能误报为 confirmed。
+- 后续若继续，只能基于新的 failure 假设或不同默认边界建模单开任务，不能在本轮再追加第 4 个 destructive round。
+
+## [2026-08-13] Correct ZAP proxy dynamic retest outcome
+
+### 修改时间
+2026-08-13 01:20
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 复核 `zaproxy__zaproxy-FIND-ZAP-001` 的既有三轮工件，确认该 case 并非只执行了早期 8 MiB 单轮，而是已完成 round-2 的 fresh-container 32 MiB plain-vs-gzip 同尺寸对照和 round-3 的 64 MiB 强化探针。
+- 根据 round-2/3 证据修正终态：same-size 32 MiB 对照中 gzip 比 plain 额外抬升约 59.8 MiB cgroup memory 与约 61.6 MiB Java RSS，说明上轮真正卡点是“目标特异指标最初不足、需用同尺寸控制消解语义歧义”，而不是路由未打通；但 round-3 仍未触发 OOM、重启或持续不可用。
+- 同步更新该 case 的 `result.json`、`reflection.jsonl`、`case_plan.json` 与批次 `validation_status.jsonl`，把错误的 `not_reproduced_under_tested_bounds` 修正为 `observed_growth_not_confirmed`，避免遗漏已存在的 growth-only 证据。
+- 准备重新运行共享聚合脚本刷新总表、报告与 findings/blocklist 归档。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- ZAP case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zaproxy__zaproxy-FIND-ZAP-001`
+- ZAP environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zaproxy__zaproxy-default`
+
+### 依赖与影响
+- 依赖既有官方 `zaproxy/zap-stable:latest` 默认镜像、受控上游 companion 与已存档的 round-1/2/3 证据；本次未新增第 4 轮，也未改变默认部署语义。
+- 修正后该 case 被正确计入 growth-only，而非 not reproduced；这会增加聚合层的 `observed_growth_not_confirmed` 计数并减少 `not_reproduced_under_tested_bounds` 计数。
+- 三轮上限已经用尽；如需继续只能基于新的 deployment bound 或 failure 假设单开后续任务，不能在本轮再追加 destructive round。
+
+
+## [2026-08-12] Re-drive GROBID dynamic group
+
+### 修改时间
+2026-08-12 16:35
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 为 `grobidorg__grobid-GROBID-STATIC-001` 与 `grobidorg__grobid-GROBID-STATIC-002` 补齐 `round-2`/`round-3` 工件，修复上轮仅有路由与响应大小、缺失目标特异 JVM 指标的语义预检缺口。
+- 新 PoC 复用官方 `grobid/grobid:0.9.0-crf` 默认镜像和既有 baseline-memory headroom 修复，只提高有效大 PDF 的并发度，并改从 Dropwizard admin `/metrics` 采集 heap、old-gen、GC 与线程指标。
+- `GROBID-STATIC-001` 在 round-2 的 6 并发 8.2 MiB PDF 下先观察到 1.88 GiB heap / 1.31 GiB old-gen 增长，round-3 的 8 并发下再触发 `processFulltextAssetDocument` 中 `ByteArrayOutputStream`/`ZipOutputStream` 的目标侧 `OutOfMemoryError` 与 HTTP 500，终态更新为 `confirmed_oom`。
+- `GROBID-STATIC-002` 在 round-2 的 8 并发 8.2 MiB PDF + `type=1` 下先观察到 2.13 GiB heap / 2.04 GiB old-gen 增长，round-3 的 10 并发 fresh-container 下再触发容器 `OOMKilled=true`、客户端空回复和健康检查丢失，终态更新为 `confirmed_oom`。
+- 更新两个 case 的 `case_plan.json`、`reflection.jsonl`、`result.json`、`validation_status.jsonl`，并准备重新运行共享聚合脚本刷新总表与报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- GROBID cases：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/grobidorg__grobid-GROBID-STATIC-001`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/grobidorg__grobid-GROBID-STATIC-002`
+- GROBID environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/grobidorg__grobid-default`
+
+### 依赖与影响
+- 依赖官方 `grobid/grobid:0.9.0-crf` 默认镜像与既有 baseline headroom 修复；本次未改业务代码、认证状态或路由行为。
+- 两案现已从“指标不足导致的语义未打通”收敛到默认匿名 HTTP 路径上的目标资源失败证据，不再只是 growth-only 或 probe_semantics_failed。
+- 该修复完成了本 group 在三轮上限内的 PoC 重打；后续如需继续只能针对新的 deployment bound 或 failure 假设，而不是新增第 4 轮。
+
+## [2026-08-12] Re-drive HertzBeat anonymous SSE dynamic group
+
+### 修改时间
+2026-08-12 23:59
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 为 `apache__hertzbeat-FND1`、`apache__hertzbeat-FND2`、`apache__hertzbeat-FND3` 新增 fresh-container 的 `round-2`/`round-3` 工件，包括 `hypothesis.json`、`preflight.json`、`probe.sh`、`metrics.jsonl`、`observations.json` 与容器日志，按技能要求把三案从仅有 20 连接 growth 证据扩展到更强但有界的 256/1024 SSE 长连接重打。
+- 新 PoC 改为 raw HTTP socket 持续保持匿名 SSE 连接，并在每轮用 fresh 官方 Docker 容器采集 fd、线程、RSS 与 `jcmd 11 GC.class_histogram`；避免旧串行基线污染后，三案在 round-3 都稳定达到约 `+1025` fd 与 `+1025` `SseEmitter`，其中 `FND3` 还达到 `+1025` `LogSseManager$SseSubscriber`。
+- 尽管增长与断连后未及时清理都被重复观察到，但根路径 `/` 在 live/post 阶段始终返回 200，未出现 OOM、重启、持续不可用或 admission failure，因此三案终态统一保守维持为 `observed_growth_not_confirmed`，而不误报 confirmed。
+- 更新 3 个 case 的 `result.json`、`reflection.jsonl`、`case_plan.json` 与 `validation_status.jsonl`，并准备重新运行共享聚合脚本刷新总表与报告。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- HertzBeat cases：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__hertzbeat-FND1`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__hertzbeat-FND2`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__hertzbeat-FND3`
+- HertzBeat environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__hertzbeat-default`
+
+### 依赖与影响
+- 依赖官方 `apache/hertzbeat` 单容器默认部署路径；本次未引入任何业务配置或权限变更，只复用既有隔离端口映射。
+- 现有证据说明默认匿名 SSE 路径存在可线性放大的 retained growth，但在三轮上限内仍未触达默认部署 failure threshold，因此不能宣称 confirmed DoS。
+- 该修复把 HertzBeat group 从“单轮压力不足”提升为“三轮上限内已完成强 PoC 重打”的终态，后续若继续只能基于新的 failure 假设而非重复放大同一轮次。
+
+## [2026-08-12] Validate lamp-cloud dynamic group
+
+### 修改时间
+2026-08-12 20:50
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 为 `dromara__lamp-cloud` group 新增 `environments/dromara__lamp-cloud-default/` 下的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl`、`build_attempt.log` 等环境工件，结构化记录默认路径依赖的 Nacos/MySQL/Redis/RabbitMQ/下游服务前置条件与本地构建失败证据。
+- 新增 `dromara__lamp-cloud-FND-001` 的 `case_plan.json`、`environment.md`、`data_prep.md`、`rounds/round-1/`、`reflection.jsonl` 与终态 `result.json`，将该 group 唯一 queued case 收敛到技能规范要求的终态。
+- 受控本地构建 `lamp-gateway/lamp-gateway-server` 时，`mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package` 因缺失外部父 POM `top.tangyh.basic:lamp-parent:5.10.0` 立即失败；结合仓库未提供已检入的 Nacos 导出与自包含默认 compose/镜像，无法在不臆造部署状态的前提下完成默认环境 bootstrap。
+- 因 `/v3/api-docs/swagger-config` 还依赖下游 lamp 服务注册到 Nacos 并暴露各自 swagger-config，语义预检无法开始；最终将 `dromara__lamp-cloud-FND-001` 保守落为 `environment_blocked`，而非误报 confirmed 或 not_confirmed。
+- 更新 `validation_status.jsonl` 中该 case 的终态与 failure_reason，并重新运行共享聚合脚本刷新 `summary.json`、`summary.csv`、`blocked_or_rejected.jsonl` 与 `DYNAMIC_VALIDATION_REPORT.md`。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- lamp-cloud case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- lamp-cloud environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+
+### 依赖与影响
+- 依赖 `frameworks/applications/dromara__lamp-cloud/README.md`、`A极其重要/01-docs/docker/03.docker运行项目.md` 与 gateway `application.yml` 中的默认部署说明；本次未引入源码或行为变更。
+- 当前证据只说明默认环境未能自举，不构成默认部署下的 confirmed DoS，也不能据此反证静态候选无害。
+- 该修复消除了本 group 唯一 queued case，后续若要继续只能先补齐官方可复现的 Nacos 配置与下游服务启动材料。
+
+## [2026-08-12] Fix full-batch provenance and entry resolution failures
+
+### 修改时间
+2026-08-12 21:10
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 为 production/config/CLI 增加独立的 `analysis_source_root` 语义，并让 `dosweb/production.py` 的 preflight 仅用它校验 `database.source_root`，不再把 provider `source_checkout` 误当作 CodeQL database provenance 目标。
+- 保留 `source_checkout` 作为 provider/pinned checkout，用于 Growth excerpt 与公开源码 attestation；同时在 `dosweb/batch/runner.py` full 模式下前移本地 provider checkout 预检，提前暴露 `CONFIG_PUBLIC_SOURCE_UNVERIFIED`，避免 target 跑到 growth 阶段才失败。
+- 强化 `dosweb/production.py` 的 growth→entry 关联逻辑：优先最近 handler，并在必要时按 attacker input / demand input 收窄候选，且对仅 registration 不同的语义重复 entry 做稳定收敛，不再因同一 handler 多 registration 直接报 `ANALYSIS_GROWTH_ENTRY_AMBIGUOUS`。
+- 同步更新 `dosweb/flows/models.py` 的 flow 引用解析，使 flow 阶段对同一 handler 位置的重复 entry 采用与 growth 一致的稳定收敛策略。
+- 扩展 `dosweb/batch/aggregate.py` 输出，新增 `authoritative_status_counts` 并在 gap 摘要中显示 authoritative status / failure reason，便于区分 preflight 失败与普通缺失产物。
+- 补充 `tests/test_config_and_cli.py`、`tests/test_production.py`、`tests/test_batch_runner.py`、`tests/test_batch_aggregation.py`、`tests/test_deepseek_client.py` 回归测试，覆盖 checkout 语义拆分、duplicate registration 收敛、本地 provider 预检与聚合状态可见性。
+
+### 验证
+- 运行 `python -m pytest -q tests/test_config_and_cli.py tests/test_production.py tests/test_batch_runner.py tests/test_batch_aggregation.py tests/test_deepseek_client.py`
+- 结果：177 passed, 167 subtests passed
+
+## [2026-08-12] Validate Suwayomi GraphQL websocket dynamic group
+
+### 修改时间
+2026-08-12 20:36
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 为 `suwayomi__suwayomi-server` group 新增 `environments/suwayomi__suwayomi-server-default/` 的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl`，记录本地文档化 `shadowJar` 启动、headless 环境下 jar 路径修正以及禁用可选 browser/system tray/KCEF 钩子的最小环境修复。
+- 新增 `suwayomi__suwayomi-server-F-graphql-ws-retained-operation-state` 的 `case_plan.json`、`environment.md`、`data_prep.md`、两轮 `hypothesis.json`/`preflight.json`/`observations.json`、`reflection.jsonl` 和终态 `result.json`，将该 queued case 收敛到技能要求的终态。
+- 动态语义预检确认默认匿名 `/api/graphql` WebSocket 可完成 `graphql-transport-ws` 握手并返回 `connection_ack`；活动重复 ID 会以 4409 关闭连接，而 `complete` 后可用同一 ID 重新订阅，吻合 static 对 `activeOperations` 与 `sessionToOperationId` 分离的建模。
+- 两轮单连接唯一 subscribe/complete 阶梯（1000 个 128 字节 ID、5000 个 256 字节 ID）在会话存活期间观察到 JVM `java.lang.String` / `[B` 直方图增长，其中第二轮 live-session 增量达到 `+5132` 个 String 与 `+5138` 个 byte array，但 `/api/graphql` 始终健康且断开后大部分增长回落，因此保守落为 `observed_growth_not_confirmed`。
+- 更新 `validation_status.jsonl` 中 Suwayomi case 的终态与 failure_reason，并准备重新运行共享聚合脚本刷新汇总结果。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- Suwayomi case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/suwayomi__suwayomi-server-F-graphql-ws-retained-operation-state`
+- Suwayomi environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/suwayomi__suwayomi-server-default`
+
+### 依赖与影响
+- 依赖 `frameworks/applications/suwayomi__suwayomi-server/README.md` 中的本地 jar 运行路径；本次未使用官方 Docker 镜像，而是本地构建并在 headless 环境中关闭可选 GUI/KCEF 钩子。
+- 该证据只证明 live-session retained-ID growth，不构成默认部署 confirmed DoS；后续若要继续只能在不超过三轮的前提下寻找更强的 target-resource failure 信号。
+- 该修复消除了本 group 唯一 queued case，便于统一聚合脚本刷新总表。
+
+## [2026-08-12] Validate wgcloud dynamic group
+
+### 修改时间
+2026-08-12 19:52
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 为 `tianshiyeben__wgcloud` group 补齐 `environments/tianshiyeben__wgcloud-default/` 的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 以及本地构建配置、MySQL companion、延迟 SMTP stub、MAIL_SET seed 等最小环境工件。
+- 新增 `tianshiyeben__wgcloud-FND1` 与 `tianshiyeben__wgcloud-FND2` 的 `case_plan.json`、`environment.md`、`data_prep.md`、round-1 `hypothesis.json`/`preflight.json`/`observations.json`、`reflection.jsonl` 和终态 `result.json`，并按技能要求将两案从 queued 收敛到终态。
+- 将 `FND1` 保守落为 `non_default_only`：匿名 `/wgcloud/agent/minTask` 可用默认 `wgToken` 推导值命中，但观察到的告警邮件线程池阻塞依赖预置 MAIL_SET 与受控延迟 SMTP harness，不能表述为默认部署 confirmed。
+- 将 `FND2` 落为 `observed_growth_not_confirmed`：受控数组 JSON 能在线性放大 `AppInfo`/`AppState`/`DeskState` 临时对象数量，但计划内 drain 后未见持久积压、数据库堆积或服务不可用。
+- 更新 `validation_status.jsonl` 中 wgcloud 两案状态并准备重新运行共享聚合脚本刷新汇总产物。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- wgcloud case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/tianshiyeben__wgcloud-FND1`
+- wgcloud case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/tianshiyeben__wgcloud-FND2`
+- wgcloud environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/tianshiyeben__wgcloud-default`
+
+### 依赖与影响
+- 依赖 `frameworks/applications/tianshiyeben__wgcloud/` 仓库自带的本地构建+MySQL 文档路径；无官方 compose/image 可直接复用。
+- `FND1` 的阻塞证据仅作为非默认组件级复现实验保存，不改变静态候选默认部署下未确认的口径。
+- `FND2` 为 growth-only 证据，后续若要继续只能在不突破三轮上限的前提下针对 drain/persistence 吞吐做更强区分。
+
+## [2026-08-12] Repair OpenGrok dynamic validation artifacts
+
+### 修改时间
+2026-08-12 19:24
+
+### 变更类型
+- [Bug 修复]
+- [文档]
+
+### 核心改动
+- 修复 `oracle__opengrok-FIND-UI-SEARCH-COLLECTOR` 缺失 `result.json` 导致聚合报错的问题，补齐该 case 的 `case_plan.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`、两轮 `hypothesis.json`/`preflight.json`/`observations.json` 以及终态 `result.json`。
+- 补齐 `environments/oracle__opengrok-default/` 下缺失的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json` 与 `changes.jsonl`，把已执行的官方 Docker 默认部署、最小一文档索引准备、JFR 重试与环境结论结构化落盘。
+- 根据现有两轮证据将该 case 终态保守落为 `probe_semantics_failed`：默认匿名 `/search` 语义可达，但启动期与显式 `jcmd` 启动的 JFR 都未建立 target-specific collector allocation 遥测，因此不能提升为 confirmed 或 observed growth。
+- 更新 `validation_status.jsonl` 中该 case 的终态与 failure_reason，并在补齐产物后重新运行聚合脚本刷新 `summary.json`、`blocked_or_rejected.jsonl` 与报告统计。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- OpenGrok case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/oracle__opengrok-FIND-UI-SEARCH-COLLECTOR`
+- OpenGrok environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/oracle__opengrok-default`
+
+### 依赖与影响
+- 依赖此前已保留的 OpenGrok 两轮 HTTP/JFR 原始证据文件，不重新执行更强探针。
+- 该修复消除了输出根中的缺失 `result.json` 聚合错误，使 group 结果可被统一汇总。
+- 无破坏性接口变更；仅补齐动态验证工件并收敛终态。
+
+## [2026-08-12] Validate JetLinks default captcha dynamic group
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `jetlinks__jetlinks-community` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflection, and terminal result files.
+- Bootstrapped the repository's checked-in `docker/run-all/docker-compose.yml` default deployment locally with documented Redis and Timescale/Postgres companions, plus isolation-only host-port remapping and bounded JVM/container memory caps for a disposable safety harness.
+- Confirmed that the anonymous default route `GET /authorize/captcha/image` is reachable without login and that a normal `130x40` request returns a Base64 captcha payload under the default compose deployment.
+- Classified `jetlinks__jetlinks-community-JL-STAGEA-0001` as `confirmed_oom` because a bounded single-request staircase showed `15000x15000` driving memory to 98.54% of a 1.5 GiB container, and a follow-up `16384x16384` request immediately triggered repeated `java.lang.OutOfMemoryError: Java heap space` from `DataBufferInt`/`BufferedImage` on the target route while returning HTTP 500.
+- Ran the required aggregate step after writing artifacts; if the shared aggregation script still reports issues on this output root, controller-side follow-up should focus on the aggregate outputs rather than this JetLinks case directory.
+
+### Verification
+
+- Preserved compose bootstrap logs, container inspect snapshot, readiness evidence, and environment change records under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/jetlinks__jetlinks-community-default/`.
+- Preserved preflight samples, per-round metrics, observations, OOM log evidence, reflection, and the final result under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/jetlinks__jetlinks-community-JL-STAGEA-0001/`.
+
+## [2026-08-12] Validate ZAP default proxy dynamic group
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `zaproxy__zaproxy` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflection, and terminal result files.
+- Bootstrapped the official `zaproxy/zap-stable:latest` Docker image locally with isolation-only host-port remapping and a 768 MiB container cap, then added a host-gateway mapping plus a disposable upstream companion container so the default external proxy path could fetch controlled plain and gzip responses without modifying target code or enabling non-default features.
+- Confirmed that anonymous absolute-form proxy requests to the attacker-controlled upstream succeed by default and return client-visible decoded bodies for both plain and gzip responses, resolving the static add-on reachability uncertainty.
+- Conservatively classified `zaproxy__zaproxy-FIND-ZAP-001` as `not_reproduced_under_tested_bounds` because bounded single-request probes up to 8 MiB decoded bodies produced observable target memory growth but no failure, and the clean-slate 8 MiB plain control consumed at least as much immediate memory as the gzip variant, so a stronger decompression-specific amplification effect was not isolated under the tested limits.
+
+### Verification
+
+- Preserved official-image startup logs, upstream-companion logs, container snapshot metadata, and bootstrap change records under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zaproxy__zaproxy-default/`.
+- Preserved control-vs-gzip probe evidence, semantic preflight, metrics, observations, reflection, and terminal result artifacts under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zaproxy__zaproxy-FIND-ZAP-001/`.
+
+## [2026-08-12] Validate zfile multipart metadata dynamic group
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `zfile-dev__zfile` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflection, and terminal result files.
+- Built the repository's default Spring Boot jar locally with `mvn -q -DskipTests package` and launched an isolated disposable instance on port `38080` with a case-local `user.home` runtime directory after confirming host port `8080` was already occupied by an unrelated service.
+- Completed the required first-run `POST /api/install` bootstrap against the fresh SQLite runtime, then validated that anonymous `PUT /file/upload/invalidStorageKey/x` requests reach multipart parsing before storage lookup: a non-multipart control failed with `Current request is not a multipart request`, while multipart requests progressed to the modeled invalid-storage error.
+- Conservatively classified `zfile-dev__zfile-ZFILE-APP-STATIC-0001` as `not_reproduced_under_tested_bounds` because a bounded metadata-only staircase at 1/100/500/1000 parts with a 1-byte file payload caused only small transient RSS/thread movement and no meaningful retained growth, parser threshold below defaults, or service unavailability.
+
+### Verification
+
+- Preserved startup, install-status, and runtime-database evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zfile-dev__zfile-default/`.
+- Preserved control-vs-attack responses, bounded round metrics, and reflection/result artifacts under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zfile-dev__zfile-ZFILE-APP-STATIC-0001/`.
+
+## [2026-08-12] Validate Openfire dynamic group setup-gated BOSH path
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `igniterealtime__openfire` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, blocked semantic preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `ghcr.io/igniterealtime/openfire:latest` image locally with isolation-only host-port remapping for the default BOSH and admin-console listeners; plain default startup reached the admin setup wizard on port `9090` but anonymous `/http-bind/` probes on port `7070` reset the TCP connection before any semantic response.
+- Applied one targeted case-local embedded autosetup repair by bind-mounting a generated `openfire.xml` derived from the repository autosetup example so the official image could move beyond the initial setup gate without editing target code, but the packaged startup path still failed with a `NullPointerException` in `JiveGlobals.setupPropertyEncryptionAlgorithm` before HTTP/BOSH readiness.
+- Conservatively classified `igniterealtime__openfire-F0154` as `environment_blocked` because no default-compatible ready BOSH environment was reached, so the queued anonymous body-materialization candidate could not pass semantic preflight or execute a bounded growth round.
+
+### Verification
+
+- Pulled and launched the official GHCR image locally, captured default setup-page behavior plus BOSH connection-reset evidence, and preserved container logs and inspect output under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/igniterealtime__openfire-F0154/` and `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/igniterealtime__openfire-default/`.
+- Re-ran the image with one case-local embedded autosetup bootstrap repair, then captured the startup `NullPointerException` evidence showing that the official image still failed before a semantically testable `/http-bind/` state.
+
+## [2026-08-12] Validate Cryostat legacy dynamic group bootstrap failure
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `cryostatio__cryostat-legacy` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap change records, per-case planning, blocked semantic preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `quay.io/cryostat/cryostat:latest` image locally with isolation-only host-port remapping and case-local bind mounts that mirror the repository `run-docker.sh` path layout.
+- Applied two targeted environment-side repairs before blocking: first added bounded dummy `quarkus.s3.endpoint-override` and `quarkus.s3.aws.region` runtime values because the packaged image refused to start without them, then added Quarkus default datasource environment keys because the packaged image ignored the legacy `CRYOSTAT_JDBC_*` values alone.
+- Conservatively classified `cryostatio__cryostat-legacy-F-WS-001` as `environment_blocked` because the official image still exited before binding the HTTP listener: after the two repairs it reported an incompatible packaged datasource/db-kind expectation and rejected the documented H2 datasource path, so `/health`, `/api/v1/notifications_url`, and the queued notifications WebSocket semantic preflight never became reachable.
+
+### Verification
+
+- Pulled and launched the official Cryostat image locally, captured all three bounded startup attempts plus final container inspect evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001/` and `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default/`.
+- Confirmed that no attempt reached HTTP readiness on `http://127.0.0.1:18181/`, so no WebSocket retention round was executed and the worker stopped after environment diagnosis.
+
+## [2026-08-12] Validate jmqtt dynamic group WebSocket idle retention
+
+### Changed
+
+- Added isolated dynamic-validation artifacts for the `cicizz__jmqtt` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflections, and terminal result files.
+- Followed the repository's documented source-build quickstart (`mvn -Ppackage-all -DskipTests clean install` plus local `jmqtt-broker-3.0.0.jar` startup) instead of switching to a non-documented deployment model, and copied the checked-in default broker config into a case-local runtime directory with isolation-only port remapping.
+- Bootstrapped a disposable `mysql:5.7` companion because the broker's checked-in default config requires MySQL; one compatibility-only repair created `jmqtt_session` with a `CURRENT_TIMESTAMP` default for `online_time` after the bundled `jmqtt.sql` timestamp definition failed under the tested MySQL defaults.
+- Classified `cicizz__jmqtt-FND-002` as `observed_growth_not_confirmed` because anonymous WebSocket handshakes to `/mqtt` succeeded, a handshake-only pre-CONNECT channel remained alive through 70 seconds despite the configured 60-second idle path, and bounded 1/3/5-channel probes increased established sockets proportionally, but the conservative run did not pursue service degradation or target-resource failure.
+
+### Verification
+
+- Built the broker locally, launched the disposable MySQL companion plus the local jar with copied default config, and captured startup/readiness evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cicizz__jmqtt-default/`.
+- Executed a raw WebSocket handshake readiness probe, a 70-second idle-retention probe, and a bounded connection staircase, and captured the resulting evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cicizz__jmqtt-FND-002/rounds/round-1/evidence/`.
+
 ## [2026-08-12] Validate CommaFeed dynamic group bounded refresh-queue behavior
 
 ### Changed

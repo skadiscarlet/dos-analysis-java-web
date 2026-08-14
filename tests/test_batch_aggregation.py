@@ -100,6 +100,24 @@ class BatchAggregationContractTests(unittest.TestCase):
             status = json.loads((root / "aggregate_status.jsonl").read_text().splitlines()[0])
             self.assertEqual("malformed", status["status"])
 
+    def test_inventory_retains_authoritative_status_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item, plan, state = canonical_fixture()
+            state["status"] = "completed_with_failures"
+            target_id = item["target_id"]
+            state["targets"][target_id]["state"] = "failed"
+            state["targets"][target_id]["status"] = "failed"
+            state["targets"][target_id]["error_code"] = "CONFIG_PUBLIC_SOURCE_UNVERIFIED"
+            state["targets"][target_id]["error_message"] = "Public GitHub source could not be verified."
+            (root / "manifest.normalized.jsonl").write_text(json.dumps(item) + "\n", encoding="utf-8")
+            (root / "batch_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+            (root / "batch_state.json").write_text(json.dumps(state), encoding="utf-8")
+            aggregate(root, format="p0")
+            inventory = json.loads((root / "aggregate_inventory.json").read_text())
+            self.assertEqual(inventory["authoritative_status_counts"]["failed"], 1)
+            self.assertIn("authoritative=failed", (root / "aggregate_gaps.md").read_text())
+
     def test_format_must_be_explicitly_normative_for_p0(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

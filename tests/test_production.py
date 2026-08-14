@@ -46,6 +46,7 @@ class ProductionFactoryTests(unittest.TestCase):
             "public_source_url": "https://github.com/example/project",
             "source_commit_sha": "a" * 40,
             "source_checkout": root,
+            "analysis_source_root": root,
             "model": None,
             "base_url": None,
             "timeout_seconds": None,
@@ -345,6 +346,34 @@ class ProductionFactoryTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "CODEQL_DATABASE_INVALID")
             self.assertFalse((root / "output" / "run.json").exists())
 
+    def test_default_preflight_accepts_separate_analysis_and_provider_checkouts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"
+            analysis = root / "analysis"
+            provider = root / "provider"
+            database.mkdir()
+            analysis.mkdir()
+            provider.mkdir()
+            values = self._values(root)
+            values["analysis_source_root"] = analysis
+            values["source_checkout"] = provider
+
+            def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
+                decoded = output_dir / f"{query.stem}.json"
+                decoded.write_text(json.dumps(self._entry_payload()), encoding="utf-8")
+                return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+
+            pipeline = build_production_pipeline(
+                values,
+                environ={},
+                validate_database_fn=lambda *_args, **_kwargs: DatabaseInfo(
+                    database, analysis, "d" * 64
+                ),
+                run_query_fn=fake_run,
+            )
+            self.assertEqual(pipeline.run("entries")["status"], "completed")
+
     def test_default_preflight_runs_under_the_pipeline_output_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -458,7 +487,7 @@ class ProductionFactoryTests(unittest.TestCase):
         )
         return entry, candidate
 
-    def test_candidate_entry_association_rejects_no_match_and_ambiguity(self) -> None:
+    def test_candidate_entry_association_rejects_no_match_and_prefers_nearest_handler(self) -> None:
         entry, candidate = self._entry_and_candidate()
         with self.assertRaises(AnalyzerError) as no_match:
             production._entry_for_candidate({}, candidate)  # noqa: SLF001
@@ -467,19 +496,121 @@ class ProductionFactoryTests(unittest.TestCase):
             framework="spring_mvc",
             protocol="http",
             handler=HandlerFact("fixture.Other.handle", "src/Handler.java", 12),
-            registration=RegistrationFact("annotation_mapping", "fixture.Other", "src/Handler.java", 8),
+            registration=RegistrationFact("annotation_mapping", "fixture.Other", "src/Other.java", 8),
             route_or_event="/other",
             auth_context="unknown",
             attacker_inputs=(AttackerInputFact("body", "byte[]", "request_body"),),
             materialization_phase="in_handler",
         )
-        with self.assertRaises(AnalyzerError) as ambiguous:
-            production._entry_for_candidate({entry.entry_id: entry, other.entry_id: other}, candidate)  # noqa: SLF001
-        self.assertEqual(ambiguous.exception.code, "ANALYSIS_GROWTH_ENTRY_AMBIGUOUS")
+        self.assertEqual(production._entry_for_candidate({entry.entry_id: entry, other.entry_id: other}, candidate), entry)  # noqa: SLF001
         self.assertEqual(production._entry_for_candidate({entry.entry_id: entry}, candidate), entry)  # noqa: SLF001
+
+    def test_candidate_entry_association_collapses_semantic_duplicate_registrations(self) -> None:
+        entry, candidate = self._entry_and_candidate()
+        duplicate = EntryFact.create(
+            framework=entry.framework,
+            protocol=entry.protocol,
+            handler=entry.handler,
+            registration=RegistrationFact("static_registration", "fixture.Handler.register", "src/Config.java", 99),
+            route_or_event=entry.route_or_event,
+            auth_context=entry.auth_context,
+            attacker_inputs=entry.attacker_inputs,
+            materialization_phase=entry.materialization_phase,
+        )
+        chosen = production._entry_for_candidate({entry.entry_id: entry, duplicate.entry_id: duplicate}, candidate)  # noqa: SLF001
+        self.assertEqual(chosen.entry_id, entry.entry_id)
+
+    def test_candidate_entry_association_falls_back_to_single_semantic_target_entry(self) -> None:
+        entry, _candidate = self._entry_and_candidate()
+        duplicate = EntryFact.create(
+            framework=entry.framework,
+            protocol=entry.protocol,
+            handler=entry.handler,
+            registration=RegistrationFact("static_registration", "fixture.Handler.register", "src/Config.java", 99),
+            route_or_event=entry.route_or_event,
+            auth_context=entry.auth_context,
+            attacker_inputs=entry.attacker_inputs,
+            materialization_phase=entry.materialization_phase,
+        )
+        candidate = GrowthCandidate.create(
+            site=SourceLocation("src/Helper.java", 50),
+            kind="direct_allocation",
+            operation="new byte[size]",
+            resource_dimension="bytes",
+            receiver="byte[]",
+            field_path="allocation",
+            demand_inputs=(DemandInput("body", "size"),),
+            escape_scope="request",
+            evidence_ids=frozenset({"fact:growth"}),
+        )
+        chosen = production._entry_for_candidate({entry.entry_id: entry, duplicate.entry_id: duplicate}, candidate)  # noqa: SLF001
+        self.assertEqual(chosen.entry_id, entry.entry_id)
 
     def _bqrs_payload(self, columns: tuple[str, ...], rows: list[list[object]]) -> dict[str, object]:
         return {"#select": {"columns": [{"name": name, "kind": "String"} for name in columns], "tuples": rows}}
+
+    def test_duplicate_registrations_do_not_block_growth_or_flow_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"; database.mkdir()
+            source = root / "source"; source.mkdir()
+            info = DatabaseInfo(database, root, "d" * 64)
+
+            rows_by_query: dict[str, tuple[tuple[str, ...], list[list[object]]]] = {
+                "SpringMvcEntries": (ENTRY_COLUMNS, [[
+                    "spring_mvc", "http", "fixture.Handler.handle", "src/Handler.java", 20,
+                    "annotation_mapping", "fixture.Handler", "src/Handler.java", 8, "/items",
+                    "unknown", "body", "byte[]", "request_body", "in_handler", "complete",
+                    "spring_annotation_mapping",
+                ]]),
+                "ServletEntries": (ENTRY_COLUMNS, [[
+                    "spring_mvc", "http", "fixture.Handler.handle", "src/Handler.java", 20,
+                    "static_registration", "fixture.Router", "src/Router.java", 40, "/items",
+                    "unknown", "body", "byte[]", "request_body", "in_handler", "complete",
+                    "spring_annotation_mapping",
+                ]]),
+                "InputMaterialization": (GROWTH_COLUMNS, [[
+                    "src/Handler.java", 24, "input_materialization", "request.readAllBytes",
+                    "bytes", "fixture.Handler.body", "this.body", "body", "value", "request",
+                    "fact:growth", "complete", "input_materialization",
+                ]]),
+                "EntryToGrowth": (FLOW_COLUMNS, [[
+                    "src/Handler.java", 20, "src/Handler.java", 24, "value", "body", "body",
+                    "fixture.Handler.handle>request.readAllBytes", "in_handler", "data_flow", "proven",
+                    "complete", "entry_to_growth",
+                ]]),
+                "GuardCandidates": (GUARD_COLUMNS, []),
+                "BoundCandidates": (BOUND_COLUMNS, []),
+                "SynchronousReleaseCandidates": (RELEASE_COLUMNS, []),
+            }
+
+            def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
+                columns, rows = rows_by_query.get(query.stem, (ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []))
+                decoded = output_dir / f"{query.stem}.json"
+                decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")
+                return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+
+            def fake_excerpt(checkout: Path, commit: str, path: str, line: int) -> SourceExcerpt:
+                import hashlib
+                content = f"attested line {line}\n"
+                return SourceExcerpt(
+                    f"excerpt:{line}", path, line, line, content, "c" * 64,
+                    hashlib.sha256(content.encode()).hexdigest(),
+                )
+
+            class FakeLlm:
+                def classify_growth(self, bounded: object) -> GrowthContract:
+                    return GrowthContract("unknown", "input_materialization", "bytes", (), "unknown", (), "high")
+
+            pipeline = build_production_pipeline(
+                self._values(root, allow_remote_llm=True),
+                environ={"DEEPSEEK_API_KEY": "fixture-secret"},
+                validate_database_fn=lambda *_args, **_kwargs: info,
+                run_query_fn=fake_run,
+                deepseek_client=FakeLlm(),
+                source_excerpt_fn=fake_excerpt,
+            )
+            self.assertEqual(pipeline.run("analyze")["status"], "completed")
 
     def test_injected_query_llm_and_source_seams_exercise_the_full_default_graph(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

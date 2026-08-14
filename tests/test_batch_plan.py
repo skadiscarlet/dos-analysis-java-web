@@ -79,7 +79,7 @@ class BatchPlanTests(unittest.TestCase):
         self.assertEqual("e" * 40, plan.targets[0].capability.provider_source_commit)
         self.assertTrue(plan.verify_digest())
 
-    def test_full_pauses_tree_attestation(self) -> None:
+    def test_full_keeps_tree_attestation_targets_queued(self) -> None:
         corpus = self._corpus(1)
         identity = TargetIdentity(1, "owner/repo", "tree-sha256", "b" * 64, "src", "db")
         target = CorpusTarget(
@@ -91,7 +91,7 @@ class BatchPlanTests(unittest.TestCase):
         )
         corpus = CanonicalCorpus(1, "canonical", "java-web-200", 1, "d" * 64, (target,), Path("manifest.json"))
         plan = build_batch_plan(corpus, run_id="run", mode="full")
-        self.assertEqual(plan.targets[0].initial_state, "paused")
+        self.assertEqual(plan.targets[0].initial_state, "queued")
 
     def test_tree_fingerprint_uses_inventory_nul_separators(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

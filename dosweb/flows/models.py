@@ -169,6 +169,51 @@ def load_flow_proofs(path: Path) -> tuple[FlowProof, ...]:
     return proofs
 
 
+def _entry_registration_identity(entry: EntryFact) -> tuple[str, str, str, int]:
+    return (
+        entry.registration.kind,
+        entry.registration.callable,
+        entry.registration.file,
+        entry.registration.start_line,
+    )
+
+
+def _entry_semantic_key(entry: EntryFact) -> tuple[object, ...]:
+    return (
+        entry.framework,
+        entry.protocol,
+        entry.handler.callable,
+        entry.handler.file,
+        entry.handler.start_line,
+        entry.route_or_event,
+        entry.auth_context,
+        tuple((item.name, item.type, item.kind) for item in entry.attacker_inputs),
+        entry.materialization_phase,
+    )
+
+
+def _canonical_entry_for_growth(matches: Sequence[EntryFact], growth_result: VerifiedGrowthResult) -> EntryFact:
+    candidate = growth_result.candidate
+    if candidate is None:
+        raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
+    demand_names = frozenset(item.name for item in candidate.demand_inputs)
+    narrowed = tuple(matches)
+    if demand_names:
+        demand_matched = tuple(
+            entry for entry in narrowed
+            if demand_names & {item.name for item in entry.attacker_inputs}
+        )
+        if demand_matched:
+            narrowed = demand_matched
+    if len(narrowed) == 1:
+        return narrowed[0]
+    if len({_entry_semantic_key(entry) for entry in narrowed}) == 1:
+        return min(narrowed, key=lambda entry: (_entry_registration_identity(entry), entry.entry_id))
+    if len({_entry_registration_identity(entry) for entry in narrowed}) == 1:
+        return min(narrowed, key=lambda entry: entry.entry_id)
+    raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
+
+
 def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[str, EntryFact], growth: Mapping[str, VerifiedGrowthResult]) -> list[dict[str, object]]:
     materialized = tuple(rows[: _MAX_ROWS + 1])
     if len(materialized) > _MAX_ROWS:
@@ -188,9 +233,10 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
         sink_line = _line(row["sink_start_line"], "sink_start_line")
         entry_matches = [item for item in entries.values() if isinstance(item, EntryFact) and item.handler.file == source_file and item.handler.start_line == source_line]
         growth_matches = [item for item in growth.values() if isinstance(item, VerifiedGrowthResult) and item.candidate is not None and item.candidate.site.file == sink_file and item.candidate.site.start_line == sink_line]
-        if len(entry_matches) != 1 or len(growth_matches) != 1:
+        if len(growth_matches) != 1 or not entry_matches:
             raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
-        entry, growth_result = entry_matches[0], growth_matches[0]
+        growth_result = growth_matches[0]
+        entry = _canonical_entry_for_growth(tuple(sorted(entry_matches, key=lambda item: item.entry_id)), growth_result)
         control = AttackerControl(cast(AttackerTarget, row["attacker_target"]), _string(row["attacker_source"], "attacker_source"), _string(row["attacker_sink"], "attacker_sink"))
         roles = {item.role for item in growth_result.candidate.demand_inputs}
         input_names = {item.name for item in entry.attacker_inputs}

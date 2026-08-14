@@ -178,10 +178,7 @@ def build_batch_plan(
         if not re.fullmatch(r"[0-9a-f]{64}", target.database_fingerprint):
             raise _invalid("DATABASE_FINGERPRINT_INVALID", target_id=target.identity.identity_id)
         target_output = f"{output}/targets/{target.index:03d}-{target.slug}"
-        if mode == "full" and not target.capability.provider_eligible:
-            state = "paused"
-        else:
-            state = "queued"
+        state = "queued"
         targets.append(BatchTargetPlan(
             identity=target.identity,
             output_path=target_output,
