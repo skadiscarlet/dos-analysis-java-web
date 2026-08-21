@@ -1,26 +1,16 @@
 package fixture.spring;
 
-@interface Controller {}
-@interface RestController {}
-enum RequestMethod { GET, POST, PUT, DELETE, PATCH }
-@interface RequestMapping { String[] value() default {}; String[] path() default {}; RequestMethod[] method() default {}; }
-@interface PostMapping { String[] value() default {}; String[] path() default {}; }
-@interface GetMapping { String[] value() default {}; String[] path() default {}; }
-@interface RequestBody {}
-@interface RequestParam { String value() default ""; }
-@interface PathVariable { String value() default ""; }
-@interface RequestHeader { String value() default ""; }
-@interface ModelAttribute { String value() default ""; }
-class HttpServletRequest {}
-class BindingResult {}
-class Model {}
-class ByteBuffer {
-    static byte[] allocate(int size) { return new byte[size]; }
-}
+import org.springframework.web.bind.annotation.*;
+import javax.annotation.security.PermitAll;
+import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
+class HttpServletRequest {} class Model {} class BindingResult {}
 
-@Controller
-@RequestMapping("/api")
+@RestController
 public class SpringFixture {
+    private static final Map<String, byte[]> LOOP_ITEMS = new HashMap<>();
+    @PermitAll
     @PostMapping("/items")
     public void handle(@RequestBody byte[] body, @RequestParam("limit") int limit) {
         if (body.length > limit) return;
@@ -32,6 +22,22 @@ public class SpringFixture {
             consume(body);
         } finally {
             body = null;
+        }
+    }
+
+    @PermitAll
+    @PostMapping("/loop")
+    public void attackerControlledLoop(@RequestParam("count") int count, @RequestBody byte[] body) {
+        for (int index = 0; index < count; index++) {
+            LOOP_ITEMS.put(count + ":" + index, body);
+        }
+    }
+
+    @PermitAll
+    @PostMapping("/fixed-loop")
+    public void fixedLoop(@RequestBody byte[] body) {
+        for (int index = 0; index < 2; index++) {
+            LOOP_ITEMS.put("fixed:" + index, body);
         }
     }
 
@@ -49,6 +55,27 @@ public class SpringFixture {
     public void dynamicGap(String controllerName) throws Exception {
         Class.forName(controllerName);
     }
+}
+
+interface SecurityConstants {
+    String AUTHENTICATE_ENDPOINT = "/rest/authenticate";
+    String VERIFY_ENDPOINT_PREFIX = "/rest/verify";
+}
+class SecurityProperties {
+    String authenticateEndpoint = SecurityConstants.AUTHENTICATE_ENDPOINT;
+    String verifyEndpointPrefix = SecurityConstants.VERIFY_ENDPOINT_PREFIX;
+}
+@RestController
+class SpelController {
+    @PostMapping("#{citrusProperties.security.authenticateEndpoint}")
+    void authenticate(HttpServletRequest request) {}
+}
+
+@RestController
+@RequestMapping("#{citrusProperties.security.verifyEndpointPrefix}")
+class SpelClassController {
+    @GetMapping("/{type}")
+    void image(HttpServletRequest request, @PathVariable String type) {}
 }
 
 class CommandObject {

@@ -2,6 +2,7 @@ from dosweb.codeql.database import DatabaseInfo, validate_database
 from dosweb.codeql.decoder import (
     BOUND_COLUMNS,
     ENTRY_COLUMNS,
+    INTERPOSITION_COLUMNS,
     FLOW_COLUMNS,
     GROWTH_COLUMNS,
     GUARD_COLUMNS,
@@ -19,6 +20,7 @@ __all__ = [
     "DatabaseInfo",
     "DecodeSource",
     "ENTRY_COLUMNS",
+    "INTERPOSITION_COLUMNS",
     "FLOW_COLUMNS",
     "GROWTH_COLUMNS",
     "GUARD_COLUMNS",

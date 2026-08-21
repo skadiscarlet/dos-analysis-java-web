@@ -119,6 +119,10 @@ class BatchCliTests(unittest.TestCase):
             root = Path(tmp)
             plan_dir = root / "plans"
             output = root / "archive"
+            source = root / "sources/1"
+            database = root / "databases/1"
+            source.mkdir(parents=True)
+            database.mkdir(parents=True)
             status = RUN.main(
                 ["entries", "--plan-only", "--run-id", "entries", "--output", str(plan_dir)],
                 corpus_loader=lambda *args, **kwargs: self.corpus(1), environ={},
@@ -135,8 +139,10 @@ class BatchCliTests(unittest.TestCase):
                     return {"status": "completed"}
 
             status = RUN.main(
-                ["entries", "--plan", str(plan_dir / "batch_plan.json"), "--output", str(output)],
-                pipeline_factory=lambda values, environ: Pipeline(values), environ={},
+                ["entries", "--plan", str(plan_dir / "batch_plan.json"), "--output", str(output), "--repo-root", str(root)],
+                pipeline_factory=lambda values, environ: Pipeline(values),
+                database_validator=lambda path: DatabaseInfo(path, source, "0" * 63 + "1"),
+                environ={},
             )
             self.assertEqual(status, 0)
             self.assertTrue((output / "batch_plan.json").is_file())

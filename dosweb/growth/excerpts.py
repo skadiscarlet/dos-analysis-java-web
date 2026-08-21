@@ -3,21 +3,18 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
-import subprocess
-from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Final
 
 from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.errors import AnalyzerError
 from dosweb.growth.models import SourceExcerpt
+from dosweb.growth.redaction import REDACTION_VERSION, redact_source_content
 
-_MAX_SOURCE_BYTES: Final = 16_384
-_MAX_GIT_METADATA_BYTES: Final = 256
+_MAX_SOURCE_BYTES: Final = 1_048_576
 _MAX_PATH_BYTES: Final = 512
 _MAX_LINE: Final = 2**31 - 1
 _DEFAULT_CONTEXT_LINES: Final = 8
-_GIT_TIMEOUT_SECONDS: Final = 10
 
 
 def _invalid(reason: str, *, field: str | None = None) -> AnalyzerError:
@@ -103,96 +100,17 @@ def _read_checkout_file(checkout: Path, relative_path: str) -> bytes:
             os.close(descriptor)
 
 
-def _git_environment() -> dict[str, str]:
-    return {
-        "PATH": "/usr/bin:/bin",
-        "LC_ALL": "C",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": "",
-        "GIT_NO_REPLACE_OBJECTS": "1",
-    }
-
-
-def _git_blob(checkout: Path, source_commit_sha: str, relative_path: str) -> bytes:
-    if (
-        not isinstance(source_commit_sha, str)
-        or len(source_commit_sha) != 40
-        or any(character not in "0123456789abcdef" for character in source_commit_sha)
-    ):
-        raise _invalid("SOURCE_COMMIT_INVALID", field="source_commit_sha")
-    object_id = f"{source_commit_sha}:{relative_path}"
-    command = [
-        "git",
-        "-c",
-        "core.fsmonitor=false",
-        "-c",
-        "core.hooksPath=/dev/null",
-        "--no-pager",
-        "-C",
-        str(checkout),
-    ]
-    try:
-        commit_type = subprocess.run(
-            [*command, "cat-file", "-t", source_commit_sha],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            env=_git_environment(),
-        ).stdout
-        if len(commit_type) > _MAX_GIT_METADATA_BYTES or commit_type.rstrip(b"\n") != b"commit":
-            raise ValueError("source revision is not a commit")
-        metadata = subprocess.run(
-            [*command, "cat-file", "--batch-check=%(objecttype) %(objectsize)"],
-            input=(object_id + "\n").encode("utf-8"),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            env=_git_environment(),
-        ).stdout
-        if len(metadata) > _MAX_GIT_METADATA_BYTES:
-            raise ValueError("git metadata exceeds limit")
-        object_type, size_text = metadata.rstrip(b"\n").split(b" ", 1)
-        if object_type != b"blob" or not size_text.isdigit():
-            raise ValueError("commit path is not a blob")
-        size = int(size_text)
-        if size > _MAX_SOURCE_BYTES:
-            raise ValueError("git blob exceeds limit")
-        blob = subprocess.run(
-            [*command, "show", object_id],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            env=_git_environment(),
-        ).stdout
-        if len(blob) != size:
-            raise ValueError("git blob size changed")
-        return blob
-    except AnalyzerError:
-        raise
-    except (
-        OSError,
-        subprocess.SubprocessError,
-        UnicodeError,
-        ValueError,
-        OverflowError,
-        MemoryError,
-    ) as exc:
-        raise _invalid("PINNED_SOURCE_UNAVAILABLE", field="source_commit_sha") from exc
-
-
 def extract_source_excerpt(
     source_checkout: Path,
-    source_commit_sha: str,
+    source_commit_sha: str | None,
     repo_relative_path: str,
     candidate_line: int,
     *,
     context_lines: int = _DEFAULT_CONTEXT_LINES,
-    git_blob_reader: Callable[[Path, str, str], bytes] | None = None,
+    git_blob_reader: object | None = None,
 ) -> SourceExcerpt:
-    """Derive one deterministic excerpt from a regular file matching a pinned Git blob."""
+    """Derive one deterministic excerpt from the current source checkout."""
+    del source_commit_sha, git_blob_reader
     path = _normalized_path(repo_relative_path)
     if (
         not isinstance(candidate_line, int)
@@ -207,37 +125,37 @@ def extract_source_excerpt(
     ):
         raise _invalid("CONTEXT_LINES_INVALID", field="context_lines")
 
-    checkout_bytes = _read_checkout_file(source_checkout, path)
-    reader = git_blob_reader or _git_blob
-    try:
-        blob = reader(source_checkout, source_commit_sha, path)
-    except AnalyzerError:
-        raise
-    except (OSError, ValueError, TypeError, MemoryError) as exc:
-        raise _invalid("PINNED_SOURCE_UNAVAILABLE", field="source_commit_sha") from exc
-    if not isinstance(blob, bytes) or len(blob) > _MAX_SOURCE_BYTES or blob != checkout_bytes:
-        raise _invalid("CHECKOUT_BLOB_MISMATCH", field="repo_relative_path")
-
+    blob = _read_checkout_file(source_checkout, path)
     try:
         lines = blob.splitlines(keepends=True)
         if candidate_line > len(lines):
             raise _invalid("CANDIDATE_LOCATION_OUTSIDE_SOURCE", field="candidate_line")
         start_line = max(1, candidate_line - context_lines)
         end_line = min(len(lines), candidate_line + context_lines)
-        excerpt_bytes = b"".join(lines[start_line - 1 : end_line])
-        content = excerpt_bytes.decode("utf-8")
+        original_excerpt_bytes = b"".join(lines[start_line - 1 : end_line])
+        original_content = original_excerpt_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise _invalid("SOURCE_NOT_UTF8", field="repo_relative_path") from exc
-    if not excerpt_bytes or len(excerpt_bytes) > _MAX_SOURCE_BYTES:
+    if not original_excerpt_bytes or len(original_excerpt_bytes) > _MAX_SOURCE_BYTES:
+        raise _invalid("EXCERPT_SIZE_INVALID", field="repo_relative_path")
+
+    redacted_content, redaction_events = redact_source_content(original_content, start_line)
+    try:
+        transmitted_bytes = redacted_content.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise _invalid("SOURCE_NOT_UTF8", field="repo_relative_path") from exc
+    if len(transmitted_bytes) > _MAX_SOURCE_BYTES:
         raise _invalid("EXCERPT_SIZE_INVALID", field="repo_relative_path")
 
     blob_sha256 = hashlib.sha256(blob).hexdigest()
-    excerpt_sha256 = hashlib.sha256(excerpt_bytes).hexdigest()
+    original_excerpt_sha256 = hashlib.sha256(original_excerpt_bytes).hexdigest()
+    excerpt_sha256 = hashlib.sha256(transmitted_bytes).hexdigest()
     identity = {
         "repo_relative_path": path,
         "start_line": start_line,
         "end_line": end_line,
         "git_blob_sha256": blob_sha256,
+        "original_excerpt_sha256": original_excerpt_sha256,
         "excerpt_sha256": excerpt_sha256,
     }
     return SourceExcerpt(
@@ -245,9 +163,12 @@ def extract_source_excerpt(
         repo_relative_path=path,
         start_line=start_line,
         end_line=end_line,
-        content=content,
+        content=redacted_content,
         git_blob_sha256=blob_sha256,
         excerpt_sha256=excerpt_sha256,
+        original_excerpt_sha256=original_excerpt_sha256,
+        redaction_events=redaction_events,
+        redaction_version=REDACTION_VERSION,
     )
 
 

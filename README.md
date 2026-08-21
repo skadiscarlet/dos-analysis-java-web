@@ -4,9 +4,11 @@ Static analyzer for resource-exhaustion denial-of-service patterns in Java Web a
 
 ## Status
 
-The Java Web DoS P0 analyzer is complete: the default CLI connects the full CodeQL → bounded-slice DeepSeek Growth Contract → deterministic verification pipeline across all six resumable stages. Unsupported, partial, ambiguous, or unresolved evidence remains fail-closed as `static_unknown`.
+The Java Web DoS P0 analyzer now closes the approved P0 Gate 2/3 implementation scope: the default CLI connects the full CodeQL → bounded-slice RightAPI Codex Responses Growth/Auth Contracts → deterministic verification pipeline across all six resumable stages, with same-CFG/depth≤1 lifecycle evidence and attacker-controlled loop witnesses. Unsupported depth>1/custom/reflection/async-capacity semantics remain explicitly fail-closed as `static_unknown`. A new 205-target formal plan is published and ready for an independently authorized batch execution; no 205-target batch was started by the acceptance run.
 
-Ordinary development tests are network-free. They do not contact DeepSeek or GitHub, start target services, send attack traffic, or perform dynamic DoS validation.
+Schema/tool 2.5/0.4.0 adds offline `modeled_configuration.jsonl`, `entry_security_facts.jsonl`, `configuration_coverage.json`, `entry_gap_facts.jsonl`, partial-first `entry_interposition_facts.jsonl`, candidate disposition/applicability records, path-bound lifecycle evidence/coverage, and private LLM audit artifacts. Use non-secret `analysis.modeled_defaults` or repeated `--modeled-default key=value` (CLI wins) for explicit modeled defaults. The Auth Contract interface is constrained: a model may cite only matching extracted security/config slice facts; unverifiable authentication remains `unknown`.
+
+Ordinary development tests are network-free. They do not contact RightAPI or GitHub, start target services, send attack traffic, or perform dynamic DoS validation.
 
 ## Requirements and installation
 
@@ -51,13 +53,17 @@ The P0 framework scope is:
 - Netty registered channel handlers;
 - MQTT registered message callbacks.
 
-Recognized but unresolved registration, entry, Growth, path, configuration, or lifecycle patterns are recorded as coverage gaps rather than guessed away.
+Recognized but unresolved registration, entry, Growth, path, configuration, or lifecycle patterns are recorded as coverage gaps rather than guessed away. Flow sources use real Spring MVC, Servlet, Netty, and MQTT qualified APIs; direct/global data-flow witnesses are proven only for supported callable paths, while multi-wrapper, field/alias, reflection, custom dispatch, and unproven loop/fan-out paths remain explicit partial coverage.
 
 ## Assertions and verdicts
 
-Assertion 1 matches when a verified Growth site is reached by a proven attacker-controlled E→G flow and no effective Guard or Bound prevents that Growth.
+Assertion 1 matches only for verified direct input/allocation size demand, or container/async Growth with separately proven single-request amplification; one `put(key,value)` or `submit(task)` is not amplification.
 
-Assertion 2 applies to escaping or repeatable Growth driven by attacker-controlled persistent key, value, submission, or resource-creation demand. It matches only when no effective Bound or effective synchronous Release limits the resource.
+Assertion 2 requires ordinary-attacker reachability, a proven repeatable E→G path, escaping attacker-controlled persistent key/value/submission/resource creation, and no effective Bound or synchronous Release. Unknown authentication, repeatability, amplification, association, or flow remains `static_unknown`.
+
+Every raw Growth has an internal auditable disposition (`rejected`, `verified_relevant`, `not_entry_reachable`, or `unresolved`). Legacy source-order association is explicitly partial and never a complete call-graph proof.
+
+P0 does not prove asynchronous Release. Growth and Auth LLM cache entries are private (`0600`), HMAC-authenticated, atomically published audit records: a fresh or cache-hit audit retains the bounded exact provider body, normalized prompt, parsed contract, settings and hashes without API keys, authorization headers, or environment data. Old cache formats are not reused.
 
 P0 does not prove asynchronous Release. A potential asynchronous consumer, expiry mechanism, background cleanup, or completion path remains unresolved unless a supported synchronous reduction is established. Relevant unresolved evidence or incomplete coverage forces an unknown conclusion.
 
@@ -74,15 +80,18 @@ Provider confidence is audit metadata only and never changes a verdict.
 A complete production invocation has this shape:
 
 ```bash
+# Optional override. Without this export, the gitignored 0600
+# config/local_secrets.json is used.
 export DEEPSEEK_API_KEY='set-in-your-shell-only'
 dos-web-analyzer analyze \
   --database databases/applications/example-db \
   --output results/p0/example \
   --codeql-binary codeql \
   --allow-remote-llm \
-  --public-source-url https://github.com/example/project \
-  --source-commit-sha 0123456789abcdef0123456789abcdef01234567 \
   --source-checkout frameworks/applications/example-project
+# The provenance flags below are optional metadata, not a gate:
+#   --public-source-url https://github.com/example/project \
+#   --source-commit-sha 0123456789abcdef0123456789abcdef01234567
 ```
 
 The CLI also exposes individual production stage targets:
@@ -110,18 +119,26 @@ OUTPUT/
 ├── coverage.json
 ├── entry_facts.jsonl
 ├── growth_candidates.jsonl
+├── candidate_entry_links.jsonl
+├── candidate_dispositions.jsonl
+├── repeatability_decisions.jsonl
+├── amplification_decisions.jsonl
 ├── growth_contracts.jsonl
 ├── verified_growth.jsonl
 ├── flow_proofs.jsonl
 ├── guard_candidates.jsonl
 ├── bound_candidates.jsonl
 ├── release_candidates.jsonl
+├── lifecycle_evidence.jsonl
+├── lifecycle_coverage.jsonl
 ├── lifecycle_results.jsonl
 ├── static_findings.jsonl
 ├── lifecycle_certificates.jsonl
 ├── summary.json
 └── report.md
 ```
+
+Lifecycle screening rows are never global counterexamples: `lifecycle_evidence.jsonl` binds each usable row to `(entry_id, growth_id, path_id)`. `lifecycle_coverage.jsonl` records a Guard/Bound/Release family decision for every relevant path; candidate-query zero rows never prove absence—only an explicit complete modeled-domain no-match witness may mean `absent`. Partial, unsupported, ambiguous CFG, string-only receiver, unproven alias, depth>1 wrapper, reflection, or custom dispatch evidence forces `static_unknown`.
 
 The provider-neutral pipeline also maintains `.pipeline.lock` and per-stage metadata under `.stage-manifests/`. For each successful stage publication, its formal artifacts and stage manifest are installed before the corresponding `run.json` checkpoint is updated. Lifecycle certificates are the durable detailed conclusion records; static findings reference certificates, and summaries and Markdown reports must agree with those certificate verdicts.
 
@@ -130,21 +147,30 @@ The provider-neutral pipeline also maintains `.pipeline.lock` and per-stage meta
 Run the default network-free suite:
 
 ```bash
-python -m unittest discover -s tests -p 'test_*.py' -v
-python -m compileall -q dosweb scripts
+python3 -m pytest -q
+python3 -m compileall -q dosweb scripts
 ```
 
 Real CodeQL fixture checks are explicit opt-ins and require a local CodeQL installation:
 
 ```bash
 codeql pack install codeql
-DOSWEB_RUN_CODEQL_FIXTURES=1 python -m unittest \
-  tests.test_codeql_entry_queries \
-  tests.test_codeql_growth_queries \
-  tests.test_codeql_lifecycle_queries -v
+DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q \
+  tests/test_codeql_entry_queries.py \
+  tests/test_codeql_growth_queries.py \
+  tests/test_codeql_lifecycle_queries.py
+
+# Full real production E2E: real fixture DB/queries + real RightAPI Codex Responses client with mock transport
+DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_production_e2e.py
 ```
 
-These fixture checks create local test databases; they do not authorize remote LLM use or dynamic validation. No default test requires `DEEPSEEK_API_KEY`.
+Current accepted baseline: the network-free suite passes 656 tests plus 447 subtests (10 opt-in skips); real entry fixtures pass 4 tests plus 20 subtests, real growth fixtures pass 2 tests plus 12 subtests, and real lifecycle/flow fixtures pass 3 tests plus 53 subtests. The four production E2E scenarios remain covered across Spring, Servlet, Netty, and MQTT; an additional real HertzBeat scripted-provider canary now yields a certificate-backed `static_unknown` for the filter→`jobInstanceMap.computeIfAbsent` chain without promoting partial evidence.
+
+These fixture checks create local test databases; the production E2E uses the real RightAPI Codex Responses client with a bounded in-memory mock transport and does not contact the provider. No default test requires `DEEPSEEK_API_KEY`.
+
+The PoC-33 hardening entries wave at `results/java_web_dos_batch/poc33-recall-v2-20260819_093248-entries/` resolves all 21 truth repositories to unique source/database assets and completes formal extraction for 21/21 targets. Every target ran all seven required entry/interposition queries with zero skipped query or query diagnostic, and the current seven-artifact entries set is hash-manifested; see `AUDIT.json`. Zero complete entries for SkyWalking, Solr, SMQTT, Grobid, and Concord remains explicit gap/coverage evidence rather than a failed stage.
+
+A separate authorized formal static canary was run against three archived dynamic true-positive seeds (Erupt, Citrus, DataCompare). All three completed with strict CodeQL policy, zero query diagnostics, replayable certificates/audits, no credential leak, and honest `static_unknown` results where auth/flow/lifecycle evidence remained incomplete. See `results/java_web_dos_batch/p0-true-positive-canary-20260817/{canary_manifest.json,canary_summary.json}`. Dynamic truth was used only for post-hoc target selection and never entered ordinary verdict derivation.
 
 ## Static and dynamic separation
 
@@ -183,7 +209,7 @@ The active research corpus contains exactly **205 Java Web projects**, with sour
 - Deterministic inventory generator: `scripts/generate_java_web_205_inventory.py`
 - Preserved Java Web 200 definition/inventory: `docs/java-web-200-corpus.md` and `intel/applications/java_web_200_targets.json`
 
-Earlier 50-project and 183-project inventories, the Java Web 200 generated run, and its repair outputs are historical evidence and do not define current corpus membership. Membership and readiness are distinct: the active dataset has 205 targets, while the current tracked manifest reports 150 strictly ready databases and 55 incomplete databases.
+Earlier 50-project and 183-project inventories, the Java Web 200 generated run, and its repair outputs are historical evidence and do not define current corpus membership. Membership and readiness are distinct: the active dataset has 205 targets, and the 2026-08-16 repinned manifest reports 205 strictly ready source/database pairs and no incomplete databases.
 
 The canonical batch layer validates all source fingerprints and CodeQL database source roots before publishing an immutable plan. Planning is local and network-free:
 
@@ -193,7 +219,7 @@ python scripts/run_java_web_dos_batch.py plan \
   --output results/java_web_dos_batch/java-web-205-plan
 ```
 
-`entries` runs only local Entry extraction with bounded concurrency and strips any inherited provider credential. `full` requires both `--allow-remote-llm` and `DEEPSEEK_API_KEY` for execution. Use `full --plan-only` to construct and publish a non-executing full plan without a key or network; this still records only non-secret provider settings (`--model`, `--base-url`, `--timeout-seconds`, `--max-retries`, `--temperature`, `--cache-dir`, `--config`, and `--codeql-binary`) in the digest-bound plan. Targets represented only by `tree-sha256` remain explicitly paused because that fingerprint cannot satisfy public Git commit attestation. Per-target stage reuse remains governed by the production pipeline's strict manifests and hashes:
+`entries` runs only local Entry extraction with bounded concurrency and strips any inherited provider credential. Formal growth additionally writes 0600 private `llm_audit.private.jsonl` records for constrained Growth/Auth Contract calls (normalized prompt, bounded raw response, parsed response, non-secret settings, attestation and cache provenance); they are never included in reports. The current default provider is RightAPI Codex Responses at `https://rightapi.ai/grok/v1/` with model `grok-4.6` using the non-streaming Responses API; the owner-only API key remains in the gitignored `config/local_secrets.json` and must never be copied into reports or commits. The endpoint is non-streaming Responses only and sends the fixed provider User-Agent `pi-coding-agent`; HTTP 403 fails closed. Rotating that key rotates private-cache HMAC authentication, so provider runs must not resume an old cache across key changes; use a new immutable output directory. Remote calls require explicit `--allow-remote-llm` authorization, a non-empty provider API key, and a readable local source checkout; git-commit provenance (public URL, commit SHA, clean-checkout attestation) is optional metadata and no longer gates the remote path. Auth Contract decisions may cite only the entry security/configuration facts in their bounded slice, and unresolved authentication remains `unknown`. Formal analyzer stages fail closed when a selected CodeQL query fails. Only the explicit exploratory command `dos-web-analyzer entries --allow-partial-codeql` may record such a failure as a coverage gap; its manifest identity cannot be reused by formal analysis. `full` requires both `--allow-remote-llm` and a provider API key (from the `DEEPSEEK_API_KEY` environment variable or the gitignored local `config/local_secrets.json`, with the environment taking precedence). Use `full --plan-only` to construct and publish a non-executing full plan without a key or network; this still records only non-secret provider settings (`--model`, `--base-url`, `--timeout-seconds`, `--max-retries`, `--temperature`, `--cache-dir`, `--config`, and `--codeql-binary`) in the digest-bound plan. All 205 targets are queueable in full plans; a target whose source has only a `tree-sha256` fingerprint is executed against its local source tree, without requiring git-commit provenance. Per-target stage reuse remains governed by the production pipeline's strict manifests and hashes:
 
 ```bash
 python scripts/run_java_web_dos_batch.py entries \
@@ -214,3 +240,7 @@ Development utilities:
 - `scripts/build_top50_codeql_dbs.py` and `scripts/reselect_java_web_dos_top50.py` reproduce superseded historical selection runs only.
 
 Use `--help` on each script for its input and safety requirements. Dry-run modes do not clone, build, or publish target assets.
+
+### 2026-08-17 P0 flow closure update
+
+Formal flow extraction uses CodeQL `DataFlow::Global` and recognizes only real Spring MVC, Servlet, Netty, and MQTT qualified APIs as attacker sources. `EntryToGrowthAssociations.ql` emits semantic handler/growth associations; source-order is only partial triage evidence. A Netty `ChannelInitializer` is complete only when a supported `ServerBootstrap.childHandler` or `handler` installation is present. Missing association, flow, or coverage remains an explicit unknown chain.

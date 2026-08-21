@@ -86,12 +86,15 @@ class BatchPlanTests(unittest.TestCase):
             identity,
             Path("src"),
             Path("db"),
-            TargetCapability(False, None, "tree-sha256", "attestation_unavailable"),
+            TargetCapability(True, None, "tree-sha256", None),
             "d" * 64,
         )
         corpus = CanonicalCorpus(1, "canonical", "java-web-200", 1, "d" * 64, (target,), Path("manifest.json"))
-        plan = build_batch_plan(corpus, run_id="run", mode="full")
-        self.assertEqual(plan.targets[0].initial_state, "queued")
+        full = build_batch_plan(corpus, run_id="run-full", mode="full")
+        entries = build_batch_plan(corpus, run_id="run-entries", mode="entries")
+        self.assertEqual(full.targets[0].initial_state, "queued")
+        self.assertEqual(entries.targets[0].initial_state, "queued")
+        self.assertTrue(full.targets[0].capability.provider_eligible)
 
     def test_tree_fingerprint_uses_inventory_nul_separators(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

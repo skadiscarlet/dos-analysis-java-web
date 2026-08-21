@@ -137,6 +137,34 @@ def read_jsonl_strict(path: Path, artifact_name: str) -> list[dict[str, object]]
     return records
 
 
+def read_jsonl_bytes_strict(payload: bytes, artifact_name: str, *, source_name: str = "verified-upstream") -> list[dict[str, object]]:
+    """Parse an already authenticated byte snapshot without reopening its path."""
+    if not isinstance(payload, bytes) or len(payload) > _MAX_ARTIFACT_TOTAL_BYTES:
+        raise AnalyzerError("ARTIFACT_LIMIT_EXCEEDED", "Artifact JSONL exceeds configured limits.", {"path": source_name, "artifact_name": artifact_name})
+    records: list[dict[str, object]] = []
+    lines = payload.splitlines(keepends=True)
+    if len(lines) > _MAX_ARTIFACT_RECORDS:
+        raise AnalyzerError("ARTIFACT_LIMIT_EXCEEDED", "Artifact JSONL exceeds configured limits.", {"path": source_name, "artifact_name": artifact_name})
+    for line_number, raw_line in enumerate(lines, 1):
+        if len(raw_line) > _MAX_ARTIFACT_RECORD_BYTES:
+            raise AnalyzerError("ARTIFACT_LIMIT_EXCEEDED", "Artifact JSONL exceeds configured limits.", {"path": source_name, "line": line_number, "artifact_name": artifact_name})
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise AnalyzerError("ARTIFACT_INVALID_JSON", "Artifact JSONL is not valid UTF-8.", {"path": source_name, "line": line_number, "artifact_name": artifact_name}) from exc
+        if not line.strip():
+            raise AnalyzerError("ARTIFACT_INVALID_JSON", "Artifact JSONL must not contain blank records.", {"path": source_name, "line": line_number, "artifact_name": artifact_name})
+        try:
+            record = json.loads(line, parse_constant=_reject_json_constant, object_pairs_hook=_unique_json_object)
+            _check_artifact_value(record)
+        except (json.JSONDecodeError, ValueError, RecursionError, MemoryError) as exc:
+            raise AnalyzerError("ARTIFACT_INVALID_JSON", "Artifact JSONL contains invalid JSON.", {"path": source_name, "line": line_number, "artifact_name": artifact_name}) from exc
+        if not isinstance(record, dict):
+            raise AnalyzerError("ARTIFACT_RECORD_NOT_OBJECT", "Artifact records must be JSON objects.", {"path": source_name, "line": line_number, "artifact_name": artifact_name})
+        records.append(record)
+    return records
+
+
 def write_jsonl_atomically(
     path: Path,
     artifact_name: str,

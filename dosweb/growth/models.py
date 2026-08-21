@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
 from typing import Iterable, Literal, Mapping, cast
@@ -29,6 +29,8 @@ _MAX_SOURCE_BYTES = 65536
 _MAX_CANONICAL_PAYLOAD_BYTES = 131072
 _MAX_CONFIG_INTEGER = 2**31 - 1
 _MAX_LINE_NUMBER = 2**31 - 1
+_MAX_REDACTION_EVENTS = 256
+_REDACTION_PATTERNS = frozenset({"credential_assignment", "credential_header", "credential_mutator"})
 
 
 def _fail() -> None:
@@ -63,22 +65,57 @@ def _unique(values: Iterable[str]) -> bool:
 
 @dataclass(frozen=True)
 class SourceExcerpt:
-    excerpt_id: str; repo_relative_path: str; start_line: int; end_line: int; content: str; git_blob_sha256: str; excerpt_sha256: str
+    excerpt_id: str
+    repo_relative_path: str
+    start_line: int
+    end_line: int
+    content: str
+    git_blob_sha256: str
+    excerpt_sha256: str
+    original_excerpt_sha256: str = ""
+    redaction_events: tuple[dict[str, object], ...] = field(default_factory=tuple)
+    redaction_version: str = "1"
     def __post_init__(self) -> None:
+        if self.original_excerpt_sha256 == "":
+            # Hand-built excerpts are unredacted, so the original hash equals the
+            # transmitted (content) hash.
+            object.__setattr__(self, "original_excerpt_sha256", self.excerpt_sha256)
         try:
             path_bytes = _utf8_bytes_at_most(self.repo_relative_path, _MAX_PATH_BYTES)
             content_bytes = _utf8_bytes_at_most(self.content, 16384)
-            valid = (_id(self.excerpt_id, "excerpt:") and isinstance(self.repo_relative_path, str) and bool(self.repo_relative_path) and path_bytes is not None and not self.repo_relative_path.startswith("/") and ".." not in self.repo_relative_path.split("/") and bool(_PATH.fullmatch(self.repo_relative_path)) and isinstance(self.start_line, int) and not isinstance(self.start_line, bool) and 1 <= self.start_line <= _MAX_LINE_NUMBER and isinstance(self.end_line, int) and not isinstance(self.end_line, bool) and self.start_line <= self.end_line <= _MAX_LINE_NUMBER and isinstance(self.content, str) and bool(self.content) and content_bytes is not None and bool(_SHA.fullmatch(self.git_blob_sha256)) and bool(_SHA.fullmatch(self.excerpt_sha256)) and hashlib.sha256(content_bytes).hexdigest() == self.excerpt_sha256)
+            valid = (_id(self.excerpt_id, "excerpt:") and isinstance(self.repo_relative_path, str) and bool(self.repo_relative_path) and path_bytes is not None and not self.repo_relative_path.startswith("/") and ".." not in self.repo_relative_path.split("/") and bool(_PATH.fullmatch(self.repo_relative_path)) and isinstance(self.start_line, int) and not isinstance(self.start_line, bool) and 1 <= self.start_line <= _MAX_LINE_NUMBER and isinstance(self.end_line, int) and not isinstance(self.end_line, bool) and self.start_line <= self.end_line <= _MAX_LINE_NUMBER and isinstance(self.content, str) and bool(self.content) and content_bytes is not None and bool(_SHA.fullmatch(self.git_blob_sha256)) and bool(_SHA.fullmatch(self.excerpt_sha256)) and bool(_SHA.fullmatch(self.original_excerpt_sha256)) and hashlib.sha256(content_bytes).hexdigest() == self.excerpt_sha256 and isinstance(self.redaction_version, str) and bool(self.redaction_version) and len(self.redaction_version.encode("utf-8")) <= 32)
         except (UnicodeError, ValueError, OverflowError, MemoryError):
             _fail()
-        if not valid: _fail()
-    def to_dict(self) -> dict[str, object]: return self.__dict__.copy()
+        events = self.redaction_events
+        try:
+            events = _bounded_tuple(events, _MAX_REDACTION_EVENTS)
+        except AnalyzerError:
+            _fail()
+        if not all(
+            isinstance(item, Mapping)
+            and set(item) == {"line", "pattern_id"}
+            and isinstance(item["line"], int)
+            and not isinstance(item["line"], bool)
+            and 1 <= item["line"] <= _MAX_LINE_NUMBER
+            and isinstance(item["pattern_id"], str)
+            and item["pattern_id"] in _REDACTION_PATTERNS
+            for item in events
+        ):
+            _fail()
+        if not valid:
+            _fail()
+        object.__setattr__(self, "redaction_events", events)
+    def to_dict(self) -> dict[str, object]:
+        return {**self.__dict__, "redaction_events": [dict(item) for item in self.redaction_events]}
 
     @classmethod
     def from_dict(cls, record: Mapping[str, object]) -> SourceExcerpt:
-        if not isinstance(record, Mapping) or set(record) != {"excerpt_id", "repo_relative_path", "start_line", "end_line", "content", "git_blob_sha256", "excerpt_sha256"}:
+        if not isinstance(record, Mapping) or set(record) != {"excerpt_id", "repo_relative_path", "start_line", "end_line", "content", "git_blob_sha256", "excerpt_sha256", "original_excerpt_sha256", "redaction_events", "redaction_version"}:
             _fail()
-        return cls(cast(str, record["excerpt_id"]), cast(str, record["repo_relative_path"]), cast(int, record["start_line"]), cast(int, record["end_line"]), cast(str, record["content"]), cast(str, record["git_blob_sha256"]), cast(str, record["excerpt_sha256"]))
+        events = record["redaction_events"]
+        if not isinstance(events, list):
+            _fail()
+        return cls(cast(str, record["excerpt_id"]), cast(str, record["repo_relative_path"]), cast(int, record["start_line"]), cast(int, record["end_line"]), cast(str, record["content"]), cast(str, record["git_blob_sha256"]), cast(str, record["excerpt_sha256"]), cast(str, record["original_excerpt_sha256"]), tuple(cast(Mapping[str, object], item) for item in events), cast(str, record["redaction_version"]))
 
 
 @dataclass(frozen=True)
@@ -112,16 +149,16 @@ class CfgSummary:
 
 @dataclass(frozen=True)
 class RegistrationFact:
-    kind: Literal["spring_mvc", "servlet", "netty", "mqtt"]; location_ref: str
+    kind: Literal["spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"]; location_ref: str
     def __post_init__(self) -> None:
-        if self.kind not in {"spring_mvc", "servlet", "netty", "mqtt"} or not _id(self.location_ref, "excerpt:"): _fail()
+        if self.kind not in {"spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"} or not _id(self.location_ref, "excerpt:"): _fail()
     def to_dict(self) -> dict[str, object]: return self.__dict__.copy()
 
     @classmethod
     def from_dict(cls, record: Mapping[str, object]) -> RegistrationFact:
         if not isinstance(record, Mapping) or set(record) != {"kind", "location_ref"}:
             _fail()
-        return cls(cast(Literal["spring_mvc", "servlet", "netty", "mqtt"], record["kind"]), cast(str, record["location_ref"]))
+        return cls(cast(Literal["spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"], record["kind"]), cast(str, record["location_ref"]))
 
 
 @dataclass(frozen=True)
@@ -130,7 +167,8 @@ class ConfigFact:
     def __post_init__(self) -> None:
         value = self.normalized_value
         valid_value = (isinstance(value, str) and value in {"enabled", "disabled", "finite", "unbounded", "unknown"}) or (isinstance(value, int) and not isinstance(value, bool) and -_MAX_CONFIG_INTEGER <= value <= _MAX_CONFIG_INTEGER)
-        if self.kind not in {"request_limit", "timeout", "capacity", "feature_state"} or not valid_value or not _id(self.source_location_ref, "excerpt:") or (self.config_id is not None and not _id(self.config_id, "config:")): _fail()
+        if self.kind not in {"request_limit", "timeout", "capacity", "feature_state"} or not valid_value or not (_id(self.source_location_ref, "excerpt:") or _id(self.source_location_ref, "config:")) or (self.config_id is not None and not _id(self.config_id, "config:")): _fail()
+        if self.source_location_ref.startswith("config:") and self.source_location_ref != self.config_id: _fail()
     def to_dict(self) -> dict[str, object]: return self.__dict__.copy()
 
     @classmethod
@@ -147,8 +185,14 @@ class BoundedSlicePayload:
         limits = {"source_excerpts": _MAX_SOURCE_EXCERPTS, "static_facts": _MAX_STATIC_FACTS, "registration_facts": _MAX_REGISTRATION_FACTS, "config_facts": _MAX_CONFIG_FACTS}
         for name, limit in limits.items(): object.__setattr__(self, name, _bounded_tuple(getattr(self, name), limit))
         if not all(isinstance(x, SourceExcerpt) for x in self.source_excerpts) or not all(isinstance(x, StaticFact) for x in self.static_facts) or not all(isinstance(x, RegistrationFact) for x in self.registration_facts) or not all(isinstance(x, ConfigFact) for x in self.config_facts) or not isinstance(self.cfg_summary, CfgSummary): _fail()
-        refs = {x.excerpt_id for x in self.source_excerpts}; facts = {x.fact_id for x in self.static_facts}; locs = [x.location_ref for x in self.static_facts] + [x.location_ref for x in self.registration_facts] + [x.source_location_ref for x in self.config_facts]
-        if not _id(self.entry_id, "entry:") or not _id(self.growth_id, "growth:") or not refs or len(refs) != len(self.source_excerpts) or len(facts) != len(self.static_facts) or not all(x in refs for x in locs) or not all(x in facts for x in self.cfg_summary.branch_facts) or not all(x.value_ref is None or x.value_ref in facts for x in self.static_facts): _fail()
+        refs = {x.excerpt_id for x in self.source_excerpts}; facts = {x.fact_id for x in self.static_facts}
+        source_locs = [x.location_ref for x in self.static_facts] + [x.location_ref for x in self.registration_facts]
+        config_locs_valid = all(
+            item.source_location_ref in refs
+            or (item.config_id is not None and item.source_location_ref == item.config_id)
+            for item in self.config_facts
+        )
+        if not _id(self.entry_id, "entry:") or not _id(self.growth_id, "growth:") or not refs or len(refs) != len(self.source_excerpts) or len(facts) != len(self.static_facts) or not all(x in refs for x in source_locs) or not config_locs_valid or not all(x in facts for x in self.cfg_summary.branch_facts) or not all(x.value_ref is None or x.value_ref in facts for x in self.static_facts): _fail()
         source_size = 0
         for excerpt in self.source_excerpts:
             content_bytes = _utf8_bytes_at_most(excerpt.content, 16384)

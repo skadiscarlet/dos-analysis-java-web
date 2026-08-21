@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dosweb.batch.corpus import load_canonical_corpus
+from dosweb.batch.corpus import _fingerprint, load_canonical_corpus
 from dosweb.errors import AnalyzerError
 
 
@@ -21,6 +21,22 @@ SPEC.loader.exec_module(GENERATOR)
 
 
 class JavaWeb205InventoryTests(unittest.TestCase):
+    def test_tree_fingerprint_ignores_only_analyzer_owned_static_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "Main.java").write_text("class Main {}\n", encoding="utf-8")
+            baseline = _fingerprint(source)
+
+            analyzer_output = source / "results/applications_static_analysis/run-1"
+            analyzer_output.mkdir(parents=True)
+            (analyzer_output / "report.md").write_text("generated\n", encoding="utf-8")
+            self.assertEqual(baseline, _fingerprint(source))
+
+            project_result = source / "results/domain-result.json"
+            project_result.write_text("{}\n", encoding="utf-8")
+            self.assertNotEqual(baseline, _fingerprint(source))
+
     def test_tracked_manifest_preserves_200_and_appends_exact_poc_union_delta(self) -> None:
         base = json.loads((ROOT / "intel/applications/java_web_200_targets.json").read_text(encoding="utf-8"))
         active = json.loads((ROOT / "intel/applications/java_web_205_targets.json").read_text(encoding="utf-8"))
@@ -51,7 +67,10 @@ class JavaWeb205InventoryTests(unittest.TestCase):
             [(row["index"], row["name"]) for row in active["projects"][200:]],
         )
         self.assertEqual(205, len({row["name"].lower() for row in active["projects"]}))
-        self.assertEqual(13, active["construction"]["overlap_count"])
+        poc = json.loads((ROOT / "poc/manifest.json").read_text(encoding="utf-8"))
+        base_names = {GENERATOR.normalize_repository(row["name"]) for row in base["projects"]}
+        poc_names = {GENERATOR.normalize_repository(row["app"]) for row in poc}
+        self.assertEqual(len(base_names & poc_names), active["construction"]["overlap_count"])
         self.assertEqual(5, active["construction"]["added_count"])
 
     def test_compose_repository_names_normalizes_and_deduplicates_case_insensitively(self) -> None:

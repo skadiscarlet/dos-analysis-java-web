@@ -23,6 +23,13 @@ GROWTH_COLUMNS: Final = (
     "demand_input_role", "escape_scope", "candidate_evidence",
     "coverage_status", "coverage_note",
 )
+INTERPOSITION_COLUMNS: Final = (
+    "entry_file", "entry_start_line", "interposer_fqn", "interposer_file",
+    "interposer_start_line", "registration_kind", "registration_fqn", "registration_file",
+    "registration_start_line", "url_predicate_kind", "url_predicate_value", "order_status",
+    "order_value", "action_fqn", "action_file", "action_start_line", "chain_file",
+    "chain_start_line", "phase", "action_before_chain", "coverage_status", "coverage_note",
+)
 FLOW_COLUMNS: Final = (
     "source_file", "source_start_line", "sink_file", "sink_start_line",
     "attacker_target", "attacker_source", "attacker_sink", "call_path",
@@ -30,24 +37,34 @@ FLOW_COLUMNS: Final = (
     "coverage_note",
 )
 GUARD_COLUMNS: Final = (
-    "site_file", "site_start_line", "guard_kind", "resource_dimension",
+    "anchor_file", "anchor_start_line", "site_file", "site_start_line", "guard_kind", "resource_dimension",
     "scope", "behavior", "dominates_growth", "reject_path_reaches_growth",
     "configuration_key", "configuration_value", "representation", "phase",
     "covers_materialization", "authorization_only", "evidence",
     "coverage_status", "coverage_note",
 )
 BOUND_COLUMNS: Final = (
-    "site_file", "site_start_line", "bound_kind", "resource_dimension",
+    "anchor_file", "anchor_start_line", "site_file", "site_start_line", "bound_kind", "resource_dimension",
     "scope", "behavior", "receiver", "field_path", "result_checked",
     "configuration_key", "configuration_value", "phase", "covers_flow",
     "request_encoding", "queue_resource", "product_bound", "evidence",
     "coverage_status", "coverage_note",
 )
 RELEASE_COLUMNS: Final = (
-    "site_file", "site_start_line", "release_kind", "resource_dimension",
+    "anchor_file", "anchor_start_line", "site_file", "site_start_line", "release_kind", "resource_dimension",
     "scope", "receiver", "key_identity", "synchronous", "normal_path",
     "exceptional_path", "actual_reduction", "after_growth", "transfer_only",
     "async_kind", "evidence", "coverage_status", "coverage_note",
+)
+LIFECYCLE_COVERAGE_COLUMNS: Final = (
+    "anchor_file", "anchor_start_line", "family", "coverage_status", "coverage_note",
+)
+LIFECYCLE_SUMMARY_COLUMNS: Final = (
+    "anchor_file", "anchor_start_line", "family", "candidate_file", "candidate_start_line",
+    "callsite_file", "callsite_start_line", "receiver_file", "receiver_start_line",
+    "argument_index", "resource_dimension", "scope", "configuration_key", "configuration_value",
+    "representation", "phase", "covers_materialization", "dominates_growth",
+    "reject_path_reaches_growth", "evidence", "cfg_relation", "coverage_status", "coverage_note",
 )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -136,6 +153,20 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
             },
             paths=frozenset({"site_file"}), lines=frozenset({"site_start_line"}),
         ),
+        "entry_interposition": _spec(
+            "entry_interposition", INTERPOSITION_COLUMNS,
+            integers={"entry_start_line", "interposer_start_line", "registration_start_line", "action_start_line", "chain_start_line"},
+            booleans={"action_before_chain"},
+            enums={
+                "registration_kind": frozenset({"filter_registration_bean", "servlet_filter", "once_per_request_filter"}),
+                "url_predicate_kind": frozenset({"exact", "prefix", "servlet_pattern", "regex", "unknown"}),
+                "order_status": frozenset({"known", "unknown"}),
+                "phase": frozenset({"before_handler", "after_handler", "unknown"}),
+                "coverage_status": frozenset({"complete", "partial"}),
+            },
+            paths=frozenset({"entry_file", "interposer_file", "registration_file", "action_file", "chain_file"}),
+            lines=frozenset({"entry_start_line", "interposer_start_line", "registration_start_line", "action_start_line", "chain_start_line"}),
+        ),
         "flow": _spec(
             "flow", FLOW_COLUMNS,
             integers={"source_start_line", "sink_start_line"},
@@ -149,34 +180,47 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
         ),
         "guard": _spec(
             "guard", GUARD_COLUMNS,
-            integers={"site_start_line"}, booleans={"dominates_growth", "reject_path_reaches_growth", "covers_materialization", "authorization_only"},
+            integers={"anchor_start_line", "site_start_line"}, booleans={"dominates_growth", "reject_path_reaches_growth", "covers_materialization", "authorization_only"},
             enums={
                 "guard_kind": frozenset({"request_limit", "input_validation", "rate_limit", "configuration"}),
                 "resource_dimension": _RESOURCE_DIMENSIONS, "scope": _SCOPES,
                 "behavior": frozenset({"reject", "block", "unknown"}), "coverage_status": _COVERAGE,
             },
-            paths=frozenset({"site_file"}), lines=frozenset({"site_start_line"}),
+            paths=frozenset({"anchor_file", "site_file"}), lines=frozenset({"anchor_start_line", "site_start_line"}),
         ),
         "bound": _spec(
             "bound", BOUND_COLUMNS,
-            integers={"site_start_line"}, booleans={"result_checked", "covers_flow", "product_bound"},
+            integers={"anchor_start_line", "site_start_line"}, booleans={"result_checked", "covers_flow", "product_bound"},
             enums={
                 "bound_kind": frozenset({"limit", "quota", "capacity", "backpressure", "rate"}),
                 "resource_dimension": _RESOURCE_DIMENSIONS, "scope": _SCOPES,
                 "behavior": frozenset({"reject", "block", "evict", "unknown"}), "coverage_status": _COVERAGE,
             },
-            paths=frozenset({"site_file"}), lines=frozenset({"site_start_line"}),
+            paths=frozenset({"anchor_file", "site_file"}), lines=frozenset({"anchor_start_line", "site_start_line"}),
+        ),
+        "lifecycle_coverage": _spec(
+            "lifecycle_coverage", LIFECYCLE_COVERAGE_COLUMNS,
+            integers={"anchor_start_line"},
+            enums={"family": frozenset({"guard", "bound", "release"}), "coverage_status": _COVERAGE},
+            paths=frozenset({"anchor_file"}), lines=frozenset({"anchor_start_line"}),
+        ),
+        "lifecycle_summary": _spec(
+            "lifecycle_summary", LIFECYCLE_SUMMARY_COLUMNS,
+            integers={"anchor_start_line", "candidate_start_line", "callsite_start_line", "receiver_start_line", "argument_index"}, booleans={"covers_materialization", "dominates_growth", "reject_path_reaches_growth"},
+            enums={"family": frozenset({"guard", "bound", "release"}), "cfg_relation": frozenset({"one_wrapper", "partial"}), "coverage_status": _COVERAGE},
+            paths=frozenset({"anchor_file", "candidate_file", "callsite_file", "receiver_file"}),
+            lines=frozenset({"anchor_start_line", "candidate_start_line", "callsite_start_line", "receiver_start_line"}),
         ),
         "release": _spec(
             "release", RELEASE_COLUMNS,
-            integers={"site_start_line"},
+            integers={"anchor_start_line", "site_start_line"},
             booleans={"synchronous", "normal_path", "exceptional_path", "actual_reduction", "after_growth", "transfer_only"},
             enums={
                 "release_kind": frozenset({"remove", "clear", "evict", "close", "unknown"}),
                 "resource_dimension": _RESOURCE_DIMENSIONS, "scope": _SCOPES,
                 "coverage_status": _COVERAGE,
             },
-            paths=frozenset({"site_file"}), lines=frozenset({"site_start_line"}),
+            paths=frozenset({"anchor_file", "site_file"}), lines=frozenset({"anchor_start_line", "site_start_line"}),
         ),
     }
 )

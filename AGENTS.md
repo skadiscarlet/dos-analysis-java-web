@@ -24,6 +24,8 @@ E extraction
   -> static conclusion
 ```
 
+当前合规修复基线为 schema/tool `2.5/0.4.0`。formal `analyze/full` 中 selected CodeQL query failure 必须终止；只有显式 `entries --allow-partial-codeql` 是 exploratory coverage 侦察，产物不得被 formal resume。新增正式 artifacts 包括 modeled configuration/security facts、candidate links/dispositions、repeatability/amplification、Auth/Reachability、path-bound lifecycle evidence/coverage、`entry_gap_facts.jsonl`、partial-first `entry_interposition_facts.jsonl`，以及 0600 的 `llm_audit.private.jsonl`。当前默认 Codex Responses provider 为 `https://rightapi.ai/grok/v1/` / `grok-4.6`（非流式 Responses API）；凭据仅允许来自环境变量或 gitignored、owner-only `config/local_secrets.json`，不得进入报告、日志、回复或提交。工具不要求 git-commit provenance：tree-sha256 目标同样以本地源码树直接 full 执行，remote LLM 只要求显式授权、非空 API key 与可读本地源码目录。PoC-33 当前 formal entries 验收批次为 `results/java_web_dos_batch/poc33-recall-v2-20260819_093248-entries/`：21/21 completed、每库 7 queries、0 skipped/diagnostics；这不等同于 full recall 完成。178-target full 在真实 provider canary 和最终 P0 审查通过前继续暂停；depth>1/custom/reflection/async-capacity 仍为明确 deferred/static_unknown。
+
 ## 本轮保留资产
 
 不得删除或重写：

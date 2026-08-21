@@ -65,7 +65,7 @@ def _evidence(values: object) -> tuple[str, ...]:
     if not isinstance(values, (tuple, list, frozenset)) or not values or len(values) > 64:
         raise AnalyzerError("ANALYSIS_LIFECYCLE_INVALID", "Lifecycle evidence is invalid.")
     result = tuple(sorted(set(values)))
-    if any(not isinstance(item, str) or not item.startswith("fact:") for item in result):
+    if any(not isinstance(item, str) or not item or len(item.encode("utf-8")) > 256 for item in result):
         raise AnalyzerError("ANALYSIS_LIFECYCLE_INVALID", "Lifecycle evidence is invalid.")
     return result
 
@@ -129,11 +129,15 @@ class GuardDecision:
     candidate_ids: tuple[str, ...]
 
 
-def evaluate_guard(entry: EntryFact, growth: VerifiedGrowthResult, flow: VerifiedFlow, candidates: Sequence[GuardCandidate], configuration: ModeledConfiguration) -> GuardDecision:
+def evaluate_guard(entry: EntryFact, growth: VerifiedGrowthResult, flow: VerifiedFlow, candidates: Sequence[GuardCandidate], configuration: ModeledConfiguration, *, coverage_status: str = "complete") -> GuardDecision:
     _validate_context(entry, growth, flow)
+    if coverage_status not in {"complete", "partial", "unsupported"}:
+        raise AnalyzerError("ANALYSIS_LIFECYCLE_INVALID", "Guard coverage status is invalid.")
     ordered = tuple(sorted(candidates, key=lambda item: item.guard_id))
     if not ordered:
-        return GuardDecision("ineffective", ("GUARD_ABSENT",), (), (), (), ())
+        if coverage_status == "complete":
+            return GuardDecision("ineffective", ("GUARD_ABSENT",), (), (), (), ())
+        return GuardDecision("unknown", ("GUARD_COVERAGE_UNKNOWN",), (), (), ("guard_coverage",), ())
     all_checks: list[DecisionCheck] = []
     reasons: set[str] = set()
     unresolved: set[str] = set()
@@ -147,17 +151,26 @@ def evaluate_guard(entry: EntryFact, growth: VerifiedGrowthResult, flow: Verifie
         if candidate.scope != growth.candidate.escape_scope: candidate_reasons.append("GUARD_SCOPE_MISMATCH")
         if candidate.representation not in {"raw_body", "same", growth.candidate.field_path}: candidate_reasons.append("GUARD_REPRESENTATION_MISMATCH")
         if candidate.behavior not in {"reject", "block"}: candidate_reasons.append("GUARD_FAIL_OPEN")
-        if not candidate.covers_materialization: candidate_reasons.append("GUARD_COVERAGE_UNKNOWN")
+        if not candidate.covers_materialization:
+            candidate_reasons.append("GUARD_DOES_NOT_COVER_GROWTH" if candidate.coverage_status == "complete" else "GUARD_COVERAGE_UNKNOWN")
         if candidate.authorization_only: candidate_reasons.append("GUARD_AUTHORIZATION_ONLY")
-        config = configuration.get(candidate.configuration_key)
-        if config is None:
-            candidate_reasons.append("GUARD_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
-        elif config in {False, "disabled"}: candidate_reasons.append("GUARD_DISABLED_CONFIGURATION")
-        elif config == "unbounded": candidate_reasons.append("GUARD_UNBOUNDED_CONFIGURATION")
-        elif not isinstance(config, int) or isinstance(config, bool) or config <= 0:
-            candidate_reasons.append("GUARD_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
-        elif str(config) != candidate.configuration_value:
-            candidate_reasons.append("GUARD_CONFIGURATION_MISMATCH")
+        if candidate.configuration_key == "literal":
+            try:
+                literal_limit = int(candidate.configuration_value)
+            except (TypeError, ValueError, OverflowError):
+                literal_limit = 0
+            if literal_limit <= 0:
+                candidate_reasons.append("GUARD_CONFIGURATION_UNKNOWN"); unresolved.add("literal_limit")
+        else:
+            config = configuration.get(candidate.configuration_key)
+            if config is None:
+                candidate_reasons.append("GUARD_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
+            elif config in {False, "disabled"}: candidate_reasons.append("GUARD_DISABLED_CONFIGURATION")
+            elif config == "unbounded": candidate_reasons.append("GUARD_UNBOUNDED_CONFIGURATION")
+            elif not isinstance(config, int) or isinstance(config, bool) or config <= 0:
+                candidate_reasons.append("GUARD_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
+            elif str(config) != candidate.configuration_value:
+                candidate_reasons.append("GUARD_CONFIGURATION_MISMATCH")
         if candidate.coverage_status != "complete": candidate_reasons.append("GUARD_COVERAGE_UNKNOWN"); unresolved.add(candidate.guard_id)
         reasons.update(candidate_reasons)
         all_checks.extend(DecisionCheck(reason.removeprefix("GUARD_").lower(), False, reason, candidate.evidence) for reason in candidate_reasons)

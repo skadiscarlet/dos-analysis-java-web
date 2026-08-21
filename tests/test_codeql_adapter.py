@@ -453,6 +453,36 @@ class CodeqlAdapterTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "CODEQL_QUERY_FAILED")
             self.assertFalse(any((output / ".generations").iterdir()))
 
+    def test_decode_contract_diagnostic_keeps_only_safe_fields(self):
+        diagnostic = codeql_runner._decode_contract_diagnostic(
+            "ENUM_INVALID",
+            {"query_name": "growth", "column": "resource_dimension", "row": 7},
+        )
+        parsed = json.loads(diagnostic)
+        self.assertEqual(parsed["reason"], "ENUM_INVALID")
+        self.assertEqual(parsed["query_name"], "growth")
+        self.assertEqual(parsed["column"], "resource_dimension")
+        self.assertEqual(parsed["row"], 7)
+
+    def test_decode_contract_diagnostic_drops_paths_and_source_content(self):
+        diagnostic = codeql_runner._decode_contract_diagnostic(
+            "PATH_OUTSIDE_SOURCE_ROOT",
+            {"query_name": "entries", "column": "handler_file", "row": 2, "value": "/abs/secret/path"},
+        )
+        self.assertNotIn("secret", diagnostic)
+        self.assertNotIn("/abs", diagnostic)
+        parsed = json.loads(diagnostic)
+        self.assertNotIn("value", parsed)
+        self.assertEqual(parsed["reason"], "PATH_OUTSIDE_SOURCE_ROOT")
+
+    def test_decode_contract_diagnostic_never_uses_path_reason_values(self):
+        # A decoder contract failure must not leak the offending path value: only
+        # the reason code, query name, column, and row are serialized.
+        diagnostic = codeql_runner._decode_contract_diagnostic(
+            "PATH_INVALID", {"query_name": "flow", "column": "source_file", "row": 9}
+        )
+        self.assertEqual(json.loads(diagnostic), {"column": "source_file", "query_name": "flow", "reason": "PATH_INVALID", "row": 9})
+
     def test_query_pack_manifest_is_minimal(self):
         manifest_path = Path(__file__).parents[1] / "codeql" / "qlpack.yml"
         manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))

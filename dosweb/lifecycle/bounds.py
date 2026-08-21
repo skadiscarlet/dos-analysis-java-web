@@ -64,9 +64,14 @@ class BoundDecision:
     candidate_ids: tuple[str, ...]
 
 
-def evaluate_bound(entry: EntryFact, growth: VerifiedGrowthResult, flow: VerifiedFlow, candidates: Sequence[BoundCandidate], configuration: ModeledConfiguration) -> BoundDecision:
-    _validate_context(entry, growth, flow); ordered = tuple(sorted(candidates, key=lambda item: item.bound_id))
-    if not ordered: return BoundDecision("absent", ("BOUND_ABSENT",), (), (), (), ())
+def evaluate_bound(entry: EntryFact, growth: VerifiedGrowthResult, flow: VerifiedFlow, candidates: Sequence[BoundCandidate], configuration: ModeledConfiguration, *, coverage_status: str = "complete") -> BoundDecision:
+    _validate_context(entry, growth, flow)
+    if coverage_status not in {"complete", "partial", "unsupported"}:
+        raise AnalyzerError("ANALYSIS_LIFECYCLE_INVALID", "Bound coverage status is invalid.")
+    ordered = tuple(sorted(candidates, key=lambda item: item.bound_id))
+    if not ordered:
+        if coverage_status == "complete": return BoundDecision("absent", ("BOUND_ABSENT",), (), (), (), ())
+        return BoundDecision("unknown", ("BOUND_COVERAGE_UNKNOWN",), (), (), ("bound_coverage",), ())
     reasons: set[str] = set(); unresolved: set[str] = set(); checks: list[DecisionCheck] = []; effective = False
     has_scope = has_dimension = False
     for candidate in ordered:
@@ -79,12 +84,20 @@ def evaluate_bound(entry: EntryFact, growth: VerifiedGrowthResult, flow: Verifie
         if candidate.request_encoding not in {"raw_body", "any"}: local.append("BOUND_REQUEST_ENCODING_MISMATCH")
         if not candidate.product_bound: local.append("BOUND_MULTIPLICATIVE_DEMAND_UNCOVERED")
         if candidate.phase not in {"before_growth", "inside_growth"} or not candidate.covers_flow or candidate.behavior not in {"reject", "block", "evict"}: local.append("BOUND_POSSIBLY_OVER_BUDGET")
-        config = configuration.get(candidate.configuration_key)
-        if config is None: local.append("BOUND_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
-        elif config in {False, "disabled"}: local.append("BOUND_DISABLED_CONFIGURATION")
-        elif config == "unbounded": local.append("BOUND_UNBOUNDED_CONFIGURATION")
-        elif not isinstance(config, int) or isinstance(config, bool) or config <= 0: local.append("BOUND_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
-        elif str(config) != candidate.configuration_value: local.append("BOUND_CONFIGURATION_MISMATCH")
+        if candidate.configuration_key == "literal":
+            try:
+                literal_capacity = int(candidate.configuration_value)
+            except (TypeError, ValueError, OverflowError):
+                literal_capacity = 0
+            if literal_capacity <= 0:
+                local.append("BOUND_CONFIGURATION_UNKNOWN"); unresolved.add("literal_capacity")
+        else:
+            config = configuration.get(candidate.configuration_key)
+            if config is None: local.append("BOUND_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
+            elif config in {False, "disabled"}: local.append("BOUND_DISABLED_CONFIGURATION")
+            elif config == "unbounded": local.append("BOUND_UNBOUNDED_CONFIGURATION")
+            elif not isinstance(config, int) or isinstance(config, bool) or config <= 0: local.append("BOUND_CONFIGURATION_UNKNOWN"); unresolved.add(candidate.configuration_key)
+            elif str(config) != candidate.configuration_value: local.append("BOUND_CONFIGURATION_MISMATCH")
         if candidate.coverage_status != "complete": local.append("BOUND_COVERAGE_UNKNOWN"); unresolved.add(candidate.bound_id)
         reasons.update(local); checks.extend(DecisionCheck(reason.removeprefix("BOUND_").lower(), False, reason, candidate.evidence) for reason in local)
         if not local: effective = True; checks.append(DecisionCheck("bound_effective", True, None, candidate.evidence))

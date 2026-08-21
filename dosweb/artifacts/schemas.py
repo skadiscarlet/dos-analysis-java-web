@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Final
 
 from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.errors import AnalyzerError
 
 
-SCHEMA_VERSION: Final = "2.0"
+SCHEMA_VERSION: Final = "2.5"
 _CONCRETE_RESOURCE_DIMENSIONS: Final = frozenset(
     {"entries", "bytes", "tasks", "connections", "objects"}
 )
@@ -28,6 +29,11 @@ _ID_PREFIXES: Final = {
     "path_id": "flow:", "guard_id": "guard:", "bound_id": "bound:",
     "release_id": "release:", "lifecycle_result_id": "lifecycle:",
     "finding_id": "finding:", "certificate_id": "certificate:",
+    "config_id": "config:", "fact_id": "security:", "auth_contract_id": "auth_contract:",
+    "decision_id": "reachability:", "audit_id": "llm_audit:",
+    "link_id": "candidate_link:", "disposition_id": "disposition:",
+    "evidence_id": "lifecycle-evidence:", "coverage_id": "lifecycle-coverage:", "summary_id": "lifecycle-summary:",
+    "gap_id": "gap:", "interposition_id": "interposition:",
 }
 _MAX_ARTIFACT_ID_BYTES: Final = 256
 
@@ -95,6 +101,55 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
             record, artifact_name, line
         ),
     ),
+    "modeled_configuration": ArtifactSchema(
+        id_field="config_id",
+        required_fields=frozenset({"config_id", "key", "value", "source_file", "source_line", "profile", "provenance", "default_effective", "status"}),
+        enum_fields={"profile": frozenset({"default", "unknown"}), "provenance": frozenset({"cli_override", "config_file", "extracted_default", "unknown"}), "status": frozenset({"known", "unknown"})},
+        reference_fields={}, field_kinds=_field_kinds(config_id="string", key="string", value="any", source_file="string_or_empty", source_line="int", profile="string", provenance="string", default_effective="bool", status="string"),
+    ),
+    "entry_gap_facts": ArtifactSchema(
+        id_field="gap_id",
+        required_fields=frozenset({"gap_id", "framework", "protocol", "route_or_event", "handler_file", "handler_start_line", "coverage_status", "coverage_note"}),
+        enum_fields={
+            "framework": frozenset({"spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"}),
+            "protocol": frozenset({"http", "tcp", "mqtt", "grpc"}),
+            "coverage_status": frozenset({"partial", "unsupported"}),
+        },
+        reference_fields={},
+        field_kinds=_field_kinds(gap_id="string", framework="string", protocol="string", route_or_event="string", handler_file="string", handler_start_line="int", coverage_status="string", coverage_note="string"),
+        record_validator=lambda record, artifact_name, line: _validate_entry_gap(
+            record, artifact_name, line
+        ),
+    ),
+    "entry_interposition_facts": ArtifactSchema(
+        id_field="interposition_id",
+        required_fields=frozenset({"interposition_id", "entry_id", "kind", "interposer", "registration", "url_predicate", "order", "action", "chain_call", "phase", "action_before_chain", "coverage_status", "coverage_note"}),
+        enum_fields={
+            "kind": frozenset({"filter_registration_bean", "servlet_filter", "once_per_request_filter"}),
+            "phase": frozenset({"before_handler", "after_handler", "unknown"}),
+            "coverage_status": frozenset({"complete", "partial"}),
+        },
+        reference_fields={"entry_id": ReferenceSpec("entry_id")},
+        field_kinds=_field_kinds(interposition_id="string", entry_id="string", kind="string", interposer="object", registration="object", url_predicate="object", order="object", action="object", chain_call="object", phase="string", action_before_chain="bool", coverage_status="string", coverage_note="string"),
+        record_validator=lambda record, artifact_name, line: _validate_entry_interposition(record, artifact_name, line),
+    ),
+    "entry_security_facts": ArtifactSchema(
+        id_field="fact_id", required_fields=frozenset({"fact_id", "entry_id", "kind", "location", "line", "value", "coverage"}),
+        enum_fields={"kind": frozenset({"annotation", "filter", "servlet_constraint", "netty_gate", "mqtt_gate", "configuration", "dependency_coverage"}), "coverage": frozenset({"complete", "partial", "unsupported"})},
+        reference_fields={"entry_id": ReferenceSpec("entry_id")}, field_kinds=_field_kinds(fact_id="string", entry_id="string", kind="string", location="string", line="int", value="string", coverage="string"),
+    ),
+    "auth_contracts": ArtifactSchema(
+        id_field="auth_contract_id", required_fields=frozenset({"auth_contract_id", "entry_id", "auth_context", "evidence_ids", "assumptions", "confidence"}),
+        enum_fields={"auth_context": frozenset({"unauthenticated", "low_privilege", "privileged", "unknown"}), "confidence": frozenset({"high", "medium", "low"})}, reference_fields={"entry_id": ReferenceSpec("entry_id")}, field_kinds=_field_kinds(auth_contract_id="string", entry_id="string", auth_context="string", evidence_ids="list", assumptions="list", confidence="string"),
+    ),
+    "reachability_decisions": ArtifactSchema(
+        id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "auth_contract_id", "auth_context", "status", "evidence_ids"}),
+        enum_fields={"auth_context": frozenset({"unauthenticated", "low_privilege", "privileged", "unknown"}), "status": frozenset({"ordinary_attacker_reachable", "not_entry_reachable", "unknown"})}, reference_fields={"entry_id": ReferenceSpec("entry_id"), "auth_contract_id": ReferenceSpec("auth_contract_id")}, field_kinds=_field_kinds(decision_id="string", entry_id="string", auth_contract_id="string", auth_context="string", status="string", evidence_ids="list"),
+    ),
+    "llm_audit": ArtifactSchema(
+        id_field="audit_id", required_fields=frozenset({"audit_id", "contract_kind", "request_id", "normalized_prompt", "response_schema", "raw_response", "parsed_response", "settings", "attestation", "cache_hit"}),
+        enum_fields={"contract_kind": frozenset({"growth", "auth"})}, reference_fields={}, field_kinds=_field_kinds(audit_id="string", contract_kind="string", request_id="string_or_empty", normalized_prompt="string", response_schema="object", raw_response="string", parsed_response="object", settings="object", attestation="object", cache_hit="bool"),
+    ),
     "growth_candidates": ArtifactSchema(
         id_field="growth_id",
         required_fields=frozenset(_COMMON_GROWTH_FIELD_KINDS),
@@ -108,6 +163,30 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         record_validator=lambda record, artifact_name, line: _validate_growth(
             record, artifact_name, line
         ),
+    ),
+    "candidate_entry_links": ArtifactSchema(
+        id_field="link_id", required_fields=frozenset({"link_id", "growth_id", "entry_id", "status", "evidence_ids", "reason_codes"}),
+        enum_fields={"status": frozenset({"complete", "partial"})},
+        reference_fields={"growth_id": ReferenceSpec("growth_id"), "entry_id": ReferenceSpec("entry_id")},
+        field_kinds=_field_kinds(link_id="string", growth_id="string", entry_id="string", status="string", evidence_ids="list", reason_codes="list"),
+    ),
+    "candidate_dispositions": ArtifactSchema(
+        id_field="disposition_id", required_fields=frozenset({"disposition_id", "growth_id", "status", "link_ids", "reason_codes"}),
+        enum_fields={"status": frozenset({"rejected", "verified_relevant", "not_entry_reachable", "unresolved"})},
+        reference_fields={"growth_id": ReferenceSpec("growth_id"), "link_ids": ReferenceSpec("link_id", multiple=True)},
+        field_kinds=_field_kinds(disposition_id="string", growth_id="string", status="string", link_ids="list", reason_codes="list"),
+    ),
+    "repeatability_decisions": ArtifactSchema(
+        id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "growth_id", "status", "evidence_ids", "reason_codes"}),
+        enum_fields={"status": frozenset({"proven", "unknown", "not_applicable"})},
+        reference_fields={"entry_id": ReferenceSpec("entry_id"), "growth_id": ReferenceSpec("growth_id")},
+        field_kinds=_field_kinds(decision_id="string", entry_id="string", growth_id="string", status="string", evidence_ids="list", reason_codes="list"),
+    ),
+    "amplification_decisions": ArtifactSchema(
+        id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "growth_id", "status", "evidence_ids", "reason_codes"}),
+        enum_fields={"status": frozenset({"proven", "unknown", "not_applicable"})},
+        reference_fields={"entry_id": ReferenceSpec("entry_id"), "growth_id": ReferenceSpec("growth_id")},
+        field_kinds=_field_kinds(decision_id="string", entry_id="string", growth_id="string", status="string", evidence_ids="list", reason_codes="list"),
     ),
     "growth_contracts": ArtifactSchema(
         id_field="growth_contract_id",
@@ -223,6 +302,27 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
             release_id="string", site="object", kind="string", resource_dimension="string",
             scope="string", synchronous="bool", evidence="list",
         ),
+    ),
+    "lifecycle_summaries": ArtifactSchema(
+        id_field="summary_id",
+        required_fields=frozenset({"summary_id", "entry_id", "growth_id", "path_id", "family", "candidate_file", "candidate_start_line", "callsite_file", "callsite_start_line", "receiver_file", "receiver_start_line", "argument_index", "resource_dimension", "scope", "configuration_key", "configuration_value", "representation", "phase", "covers_materialization", "dominates_growth", "reject_path_reaches_growth", "evidence", "cfg_relation", "coverage_status", "coverage_note"}),
+        enum_fields={"family": frozenset({"guard", "bound", "release"}), "cfg_relation": frozenset({"one_wrapper", "partial"}), "coverage_status": frozenset({"complete", "partial", "unsupported"})},
+        reference_fields={"entry_id": ReferenceSpec("entry_id"), "growth_id": ReferenceSpec("growth_id"), "path_id": ReferenceSpec("path_id")},
+        field_kinds=_field_kinds(summary_id="string", entry_id="string", growth_id="string", path_id="string", family="string", candidate_file="string", candidate_start_line="int", callsite_file="string", callsite_start_line="int", receiver_file="string", receiver_start_line="int", argument_index="int", resource_dimension="string", scope="string", configuration_key="string", configuration_value="string", representation="string", phase="string", covers_materialization="bool", dominates_growth="bool", reject_path_reaches_growth="bool", evidence="string", cfg_relation="string", coverage_status="string", coverage_note="string"),
+    ),
+    "lifecycle_evidence": ArtifactSchema(
+        id_field="evidence_id",
+        required_fields=frozenset({"evidence_id", "entry_id", "growth_id", "path_id", "family", "candidate_id", "growth_file", "growth_line", "candidate_file", "candidate_line", "resource_identity", "field_identity", "key_identity", "cfg_relation", "coverage_status"}),
+        enum_fields={"family": frozenset({"guard", "bound", "release"}), "cfg_relation": frozenset({"same_cfg", "partial", "ambiguous"}), "coverage_status": frozenset({"complete", "partial", "unsupported"})},
+        reference_fields={"entry_id": ReferenceSpec("entry_id"), "growth_id": ReferenceSpec("growth_id"), "path_id": ReferenceSpec("path_id")},
+        field_kinds=_field_kinds(evidence_id="string", entry_id="string", growth_id="string", path_id="string", family="string", candidate_id="string", growth_file="string", growth_line="int", candidate_file="string", candidate_line="int", resource_identity="string", field_identity="string", key_identity="string", cfg_relation="string", coverage_status="string"),
+    ),
+    "lifecycle_coverage": ArtifactSchema(
+        id_field="coverage_id",
+        required_fields=frozenset({"coverage_id", "entry_id", "growth_id", "path_id", "family", "status", "reason"}),
+        enum_fields={"family": frozenset({"guard", "bound", "release"}), "status": frozenset({"complete", "partial", "unsupported"})},
+        reference_fields={"entry_id": ReferenceSpec("entry_id"), "growth_id": ReferenceSpec("growth_id"), "path_id": ReferenceSpec("path_id")},
+        field_kinds=_field_kinds(coverage_id="string", entry_id="string", growth_id="string", path_id="string", family="string", status="string", reason="string"),
     ),
     "lifecycle_results": ArtifactSchema(
         id_field="lifecycle_result_id",
@@ -359,6 +459,12 @@ def validate_references(
     validate_records(artifact_name, materialized)
     schema = _schema_for(artifact_name)
     for index, record in enumerate(materialized, start=1):
+        if artifact_name == "auth_contracts":
+            known_security = known_ids.get("security_fact_ids")
+            entry_security = known_ids.get("entry_security_fact_ids")
+            entry_id = record["entry_id"]
+            if not isinstance(known_security, (set, frozenset)) or not isinstance(entry_security, Mapping) or not isinstance(entry_security.get(entry_id), (set, frozenset)) or any(not isinstance(value, str) or value not in known_security or value not in entry_security[entry_id] for value in record["evidence_ids"]):
+                raise _dangling_reference(artifact_name, index, "evidence_ids", record["evidence_ids"])
         if artifact_name == "growth_contracts":
             known_facts = known_ids.get("fact_id")
             growth_fact_ids = known_ids.get("growth_fact_ids")
@@ -384,6 +490,8 @@ def validate_references(
 def _matches_kind(value: object, kind: str) -> bool:
     if kind == "string":
         return isinstance(value, str) and bool(value)
+    if kind == "string_or_empty":
+        return isinstance(value, str)
     if kind == "object":
         return isinstance(value, Mapping)
     if kind == "list":
@@ -394,7 +502,69 @@ def _matches_kind(value: object, kind: str) -> bool:
         )
     if kind == "bool":
         return isinstance(value, bool)
+    if kind == "int":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if kind == "any":
+        return value is None or isinstance(value, (str, int, bool)) and not isinstance(value, float)
     raise RuntimeError(f"Unknown field kind: {kind}")
+
+
+def _validate_entry_gap(record: Mapping[str, object], artifact_name: str, line: int) -> None:
+    handler_file = record["handler_file"]
+    handler_start_line = record["handler_start_line"]
+    coverage_note = record["coverage_note"]
+    route_or_event = record["route_or_event"]
+    assert isinstance(handler_file, str) and isinstance(handler_start_line, int)
+    assert isinstance(coverage_note, str) and isinstance(route_or_event, str)
+    path = PurePosixPath(handler_file)
+    if (
+        handler_start_line <= 0
+        or path.is_absolute()
+        or "\\" in handler_file
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or len(handler_file.encode("utf-8")) > 4096
+        or len(route_or_event.encode("utf-8")) > 4096
+        or len(coverage_note.encode("utf-8")) > 1024
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD", "Entry gap record is not safely source-backed.",
+            artifact_name, line, "handler_file",
+        )
+
+
+def _validate_source_location(value: object, artifact_name: str, line: int, field: str, *, callable_required: bool) -> None:
+    if not isinstance(value, Mapping):
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition location is invalid.", artifact_name, line, field)
+    required = {"file", "start_line"} | ({"callable"} if callable_required else set())
+    if set(value) != required:
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition location fields are not exact.", artifact_name, line, field)
+    file_name, start = value.get("file"), value.get("start_line")
+    if not isinstance(file_name, str) or not file_name.endswith(".java") or not _safe_relative_java_path(file_name) or not _matches_nested_kind(start, "positive_int"):
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition location must be source-backed.", artifact_name, line, field)
+    if callable_required and not isinstance(value.get("callable"), str):
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition callable is invalid.", artifact_name, line, field)
+
+
+def _safe_relative_java_path(value: str) -> bool:
+    path = PurePosixPath(value)
+    return not path.is_absolute() and "\\" not in value and all(part not in {"", ".", ".."} for part in path.parts)
+
+
+def _validate_entry_interposition(record: Mapping[str, object], artifact_name: str, line: int) -> None:
+    for field in ("interposer", "action"):
+        _validate_source_location(record[field], artifact_name, line, field, callable_required=True)
+    registration = record["registration"]
+    if not isinstance(registration, Mapping) or set(registration) != {"kind", "callable", "file", "start_line"} or registration.get("kind") not in {"filter_registration_bean", "servlet_filter", "once_per_request_filter"}:
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition registration is invalid.", artifact_name, line, "registration")
+    _validate_source_location({"callable": registration.get("callable"), "file": registration.get("file"), "start_line": registration.get("start_line")}, artifact_name, line, "registration", callable_required=True)
+    _validate_source_location(record["chain_call"], artifact_name, line, "chain_call", callable_required=False)
+    url, order = record["url_predicate"], record["order"]
+    if not isinstance(url, Mapping) or set(url) != {"kind", "value"} or url.get("kind") not in {"exact", "prefix", "servlet_pattern", "regex", "unknown"} or not isinstance(url.get("value"), str) or not url["value"]:
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition URL predicate is invalid.", artifact_name, line, "url_predicate")
+    if not isinstance(order, Mapping) or set(order) != {"status", "value"} or order.get("status") not in {"known", "unknown"} or not isinstance(order.get("value"), str):
+        raise _error("ARTIFACT_INVALID_RECORD", "Interposition order is invalid.", artifact_name, line, "order")
+    if record["coverage_status"] == "complete" and not (record["phase"] == "before_handler" and record["action_before_chain"]):
+        raise _error("ARTIFACT_INVALID_RECORD", "Complete interposition requires a proven pre-handler action.", artifact_name, line, "coverage_status")
 
 
 def _validate_entry(record: Mapping[str, object], artifact_name: str, line: int) -> None:
@@ -645,7 +815,7 @@ def _validate_lifecycle_result(
             )
         for field in ("reason_codes", "evidence_ids", "unresolved_facts", "candidate_ids"):
             values = decision[field]
-            if not isinstance(values, list) or len(values) > 64 or not all(
+            if not isinstance(values, list) or len(values) > 256 or not all(
                 isinstance(value, str) and bool(value) and len(value.encode("utf-8")) <= 65536
                 for value in values
             ):
@@ -654,7 +824,7 @@ def _validate_lifecycle_result(
                     artifact_name, line, name,
                 )
         checks = decision["checks"]
-        if not isinstance(checks, list) or len(checks) > 64:
+        if not isinstance(checks, list) or len(checks) > 256:
             raise _error(
                 "ARTIFACT_INVALID_RECORD", "Lifecycle decision checks are malformed.",
                 artifact_name, line, name,

@@ -94,16 +94,40 @@ def _result(
     )
 
 
+def _decision_status(decision: object | None) -> str | None:
+    return getattr(decision, "status", None) if decision is not None else None
+
+
+def _decision_ids(decision: object | None) -> tuple[str, ...]:
+    identifier = getattr(decision, "decision_id", None) if decision is not None else None
+    return (identifier,) if isinstance(identifier, str) and identifier else ()
+
+
 def evaluate_assertion_1(
     growth: VerifiedGrowthResult,
     flow: VerifiedFlow,
     guard: GuardDecision,
     bound: BoundDecision,
+    *,
+    amplification: object | None = None,
+    reachability: object | None = None,
 ) -> AssertionEvaluation:
-    """Evaluate P0 assertion 1: unbounded direct growth."""
+    """Evaluate P0 assertion 1: only externally reachable direct demand or amplification."""
     _context(growth, flow)
     if not isinstance(guard, GuardDecision) or not isinstance(bound, BoundDecision):
         raise AnalyzerError("ANALYSIS_ASSERTION_INVALID", "Assertion 1 decisions are malformed.")
+    reach = _decision_status(reachability)
+    if reach is not None and reach != "ordinary_attacker_reachable":
+        if reach == "not_entry_reachable":
+            return _result("assertion_1", "not_applicable", ("A1_NOT_ORDINARY_ATTACKER_REACHABLE",), growth, flow, (), guard, bound)
+        return _result("assertion_1", "unknown", ("A1_REACHABILITY_UNKNOWN",), growth, flow, _decision_ids(reachability), guard, bound)
+    target = flow.proof.attacker_control.target
+    direct = growth.candidate is not None and growth.candidate.kind in {"input_materialization", "direct_allocation"} and target == "size"
+    amplified = growth.candidate is not None and growth.candidate.kind in {"container_growth", "async_work_growth"} and _decision_status(amplification) == "proven"
+    if not direct and not amplified:
+        if growth.candidate is not None and growth.candidate.kind in {"container_growth", "async_work_growth"} and _decision_status(amplification) == "unknown":
+            return _result("assertion_1", "unknown", ("A1_AMPLIFICATION_UNKNOWN",), growth, flow, _decision_ids(amplification), guard, bound)
+        return _result("assertion_1", "not_applicable", ("A1_SINGLE_OPERATION_NOT_AMPLIFYING",), growth, flow, (), guard, bound)
     if growth.status != "verified":
         return _result(
             "assertion_1", "unknown", ("A1_GROWTH_NOT_VERIFIED",), growth, flow,
@@ -145,11 +169,24 @@ def evaluate_assertion_2(
     flow: VerifiedFlow,
     bound: BoundDecision,
     release: ReleaseDecision,
+    *,
+    reachability: object | None = None,
+    repeatability: object | None = None,
 ) -> AssertionEvaluation:
-    """Evaluate P0 assertion 2: persistent accumulation without synchronous Release."""
+    """Evaluate P0 assertion 2: repeatable persistent accumulation."""
     _context(growth, flow)
     if not isinstance(bound, BoundDecision) or not isinstance(release, ReleaseDecision):
         raise AnalyzerError("ANALYSIS_ASSERTION_INVALID", "Assertion 2 decisions are malformed.")
+    reach = _decision_status(reachability)
+    if reach is not None and reach != "ordinary_attacker_reachable":
+        if reach == "not_entry_reachable":
+            return _result("assertion_2", "not_applicable", ("A2_NOT_ORDINARY_ATTACKER_REACHABLE",), growth, flow, (), bound, release)
+        return _result("assertion_2", "unknown", ("A2_REACHABILITY_UNKNOWN",), growth, flow, _decision_ids(reachability), bound, release)
+    repeat = _decision_status(repeatability)
+    if repeat is not None and repeat != "proven":
+        if repeat == "not_applicable":
+            return _result("assertion_2", "not_applicable", ("A2_NOT_REPEATABLE",), growth, flow, (), bound, release)
+        return _result("assertion_2", "unknown", ("A2_REPEATABILITY_UNKNOWN",), growth, flow, _decision_ids(repeatability), bound, release)
     if growth.status != "verified":
         return _result(
             "assertion_2", "unknown", ("A2_GROWTH_NOT_VERIFIED",), growth, flow,

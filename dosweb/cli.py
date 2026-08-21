@@ -43,6 +43,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--codeql-binary")
     parser.add_argument("--resume", action="store_true", default=None)
+    parser.add_argument("--allow-partial-codeql", action="store_true", default=None,
+                        help="Only for exploratory entries runs; formal analysis fails on selected query failure.")
+    parser.add_argument("--modeled-default", action="append", default=None, metavar="KEY=VALUE",
+                        help="Non-secret modeled default; repeatable and takes precedence over config-file defaults.")
     return parser
 
 
@@ -82,6 +86,8 @@ def dispatch(
     command = values.get("command")
     if not isinstance(command, str) or command not in _COMMANDS:
         raise AnalyzerError("CONFIG_INVALID_COMMAND", "A valid pipeline subcommand is required.")
+    if values.get("allow_partial_codeql") and command != "entries":
+        raise AnalyzerError("CONFIG_INVALID_VALUE", "--allow-partial-codeql is only valid for the entries command.")
     if pipeline_factory is None:
         from dosweb.production import build_production_pipeline
 
@@ -126,3 +132,7 @@ def main(
 
 
 __all__ = ["dispatch", "main", "parse_cli_values"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

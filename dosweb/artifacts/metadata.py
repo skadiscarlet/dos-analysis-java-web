@@ -80,8 +80,9 @@ def _verify_upstream_file(
     expected_sha256: str,
     expected_records: int,
     expected_bytes: int,
-) -> None:
+) -> bytes:
     descriptor = -1
+    payload = bytearray()
     try:
         descriptor = os.open(
             path,
@@ -99,6 +100,7 @@ def _verify_upstream_file(
             if not chunk:
                 break
             total += len(chunk)
+            payload.extend(chunk)
             digest.update(chunk)
             records += chunk.count(b"\n")
             last = chunk[-1:]
@@ -114,9 +116,10 @@ def _verify_upstream_file(
             or after.st_mtime_ns != before.st_mtime_ns
         ):
             raise ValueError("upstream artifact integrity mismatch")
-    except (OSError, ValueError) as exc:
+        return bytes(payload)
+    except (OSError, ValueError, MemoryError) as exc:
         raise _upstream_error(
-            "ARTIFACT_UPSTREAM_INVALID",
+            "ARTIFACT_UPSTREAM_HASH_MISMATCH",
             "Upstream artifact failed its integrity check.",
             path=path.name,
         ) from exc
@@ -170,9 +173,15 @@ def resolve_upstream_artifact(
     digest = item.get("sha256")
     record_count = item.get("record_count")
     byte_count = item.get("byte_count")
+    if item.get("schema_version") != schema_version:
+        raise _upstream_error(
+            "ARTIFACT_SCHEMA_MISMATCH",
+            "Upstream artifact schema is incompatible with this stage.",
+            stage=stage_name,
+            path=artifact_path,
+        )
     if (
-        item.get("schema_version") != schema_version
-        or not isinstance(digest, str)
+        not isinstance(digest, str)
         or len(digest) != 64
         or any(character not in "0123456789abcdef" for character in digest)
         or not isinstance(record_count, int)
@@ -196,6 +205,38 @@ def resolve_upstream_artifact(
         expected_bytes=byte_count,
     )
     return path
+
+
+def read_upstream_artifact_bytes(
+    output_root: Path,
+    upstream: Mapping[str, Mapping[str, object]],
+    stage_name: str,
+    artifact_path: str,
+    *,
+    schema_version: str,
+) -> bytes:
+    """Return bytes read and authenticated from one unchanged file descriptor."""
+    path = resolve_upstream_artifact(
+        output_root,
+        upstream,
+        stage_name,
+        artifact_path,
+        schema_version=schema_version,
+    )
+    stage = upstream[stage_name]
+    artifacts = stage["artifacts"]
+    assert isinstance(artifacts, list)
+    item = next(
+        candidate
+        for candidate in artifacts
+        if isinstance(candidate, Mapping) and candidate.get("path") == artifact_path
+    )
+    return _verify_upstream_file(
+        path,
+        expected_sha256=str(item["sha256"]),
+        expected_records=int(item["record_count"]),
+        expected_bytes=int(item["byte_count"]),
+    )
 
 
 def reusable_stage(

@@ -17,6 +17,8 @@ if str(REPO_ROOT) not in sys.path:
 from dosweb.batch.corpus import load_canonical_corpus
 from dosweb.batch.plan import build_batch_plan, ensure_batch_plan_archive, load_batch_plan, publish_batch_plan
 from dosweb.batch.runner import run_batch
+from dosweb.codeql.database import validate_database
+from dosweb.config import _DEFAULT_SECRETS_PATH, resolve_api_key
 from dosweb.errors import AnalyzerError
 
 
@@ -118,6 +120,7 @@ def main(
     pipeline_factory: Callable[..., object] | None = None,
     environ: Mapping[str, str] | None = None,
     corpus_loader: Callable[..., object] = load_canonical_corpus,
+    database_validator: Callable[..., object] = validate_database,
 ) -> int:
     try:
         arguments = _parser().parse_args(argv)
@@ -125,7 +128,7 @@ def main(
         if arguments.mode == "full" and not arguments.plan_only:
             if not arguments.allow_remote_llm:
                 raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires --allow-remote-llm.")
-            if not environment.get("DEEPSEEK_API_KEY", "").strip():
+            if not resolve_api_key(environment, _DEFAULT_SECRETS_PATH):
                 raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires provider credentials.")
         if arguments.plan is not None:
             plan = load_batch_plan(arguments.plan)
@@ -164,7 +167,7 @@ def main(
                     "BATCH_REMOTE_LLM_NOT_AUTHORIZED",
                     "Published full plan does not authorize remote execution; create a new plan with --allow-remote-llm.",
                 )
-            if not environment.get("DEEPSEEK_API_KEY", "").strip():
+            if not resolve_api_key(environment, _DEFAULT_SECRETS_PATH):
                 raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires provider credentials.")
         # Execution output is the canonical P0 archive even when the immutable
         # plan was loaded from elsewhere. Never replace conflicting metadata.
@@ -188,6 +191,7 @@ def main(
             max_attempts=arguments.max_attempts,
             repo_root=arguments.repo_root,
             environ=environment,
+            database_validator=database_validator,
         )
         return 0 if state.get("status") == "completed" else 1
     except AnalyzerError as exc:

@@ -113,6 +113,35 @@ def _score(truth: Mapping[str, Any], candidate: Mapping[str, Any]) -> tuple[int,
     return score, reasons
 
 
+def _chain_ids(candidate: Mapping[str, Any]) -> dict[str, Any] | None:
+    finding = candidate.get("finding")
+    entry = candidate.get("entry")
+    growth = candidate.get("growth")
+    certificate = candidate.get("certificate")
+    flows = candidate.get("flows")
+    if not all(isinstance(item, Mapping) for item in (finding, entry, growth, certificate)):
+        return None
+    if not isinstance(flows, list) or not flows or any(not isinstance(item, Mapping) for item in flows):
+        return None
+    chain = {
+        "candidate_id": candidate.get("candidate_id"),
+        "finding_id": finding.get("finding_id"),
+        "entry_id": entry.get("entry_id"),
+        "growth_id": growth.get("growth_id"),
+        "flow_ids": [item.get("path_id") for item in flows],
+        "certificate_id": certificate.get("certificate_id"),
+        "static_conclusion": candidate.get("verdict"),
+    }
+    if (
+        any(not isinstance(chain[field], str) or not chain[field] for field in (
+            "candidate_id", "finding_id", "entry_id", "growth_id", "certificate_id", "static_conclusion"
+        ))
+        or any(not isinstance(item, str) or not item for item in chain["flow_ids"])
+    ):
+        return None
+    return chain
+
+
 def match_case(
     truth: Mapping[str, Any],
     candidates: list[Mapping[str, Any]],
@@ -163,6 +192,7 @@ def match_case(
         "status": _VALID_VERDICTS[winner["verdict"]],
         "candidate_ids": [winner.get("candidate_id")],
         "match_evidence": reasons,
+        "chain": _chain_ids(winner),
         "candidate": winner,
     }
 

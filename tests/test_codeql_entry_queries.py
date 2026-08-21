@@ -10,8 +10,9 @@ from pathlib import Path
 
 import yaml
 
-from dosweb.codeql import DecodeSource, ENTRY_COLUMNS, decode_bqrs_json, run_query, validate_database
-from dosweb.entries import normalize_entry_rows, normalize_framework_coverage
+from dosweb.codeql import DecodeSource, ENTRY_COLUMNS, INTERPOSITION_COLUMNS, decode_bqrs_json, run_query, validate_database
+from dosweb.entries import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
+from dosweb.entries.webxml import resolve_webxml_servlet_candidates
 
 
 _RUN_FIXTURES = os.environ.get("DOSWEB_RUN_CODEQL_FIXTURES") == "1"
@@ -86,6 +87,12 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
                 self.assertIn("import java", source)
                 for column in ENTRY_COLUMNS:
                     self.assertIn(f'"{column}"', source)
+        interposition = (query_root / "EntryInterpositions.ql").read_text(encoding="utf-8")
+        self.assertIn("@kind table", interposition)
+        self.assertIn("import java", interposition)
+        for column in INTERPOSITION_COLUMNS:
+            self.assertIn(f'"{column}"', interposition)
+        self.assertIn("cfg_action_before_chain_unproven", interposition)
 
 
 
@@ -200,6 +207,8 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                         payload,
                         DecodeSource(database.source_root, query_sha256),
                     )
+                    if fixture == "servlet":
+                        rows, _ = resolve_webxml_servlet_candidates(rows, database.source_root)
                     entries = normalize_entry_rows(rows)
                     coverage = normalize_framework_coverage(rows)
                     self.assertTrue(
@@ -210,6 +219,25 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                         ),
                         entries,
                     )
+                    if fixture == "spring":
+                        gaps = normalize_gap_entry_rows(rows)
+                        self.assertFalse(any("#{" in entry["route_or_event"] for entry in entries), entries)
+                        self.assertTrue(
+                            any(
+                                gap["route_or_event"] == "POST /rest/authenticate"
+                                and gap["coverage_note"] == "spring_spel_route_default_requires_runtime_binding"
+                                for gap in gaps
+                            ),
+                            gaps,
+                        )
+                        self.assertTrue(
+                            any(
+                                gap["route_or_event"] == "GET /rest/verify/{type}"
+                                and gap["coverage_note"] == "spring_spel_class_route_default_requires_runtime_binding"
+                                for gap in gaps
+                            ),
+                            gaps,
+                        )
                     if fixture == "mqtt":
                         broker_handlers = {
                             entry["handler"]["callable"]
@@ -219,6 +247,24 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                         }
                         self.assertTrue(
                             any(name.endswith("NettyMqttHandler.channelRead") for name in broker_handlers),
+                            entries,
+                        )
+                    if fixture == "servlet":
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("RegisteredStreamFilter.doFilter")
+                                and entry["route_or_event"] == "/api/push/*"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("DescriptorServlet.service")
+                                and entry["route_or_event"] == "/descriptor/*"
+                                and entry["registration"]["kind"] == "static_registration"
+                                for entry in entries
+                            ),
                             entries,
                         )
                     if fixture == "armeria":
@@ -241,18 +287,162 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                     if fixture == "grpc":
                         self.assertTrue(
                             any(
-                                entry["route_or_event"]
-                                == "/fixture.grpc.RegisteredService/unary"
+                                entry["handler"]["callable"].endswith("RegisteredService.unary")
+                                and entry["route_or_event"] == "/example.Sample/unary"
                                 and entry["materialization_phase"] == "in_handler"
                                 for entry in entries
                             ),
                             entries,
                         )
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("RequestCollector.onNext")
+                                and entry["route_or_event"] == "/example.Sample/collect"
+                                and entry["attacker_inputs"] == [{"name": "request", "type": "Request", "kind": "stream"}]
+                                and entry["materialization_phase"] == "streaming"
+                                and entry["registration"]["kind"] == "static_registration"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                        self.assertFalse(
+                            any("RegisteredHelper" in entry["handler"]["callable"] or "responseObserver" in str(entry["attacker_inputs"])
+                                for entry in entries),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler_fqn"].endswith("UnregisteredClientStreamingService.collect")
+                                and entry["registration_kind"] == "dynamic_unresolved"
+                                and entry["coverage_status"] == "partial"
+                                and entry["coverage_note"] == "grpc_generated_streaming_registration_identity_or_observer_unproven"
+                                for entry in rows
+                            ),
+                            rows,
+                        )
+                        self.assertFalse(
+                            any("UnregisteredClientStreamingService" in entry["handler"]["callable"] for entry in entries),
+                            entries,
+                        )
+                        ternary_handlers = {
+                            entry["handler"]["callable"]
+                            for entry in entries
+                            if entry["route_or_event"] == "/example.Sample/collect"
+                            and entry["materialization_phase"] == "streaming"
+                        }
+                        self.assertTrue(any(name.endswith("TernaryFirstCollector.onNext") for name in ternary_handlers), entries)
+                        self.assertTrue(any(name.endswith("TernarySecondCollector.onNext") for name in ternary_handlers), entries)
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("ModernCollector.onNext")
+                                and entry["route_or_event"] == "/example.Modern/collect"
+                                and entry["attacker_inputs"] == [{"name": "request", "type": "Request", "kind": "stream"}]
+                                and entry["registration"]["kind"] == "static_registration"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("ForwardingModernCollector.onNext")
+                                and entry["route_or_event"] == "/example.ForwardingModern/collect"
+                                and entry["attacker_inputs"] == [{"name": "request", "type": "Request", "kind": "stream"}]
+                                and entry["registration"]["kind"] == "static_registration"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                        complete_services = ("RegisteredClientStreamingService", "TernaryStreamingService", "ModernAsyncService", "ForwardingModernAsyncService")
+                        for service_name in complete_services:
+                            self.assertFalse(
+                                any(row["handler_fqn"].endswith("." + service_name + ".collect")
+                                    and row["coverage_status"] == "partial" for row in rows),
+                                (service_name, rows),
+                            )
+                        self.assertTrue(
+                            any(entry["handler"]["callable"].endswith("RequestCollector.onNext")
+                                and entry["route_or_event"] == "/example.Sample/collect" for entry in entries),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler_fqn"].endswith("UnsupportedLeafService.collect")
+                                and entry["coverage_status"] == "partial"
+                                for entry in rows
+                            ), rows,
+                        )
+                        self.assertFalse(
+                            any(entry["handler"]["callable"].endswith("UnsupportedGoodCollector.onNext")
+                                for entry in entries),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler_fqn"].endswith("NoIdentityService.collect")
+                                and entry["coverage_status"] == "partial"
+                                and entry["route_or_event"].endswith("NoIdentityService.collect")
+                                for entry in rows
+                            ), rows,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler_fqn"].endswith("LookalikeService.collect")
+                                and entry["coverage_status"] == "partial"
+                                and entry["route_or_event"] == "/example.Sample/collect"
+                                for entry in rows
+                            ), rows,
+                        )
+                        for service_name in (
+                            "NoForwardService", "ReflectionService", "MixedForwardService",
+                            "MultiImplementationService", "DuplicateRegistrationService",
+                        ):
+                            partial_handlers = {
+                                row["handler_fqn"] for row in rows
+                                if row["handler_fqn"].endswith(service_name + ".collect")
+                                and row["coverage_status"] == "partial"
+                                and row["route_or_event"] == "/example.Partial/collect"
+                            }
+                            self.assertTrue(partial_handlers, (service_name, rows))
+                            self.assertFalse(
+                                any(entry["route_or_event"] == "/example.Partial/collect" for entry in entries),
+                                (service_name, entries),
+                            )
+                        self.assertTrue(
+                            any(
+                                row["handler_fqn"].endswith("AmbiguousModernAsyncService.collect")
+                                and row["route_or_event"] == "/example.AmbiguousModern/collect"
+                                and row["coverage_status"] == "partial"
+                                for row in rows
+                            ),
+                            rows,
+                        )
+                        self.assertFalse(
+                            any(entry["route_or_event"] == "/example.AmbiguousModern/collect" for entry in entries),
+                            entries,
+                        )
+                        self.assertFalse(any("FooAsyncService" in row["handler_fqn"] for row in rows), rows)
+                        self.assertFalse(any("FooCollector" in entry["handler"]["callable"] for entry in entries), entries)
+                        self.assertTrue(
+                            any(
+                                row["handler_fqn"].endswith("FakeBuilderService.unary")
+                                and row["route_or_event"] == "/example.FakeBuilder/unary"
+                                and row["coverage_status"] == "partial"
+                                for row in rows
+                            ),
+                            rows,
+                        )
+                        self.assertFalse(
+                            any("FakeBuilderService" in entry["handler"]["callable"] for entry in entries),
+                            entries,
+                        )
+                        self.assertFalse(any("UnsupportedLeafService" in entry["handler"]["callable"] for entry in entries), entries)
+                        self.assertFalse(any("NoIdentityService" in entry["handler"]["callable"] for entry in entries), entries)
+                        self.assertFalse(any("LookalikeService.helper" in entry["handler_fqn"] for entry in rows), rows)
                     self.assertFalse(
                         any(
                             any(
                                 marker in entry["handler"]["callable"]
-                                for marker in ("Unregistered", "Lookalike", "Fake", "Dynamic", "Ambiguous")
+                                for marker in ("Unregistered", "Lookalike", "Fake", "Dynamic")
                             )
                             for entry in entries
                         ),
@@ -283,6 +473,82 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                             any("Unregistered" in name for name in unresolved_handlers),
                             unresolved_handlers,
                         )
+
+    def test_filter_registration_interposition_is_partial_until_cfg_proven(self):
+        root = Path(__file__).parents[1]
+        source_root = root / "tests" / "fixtures" / "interposition" / "src" / "main" / "java"
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            classes = temporary / "classes"; classes.mkdir()
+            java_files = sorted(path.relative_to(source_root) for path in source_root.rglob("*.java"))
+            database_path = temporary / "database"
+            completed = subprocess.run(
+                [_CODEQL, "database", "create", str(database_path), "--language=java", f"--source-root={source_root}",
+                 f"--command={_JAVAC} -d {classes} " + " ".join(str(path) for path in java_files), "--overwrite"],
+                cwd=source_root, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+            database = validate_database(database_path)
+            result = run_query(root / "codeql" / "dosweb" / "Entries" / "EntryInterpositions.ql", database, temporary / "results", codeql_binary=str(_codeql_wrapper(temporary)))
+            rows = decode_bqrs_json("entry_interposition", json.loads(result.decoded_path.read_text(encoding="utf-8")), DecodeSource(database.source_root, result.query_sha256))
+            self.assertEqual(len(rows), 3)
+            row = next(item for item in rows if item["url_predicate_value"] == "/api/push")
+            ambiguous_interposition = next(item for item in rows if item["url_predicate_value"] == "/api/ambiguous")
+            unknown_order = next(item for item in rows if item["url_predicate_value"] == "/api/no-order")
+            self.assertEqual(ambiguous_interposition["coverage_status"], "partial")
+            self.assertEqual(unknown_order["order_status"], "unknown")
+            self.assertEqual(unknown_order["coverage_note"], "static_filter_order_unproven")
+            self.assertEqual(row["url_predicate_value"], "/api/push")
+            self.assertEqual(row["coverage_status"], "partial")
+            self.assertFalse(row["action_before_chain"])
+            self.assertEqual(row["coverage_note"], "cfg_action_before_chain_unproven")
+
+            association = run_query(
+                root / "codeql" / "dosweb" / "Flows" / "EntryToGrowthAssociations.ql",
+                database,
+                temporary / "association-results",
+                codeql_binary=str(_codeql_wrapper(temporary)),
+            )
+            association_rows = decode_bqrs_json(
+                "flow",
+                json.loads(association.decoded_path.read_text(encoding="utf-8")),
+                DecodeSource(database.source_root, association.query_sha256),
+            )
+            matching = [
+                item for item in association_rows
+                if item["source_start_line"] == 14 and item["sink_start_line"] == 10
+            ]
+            self.assertEqual(len(matching), 1, association_rows)
+            self.assertFalse(any(item["source_start_line"] == 30 for item in association_rows), association_rows)
+            self.assertEqual(matching[0]["attacker_target"], "key")
+            self.assertEqual(matching[0]["coverage_status"], "partial")
+            self.assertEqual(
+                matching[0]["coverage_note"],
+                "transitive_callgraph_association_requires_flow_witness",
+            )
+
+            flow = run_query(
+                root / "codeql" / "dosweb" / "Flows" / "EntryToGrowth.ql",
+                database,
+                temporary / "flow-results",
+                codeql_binary=str(_codeql_wrapper(temporary)),
+            )
+            flow_rows = decode_bqrs_json(
+                "flow",
+                json.loads(flow.decoded_path.read_text(encoding="utf-8")),
+                DecodeSource(database.source_root, flow.query_sha256),
+            )
+            matching_flow = [
+                item for item in flow_rows
+                if item["source_start_line"] == 14 and item["sink_start_line"] == 10
+            ]
+            self.assertEqual(len(matching_flow), 1, flow_rows)
+            self.assertFalse(any(item["source_start_line"] == 30 for item in flow_rows), flow_rows)
+            self.assertEqual(matching_flow[0]["confidence"], "partial")
+            self.assertEqual(
+                matching_flow[0]["coverage_note"],
+                "transitive_callgraph_witness_requires_path_coverage",
+            )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee">
+  <servlet>
+    <servlet-name>descriptor</servlet-name>
+    <servlet-class>fixture.servlet.DescriptorServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>descriptor</servlet-name>
+    <url-pattern>/descriptor/*</url-pattern>
+  </servlet-mapping>
+</web-app>

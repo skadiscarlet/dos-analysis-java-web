@@ -33,8 +33,11 @@ _ALLOWED_ENVIRONMENT: Final = frozenset(
 _SAFE_QUERY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _QUERY_FAMILY_PATTERNS: Final = (
     (re.compile(r"entrytogrowth|flow", re.IGNORECASE), "flow"),
+    (re.compile(r"entryinterpositions?", re.IGNORECASE), "entry_interposition"),
     (re.compile(r"entries?$", re.IGNORECASE), "entries"),
     (re.compile(r"growth|materialization|allocation", re.IGNORECASE), "growth"),
+    (re.compile(r"lifecyclesummary", re.IGNORECASE), "lifecycle_summary"),
+    (re.compile(r"lifecyclecoverage", re.IGNORECASE), "lifecycle_coverage"),
     (re.compile(r"guard", re.IGNORECASE), "guard"),
     (re.compile(r"bound", re.IGNORECASE), "bound"),
     (re.compile(r"release", re.IGNORECASE), "release"),
@@ -73,6 +76,23 @@ def _safe_diagnostic(value: object, secrets: tuple[str, ...]) -> str:
         if secret:
             text = text.replace(secret, "[REDACTED]")
     return text[-_MAX_DIAGNOSTIC_BYTES:]
+
+
+def _decode_contract_diagnostic(reason: object, details: Mapping[str, object]) -> str:
+    """Serialize only safe decoder contract fields; never paths or source content."""
+    fields: dict[str, object] = {}
+    if isinstance(reason, str) and reason:
+        fields["reason"] = reason[:128]
+    for key in ("query_name", "column"):
+        value = details.get(key)
+        if isinstance(value, str) and value:
+            fields[key] = value[:256]
+    row = details.get("row")
+    if isinstance(row, int) and not isinstance(row, bool):
+        fields["row"] = row
+    if not fields:
+        fields["reason"] = "decoded result violates its query contract"
+    return json.dumps(fields, sort_keys=True, separators=(",", ":"))
 
 
 def _query_failed(
@@ -291,7 +311,9 @@ def _read_decoded_json(
             DecodeSource(source_root=database.source_root, query_sha256=query_sha256),
         )
     except AnalyzerError as exc:
-        raise _query_failed("bqrs_decode", diagnostic="decoded result violates its query contract") from exc
+        details = exc.details if isinstance(exc.details, Mapping) else {}
+        diagnostic = _decode_contract_diagnostic(details.get("reason"), details)
+        raise _query_failed("bqrs_decode", diagnostic=diagnostic) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError, MemoryError, RecursionError) as exc:
         raise _query_failed("bqrs_decode", diagnostic="decoded result violates its query contract") from exc
     finally:

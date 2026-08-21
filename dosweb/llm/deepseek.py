@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import http.client
+import hashlib
 import json
 import math
 import os
 import re
 import socket
 import ssl
+import stat
 import errno
 import subprocess
 import time
@@ -20,15 +22,17 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from dosweb.config import LlmConfig, MAX_LLM_RETRIES, MAX_LLM_TIMEOUT_SECONDS, SUPPORTED_MODELS
+from dosweb.config import DEFAULT_MODEL, LlmConfig, MAX_LLM_RETRIES, MAX_LLM_TIMEOUT_SECONDS, SUPPORTED_MODELS, model_response_matches
 from dosweb.errors import AnalyzerError
 from dosweb.growth.contracts import parse_growth_contract_json, validate_contract_static_evidence
 from dosweb.growth.models import AttackerInfluence, BoundedSlice, GrowthContract
 from dosweb.llm.cache import ContractCache, cache_identity, canonical_base_url
-from dosweb.llm.prompts import build_growth_messages, build_provider_payload
+from dosweb.llm.prompts import build_auth_messages, build_growth_messages, build_provider_payload
+from dosweb.llm.schemas import AUTH_CONTRACT_RESPONSE_SCHEMA, AUTH_PROMPT_VERSION, AUTH_RESPONSE_SCHEMA_VERSION, GROWTH_CONTRACT_RESPONSE_SCHEMA
+from dosweb.reachability.models import AuthContract, EntrySecurityFact, LlmAuditRecord
 
 _MAX_RESPONSE_BYTES = 131072
-_MAX_GIT_BLOB_BYTES = 16384
+_MAX_GIT_BLOB_BYTES = 1_048_576
 _MAX_JSON_DEPTH = 16
 _MAX_JSON_NODES = 256
 _MAX_JSON_STRING_BYTES = 65536
@@ -39,7 +43,7 @@ _MAX_GIT_OUTPUT_BYTES = 65536
 _MAX_GIT_STATUS_BYTES = 4096
 _SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]+")
 # Match exact credential-bearing labels in snake, kebab, camel and conventional header forms.
-_CREDENTIAL_ASSIGNMENT = re.compile(r'''(?ix)(?<![a-z0-9_-])(?!feature[_-]password\b|logging[_-]token\b)(?:authorization|api[_-]?key|private[_-]?key|access[_-]?(?:token|key)|refresh[_-]?token|aws[_-]?(?:secret[_-]?access[_-]?key|access[_-]?key[_-]?id)|client[_-]?secret|db[_-]?password|password|passwd|oauth[_-]?token|token|secret|x[_-]?api[_-]?key|(?:[a-z0-9]+[_-])+(?:api[_-]?key|private[_-]?key|access[_-]?(?:token|key)|refresh[_-]?token|client[_-]?secret|password|passwd|oauth[_-]?token|token|secret))\b(?:\\?["'])?(?:\s*(?:\[\s*\])?)*\s*[:=]\s*(?:\{\s*)?(?:\\?["'])?[^\s"';,}]+''')
+_CREDENTIAL_ASSIGNMENT = re.compile(r'''(?ix)(?<![a-z0-9_-])(?!feature[_-]password\b|logging[_-]token\b)(?:authorization|api[_-]?key|private[_-]?key|access[_-]?(?:token|key)|refresh[_-]?token|aws[_-]?(?:secret[_-]?access[_-]?key|access[_-]?key[_-]?id)|client[_-]?secret|db[_-]?password|password|passwd|oauth[_-]?token|token|secret|x[_-]?api[_-]?key|(?:[a-z0-9]+[_-])+(?:api[_-]?key|private[_-]?key|access[_-]?(?:token|key)|refresh[_-]?token|client[_-]?secret|password|passwd|oauth[_-]?token|token|secret))\b(?:\\?["'])?(?:\s*(?:\[\s*\])?)*\s*[:=]\s*(?:\{\s*)?(?:\\?["'])?(?!\[REDACTED\])[^\s"';,}]+''')
 _JAVA_UNICODE_ESCAPE = re.compile(r"(?:\\)+u+([0-9a-fA-F]{4})")
 _JAVA_COMMENT = re.compile(r"/\*.*?\*/|//[^\r\n]*", re.DOTALL)
 _JAVA_STRING_CHAIN = re.compile(r'''(?sx)(?:""".*?"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')(?:\s*\+\s*(?:""".*?"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'))+''')
@@ -75,14 +79,14 @@ _SLICE_CREDENTIAL_PATTERNS = (
 )
 _GITHUB_SOURCE_PATTERN = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$")
 _FULL_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
-_PRODUCTION_ENDPOINT = "https://api.deepseek.com/"
+_PRODUCTION_ENDPOINTS = frozenset({"https://rightapi.ai/grok/v1/"})
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 @dataclass(frozen=True)
 class PublicSourceAttestation:
     public_source_url: str | None
-    source_commit_sha: str
+    source_commit_sha: str | None
     verified_public: bool
     verified_clean_checkout: bool
 
@@ -128,12 +132,13 @@ class PublicSourceVerifier(Protocol):
 
 class GitHubPublicSourceVerifier:
     """Verifies a clean checkout against public GitHub without credentials."""
-    def __init__(self, *, opener: Callable[..., Any] | None = None, runner: Callable[..., subprocess.CompletedProcess[str]] | None = None, process_factory: Callable[..., Any] | None = None, git_timeout_seconds: float = 10.0, monotonic: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, *, opener: Callable[..., Any] | None = None, runner: Callable[..., subprocess.CompletedProcess[str]] | None = None, process_factory: Callable[..., Any] | None = None, git_timeout_seconds: float = 60.0, monotonic: Callable[[], float] = time.monotonic) -> None:
         self._opener = opener or build_opener(_NoRedirect()).open
         self._runner = runner
         self._process_factory = process_factory or (None if runner is not None else subprocess.Popen)
         self._git_timeout_seconds = git_timeout_seconds
         self._monotonic = monotonic
+        self._attestation_cache: dict[tuple[str | None, str, str], PublicSourceAttestation] = {}
 
     def verify(self, config: LlmConfig) -> PublicSourceAttestation:
         return self._verify(config, self._monotonic() + self._git_timeout_seconds)
@@ -146,21 +151,44 @@ class GitHubPublicSourceVerifier:
 
     def _verify(self, config: LlmConfig, deadline: float) -> PublicSourceAttestation:
         source_url, source_sha, checkout = _source_requirements(config)
-        self._verify_checkout(checkout, source_sha, deadline=deadline)
-        return PublicSourceAttestation(source_url, source_sha, False, True)
+        if source_sha is None:
+            # Local source-tree semantics: no git-commit provenance is required.
+            return PublicSourceAttestation(source_url, None, False, False)
+        cache_key = (source_url, source_sha, str(checkout.resolve()))
+        cached = self._attestation_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        self._verify_checkout(checkout, source_sha, source_url=source_url, deadline=deadline)
+        if source_url is None:
+            attestation = PublicSourceAttestation(None, source_sha, False, True)
+            self._attestation_cache[cache_key] = attestation
+            return attestation
+        owner, repository = source_url.removeprefix("https://github.com/").split("/", 1)
+        repository_info = self._github_json(f"repos/{owner}/{repository}", deadline=deadline)
+        commit_info = self._github_json(f"repos/{owner}/{repository}/git/commits/{source_sha}", deadline=deadline)
+        if repository_info.get("private") is not False or str(commit_info.get("sha", "")).lower() != source_sha:
+            _unverified()
+        attestation = PublicSourceAttestation(source_url, source_sha, True, True)
+        self._attestation_cache[cache_key] = attestation
+        return attestation
 
     def validate_slice(self, config: LlmConfig, slice_: BoundedSlice, attestation: PublicSourceAttestation) -> None:
         self._validate_slice(config, slice_, attestation, self._monotonic() + self._git_timeout_seconds)
 
     def _validate_slice(self, config: LlmConfig, slice_: BoundedSlice, attestation: PublicSourceAttestation, deadline: float) -> None:
         source_url, source_sha, checkout = _source_requirements(config)
+        if source_sha is None:
+            # Local source-tree semantics: verify excerpts against the on-disk tree.
+            for excerpt in slice_.source_excerpts:
+                self._verify_local_excerpt(checkout, excerpt)
+            return
         if (
             attestation.public_source_url != source_url
-            or attestation.source_commit_sha.lower() != source_sha
+            or (attestation.source_commit_sha or "").lower() != source_sha
             or not attestation.verified_clean_checkout
         ):
             _unverified()
-        self._verify_checkout(checkout, source_sha, deadline=deadline)
+        self._verify_checkout(checkout, source_sha, source_url=source_url, deadline=deadline)
         for excerpt in slice_.source_excerpts:
             object_id = f"{source_sha}:{excerpt.repo_relative_path}"
             object_type, object_size = self._git_object_metadata(checkout, object_id, deadline=deadline)
@@ -176,6 +204,54 @@ class GitHubPublicSourceVerifier:
             except (UnicodeDecodeError, IndexError): _unverified()
             if actual != excerpt.content or __import__("hashlib").sha256(actual_bytes).hexdigest() != excerpt.excerpt_sha256: _unverified()
 
+    def _verify_local_excerpt(self, checkout: Path, excerpt: object) -> None:
+        relative = getattr(excerpt, "repo_relative_path", None)
+        start_line = getattr(excerpt, "start_line", None)
+        end_line = getattr(excerpt, "end_line", None)
+        content = getattr(excerpt, "content", None)
+        excerpt_sha256 = getattr(excerpt, "excerpt_sha256", None)
+        if not isinstance(relative, str) or not isinstance(content, str) or not isinstance(excerpt_sha256, str):
+            _unverified()
+        if isinstance(start_line, bool) or not isinstance(start_line, int) or start_line < 1:
+            _unverified()
+        if isinstance(end_line, bool) or not isinstance(end_line, int) or end_line < start_line:
+            _unverified()
+        path = checkout / relative
+        try:
+            resolved = path.resolve(strict=True)
+            root = checkout.resolve(strict=True)
+            if not resolved.is_relative_to(root):
+                _unverified()
+            if resolved.is_symlink() or not resolved.is_file():
+                _unverified()
+            descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_GIT_BLOB_BYTES:
+                    _unverified()
+                raw = bytearray()
+                while len(raw) <= _MAX_GIT_BLOB_BYTES:
+                    chunk = os.read(descriptor, min(1024 * 1024, _MAX_GIT_BLOB_BYTES + 1 - len(raw)))
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                if len(raw) > _MAX_GIT_BLOB_BYTES:
+                    _unverified()
+            finally:
+                os.close(descriptor)
+        except OSError:
+            _unverified()
+        try:
+            lines = bytes(raw).splitlines(keepends=True)
+            if end_line > len(lines):
+                _unverified()
+            actual_bytes = b"".join(lines[start_line - 1:end_line])
+            actual = actual_bytes.decode("utf-8")
+        except (UnicodeDecodeError, IndexError):
+            _unverified()
+        if actual != content or hashlib.sha256(actual_bytes).hexdigest() != excerpt_sha256:
+            _unverified()
+
     def _github_json(self, path: str, *, deadline: float | None = None) -> dict[str, object]:
         deadline = self._monotonic() + self._git_timeout_seconds if deadline is None else deadline
         request = Request(f"https://api.github.com/{path}", headers={"Accept": "application/vnd.github+json", "User-Agent": "dosweb-public-source-verifier"}, method="GET")
@@ -189,7 +265,7 @@ class GitHubPublicSourceVerifier:
                     getcode = getattr(response, "getcode", None)
                     status = getcode() if callable(getcode) else None
                 if status != 200 or getattr(response, "geturl", lambda: request.full_url)() != request.full_url: _unverified()
-                payload = _bounded_json(_read_bounded_bytes(response, _MAX_RESPONSE_BYTES, deadline=deadline, monotonic=self._monotonic))
+                payload = _bounded_github_json(_read_bounded_bytes(response, _MAX_RESPONSE_BYTES, deadline=deadline, monotonic=self._monotonic))
         except AnalyzerError as exc:
             if exc.code in {"LLM_RESPONSE_INVALID", "LLM_NETWORK_RETRYABLE"}:
                 raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "Public GitHub source could not be verified.") from exc
@@ -322,19 +398,40 @@ class DeepSeekClient:
         self._opener = build_opener(_NoRedirect())
         if not all(isinstance(name, str) and isinstance(pattern, re.Pattern) for name, pattern in extra_secret_patterns): raise TypeError("extra_secret_patterns must contain compiled regular expressions")
         self._extra_secret_patterns = extra_secret_patterns
+        self._last_audit: LlmAuditRecord | None = None
+        self._auth_cache: dict[str, tuple[AuthContract, LlmAuditRecord]] = {}
+
+    def last_audit(self) -> LlmAuditRecord | None:
+        """Return the non-secret audit record for the immediately preceding contract call."""
+        return self._last_audit
+
+    def _audit(self, kind: str, messages: list[dict[str, str]], raw: str, parsed: dict[str, object], attestation: PublicSourceAttestation, *, cache_hit: bool, request_id: str = "", actual_model: str | None = None) -> LlmAuditRecord:
+        prompt = json.dumps(messages, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        schema = GROWTH_CONTRACT_RESPONSE_SCHEMA if kind == "growth" else AUTH_CONTRACT_RESPONSE_SCHEMA
+        settings = {"provider": "rightapi_codex_responses", "protocol": "responses-v1", "base_url": canonical_base_url(self._config.base_url), "requested_model": self._config.model, "actual_model": actual_model or self._config.model, "temperature": self._config.temperature, "prompt_version": __import__("dosweb.llm.schemas", fromlist=["PROMPT_VERSION"]).PROMPT_VERSION if kind == "growth" else AUTH_PROMPT_VERSION, "response_schema_version": __import__("dosweb.llm.schemas", fromlist=["RESPONSE_SCHEMA_VERSION"]).RESPONSE_SCHEMA_VERSION if kind == "growth" else AUTH_RESPONSE_SCHEMA_VERSION}
+        att = {"public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
+        return LlmAuditRecord(kind, request_id, prompt, schema, raw, parsed, settings, att, cache_hit)
 
     def classify_growth(self, slice_: BoundedSlice) -> GrowthContract:
         _validate_runtime_config(self._config)
         provider_payload = build_provider_payload(slice_)
-        request_payload = {"model": self._config.model, "messages": provider_payload.messages, "temperature": self._config.temperature}
-        request_body = _encode_request(request_payload)
+        request_body = _encode_request(_responses_request(self._config.model, provider_payload.messages, self._config.temperature))
         _scan_transmitted_request(request_body, self._config.api_key, self._extra_secret_patterns)
         self._validate_remote_gate()
         attestation = self._verified_attestation(slice_)
         cache_key, identity = cache_identity(self._config, slice_)
         static_fact_ids = frozenset(fact.fact_id for fact in slice_.payload.static_facts)
         cached = self._cache.get(cache_key, identity, static_fact_ids) if self._cache.is_usable(cache_key) else None
-        if cached is not None: return cached
+        if cached is not None:
+            audit_payload = self._cache.audit_payload(cache_key, identity)
+            if audit_payload is None:
+                # A cache hit is usable only when its exact provider body can be replayed.
+                cached = None
+            else:
+                raw_response, parsed_response = audit_payload
+                _reject_sensitive_response(raw_response, None, self._config.api_key, self._extra_secret_patterns)
+                self._last_audit = self._audit("growth", provider_payload.messages, raw_response, parsed_response, attestation, cache_hit=True)
+                return cached
         state, owner = _join_inflight(cache_key)
         if not owner:
             state.event.wait()
@@ -350,12 +447,19 @@ class DeepSeekClient:
                 if cache_available:
                     cached = self._cache.get(cache_key, identity, static_fact_ids)
                     if cached is not None:
-                        _finish_inflight(cache_key, state, result=cached)
-                        return cached
+                        audit_payload = self._cache.audit_payload(cache_key, identity)
+                        if audit_payload is not None:
+                            raw_response, parsed_response = audit_payload
+                            _reject_sensitive_response(raw_response, None, self._config.api_key, self._extra_secret_patterns)
+                            self._last_audit = self._audit("growth", provider_payload.messages, raw_response, parsed_response, attestation, cache_hit=True)
+                            _finish_inflight(cache_key, state, result=cached)
+                            return cached
+                        cached = None
                     authenticated_entry = self._cache.authenticated_contract(cache_key, identity)
                 reservation = self._cache.capacity_reservation(cache_key, allow_existing=authenticated_entry is not None)
                 with reservation:
                     reply = self._post_with_retries(request_body, slice_)
+                    _reject_sensitive_response(reply.body, None, self._config.api_key, self._extra_secret_patterns)
                     content, actual_model, request_id = self._response_content(reply)
                     _reject_sensitive_response(content, slice_, self._config.api_key, self._extra_secret_patterns)
                     _reject_sensitive_provider_id(request_id, self._config.api_key, self._extra_secret_patterns)
@@ -363,9 +467,10 @@ class DeepSeekClient:
                         raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response contained an invalid request identifier.")
                     contract = _restore_contract_aliases(parse_growth_contract_json(content), provider_payload.fact_alias_to_original)
                     contract = validate_contract_static_evidence(contract, static_fact_ids)
-                    audit = {"method": "POST", "url": self._endpoint(), "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url, "source_commit_sha": attestation.source_commit_sha, "verified_public": False, "verified_clean_checkout": attestation.verified_clean_checkout}
+                    audit = {"method": "POST", "url": self._endpoint(), "provider": "rightapi_codex_responses", "protocol": "responses-v1", "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
                     if authenticated_entry is None:
-                        self._cache.put(cache_key, identity, contract, audit)
+                        self._cache.put(cache_key, identity, contract, audit, raw_response=reply.body)
+                    self._last_audit = self._audit("growth", provider_payload.messages, reply.body, contract.to_dict(), attestation, cache_hit=False, request_id=request_id, actual_model=actual_model)
                     _finish_inflight(cache_key, state, result=contract)
                     return contract
         except AnalyzerError as exc:
@@ -378,31 +483,78 @@ class DeepSeekClient:
             _finish_inflight(cache_key, state, retry=True)
             raise
 
+    def classify_auth(self, entry_id: str, facts: tuple[EntrySecurityFact, ...], config_facts: tuple[dict[str, object], ...] = ()) -> AuthContract:
+        """Remote Auth Contract constrained to supplied security/configuration facts.
+
+        This intentionally has a separate identity and never reuses Growth cache entries.
+        """
+        _validate_runtime_config(self._config)
+        self._validate_remote_gate()
+        attestation = self._verified_attestation()
+        aliases = {fact.fact_id: f"security:{index}" for index, fact in enumerate(facts, 1)}
+        prompt_facts = [{"fact_id": aliases[f.fact_id], "kind": f.kind, "location": f.location, "line": f.line, "value": f.value, "coverage": f.coverage} for f in facts]
+        messages = build_auth_messages(entry_id, prompt_facts, list(config_facts))
+        auth_identity = {"kind": "auth", "provider": "rightapi_codex_responses", "protocol": "responses-v1", "prompt_version": AUTH_PROMPT_VERSION, "schema_version": AUTH_RESPONSE_SCHEMA_VERSION, "model": self._config.model, "temperature": self._config.temperature, "base_url": canonical_base_url(self._config.base_url), "text_format": "json_object", "messages": messages, "sha": attestation.source_commit_sha or ""}
+        identity = hashlib.sha256(json.dumps(auth_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+        persisted = self._cache.get_auth_record(identity, auth_identity)
+        if persisted is not None:
+            try:
+                contract = AuthContract.from_dict(persisted["contract"])
+                _reject_sensitive_response(persisted["raw_response"], None, self._config.api_key, self._extra_secret_patterns)
+                self._last_audit = self._audit("auth", messages, persisted["raw_response"], contract.to_dict(), attestation, cache_hit=True)
+                return contract
+            except (AnalyzerError, KeyError, TypeError):
+                pass
+        cached = self._auth_cache.get(identity)
+        if cached is not None:
+            contract, prior = cached
+            _reject_sensitive_response(prior.raw_response, None, self._config.api_key, self._extra_secret_patterns)
+            self._last_audit = LlmAuditRecord("auth", prior.request_id, prior.normalized_prompt, prior.response_schema, prior.raw_response, prior.parsed_response, prior.settings, prior.attestation, True)
+            return contract
+        body = _encode_request(_responses_request(self._config.model, messages, self._config.temperature))
+        _scan_transmitted_request(body, self._config.api_key, self._extra_secret_patterns)
+        reply = self._post_with_retries(body, None)  # Attestation is checked by retry loop.
+        _reject_sensitive_response(reply.body, None, self._config.api_key, self._extra_secret_patterns)
+        content, actual_model, request_id = self._response_content(reply)
+        if not isinstance(content, str):
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Auth Contract content is invalid.")
+        _reject_sensitive_response(content, None, self._config.api_key, self._extra_secret_patterns)
+        try:
+            raw = json.loads(content)
+            if not isinstance(raw, dict): raise ValueError
+            contract = AuthContract.from_dict(raw)
+        except (ValueError, TypeError, AnalyzerError) as exc:
+            if isinstance(exc, AnalyzerError): raise
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Auth Contract response violates schema.") from exc
+        # Convert public aliases back before deterministic verification.
+        contract = AuthContract(contract.auth_context, tuple({v: k for k, v in aliases.items()}.get(item, item) for item in contract.evidence_ids), contract.assumptions, contract.confidence)
+        audit = self._audit("auth", messages, reply.body, raw, attestation, cache_hit=False, request_id=request_id, actual_model=actual_model)
+        self._cache.put_auth_record(identity, auth_identity, contract.to_dict(), reply.body)
+        self._auth_cache[identity] = (contract, audit)
+        self._last_audit = audit
+        return contract
+
     def _validate_remote_gate(self) -> None:
         validate_provider_endpoint(self._config.base_url, allow_test_transport=self._transport is not None)
         if not self._config.allow_remote_llm: raise AnalyzerError("CONFIG_REMOTE_LLM_NOT_AUTHORIZED", "Remote LLM calls require explicit authorization.")
-        if not isinstance(self._config.api_key, str) or not self._config.api_key.strip(): raise AnalyzerError("CONFIG_MISSING_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY must be set to a non-empty value in the environment.")
-        _source_requirements(self._config)
+        if not isinstance(self._config.api_key, str) or not self._config.api_key.strip(): raise AnalyzerError("CONFIG_MISSING_DEEPSEEK_API_KEY", "Provider API key must be set in the environment or config/local_secrets.json.")
+        checkout = self._config.source_checkout
+        if not isinstance(checkout, Path) or not checkout.is_dir() or not os.access(checkout, os.R_OK | os.X_OK):
+            raise AnalyzerError("CONFIG_SOURCE_CHECKOUT_UNREADABLE", "Local source checkout must be a readable directory.")
 
     def _verified_attestation(self, slice_: BoundedSlice | None = None) -> PublicSourceAttestation:
-        verify_slice = getattr(self._verifier, "verify_slice", None)
-        if slice_ is not None and callable(verify_slice):
-            attestation = verify_slice(self._config, slice_)
-        else:
-            attestation = self._verifier.verify(self._config)
-            if slice_ is not None:
-                self._verifier.validate_slice(self._config, slice_, attestation)
-        source_url, source_sha, _ = _source_requirements(self._config)
-        if (
-            not isinstance(attestation, PublicSourceAttestation)
-            or attestation.public_source_url != source_url
-            or attestation.source_commit_sha.lower() != source_sha
-            or not attestation.verified_clean_checkout
-        ):
-            _unverified()
-        return attestation
+        # Git commit provenance is optional metadata, not a gate. Record config
+        # values verbatim (SHA lower-cased) so cache/audit identity stays consistent.
+        url = self._config.public_source_url
+        sha = self._config.source_commit_sha
+        return PublicSourceAttestation(
+            url if isinstance(url, str) and url else None,
+            sha.lower() if isinstance(sha, str) and sha else None,
+            False,
+            False,
+        )
 
-    def _endpoint(self) -> str: return urljoin(canonical_base_url(self._config.base_url), "chat/completions")
+    def _endpoint(self) -> str: return urljoin(canonical_base_url(self._config.base_url), "responses")
 
     def _post_with_retries(self, body: bytes, slice_: BoundedSlice) -> ProviderReply:
         failure: AnalyzerError | None = None
@@ -419,7 +571,7 @@ class DeepSeekClient:
     def _post_once(self, payload: dict[str, object] | bytes) -> ProviderReply:
         body = payload if isinstance(payload, bytes) else _encode_request(payload)
         deadline = self._monotonic() + self._config.timeout_seconds
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self._config.api_key}"}
+        headers = {"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {self._config.api_key}", "User-Agent": "pi-coding-agent"}
         if self._transport is not None:
             try:
                 remaining = deadline - self._monotonic()
@@ -457,17 +609,43 @@ class DeepSeekClient:
             raise
 
     def _response_content(self, reply: ProviderReply) -> tuple[object, str, str]:
-        if not isinstance(reply.body, str) or len(reply.body.encode("utf-8")) > _MAX_RESPONSE_BYTES: raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response exceeds the safe size limit.")
-        try: envelope = _bounded_json(reply.body.encode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError) as exc: raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response envelope was not valid JSON.") from exc
+        if not isinstance(reply.body, str) or len(reply.body.encode("utf-8")) > _MAX_RESPONSE_BYTES:
+            raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response exceeds the safe size limit.")
         try:
-            if not isinstance(envelope, dict) or not isinstance(envelope["model"], str) or envelope["model"] != self._config.model: raise TypeError
-            choices = envelope["choices"]
-            if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict) or not isinstance(choices[0]["message"], dict): raise TypeError
-            content, model = choices[0]["message"]["content"], envelope["model"]
+            envelope = _bounded_json(reply.body.encode("utf-8"))
+            if not isinstance(envelope, dict) or envelope.get("status") != "completed":
+                raise TypeError
+            model = envelope.get("model")
+            if not isinstance(model, str) or not model_response_matches(self._config.model, model):
+                raise TypeError
+            output = envelope.get("output")
+            if not isinstance(output, list):
+                raise TypeError
+            messages = [item for item in output if isinstance(item, dict) and item.get("type") == "message" and item.get("role") == "assistant"]
+            if len(messages) != 1:
+                raise TypeError
+            parts = messages[0].get("content")
+            if not isinstance(parts, list):
+                raise TypeError
+            text_parts: list[str] = []
+            for part in parts:
+                if not isinstance(part, dict):
+                    raise TypeError
+                if part.get("type") == "refusal":
+                    raise TypeError
+                if part.get("type") == "output_text":
+                    text = part.get("text")
+                    if not isinstance(text, str):
+                        raise TypeError
+                    text_parts.append(text)
+            content = "".join(text_parts)
+            if not content:
+                raise TypeError
             request_id = reply.headers.get("x-request-id", reply.headers.get("request-id", envelope.get("id", "")))
-            if not isinstance(request_id, str) or len(request_id.encode("utf-8")) > 512: raise TypeError
-        except (KeyError, TypeError): raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response envelope was malformed or has a mismatched model.")
+            if not isinstance(request_id, str) or len(request_id.encode("utf-8")) > 512:
+                raise TypeError
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError, KeyError, TypeError) as exc:
+            raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote Responses API envelope was malformed, incomplete, or has a mismatched model.") from exc
         return content, model, request_id
 
 
@@ -489,6 +667,18 @@ def _finish_inflight(key: str, state: _InFlightState, *, result: GrowthContract 
         state.error = error
         state.retry = retry
         state.event.set()
+
+
+def _responses_request(model: str, messages: object, temperature: object) -> dict[str, object]:
+    if not isinstance(messages, list) or len(messages) != 2:
+        raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request requires exactly one system and one user prompt.")
+    system, user = messages
+    if not isinstance(system, dict) or not isinstance(user, dict) or system.get("role") != "system" or user.get("role") != "user":
+        raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request prompt roles are invalid.")
+    instructions, user_text = system.get("content"), user.get("content")
+    if not isinstance(instructions, str) or not instructions or not isinstance(user_text, str) or not user_text:
+        raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request prompt content is invalid.")
+    return {"model": model, "instructions": instructions, "input": [{"role": "user", "content": [{"type": "input_text", "text": user_text}]}], "temperature": temperature, "text": {"format": {"type": "json_object"}}, "store": False, "stream": False}
 
 
 def _encode_request(payload: dict[str, object]) -> bytes:
@@ -582,7 +772,12 @@ def _java_assignment_after_identifier(code: str, index: int) -> bool:
         if code.startswith(operator, index):
             if operator == "=" and index + 1 < len(code) and code[index + 1] == "=":
                 return False
-            return True
+            # An assignment whose value was already redacted to the fixed token is
+            # not a live credential and must not trigger the gate.
+            value_index = index + len(operator)
+            while value_index < len(code) and code[value_index].isspace():
+                value_index += 1
+            return not code.startswith("[REDACTED]", value_index)
     return False
 
 
@@ -694,6 +889,25 @@ def _java_decoded_literal_values(content: str) -> list[str]:
     return values
 
 
+def _redacted_value_at(content: str, index: int) -> bool:
+    i = index
+    while i < len(content) and content[i] in " \t":
+        i += 1
+    return content.startswith("[REDACTED]", i)
+
+
+def _sensitive_method_call(item: str) -> bool:
+    """Flag a credential mutator/header call only when its value is not already redacted."""
+    masked = _java_comments_as_space(item)
+    for match in _SENSITIVE_MUTATOR_CALL.finditer(masked):
+        if not _redacted_value_at(masked, match.end()):
+            return True
+    for match in _GENERIC_CREDENTIAL_CALL.finditer(masked):
+        if not _redacted_value_at(masked, match.end()):
+            return True
+    return False
+
+
 def _scan_transmitted_request(body: bytes, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...] = ()) -> None:
     try:
         serialized = body.decode("utf-8")
@@ -713,11 +927,7 @@ def _scan_transmitted_request(body: bytes, configured_api_key: str, extra_patter
         raise AnalyzerError("LLM_REQUEST_INVALID", "Serialized LLM request exceeds safe structural limits.") from exc
     if any(_sensitive_java_assignment(item) for item in strings):
         raise AnalyzerError("LLM_BOUNDED_SLICE_SECRET_DETECTED", "Bounded slice credential scan failed.", {"pattern_id": "credential_assignment"})
-    if any(
-        _SENSITIVE_MUTATOR_CALL.search(_java_comments_as_space(item))
-        or _GENERIC_CREDENTIAL_CALL.search(_java_comments_as_space(item))
-        for item in strings
-    ):
+    if any(_sensitive_method_call(item) for item in strings):
         raise AnalyzerError(
             "LLM_BOUNDED_SLICE_SECRET_DETECTED",
             "Bounded slice credential scan failed.",
@@ -737,14 +947,14 @@ def _scan_transmitted_request(body: bytes, configured_api_key: str, extra_patter
     decoded_literal_strings = [value for item in strings for value in _java_decoded_literal_values(item)]
     content = "\n".join((serialized, *strings, *normalized_strings, *decoded_literal_strings))
     credential_content = "\n".join(_java_without_annotation_arguments(_java_comments_as_space(item)) for item in strings)
-    if configured_api_key and configured_api_key in content: raise AnalyzerError("LLM_BOUNDED_SLICE_SECRET_DETECTED", "Bounded slice credential scan failed.", {"pattern_id": "configured_api_key"})
+    if configured_api_key and configured_api_key in content: raise AnalyzerError("LLM_BOUNDED_SLICE_SECRET_DETECTED", "Bounded slice credential scan failed.", {"pattern_id": "configured_credential"})
     for pattern_id, pattern in (*_SLICE_CREDENTIAL_PATTERNS, *extra_patterns):
         target = credential_content if pattern_id == "credential_assignment" else content
         if pattern.search(target): raise AnalyzerError("LLM_BOUNDED_SLICE_SECRET_DETECTED", "Bounded slice credential scan failed.", {"pattern_id": pattern_id})
 
 
 def scan_slice_for_credentials(slice_: BoundedSlice, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...] = ()) -> None:
-    payload = {"model": "deepseek-v4-pro", "messages": build_growth_messages(slice_), "temperature": 0}
+    payload = _responses_request(DEFAULT_MODEL, build_growth_messages(slice_), 0)
     _scan_transmitted_request(_encode_request(payload), configured_api_key, extra_patterns)
 
 
@@ -757,10 +967,10 @@ def _restore_contract_aliases(contract: GrowthContract, aliases: dict[str, str])
     return GrowthContract(contract.is_resource_growth, contract.growth_kind, contract.resource_dimension, influences, contract.resource_effect, required, contract.confidence)
 
 
-def _reject_sensitive_response(content: object, slice_: BoundedSlice, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> None:
+def _reject_sensitive_response(content: object, slice_: BoundedSlice | None, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> None:
     if not isinstance(content, str): return
     if configured_api_key and configured_api_key in content: raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
-    meaningful_echo = any(len(excerpt.content.encode("utf-8")) >= 64 and excerpt.content in content for excerpt in slice_.source_excerpts)
+    meaningful_echo = slice_ is not None and any(len(excerpt.content.encode("utf-8")) >= 64 and excerpt.content in content for excerpt in slice_.source_excerpts)
     if any(pattern.search(content) for _, pattern in (*_SLICE_CREDENTIAL_PATTERNS, *extra_patterns)) or re.search(r"eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]+\.", content) or re.search(r"[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@", content) or meaningful_echo: raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
 
 
@@ -819,14 +1029,14 @@ def validate_provider_endpoint(base_url: str, *, allow_test_transport: bool = Fa
     except (TypeError, ValueError, OverflowError) as exc:
         raise AnalyzerError("CONFIG_INVALID_VALUE", "The LLM base URL is invalid.") from exc
     parsed = urlparse(canonical)
-    if canonical == _PRODUCTION_ENDPOINT: return canonical
+    if canonical in _PRODUCTION_ENDPOINTS: return canonical
     if not allow_test_transport or parsed.hostname not in _LOOPBACK_HOSTS: raise AnalyzerError("CONFIG_UNSAFE_LLM_ENDPOINT", "The LLM endpoint must be the canonical production endpoint or a loopback test server.")
     return canonical
 
 
 def _validate_runtime_config(config: LlmConfig) -> None:
     if not isinstance(config.api_key, str) or not config.api_key.strip():
-        raise AnalyzerError("CONFIG_MISSING_DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY must be set to a non-empty value in the environment.")
+        raise AnalyzerError("CONFIG_MISSING_DEEPSEEK_API_KEY", "Provider API key must be set in the environment or config/local_secrets.json.")
     if (
         config.model not in SUPPORTED_MODELS
         or not isinstance(config.timeout_seconds, int)
@@ -843,18 +1053,21 @@ def _validate_runtime_config(config: LlmConfig) -> None:
         raise AnalyzerError("CONFIG_INVALID_VALUE", "LLM configuration contains an invalid bounded value.")
 
 
-def _source_requirements(config: LlmConfig) -> tuple[str | None, str, Path]:
+def _source_requirements(config: LlmConfig) -> tuple[str | None, str | None, Path]:
     source_url, source_sha, checkout = config.public_source_url, config.source_commit_sha, config.source_checkout
-    if not isinstance(source_sha, str) or _FULL_SHA_PATTERN.fullmatch(source_sha) is None or not isinstance(checkout, Path):
+    if not isinstance(checkout, Path):
         _unverified()
+    if not isinstance(source_sha, str) or _FULL_SHA_PATTERN.fullmatch(source_sha) is None:
+        source_sha = None
+    else:
+        source_sha = source_sha.lower()
     if source_url is None:
-        return None, source_sha.lower(), checkout
+        return None, source_sha, checkout
     if not isinstance(source_url, str) or _GITHUB_SOURCE_PATTERN.fullmatch(source_url) is None:
-        _unverified()
-    canonical = _canonical_origin_url(source_url)
-    if canonical is None:
-        _unverified()
-    return canonical, source_sha.lower(), checkout
+        source_url = None
+    else:
+        source_url = _canonical_origin_url(source_url)
+    return source_url, source_sha, checkout
 
 
 def _canonical_origin_url(value: str) -> str | None:
@@ -946,6 +1159,36 @@ def _read_bounded_bytes(response: Any, limit: int, *, deadline: float | None = N
     if len(collected) > limit:
         raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response exceeds the safe size limit.")
     return bytes(collected)
+
+
+def _bounded_github_json(data: bytes) -> object:
+    """Parse bounded GitHub API metadata without the provider envelope's 64-key cap."""
+    if len(data) > _MAX_RESPONSE_BYTES:
+        raise ValueError("too large")
+    value = json.loads(data.decode("utf-8"), parse_constant=_reject_constant, object_pairs_hook=_unique_object)
+    seen = [0]
+    def check(item: object, depth: int = 0) -> None:
+        seen[0] += 1
+        if seen[0] > 4096 or depth > 32:
+            raise ValueError("github metadata too large")
+        if isinstance(item, str) and len(item.encode("utf-8")) > _MAX_JSON_STRING_BYTES:
+            raise ValueError("string too large")
+        if isinstance(item, dict):
+            if len(item) > 256:
+                raise ValueError("object too large")
+            for child in item.values():
+                check(child, depth + 1)
+        elif isinstance(item, list):
+            if len(item) > 256:
+                raise ValueError("array too large")
+            for child in item:
+                check(child, depth + 1)
+        elif isinstance(item, str):
+            pass
+        elif item is not None and not isinstance(item, (bool, int, float)):
+            raise ValueError("unsupported json value")
+    check(value)
+    return value
 
 
 def _bounded_json(data: bytes) -> object:

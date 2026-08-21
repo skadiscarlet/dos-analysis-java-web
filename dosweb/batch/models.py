@@ -199,9 +199,11 @@ class BatchPlan:
     plan_id: str
     plan_digest: str
     provider: dict[str, object] = field(default_factory=dict)
+    analysis_mode: str = ""
+    query_failure_policy: str = ""
 
     def unsigned_dict(self) -> dict[str, object]:
-        return {
+        value = {
             "schema_version": self.schema_version,
             "tool_version": self.tool_version,
             "batch_schema_version": self.batch_schema_version,
@@ -212,6 +214,10 @@ class BatchPlan:
             "provider": self.provider,
             "targets": [target.to_dict() for target in self.targets],
         }
+        if self.analysis_mode:
+            value["analysis_mode"] = self.analysis_mode
+            value["query_failure_policy"] = self.query_failure_policy
+        return value
 
     def to_dict(self) -> dict[str, object]:
         return {

@@ -13,6 +13,7 @@ from dosweb.entries import (
     load_entry_facts,
     normalize_entry_rows,
     normalize_framework_coverage,
+    normalize_gap_entry_rows,
 )
 from dosweb.errors import AnalyzerError
 
@@ -284,6 +285,89 @@ class EntryNormalizationTests(unittest.TestCase):
             },
             coverage,
         )
+
+    def test_dynamic_registration_persists_concrete_route_as_gap_only(self):
+        dynamic = self._row(
+            framework="jax_rs",
+            registration_kind="dynamic_unresolved",
+            route_or_event="POST /api/v2/process/{id}/log/segment/{segmentId}",
+            coverage_status="partial",
+            coverage_note="annotation_only_jax_rs_resource",
+        )
+        self.assertEqual(normalize_entry_rows([dynamic]), [])
+        gaps = normalize_gap_entry_rows([
+            dynamic,
+            dict(dynamic),
+            {**dynamic, "attacker_input_name": "other-parameter"},
+        ])
+        self.assertEqual(len(gaps), 1)
+        self.assertEqual(gaps[0]["framework"], "jax_rs")
+        self.assertEqual(gaps[0]["route_or_event"], dynamic["route_or_event"])
+        validate_records("entry_gap_facts", gaps)
+
+    def test_smqtt_protocol_gap_is_persisted_only_for_specific_source_diagnostic(self):
+        smqtt = self._row(
+            framework="mqtt",
+            protocol="mqtt",
+            registration_kind="dynamic_unresolved",
+            route_or_event="mqtt_protocol",
+            handler_fqn="io.github.quickmsg.core.mqtt.MqttReceiver.newTcpServer",
+            handler_file="smqtt-core/src/main/java/io/github/quickmsg/core/mqtt/MqttReceiver.java",
+            handler_start_line=26,
+            registration_fqn="io.github.quickmsg.core.mqtt.MqttReceiver.newTcpServer",
+            registration_file="smqtt-core/src/main/java/io/github/quickmsg/core/mqtt/MqttReceiver.java",
+            registration_start_line=42,
+            coverage_status="partial",
+            coverage_note="smqtt_protocol_dispatch_binding_unresolved",
+        )
+        gaps = normalize_gap_entry_rows([smqtt])
+        self.assertEqual(len(gaps), 1)
+        self.assertEqual(gaps[0]["route_or_event"], "mqtt_protocol")
+        validate_records("entry_gap_facts", gaps)
+
+        generic = {**smqtt, "coverage_note": "generic_mqtt_protocol_gap"}
+        self.assertEqual(normalize_gap_entry_rows([generic]), [])
+        exact_note_but_not_query_shape = {
+            **smqtt,
+            "handler_fqn": "example.MqttReceiver.newTcpServer",
+            "registration_fqn": "example.MqttReceiver.newTcpServer",
+        }
+        self.assertEqual(normalize_gap_entry_rows([exact_note_but_not_query_shape]), [])
+        exact_note_but_mismatched_registration = {
+            **smqtt,
+            "registration_fqn": "io.github.quickmsg.core.mqtt.OtherReceiver.newTcpServer",
+        }
+        self.assertEqual(normalize_gap_entry_rows([exact_note_but_mismatched_registration]), [])
+
+    def test_dynamic_placeholder_route_is_not_persisted_as_gap_identity(self):
+        dynamic = self._row(
+            framework="servlet",
+            registration_kind="dynamic_unresolved",
+            route_or_event="dynamic_servlet_mapping",
+            coverage_status="partial",
+            coverage_note="dynamic_servlet_mapping",
+        )
+        self.assertEqual(normalize_gap_entry_rows([dynamic]), [])
+
+    def test_entry_gap_schema_rejects_unsafe_location_and_nonpositive_line(self):
+        dynamic = self._row(
+            framework="jax_rs",
+            registration_kind="dynamic_unresolved",
+            route_or_event="POST /items",
+            coverage_status="partial",
+            coverage_note="annotation_only_jax_rs_resource",
+        )
+        gap = normalize_gap_entry_rows([dynamic])[0]
+        invalid_records = [
+            {**gap, "gap_id": "entry:not-a-gap"},
+            {**gap, "handler_file": "../outside.java"},
+            {**gap, "handler_file": "/absolute.java"},
+            {**gap, "handler_start_line": 0},
+        ]
+        for record in invalid_records:
+            with self.subTest(record=record):
+                with self.assertRaises(AnalyzerError):
+                    validate_records("entry_gap_facts", [record])
 
     def test_coverage_aggregates_supported_and_unsupported_patterns(self):
         coverage = normalize_framework_coverage(

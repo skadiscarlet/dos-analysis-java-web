@@ -250,6 +250,10 @@ def build_lifecycle_certificate(
     assertions: Sequence[AssertionEvaluation],
     coverage: CandidateCoverage,
     verdict: StaticVerdict,
+    *,
+    reachability: object | None = None,
+    repeatability: object | None = None,
+    amplification: object | None = None,
 ) -> LifecycleCertificate:
     if not isinstance(entry, EntryFact) or not isinstance(growth, VerifiedGrowthResult):
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Certificate facts are malformed.")
@@ -282,8 +286,8 @@ def build_lifecycle_certificate(
         evaluation
         for flow in flows
         for evaluation in (
-            evaluate_assertion_1(growth, flow, guard, bound),
-            evaluate_assertion_2(growth, flow, bound, release),
+            evaluate_assertion_1(growth, flow, guard, bound, amplification=amplification, reachability=reachability),
+            evaluate_assertion_2(growth, flow, bound, release, reachability=reachability, repeatability=repeatability),
         )
     )
     if Counter(assertions) != Counter(expected_assertions):

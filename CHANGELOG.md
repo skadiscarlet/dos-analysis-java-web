@@ -1,4 +1,873 @@
+## [2026-08-21] gRPC generated-identity and generic-builder hardening
+
+- modern nested `AsyncService` 现在额外要求 generated outer `*Grpc` 具有精确 `@io.grpc.stub.annotations.GrpcGenerated` 证据；同形但未注解的自定义 `FooGrpc.AsyncService` 不再产生 entry/gap，legacy nested `*ImplBase` 兼容分支不受影响。
+- gRPC builder native-registration 匹配只接受方法实际声明在精确 `io.grpc` package 中的 `ServerBuilder` / `ForwardingServerBuilder`；同时兼容 CodeQL 对泛型声明呈现的 `ServerBuilder<>` 与 `ForwardingServerBuilder<T>`。删除“任意子类只要继承 ServerBuilder 即可信”的旁路，应用 `FakeBuilder extends ServerBuilder` 覆写 no-op `addService` 现在仅留下 partial，不会伪造 complete。fixture 同时覆盖未注解 lookalike、泛型 `ForwardingServerBuilder<T>` 子类、direct legacy registration 和 no-op subtype override。
+- 验证：CodeQL entry fixtures `4 passed, 20 subtests passed`；相关 entries/production pytest `25 passed, 26 subtests passed`；direct/embedded query 字节一致，`compileall`、`git diff --check`、无 staged 检查通过。真实 `apache__skywalking-pprof-staging-db` 仍产 5 行，其中 `/skywalking.v10.PprofTask/collect` 精确为 1 partial、0 complete，handler 为 `PprofServiceHandler.collect`；由于注册唯一性未证明，结论继续为 `static_unknown`。
+
+## [2026-08-21] gRPC modern AsyncService and ForwardingServerBuilder partial recall
+
+- `GrpcEntries.ql`（direct/embedded 字节一致）将 generated RPC override 的保守形状从仅 nested `*ImplBase` 扩展至同一 generated outer `*Grpc` 下的 nested `AsyncService` interface；仍要求 source implementation 的真实 `overrides`、唯一编译期 `SERVICE_NAME` 与既有 route 推导，未加入项目/FQN/route 特判。
+- native registration 同时识别 gRPC 的 `ServerBuilder` hierarchy 与精确 `io.grpc.ForwardingServerBuilder` declaration，不扩展至任意同名 `addService`/`addHandler`。唯一 registration、0–2 forwarding、concrete-target 歧义和 streaming `onNext` attacker-input 证明均未放宽。
+- 新增 generic fixture 的 modern `AsyncService` complete streaming 正例及 two-concrete-wrapper → `ForwardingServerBuilder` 歧义负例；后者仅产 partial。真实 `apache__skywalking-pprof-staging-db` 查询产 5 行，其中 `/skywalking.v10.PprofTask/collect` 为 `PprofServiceHandler.collect` 的 1 行 partial、0 complete，故仍为 `static_unknown`，未声称 formal full 或漏洞结论完成。临时 CSV：`/tmp/dosweb-skywalking-grpc-async-20260821_002208/grpc.csv`。
+
+## [2026-08-20] Switch formal LLM provider to RightAPI Codex Responses
+
+- 生产 host 确认为 `https://rightapi.ai/grok/v1/`：非流式 Responses 请求固定发送 `User-Agent: pi-coding-agent`，不使用 Cloudflare Cookie、Origin、Referer 或浏览器 sec headers；HTTP 403 一律 fail-closed，不实现 SSE。
+- 收紧完整 Responses envelope 的私有持久化边界：Growth/Auth 在 parser、cache、audit 或 `last_audit` 接触 `reply.body` 前均扫描完整原始 envelope（含 reasoning/metadata）；命中 configured key、Bearer、既有 credential/extra pattern 时 fail-closed。Growth cache format 升至 v7，HMAC domain 同步为 v7；Auth cache 升至 v2。匹配当前 identity 且通过严格结构、hash 与旧 v1 HMAC 认证的 Auth v1 文件会以 dir_fd/inode 校验后删除并 fsync，形成 cold miss，允许安全 v2 原子重写；伪造、损坏、unsafe 文件不会删除或信任。回放 raw response 亦复查；`LlmAuditRecord` 同步拒绝 Bearer 或 key-shaped raw envelope。新增 Growth/Auth metadata 回显零 cache/零 audit 与 Auth v1 退役回归。
+- 最终真实合成 canary 已通过：Growth 与 Auth 均返回 HTTP 2xx、actual model `grok-4.6`，严格 contract/evidence 与完整 envelope 检查通过，等价第二次调用均命中本地 cache；脱敏证据位于 `results/provider_canary/rightapi-responses-final-20260820_154025/`。
+- 首次 Auth synthetic canary 曾因响应漏掉必填 `confidence` 被严格 parser 按 `LLM_RESPONSE_SCHEMA_INVALID` 拒绝。Auth prompt 现明确要求四个键 `auth_context`、`evidence_ids`、`assumptions`、`confidence`，且未知时仍输出 `unknown`/`low` 与全部键；`AUTH_PROMPT_VERSION` 升至 `auth-contract-v3` 隔离旧缓存，未放宽 parser/schema，并已由上方最终 canary 重测通过。
+- 最终网络无关全套验证为 `679 passed, 10 skipped, 456 subtests`；`compileall`、`git diff --check` 与无 staged 检查通过，fresh reviewer 最终 GO（无 blocker/high/medium）。
+
+## [2026-08-20] RightAPI migration details
+
+- fresh-reviewer 收尾：credential preflight 现序列化并扫描与实际发送完全一致的 Responses payload；Auth wire regression 显式锁定 `/responses`、typed `input_text`、JSON text format、`store=false`/`stream=false`，并拒绝遗留 Chat Completions 字段。
+- 正式 LLM provider 现唯一使用 `https://rightapi.ai/grok/v1/`、`grok-4.6` 与非流式 `/responses` 协议；不再接受旧 Chat Completions production endpoint 或 DeepSeek model。
+- Growth/Auth 请求改为 typed `input_text` Responses payload，并以 `store=false`、`stream=false` 和 JSON-object text format 固定约束；响应仅接受 completed、唯一 assistant message 的 `output_text`，reasoning item 可忽略，refusal/incomplete/ambiguity fail-closed。
+- cache/audit identity 迁移为 `rightapi_codex_responses` / `responses-v1`，旧缓存自动冷 miss；现有 API-key 存储字段和环境变量兼容不变，错误文案改为 provider-neutral。
+- 网络无关全套迁移基线验证为 `676 passed, 10 skipped, 454 subtests`，fresh reviewer 给出 GO。历史 canary `results/provider_canary/rightapi-responses-20260820_111859/` 的 HTTP 403 后续定位为 provider 拒绝默认客户端 User-Agent，而非凭据无效；该历史失败已由上方固定 `pi-coding-agent` UA 及成功 canary 取代。
+
+## [2026-08-19] Reviewer hardening: generated gRPC streaming and SMQTT gap identity
+
+- `GrpcEntries.ql`（direct/embedded 字节一致）不再将 RPC 的 response `StreamObserver` 当 attacker input。client/bidi complete entry 仅在 source method override generated `*ImplBase` RPC declaration、outer `*Grpc.SERVICE_NAME` compile-time identity、service 唯一注册均可恢复，且每个顶层 conditional return leaf 都是 source `StreamObserver` construction、具唯一 `onNext(request)` 时发布；每个 leaf 的 `onNext` 为同一路由的 `stream` handler。native registration 识别 `ServerBuilder` 子类；source forwarding 以参数 0 直传、唯一 concrete interface dispatch 的非递归 0–2 wrapper 展开建模。其余 generated streaming RPC 仅输出 concrete partial gap。
+- 删除 Pprof/SkyWalking/fixture FQN 和 route 特判。route 从 generated outer `SERVICE_NAME` 和 generated method name 推导为 `/<SERVICE_NAME>/<rpcMethod>`；partial 在 identity 可恢复时同样保留该精确 route，缺 identity 才使用 source handler identity。fixture 改为 generic generated `SampleGrpc.SERVICE_NAME`/`SampleImplBase`，覆盖 interface→两层 forwarding→NettyServerBuilder、顶层 ternary 的两个 observer、unregistered/helper/lookalike/no-forward/double-forward/multi-implementation/unsupported leaf/no-identity/duplicate-registration negative。
+- 第三轮 fresh-review 收紧：每个 forwarding method 必须只有一个参数 0 直传的 outbound call，因而 native 与任意 wrapper depth 的混合转发均拒绝；`uniqueConcreteTarget` 现在把 dependency 内非 abstract concrete override 也计为歧义，仅最终选定 target 可为 source。fixture 将多实现、无/反射 forwarding、mixed direct+wrapper 和两次 service 注册拆为 identity/observer 均完整的独立 partial negative，并使用独立 generated service route 断言不会泄漏 complete observer entry；registered 与 ternary complete RPC 则断言无同 service partial。
+- SMQTT `mqtt_protocol` partial gap 现额外要求 exact diagnostic、exact `io.github.quickmsg.core.mqtt.MqttReceiver.newTcpServer` handler/registration FQN、同一 `.java` file 和正行号；同 note 的 synthetic/mismatched shape 继续拒绝。ordinary verdict 仍由 partial coverage 导出 `static_unknown`。
+- 历史初版查询的旧 DB 证据是 `/tmp/dosweb-skywalking-grpc-final-1044439/grpc.json`：`raw_rows=3`、严格 decode/normalize `entries=0`、`gaps=3`、0 query diagnostic。收紧 generated-identity 后的当前 run 为 `/tmp/dosweb-skywalking-grpc-reviewer-final2-1117123/grpc.json`：`raw_rows=0`、`entries=0`、`gaps=0`，同样无 query failure。两者均因该 DB 未包含 `PprofServiceHandler.java`；未声称 Pprof 召回已完成，需 DB 重建后重验。
+
+## [2026-08-19] Close final Solr web.xml descriptor review findings
+
+- descriptor 发现改为 fd-relative、增量 `os.scandir` DFS：单条目录项立即计数，命中 tree/file limit 立刻停止、关闭待处理目录 FD；不再调用 `os.walk` 或预物化路径列表。新增单目录 tree-limit iterator 回归。
+- descriptor coverage 的 complete/partial 计数改为 candidate 维度（多 URL pattern 仍可产生多 complete entry），validator 校验计数关系、最大值与受控 diagnostics 枚举。解析时独立保留 declaration identity，因此第二个 descriptor 即使没有有效 mapping，也会使相同 FQN 的 candidate 降为 partial。
+- 新增真实 Solr 源树 resolver integration 回归，验证 `SolrServlet.service -> /*`、static registration、unknown auth 和 schema 计数。
+
+## [2026-08-19] Harden Solr web.xml descriptor entry binding
+
+- 根据独立审查收紧 descriptor 遍历与选择：改用有界 `os.walk(followlinks=False)`，限制访问节点和最多 64 个 descriptor；拒绝最终文件及父目录 symlink，并使用 `dir_fd`/`O_NOFOLLOW` 逐组件读取。超过文件、树、字节、XML 元素或深度上限均保留 partial 诊断。
+- 相同 `servlet-name` 即使重复相同 class 也不再被 set 去重；同一 candidate 出现在多个 descriptor 时发布 concrete partial `web_xml_descriptor_selection_ambiguous`，不提升 complete。单一 descriptor 的多个 URL pattern 仍逐条 complete。
+- `descriptor_coverage.json` 固化为版本化 1.0 schema（发现/解析/映射/candidate 计数与有界 diagnostics），entries executor 生成后再次校验。`web_xml_servlet_mapping` placeholder 不再进入 concrete gap artifact。
+
+## [2026-08-19] Solr web.xml Servlet descriptor entry binding
+
+- `ServletEntries.ql`（direct/embedded 字节一致）仅为 source-backed、声明 `service(HttpServletRequest,HttpServletResponse)` 的 `HttpServlet` 子类发布 descriptor candidate；candidate 在 Python resolver 前均为 partial，绝不直接成为 Entry。
+- 新增有界、安全的 `dosweb.entries.webxml`：只读取 root-contained regular `WEB-INF/web.xml`，拒绝 symlink、DTD/entity/external declaration、非法 UTF-8、超限文件/元素/嵌套；仅以完整 FQN 和同一描述符内唯一 `servlet-name → servlet-class → url-pattern` 链提升为 `static_registration`。解析/结构问题只留下 partial descriptor coverage，不会伪造 complete 或造成 CodeQL query failure。
+- entries stage 新增审计产物 `descriptor_coverage.json`。Solr 真实 DB 查询并经 resolver 得到 `org.apache.solr.servlet.SolrServlet.service`、`web.xml:SolrServlet`、`/*` 的 complete entry；认证与 filter/order 仍为 unknown/deferred，未将 form parser 或 filter 安全边界标为已证。
+- 新增 web.xml happy/namespace/conflict/malformed/DTD/UTF-8/symlink/element-limit 回归和 servlet fixture；定向 pytest 与真实 javac/CodeQL fixture 均通过。
+
+## [2026-08-19] PoC-33 SMQTT protocol gaps and gRPC client-streaming entries
+
+- `normalize_gap_entry_rows` 现在只为 source-backed `smqtt_protocol_dispatch_binding_unresolved` 保留 `mqtt_protocol` partial gap；generic protocol placeholder、synthetic query gap 与 `dynamic_topic` 继续丢弃，ordinary verdict 不会被升级。
+- 此条 gRPC 初版 client/bidi-streaming 记录已被上方同日「Reviewer hardening」替代：complete 条件现要求 generated override、`SERVICE_NAME`、唯一 forwarding registration 与 source `onNext` proof；不再含任何 Pprof/SkyWalking/fixture 特判。
+- 初版验证记录已被上方同日 reviewer hardening 的 fixture/DB 结果替代；旧 `apache__skywalking-db` 未编译 `PprofServiceHandler.java`，因此不作为 Pprof 召回完成证据。
+
+## [2026-08-19] Remote provider credential and endpoint rotation
+
+- 将默认 OpenAI-compatible provider 切换到 `https://apibasis.com/v1/` / `grok-4.6`；旧 DeepSeek 模型仍保留为显式兼容选项，但不再是默认值。
+- production endpoint allowlist 增加新的规范化 HTTPS endpoint；仅显式接受 provider 返回的 `grok-4.6-build` 模型别名，其他模型不匹配继续 fail-closed。
+- 本地凭据已轮换到 gitignored、owner-only `config/local_secrets.json`（`0600`），未写入日志、报告或版本控制；配置/endpoint 定向回归及无源码 provider canary 通过。API-key 轮换会改变私有 cache HMAC，旧 provider cache 不可跨 key resume，应使用新的 immutable output。当前 query-pack 冻结后的 PoC-29 临时 full-plan digest 为 `38aa5eb7fb91672c89fdfe4045d2a8c34abd131bea45b56d10063042c3362c43`；未重写历史计划资产。
+
+## [2026-08-19] Track A3 partial-first entry interposition extraction
+
+- 新增 `EntryInterpositions.ql`（direct/embedded 字节一致）、严格 `entry_interposition` decoder 合约及 `entry_interposition_facts.jsonl` schema/entries-stage 产物。
+- 仅提取 source-backed `FilterRegistrationBean` 静态注册、常量 URL/order 与 filter action/chain 位置；CFG 未被严格证明时固定发布 `partial`/`cfg_action_before_chain_unproven`，不把 interposition 或 HertzBeat 链声明为 complete。
+- `EntryToGrowthAssociations.ql` 与 `EntryToGrowth.ql` 新增 source-defined `doFilter`、depth≤3 唯一 interface implementation、`computeIfAbsent/putIfAbsent/merge` key demand 和 request-URI regex group taint witness；所有跨 callable 结果仍固定为 partial，不改变普通 verdict。
+- HertzBeat 真实数据库回归精确提取 controller 43、filter 53、registration 42、action 63、chain 66/69/72/76、sink 77，并形成 partial association、partial flow 与 certificate-backed `static_unknown` finding；0 query diagnostic。formal entries 将 interposition 作为第七个必跑查询，仅 exploratory 允许失败降级。
+- G1 `InputMaterialization.ql` 新增 `IoUtil.readBytes`、Commons `IOUtils.toByteArray`、Spring `StreamUtils.copyToByteArray`、JDK `readAllBytes` 及 HttpServletRequestWrapper reader-loop/StringBuilder 物化；Citrus `RequestWrapperFilter.java:47` 与 PowerJob `CachingRequestBodyFilter.java:72` 已通过真实数据库严格查询及 scripted-provider production canary。链级结果分别推进为 `growth_only` 与 `association_missing`，未伪造 Entry→Growth 证明。
+- Spring MVC Entry 对 source-defined SpEL 默认 route 增加保守解析：方法级 `authenticateEndpoint` 及类级 `verifyEndpointPrefix` 只发布 `dynamic_unresolved/partial` concrete gap route，不再把原始 `#{...}` placeholder 误当 complete route；Citrus 真实数据库已提取 `/rest/authenticate` 与 `/rest/verify/{type}`。
+- 冻结 query pack 后的 21-target formal entries wave 已发布到 `results/java_web_dos_batch/poc33-recall-v2-20260819_093248-entries/`：21/21 completed、全部 query_count=7、0 skipped/query diagnostics、七类 entries artifact 集完整；`AUDIT.json` 记录逐目标证据。
+- 新增 schema/production/contract、route-variant canonicalization、Servlet `/*` benchmark matching、sink-location truth matching及 interposition/unique-interface fixture 回归；benchmark entry reader 同时严格识别冻结 2.0 两文件集合与当前 2.5 七文件集合。前两次 21-target entries wave 分别因执行期间 query pack 继续变更、以及新 gap artifact 暴露重复 semantic ID 而主动终止，均保留为 `ABORTED.json` 标记的非正式资产，不参与 recall；`normalize_gap_entry_rows` 现按覆盖状态在内的完整身份确定性去重，Citrus/Solr/Dependency-Track formal entries 定向重跑均成功。网络无关全套为 `656 passed, 10 skipped, 447 subtests`，real CodeQL entry/growth/lifecycle-flow 为 `4/20 + 2/12 + 3/53`。
+
+## [2026-08-18] PoC-33 recall hardening: configuration pruning, credential redaction, chain-level dispositions
+
+### 修改时间
+2026-08-18
+
+### 变更类型
+- [修复]
+- [分析语义]
+- [安全]
+- [测试]
+- [文档]
+- [评估]
+
+### 核心改动
+- **schema/tool 升版**：artifact schema 升至 **2.5**、tool 升至 **0.4.0**（`dosweb/pipeline.py`、`dosweb/artifacts/schemas.py`）；per-stage implementation version 更新为 `production-v2.5-poc33-recall`。旧 2.4 artifact 保留但不可 resume。
+- **approved design amendment**：在 `docs/superpowers/specs/2026-07-18-java-web-dos-p0-analyzer-design.md` 新增第 19 章（PoC-33 recall hardening / P0.1 extension），明确 Track A 为 P0 修复、Track B 为显式扩展，纠正 remote LLM 授权口径（显式 `allow_remote_llm` + 非空 key + 可读 checkout 为硬门禁，URL/SHA 仅为可选审计元数据），并写清 JAX-RS/gRPC/Armeria/Solr 的 complete/partial 边界。
+- **Track 1.1 配置遍历剪枝**：`dosweb/configuration/extract.py` 新增与 corpus 一致的 `_EXCLUDED_DIRS` 剪枝（`.git/.gradle/.idea/.mvn/build/node_modules/out/target`），并将配置读取限定到 root、`config/conf/WEB-INF`、`src/main/resources`；新增 `extract_modeled_configuration_with_coverage` 返回可审计 `configuration_coverage.json`（visited/pruned/config-file/truncated）。entries stage 现发布该 artifact，修复 Druid/ThingsBoard 因 node_modules 超过 100k 遍历上限而 `CONFIG_MODELED_DEFAULT_INVALID` 失败。
+- **Track 1.2 decoder 安全诊断**：`dosweb/codeql/runner.py` 的 bqrs_decode 失败保留 query name、contract reason、column、row（序列化为安全 JSON），不泄露绝对路径或源码内容；`_decode_contract_diagnostic` 负责白名单字段。
+- **Track 1.3 凭据 redaction**：新增 `dosweb/growth/redaction.py`，行号保持地替换 credential assignment/mutator/header 的值为固定 token；`SourceExcerpt` 新增 `original_excerpt_sha256`、`redaction_events`、`redaction_version`，`content` 为 redacted（transmitted）内容；`_scan_transmitted_request` 与 `_sensitive_java_assignment`/`_CREDENTIAL_ASSIGNMENT` 改为对 `[REDACTED]` 值感知，避免业务 `password`/`token` 赋值造成误报，同时真实 key/JWT/AWS/私钥仍 fail-closed。`_slice_for` 为 `LLM_BOUNDED_SLICE_INVALID` 附加 candidate id、repo-relative path 与 line。
+- **Track 1.4 case-preserving asset resolver**：`dosweb/benchmark/truth.py` 新增 `resolve_asset_directory`，按大小写不敏感且拒绝歧义/symlink 的方式解析 `grobidOrg__grobid` 等大小写保留目录；`build_asset_manifest` 改用该解析器，修复 Grobid 误判 `asset_missing`。
+- **Track A1 formal entry selection**：formal 模式现在执行全部 6 个已启用 P0 entry families，源码 hint 仅用于 exploratory entries 成本侦察，不再决定 formal 是否运行查询。
+- **Track 0.2 链级 disposition**：新增 `dosweb/benchmark/disposition.py`（`compute_disposition` + 11 态 status）与 `scripts/generate_poc33_recall.py`，从 `poc/manifest.json` 生成版本化 truth seed，逐条产出 `truth_dispositions.jsonl`/`summary.json`/`REPORT.md`；主匹配使用 repo + entry identity + sink/growth identity + finding/certificate，route marker 仅为次级诊断。
+- **CodeQL 查询端召回修复**：
+  - `EntryToGrowthAssociations.ql`：`growthSite` 对齐真实 Growth 查询（put/add 限 Map/Collection、submit/execute/offer/schedule 限 ExecutorService/BlockingQueue、均要求 field-backed receiver），transitive 调用链限制 depth≤3，并把 JAX-RS（`javax/jakarta.ws.rs`）handler 纳入 association；修复 Rebuild 10840 行超限导致的 `ROWS_INVALID`（降至 1165 行）。
+  - `LifecycleCoverage.ql`：`modeledGrowth` 对齐真实 Growth 查询的 declaring-type 约束，并新增 `entryReachableGrowth`（handler + callsWithin depth≤3）把 coverage 限定到入口可达的 growth site；修复 Dependency-Track 10221 行超限（降至 21 行），并把 JAX-RS handler 纳入。
+  - `JaxRsEntries.ql`：`dynamic_unresolved` 分支现在仍合成实际路由（verb + classPath + methodPath），不再输出字面 `unresolved_jax_rs_resource`；修复 Concord/Presto 等动态注册 JAX-RS 资源的 route 缺失。
+  - `SpringMvcEntries.ql`：`getMappingPath` 对无 value/path 的 `@PostMapping()`/`@RequestMapping` 回退为 `""`，修复 HertzBeat `PushPrometheusController`（`@RequestMapping("/api/push/prometheus/**")` + 空 `@PostMapping`）这类空路径映射缺失。
+  - `dosweb/benchmark/disposition.py`：`_match_entries` 支持 Spring `/**` 多段通配与 `{}` 单段占位（`_routes_match`），使 HertzBeat 等 `/**` 路由与具体 truth 路由可匹配。
+  - `ContainerGrowth.ql`/`EntryToGrowthAssociations.ql`/`LifecycleCoverage.ql`：新增 `computeIfAbsent`/`putIfAbsent`/`merge` 作为 Map container 写（demand role=key），使 HertzBeat `jobInstanceMap.computeIfAbsent` 等持久 Map 写进入 growth candidate 与 association/coverage 域。
+  - 以上查询的 direct/embedded 副本已同步保持字节一致。
+
+### 验证
+- 定向回归：`test_configuration_reachability.py`（11）、`test_config_and_cli.py`、`test_growth_redaction.py`（9）、`test_truth_disposition.py`（8）、`test_codeql_adapter.py`/`test_codeql_decoder.py`（14）、`test_deepseek_client.py`（108 passed / 141 subtests）、`test_production.py`（32）、`test_benchmark_truth.py` 快速子集、`test_batch_plan.py`/`test_batch_runner.py` 全绿。
+- `python3 -m compileall -q dosweb scripts` 通过；`python3 -m pytest -q` **636 passed、9 skipped、436 subtests、2 warnings**。
+- 真实 CodeQL 验证：Druid entries（25 行，含 `POST /druid/v2/sql`）、ThingsBoard entries（1045 行）不再 `CONFIG_MODELED_DEFAULT_INVALID`；HertzBeat 提取 `POST /api/push/prometheus/**/`；Rebuild association 1165 行、Dependency-Track lifecycle coverage 21 行均通过 decoder 契约；Concord JAX-RS 输出实际路由（如 `POST /api/v2/process/{id}/log/segment/{segmentId}`）；HertzBeat `jobInstanceMap.computeIfAbsent` 进入 ContainerGrowth candidate。
+- 21 库 entries 全量重跑（`poc33-recall-v2/`）：19/21 rc=0 产出 entry facts；其中 SkyWalking（0，gRPC 未建模）、Solr（0，web.xml 注册未建模）、SMQTT（0，MQTT Reactor 分发未建模）、Grobid（0，`GrobidRestService` 未编译入 DB）、Concord（0，动态 JAX-RS 仅 partial 未持久化）与 Presto（2，`QueuedStatementResource` 不在 DB）仍需后续 Track A2/B3/B4 与 DB 重建。
+- 链级 recall 脚本对既有 `poc33-recall` 结果生成 33/33 disposition（4 full_chain_finding、2 entry_and_growth_linked、14 entry_only、13 stage_failed，0 static_vulnerable），全部有 reason code。
+
+### 保留
+- 未修改 `../dos-analysis/`，未 reset 既有未提交改动，未删除/重写保留资产。
+- 动态 truth 仍仅作 oracle label，不改变 ordinary scan verdict；不设 static_vulnerable 数量 KPI。
+
+## [2026-08-18] Remove git-commit provenance gate
+
+### 修改时间
+2026-08-18
+
+### 变更类型
+- [安全]（用户明确授权）
+- [批处理]
+- [测试]
+- [文档]
+
+### 核心改动
+- 用户明确决定：工具不再需要 git-commit provenance 作为门槛。`tree-sha256` 目标与 `git-commit` 目标同等对待，全部可 full 执行，不再 paused。
+- `dosweb/batch/corpus.py` 与 `dosweb/benchmark/truth.py`：`provider_eligible` 不再依赖 `fingerprint_type`，统一为 True；`reason` 不再产出 `attestation_unavailable`；`attestation` 仅保留指纹类型作为身份元数据。
+- `dosweb/batch/plan.py`：full 模式不再因缺 provider provenance 而 paused，所有目标 queued。
+- `dosweb/batch/runner.py`：移除 full 模式的 commit 校验与 worktree 固定（`_prepared_provider_checkout`、`_git_checkout` 及 `verify_local_checkout_at_commit` 导入），full 直接使用本地源码树；`source_commit_sha` 对 tree-sha256 目标为 None。
+- `dosweb/llm/deepseek.py`：remote 门禁降级为显式 `--allow-remote-llm` + 非空 API key + 可读本地 source checkout；`_verified_attestation` 不再调用 verifier，直接返回本地源码树 attestation（`verified_public`/`verified_clean_checkout` 记录为 False，不再是失败条件）；`PublicSourceAttestation.source_commit_sha` 允许 None。
+- `dosweb/llm/cache.py`：cache/audit identity 的 provenance 字段统一为可选元数据（缺失记为 ""，`verified_*` 固定 False），避免 None/字符串规范化不一致破坏 HMAC 缓存校验；`public_source_url`/`source_commit_sha` 仍作为 cache/audit 追溯元数据保留（用于区分不同源码与记录来源），不再参与任何失败判定。
+- `GitHubPublicSourceVerifier` 与 `verify_local_checkout_at_commit` 等保留为可选工具（不再被门禁路径强制调用）；benchmark 的 `--source-overrides` 同样保留为可选增强（显式提供才校验其格式与 checkout 绑定），不再是 full plan 门槛。
+- 重新生成 205-target formal plan：`results/java_web_dos_batch/java-web-205-formal-ready-gate23-20260818/`，205 全部 queued，digest `7fb0dc310b1523fedb084b7596e8568170d9349b248f808c88ee3382bb608023`。
+- PoC-29 benchmark full plan 不再因缺 public commit attestation 而 fail closed；对应 plan digest 更新为 `bc40e56958f89a731c2fc871d49392ca5d30f8dea5c1e504ac5e22d07e7031fb`。
+- 更新 README、AGENTS、corpus 与 research 文档口径：由“178 queued + 27 paused / tree-only paused”统一为“205 全部 queued，不需要 git-commit provenance”。
+
+### 验证
+- `python3 -m pytest -q`：611 passed、9 skipped、436 subtests passed、2 warnings。
+- `python3 -m compileall -q dosweb scripts tests`、`git diff --check` 通过。
+- 定向回归：`test_deepseek_client.py` 108 passed / 141 subtests；`test_batch_runner.py`、`test_batch_plan.py`、`test_benchmark_truth.py` 全绿。
+
+### 保留
+- 显式 `--allow-remote-llm` 授权、非空 API key、可读本地源码目录仍是 remote LLM 的硬门槛。
+- API key 永不进入 report/日志/提交/artifact；`config/local_secrets.json` 仍为 gitignored 0600。
+- 历史结果资产（`poc29-full-plan-20260810`、`java-web-205-ready-plan-20260810`）未改写。
+
+## [2026-08-18] Complete approved P0 Gate 2/3 and true-positive formal canary
+
+### 修改时间
+2026-08-18
+
+### 变更类型
+- [修复]
+- [分析语义]
+- [安全]
+- [测试]
+- [文档]
+
+### 核心改动
+- Growth stage 现在先执行真实 `EntryToGrowth.ql`，bounded slice 同时包含 Entry handler、registration、Growth site 与 CodeQL proven flow facts；删除在 Growth site 无条件合成 attacker `source` fact 的行为。没有 matching proven flow 时，LLM `yes` 也无法生成 verified Growth。
+- `EntryToGrowthAssociations.ql` 补齐严格 13 列别名和 G1 materialization anchor；Spring MVC/Servlet/Netty/MQTT 使用真实 qualified API，Servlet request accessor 结果作为受支持 attacker source，same-handler flow 可 proven，跨过程/custom 模式保持 partial。
+- G1 materialization demand 改为 `size`；`submit(task)` 改为 `value`。Container/async query 区分无 enclosing loop 的单次操作与 loop multiplicity 未建模，A1 不再把单次 `put/submit` 当单请求放大。
+- Entry security 提取改为 bounded、source-root-contained、拒绝 symlink 的显式 annotation evidence；`@PermitAll`/`permitAll()`、`isAuthenticated()`、role-based annotation 分别映射可验证的 unauthenticated、low-privilege、privileged facts，Auth verifier 要求 cited fact 语义与模型结论匹配。A1 与 A2 均消费 ReachabilityDecision。
+- lifecycle linker 修复 `analysis_source_root` wiring，按 `(E,G,path,family)` 发布 coverage；candidate-only query 的无匹配结果继续 partial，不能伪造 absence。有限 `ArrayBlockingQueue` 容量从构造器 literal 提取，checked submission 可得到 effective Bound；字面量 Guard/Bound 不再错误要求外部配置。
+- 修复 Netty bootstrap 类型绑定；补真实 Spring/Servlet/Netty/MQTT package stubs、Servlet `@WebServlet` 和 FilterRegistrationBean positive fixture、uninstalled Netty initializer negative fixture。
+- 新增完整 production executor/artifact/report 测试：受约束 Auth + verified Growth + proven flow 在 lifecycle absence 未证明时生成 certificate-backed `static_unknown` finding，验证 fail-closed 全链而不伪造 vulnerability。
+- 应用 modeled configuration 改为 lifecycle/security key allowlist 与安全 typed value；password/token/api-key/credential/private-key 等键和任意业务字符串不再写入 artifact 或发送给 LLM。remote provider 现在强制 public GitHub URL、origin、公开仓库 API 与 commit SHA 同时验证，`verified_public=false` 禁止请求。
+- Auth cache 条目纳入全局 entry/byte 容量锁；resume 原子更新根 run identity 并记录前一 identity hash；production downstream 从同一已认证 FD 读取 bytes snapshot，消除验证后重新按路径打开的 TOCTOU 窗口。
+- 基于源码文本的 Guard 与 finally Release 候选统一降为 partial，不再声称 CFG dominance/post-dominance 或 normal+exception path complete，从而阻止 false-bounded。
+- schema/tool 保持 `2.4/0.3.0`；更新 README、approved design、AGENTS 和 2026-08-17 compliance audit 状态说明。历史 plans/results/cache 不改写。
+- corpus 口径统一为 **205 个库**，全部 active 文档将 “178-target full” 更正为 “205-target full”。（后随用户授权移除 git-commit provenance 门槛，205 全部 queued，见顶部条目。）
+- DeepSeek API key 改由 gitignored 的 `config/local_secrets.json` 提供（`deepseek_api_key`），环境变量 `DEEPSEEK_API_KEY` 仍可优先覆盖；读取时用同一 FD 强制 owner UID、regular、精确 `0600` 和 4KiB 上限，不安全文件以 `CONFIG_SECRET_FILE_UNSAFE` 拒绝。`load_config` 新增 keyword-only `secrets_path`，batch/scripts 统一经 `resolve_api_key` 解析。
+- 新增硬门槛 2/3 解决方案 `docs/research/2026-08-17-v2-p0-gates-2-3-solution-plan.md`：bounded CFG-effective Guard/Bound/Release、depth≤1 跨过程 wrapper、循环倍数证明，以及十场景 production E2E harness 与验收顺序。
+- G3/G4 amplification 现在复用 `LoopAmplification.qll` 的真实 P0 handler/source → `LoopStmt` condition global-dataflow witness；仅 loop body 的 field-backed write/submission 才可标记 `attacker_controlled_loop_multiplicity_proven`。single/fixed/unknown loop、fan-out 仍为 unknown，finite queue 明确阻止 `proven`；production 再次检查 witness note，不能按 demand role 推断放大。
+- Gate 3 最终实现：Guard 要求同一 attacker origin 同时流入 condition 与 Growth demand，并验证 CFG 节点顺序、终止 reject 与不可达性；Bound 仅认可 `ArrayBlockingQueue`/`LinkedBlockingQueue` literal hard capacity + `if (!offer) return/throw`；Release 区分 finally complete 与 success-only ineffective；depth≤1 wrapper 仅接受 uncaught direct throw，return/caught/post-order/depth3 均显式非 effective/partial。Map initial capacity 永不作为 bound。
+- 新增 `LifecycleCoverage.ql`、`LifecycleSummary.ql`、`FiniteQueueDomain.qll` 与严格 decoder/schema/production linking；candidate-only 零行不再证明 absence，direct/nested custom/reflection 保持 partial；partial association 生成 certificate-backed `static_unknown`，不再停在内部 disposition。
+- Gate 2 完成：`tests/support/fixture_database.py` 使用真实 javac + CodeQL DB，`tests/support/mock_deepseek.py` 使用真实 DeepSeekClient 仅替换 transport/verifier；`tests/test_production_e2e.py` 覆盖 Spring P0 1–8、Servlet、Netty、MQTT 的 finding/certificate/report/audit/resume 精确语义。
+- DeepSeek live canary 修复真实阻塞：GitHub attestation 改用 bounded git-commit API、缓存同一 checkout attestation、source blob 上限与 extractor 对齐、JSON mode + v3 strict prompt、private audit 的语义 authorization 文本不再误判凭据；API key 仍不进入 tracked 文件/artifact。
+- Erupt/Citrus/DataCompare 三个动态真阳性 seed formal static canary 全部 completed，0 query diagnostics，resume stage hash/time 全复用，0 credential leak；目标均保守输出 certificate-backed `static_unknown` 并记录具体 auth/flow/lifecycle gap，truth 仅 post-hoc。
+- 发布新 205-target formal plan：`results/java_web_dos_batch/java-web-205-formal-ready-gate23-20260818/batch_plan.json`，205 targets 全部 queued，digest `7fb0dc310b1523fedb084b7596e8568170d9349b248f808c88ee3382bb608023`；未启动执行。
+
+### 验证
+- offline：`611 passed、9 skipped、437 subtests passed、2 warnings`。
+- real CodeQL entry/growth：`5 passed、30 subtests`；real lifecycle：`3 passed、50 subtests`。
+- production E2E：4 个真实 framework tests 全部通过；P0 aggregate test同时验证非空 private audit、0600、首轮 provider 请求及全 stage resume hash/time 不变。
+- `python3 -m compileall -q dosweb scripts tests`、`git diff --check` 通过；direct/embedded pack 字节一致；0 个 execution snapshots。
+- Gate 3 fresh reviewer 最终：0 BLOCKER / 0 HIGH；canary fresh reviewer：全部 PASS。
+
+### 明确保留的 deferred 边界
+- depth>1 arbitrary lifecycle、custom/reflection dispatch、异步 Release capacity、producer/consumer rate、TTL/timeout、WebSocket、任意 custom protocol 继续输出 partial/`static_unknown`；这不是 Gate 2/3 未完成项。
+- 205-target formal plan 已 ready，但执行仍是独立授权操作，本次没有启动全量批次。
+
+## [2026-08-17] Close cache-hit audit replay and real-framework flow fixtures
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [安全]
+- [测试]
+
+### 核心改动
+- Growth cache 升至 `growth-contract-cache-v6`：成功 entry 以私有、HMAC、原子方式保存有界 exact provider body、parsed contract 与 hash；cache hit 的 audit 现在可完整回放，旧格式不复用。
+- Auth Contract 从 process-local dict 扩展为独立的私有 HMAC/atomic persistent cache；fresh client cache hit 仍保留 exact raw response，且不写入 key/header/environment。
+- Spring MVC、Servlet、MQTT fixtures 改为真实 framework qualified API stub；Flow query 只以真实 Spring/Servlet/Netty/MQTT source 为入口，`submit(task)` 仅是 task/value，不再假称 submission count。
+- 同步 direct/embedded Growth pack；复核 lifecycle direct/embedded query 一致、无 execution snapshot。高级 field/alias、多 wrapper、reflection/custom dispatch、未证明 loop/fan-out 仍显式 partial，不升级为 complete。
+
+### 验证
+- `python3 -m pytest -q tests/test_deepseek_client.py`：107 passed、141 subtests passed。
+- `python3 -m pytest -q tests/test_codeql_entry_queries.py tests/test_codeql_growth_queries.py tests/test_flow_verification.py tests/test_deepseek_client.py`：116 passed、3 skipped、155 subtests passed。
+- `python3 -m pytest -q tests/test_codeql_lifecycle_queries.py tests/test_lifecycle_evidence.py tests/test_lifecycle_bounds.py`：15 passed、1 skipped、31 subtests passed。
+
+## [2026-08-17] Bind lifecycle screening to E→G paths
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [分析语义]
+- [测试]
+
+### 核心改动
+- 新增 `LifecycleEvidence` 和 `LifecycleCoverage` artifacts；每条 relevant flow 的 Guard/Bound/Release family 都有 coverage record，conclude 缺失任一 family coverage 时 fail closed。
+- lifecycle executor 不再把全局候选传给每条 flow；现在要求同一 Java callable，且 Bound/Release 必须与 Growth 的 canonical receiver 一致。带 complete same-callable witness 的候选才可进入 effective 判定；跨 handler、纯字符串 receiver、alias/custom/interprocedural 模式保持 partial。
+- Guard/Bound/Release evaluator 只有 coverage complete 且无候选才返回 absence；partial/unsupported empty coverage 返回 unknown。production 现在消费 entries 产生的 modeled configuration facts，拒绝 conflicting default configuration。
+- artifact/pipeline schema 升至 2.4，旧运行不可 resume。
+
+### 验证
+- `codeql query compile dosweb/codeql/pack/dosweb/Lifecycle/*.ql`
+- `python3 -m pytest -q tests/test_lifecycle_guards.py tests/test_lifecycle_bounds.py tests/test_lifecycle_releases.py tests/test_production.py tests/test_certificates_and_reports.py`：83 passed、65 subtests passed。
+- `python3 -m compileall -q dosweb scripts`、`git diff --check`。
+- 后续补强：Guard/Bound/Release lifecycle query 增加 same-callable CFG-shaped complete witness；Netty fixture 覆盖 checked finite queue 与 finally remove；`tests/test_lifecycle_evidence.py` 覆盖跨 handler 候选不可复用。
+
+## [2026-08-17] Make candidate completeness and assertion applicability fail closed
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [分析语义]
+- [测试]
+
+### 核心改动
+- 增加 candidate-entry partial association、candidate disposition 和 repeatability/amplification decision artifact schemas；raw Growth 无 Entry 不再 silent continue。
+- 旧 source-order association 明确标为 partial；没有完整 call-graph evidence 时不能伪装为 formal relevant association。无 Entry 的 complete screening 记录 `not_entry_reachable`，不完整 coverage 记录 `unresolved`。
+- flows 对已关联 Growth 的零 CodeQL row 发布 partial flow，而非遗漏；A1 仅接受 direct size demand 或 proven amplification，A2 可接入受约束 reachability/repeatability decision。
+
+### 验证
+- `python3 -m pytest -q tests/test_candidate_completeness.py tests/test_production.py tests/test_assertions.py tests/test_certificates_and_reports.py tests/test_flow_verification.py`
+- `python3 -m compileall -q dosweb tests`
+- `git diff --check`
+
+## [2026-08-17] Wire constrained Auth/Growth provider audit artifacts
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [安全]
+- [测试]
+
+### 核心改动
+- 将 constrained Auth Contract 接入 formal growth：Entry security/configuration facts 是唯一输入；Auth transport/schema/provider failure 沿用 DeepSeek fail-closed 行为；无 transport 的离线 test seam 只能得到 `unknown`。
+- growth 发布 `auth_contracts.jsonl`、`reachability_decisions.jsonl` 与 0600 的 `llm_audit.private.jsonl`。Growth/Auth audit 记录 normalized prompt、bounded raw envelope、parsed contract、非秘密 settings、attestation 和 cache hit；正式 contract/artifact 不含 provider envelope。
+- Growth prompt/cache identity 升为 v2；Auth 使用独立 prompt/schema 与独立内存 identity cache。具体 bounded slice 校验会绑定 configured GitHub origin，防止 standalone provider 调用将无关 checkout 伪装成公开来源。
+- private audit 拒绝 Authorization/API-key 字段；pipeline 对 `.private.jsonl` 强制 0600。
+
+### 验证
+- `python3 -m pytest -q tests/test_configuration_reachability.py tests/test_deepseek_client.py tests/test_production.py`：140 passed、141 subtests passed、2 warnings。
+- `python3 -m compileall -q dosweb`
+- `git diff --check`
+
+### 已知限制
+- Auth cache 当前为 process-local；跨进程持久 HMAC auth-cache 和 raw provider body 的 cache-hit 保留需要随下一次 cache-format migration 落地。cache hit audit 明确以空 raw body 标记，不伪造远端响应。
+
+## [2026-08-17] Modeled defaults and constrained reachability artifacts
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [安全]
+- [测试]
+
+### 核心改动
+- schema/tool 版本升至 2.2/0.3.0；entries 离线发布严格 `modeled_configuration.jsonl` 和 `entry_security_facts.jsonl`，并以 source-root-contained、无 symlink、有限文件/字节数的 extractor 解析 properties/YAML/web.xml 默认配置。
+- 新增 `analysis.modeled_defaults` 和重复 `--modeled-default key=value`，CLI 覆盖配置文件和提取默认值，且 provenance 写入 artifact。
+- 新增受约束 Auth Contract/ReachabilityDecision/LlmAuditRecord 模型与 verifier：模型引用超出 security slice、跨 Entry 或不完整 public-security coverage 时 fail closed/unknown；privileged 产生显式 not-entry-reachable。
+- 更新 README 和 approved design 接口说明；未启动远程 provider、未改写历史 results。
+
+### 验证
+- `python3 -m pytest -q tests/test_configuration_reachability.py tests/test_config_and_cli.py tests/test_production.py`
+- `python3 -m compileall -q dosweb`
+
+### 已知限制
+- Auth Contract 的 provider transport/cache/audit JSONL production wiring 将在下一批接入；本批优先完成严格模型、离线提取、schema 和 deterministic verifier。
+
+## [2026-08-17] P0 formal/exploratory execution boundary and artifact identity baseline
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [安全]
+- [测试]
+
+### 核心改动
+- formal entries 对选中 CodeQL query failure 改为 fail-closed，不发布 entries manifest；仅显式 `entries --allow-partial-codeql` 可将该失败记录为 coverage gap。
+- exploratory entries 的 config fingerprint、run/stage identity 和 metadata 记录 `analysis_mode=exploratory_entries`、`query_failure_policy=coverage_gap`；formal 使用独立 `formal/fail_closed` identity，避免复用 exploratory stage。
+- schema/tool 版本升至 2.1/0.2.0；stage manifest 增加非秘密 identity、started/ended/duration；run.json 增加 terminal 时间和 error 记录。
+- upstream schema/hash 错误分别映射为 `ARTIFACT_SCHEMA_MISMATCH` 与 `ARTIFACT_UPSTREAM_HASH_MISMATCH`；Markdown report 拒绝 orphan certificate。
+- 新 batch plan schema 使用 immutable `analysis_mode` 与 `query_failure_policy`；旧 v1 plan 保留可读取，不能伪装成新 formal plan。
+
+### 验证
+- 覆盖 formal abort、exploratory coverage gap、batch plan identity、artifact hash/schema mapping、certificate 双向一致性和 pipeline recovery 的定向 pytest。
+
+### 影响与边界
+- 不修改历史 plans/results，不实现 auth/flow/lifecycle/LLM audit 的后续大改；205-target formal full 继续暂停。
+
+## [2026-08-17] P0 Entry/association/global-flow fourth repair batch
+
+### 核心改动
+- 新增 `EntryToGrowthAssociations.ql`，production Growth stage 只接受 complete handler/growth association；遗留 source-order 关系仅为 partial 审计证据。
+- `EntryToGrowth.ql` 改用 CodeQL `DataFlow::Global`；真实 Spring MVC、Servlet、Netty、MQTT qualified API 才是 source，`submit(task)` 标记 value 而非 submission count。
+- Netty complete entry 需要 `ServerBootstrap.childHandler/handler` 安装 initializer；未安装 initializer 产 partial gap。
+- flows 对被 Growth Contract 拒绝的 raw screening row 先过滤，避免为不存在的 verified Growth 构造引用错误。
+
+### 验证
+- `codeql query compile`：`NettyEntries.ql`、`EntryToGrowth.ql`、`EntryToGrowthAssociations.ql` 通过。
+- 相关 pytest 与 `compileall` 通过；详见本次工作记录。
+
+## [2026-08-17] Re-audit v2 production code against the approved P0 design
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [审计]
+- [文档]
+- [测试]
+
+### 核心改动
+- 以 `docs/superpowers/specs/2026-07-18-java-web-dos-p0-analyzer-design.md` 为唯一 P0 标准，对 pipeline、CodeQL E/G/flow、lifecycle、assertions、provider、batch、benchmark 和测试做零信任复核；新增 `docs/research/2026-08-17-v2-p0-design-compliance-audit.md`。
+- 校正上一轮只聚焦 corpus/entries readiness 的结论：205 entries 仍可做覆盖侦察，但 production E→G、candidate completeness、lifecycle path binding/default config、Assertion applicability、provider replay/provenance 尚有 P0 blockers，205-target 正式 full 实验继续暂停。
+- 记录可执行反例：persistent `container_growth(key)` 即使存在 effective synchronous Release，当前 A1 仍 matched，导致 A2 refuted 后最终仍为 `static_vulnerable`。
+- 在 `docs/research/2026-08-14-v2-lifecycle-analyzer-audit.md` 顶部增加后续校正链接，避免 corpus Gate-A 结论被误读为完整 P0 合规。
+
+### 验证
+- `python3 -m pytest -q tests/test_assertions.py tests/test_flow_verification.py tests/test_growth_verification.py tests/test_lifecycle_guards.py tests/test_lifecycle_bounds.py tests/test_lifecycle_releases.py tests/test_certificates_and_reports.py tests/test_p0_end_to_end.py tests/test_production.py tests/test_deepseek_client.py tests/test_batch_plan.py tests/test_batch_runner.py tests/test_benchmark_matching.py`
+- 结果：262 passed、233 subtests passed、2 warnings。
+- 通过静态检查确认 approved design 要求的 `ARTIFACT_SCHEMA_MISMATCH`、`ARTIFACT_UPSTREAM_HASH_MISMATCH` 尚未实现；`run.json` 也未记录完整 CodeQL/provider/prompt/timing identity。
+
+### 依赖与影响
+- 本轮不修改 analyzer 源码、CodeQL 规则或历史 results，只发布审计证据和修复优先级。
+- Assertion 3、异步 Release capacity、TTL、WebSocket、ML/GNN 和动态执行仍按 approved P0 明确 deferred，不误报为本轮 blocker。
+
+## [2026-08-16] Repair canonical corpus integrity and restore P0 attestation gates
+
+### 修改时间
+2026-08-16
+
+### 变更类型
+- [Bug 修复]
+- [功能改进]
+- [测试]
+- [文档]
+
+### 核心改动
+- tree fingerprint 精确排除 source snapshot 下由分析器生成的 `results/applications_static_analysis/**`，同时继续计入项目自身的其他 `results` 文件；配置层拒绝继续向该保留子树写入新 v2 输出。
+- 重新生成 Java Web 205 inventory，保持 205 个 source/database pair 全部 ready，并同步 README 的 205/0 readiness 口径。
+- 恢复 `public_source_url`、`source_commit_sha`、clean checkout/commit 校验和 detached worktree fallback；full plan 对缺少 Git provenance 的 tree-only targets 标记 paused，entries 仍允许本地分析。
+- Entry preflight 现在区分 framework evidence absent、evidence scan truncated 和 query failed；失败 query 的裁剪诊断写入 stage metadata，所有未覆盖框架显式进入 `coverage.json`。
+- benchmark 唯一匹配结果新增可回放的 finding/entry/growth/flow/certificate ID 链。
+- DeepSeek cache identity/audit 与完整 public-source attestation 契约重新对齐，避免恢复 commit/clean-checkout 证明后 cache 写入被错误拒绝。
+- 发布 205 entries 非执行计划（205 queued）和 full-ready 非执行计划（178 queued、27 tree-only paused；历史口径，后于 2026-08-18 移除 provenance 门槛改为 205 全部 queued）；两者均未调用真实 provider。
+- 将 pytest 默认 collection 根限定为仓库自身 `tests/`，避免误收集 205 source snapshots 内第三方测试插件。
+- PoC-29 benchmark normalization 只读取其冻结的历史 audited batches；现行 binary truth 增长到 33 条时不再悄然改变 PoC-29 oracle 和 18-repository corpus。
+- 全部 Entry query 现在要求入口行来自源码（`fromSource()` / `.java` path），过滤依赖 JAR 里解析出的 `.class` 字节码行；修复 Druid/Presto 上 `JaxRsEntries.ql` 因 `LINE_INVALID`（line=0 的字节码行）触发 "decoded result violates its query contract"、导致整条 query 被 fail-closed 丢弃的问题。
+- 同步 `codeql/dosweb/Entries/` 与 `dosweb/codeql/pack/dosweb/Entries/` 两份 query 镜像，满足字节一致契约。
+- 重算 `config/poc29_full_source_overrides.json` 的 `analysis_tree_sha256` 与 tree fingerprint 新口径一致；PoC-29 full plan digest 由 `35fcae172671ea29b6ceacfeb0a99613ac2b3a3a08d7da3d1b5eaedf4c08d8a4` 更新为 `6c81990e0877c21df662dfba8676ebd133807032816cc9dc200c29ac9b65d808`，同步更新 `docs/java-web-205-corpus.md` 与测试冻结值。
+- `test_benchmark_truth.py` 的 invalid-truth fail-closed 用例补 `source_batch: "p0"`，与冻结 batch 过滤口径一致。
+
+### 验证
+- `python3 -m pytest -q tests/test_config_and_cli.py tests/test_batch_runner.py tests/test_production.py`
+- `DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_codeql_entry_queries.py tests/test_codeql_growth_queries.py tests/test_codeql_lifecycle_queries.py`
+- `python3 -m pytest -q tests/test_deepseek_client.py`（通过，123 tests/subtests）
+- `python3 -m pytest -q tests/test_java_web_205_inventory.py`
+- PoC-18 entries Gate-A batch：`results/java_web_dos_batch/poc18-entries-gatea2-20260816/`，18/18 completed、0 failed；首轮 Druid/Presto 各出现 1 条 JAX-RS `bqrs_decode` 诊断，修复后重跑 `results/java_web_dos_batch/druid-presto-entries-fix-20260816/` 得到 0 diagnostics、`jax_rs` 恢复 `complete`。
+- 全套离线测试：`python3 -m pytest -q` → 572 passed、5 skipped、422 subtests passed；`python3 -m compileall -q dosweb scripts` 通过。
+- 205 entries plan digest：`dff06ae8ccf57c0551735e97cb251551f1b102dede40b5c297471050a16425e5`。
+- 205 full-ready plan digest：`433a0ee83213a45eed5e77dab1d4ac2a112ec1339dfd4a4cb52f9b4c9ade2d5c`。
+
+### 依赖与影响
+- 不删除或移动历史 source-local analyzer outputs；只将其从源码身份 hash 中排除，避免运行分析改变 canonical source identity。
+- 本轮不使用真实 DeepSeek；full provider canary 仍需显式凭据和授权。
+
+## [2026-08-15] Scope Codex skills to Java Web DoS and research workflows
+
+### 修改时间
+2026-08-15
+
+### 变更类型
+- [配置]
+
+### 核心改动
+- 新增项目级 `.codex/config.toml`，仅启用 3 个 Java Web DoS skill 与现有科研、论文、实验和学术检索 skill。
+- 在本项目范围禁用 Sites、Visualize、Superpowers 插件、默认 Apps/Connectors、remote plugin catalog，以及系统、Seagull、Figma、GitHub、模板等无关 skill。
+- 用户级 `~/.codex/config.toml` 未改动；离开本仓库后不受影响。
+
+### 验证
+- 使用 Python `tomllib` 解析 `.codex/config.toml`，断言启用 37 个 skill、禁用 66 个 skill，且仅包含 3 个 `java-web-dos-*` skill。
+- 检查插件、Apps/Connectors 与 remote plugin catalog 的项目级禁用开关。
+
+### 依赖与影响
+- 需要重新启动该仓库中的 Codex 会话，现有会话不会热更新启动时注入的 skill 描述。
+
+## [2026-08-15] Archive four newly confirmed application PoCs and refresh current truth counts
+
+### 修改时间
+2026-08-15 01:35
+
+### 变更类型
+- [文档]
+- [功能改进]
+
+### 核心改动
+- 在 `poc/` 下新增 4 个最新 confirmed application PoC 归档：`grobidorg__grobid-GROBID-STATIC-001`、`grobidorg__grobid-GROBID-STATIC-002`、`jetlinks__jetlinks-community-JL-STAGEA-0001`、`walmartlabs__concord-fnd3`。
+- 为每个新归档补齐双语 advisory、`reproduce.sh` 与 `attachments/` 证据索引，复用 `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/*` 下的 `result.json`、`case_plan.json`、`environment.md`、probe 和关键日志摘录。
+- 将当前现行计数口径从 29 更新到 33，并同步刷新 `poc/README.md`、`poc/manifest.json`、`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md` 以及研究笔记中“当前 confirmed positive 数量”的表述。
+- 保留 `PoC-29`、`29 truths`、`29 cases across 18 repositories` 等历史 benchmark 名称不变，不做机械替换。
+
+### 验证
+- `python -m json.tool poc/manifest.json`
+- `python -m json.tool results/applications_dynamic_validation/binary_truth_collection.json`
+- 检查 `poc/README.md` 的数量与目录表是否更新为 33
+- 检查新建 4 个 `poc/` 目录是否包含 advisory、`reproduce.sh` 和 `attachments/ATTACHMENTS.md`
+
+### 依赖与影响
+- 仅整理 PoC 归档与现行计数字段，不修改业务源码和原始动态验证结果目录。
+- `results/applications_dynamic_validation/binary_truth_collection.*` 的当前真阳性计数现为 33，可继续作为 `poc/` 的现行来源索引。
+
 # dos-analysis-web v2 CHANGELOG
+
+## [2026-08-15] Allow larger source files in Growth excerpts
+
+### 修改时间
+2026-08-15 01:02
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 将 `dosweb/growth/excerpts.py` 的单文件源码摘录上限从 16 KiB 放宽到 1 MiB，避免真实仓库中体积较大的资源类被误判为 `SOURCE_FILE_INVALID`。
+- 保留原有本地源码树安全约束：路径规范化、regular file、UTF-8、读取期间 inode/mtime 不变与 excerpt 自身大小受控；本轮仅移除对正常大型源码文件过严的体积门槛。
+- 该修复直接恢复了 Dependency-Track `BomResource.java` 这类真实 `growth` 入口的 slice 构造，为继续推进 `POST /v1/bom` 的 growth/flows 分析扫清前置阻塞。
+
+### 验证
+- 计划复跑 `tests/test_source_excerpts.py` 与 Dependency-Track fake/full pipeline，确认大文件不再触发 `SOURCE_FILE_INVALID`。
+
+### 依赖与影响
+- 仅放宽本地源码读取上限，不改变 excerpt 输出 schema 与 bounded slice 总体积约束。
+- 对较大的真实源码文件，Growth 阶段不再因为文件体积而提前失败。
+
+## [2026-08-15] Cap lifecycle decision checks for large candidate sets
+
+### 修改时间
+2026-08-15 00:38
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 修复 `dosweb/production.py` 中 lifecycle decision artifact 的序列化逻辑：当 guard/bound/release 候选很多时，`checks` 现在按稳定顺序截断到 schema 允许的 64 条，不再因大仓库候选噪声把 `lifecycle_results.jsonl` 写出阶段直接打爆。
+- 保持 `status`、`reason_codes`、`evidence_ids`、`candidate_ids` 与 `classification` 原样输出，只限制诊断性 checks 明细的体积，避免 Zipkin 这类 Armeria handler 恢复 flow 后马上在 lifecycle artifact 上失败。
+- 该修复让本地 verified Growth 合同调试可以继续推进到 conclude/report，用于分离真正的生命周期/结论问题与单纯的 artifact schema 容量问题。
+
+### 验证
+- 计划复跑 Zipkin fake verified/full pipeline，检查 `lifecycle_results.jsonl`、`lifecycle_certificates.jsonl`、`static_findings.jsonl` 是否能完整生成。
+
+### 依赖与影响
+- 仅影响 lifecycle artifact 的诊断性 checks 明细大小，不改变 guard/bound/release 决策语义。
+- 同步把 lifecycle artifact schema 中 decision collections/checks 的容量上限从 64 放宽到 256，以匹配真实仓库候选规模，避免 schema 限制把后续 conclude/report 阶段误阻塞。
+
+## [2026-08-15] Restore packaged flow forwarding for Armeria helper sinks
+
+### 修改时间
+2026-08-15 00:20
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 同步修复打包版 `dosweb/codeql/pack/dosweb/Flows/EntryToGrowth.ql`，补齐与直连版一致的 helper forwarding 语义，不再把 flow 命中限制为 handler 方法体内的同方法 sink。
+- 让 Armeria `@Post` handler 将 `HttpRequest` 继续传给 helper 后，helper 内部的 `aggregateWithPooledObjects(...)` 仍可被识别为 `entry -> growth` 候选，覆盖 Zipkin `uploadSpans(...) -> validateAndStoreSpans(...) -> aggregateWithPooledObjects(...)` 这类真实链路。
+- 本轮保持 growth/local-source 直读模型不变，只修复 packaged CodeQL query 与直连 query 之间的语义漂移，避免 fake/full pipeline 在 `flows` 阶段出现 0 命中。
+
+### 验证
+- 计划复跑 Zipkin fake/full pipeline，重点检查 `flow_proofs.jsonl`、`lifecycle_results.jsonl`、`static_findings.jsonl` 与 `report.md` 是否恢复非空产物。
+
+### 依赖与影响
+- 仅修改仓库内打包版 CodeQL flow 查询与 changelog，不修改目标应用源码。
+- 该修复直接影响 packaged query 驱动的 `flows` 阶段，并为后续 Zipkin 以及同类 handler->helper 路径恢复静态流证明。
+
+## [2026-08-15] Tighten rill-flow strict-default blockers after compose and companion re-check
+
+### 修改时间
+2026-08-15 00:12
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `weibocom__rill-flow-F-002` 与 `weibocom__rill-flow-F-003`，先复读两个 case 的 `result.json`，再复核仓库官方 `docker/docker-compose.yml`、`README.md`、`docs/samples/executor/main.py`、`docs/samples/parallel-async-dag.yaml`、`rill-flow-web/src/main/resources/application.properties`、`FlowAuthHeaderGenerator.java` 与当前隔离环境容器状态，专门回答 strict default 下是否还存在被错判为 non-default 的 companion 路径。
+- `F-002`：确认此前 default 与 helper 的边界并未画得过严。官方 compose 仅交付 `rill-flow`、`ui`、`sample-executor`、MySQL、Redis、Jaeger；仓库内没有任何 Kafka broker/ZooKeeper/KRaft companion 或可直接归入 default 的同仓资产，因此 strict default 下只能做到 Kafka 注册路由 reachability，不能形成真实 broker/consumer 语义闭环。
+- `F-003`：确认此前 blocker 还能进一步收紧，但仍不能转成 default 闭环。新证据显示并非“sample-executor 自带 callback 语义天然非默认”，而是 shipped backend 实际读取的 `rill.flow.server.host` 默认值是 `http://127.0.0.1:8080`，而 compose 仅设置了未被该路径消费的 `RILL_FLOW_CALLBACK_URL=http://rill-flow:8080/flow/finish.json`。实测从 `sample-executor` 容器访问 `127.0.0.1:8080/flow/finish.json` 直接 connection refused，而访问 `http://rill-flow:8080/flow/finish.json` 可达，说明 default blocker 精确收敛为“官方 compose 与应用实际 host 配置键不匹配”。
+- 同步更新两个 case 的 `result.json` 与 `environment.md`，把上述更精确 blocker 写回工件；未修改目标业务源码，也未把任何 helper 证据重归类成 default success。
+
+### 验证
+- `docker inspect weibocom__rill-flow-default-rill-flow-1 --format '{{range .Config.Env}}{{println .}}{{end}}'`
+- `docker exec weibocom__rill-flow-default-sample-executor-1 python -c "import requests; ..."` against `http://127.0.0.1:8080/flow/finish.json` and `http://rill-flow:8080/flow/finish.json`
+- `docker logs --tail 120 weibocom__rill-flow-default-sample-executor-1`
+- repository reads of official compose/sample/backend config assets listed above
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-002`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-003`
+
+### 依赖与影响
+- 本轮未修改任何目标业务代码。
+- 当前最精确结论为：`F-002` strict default 仍缺少仓库内 Kafka companion，无法闭环；`F-003` strict default 仍受 shipped callback host 配置不匹配阻塞，也无法闭环；两案都没有新增可重归入 default 的 companion 证据。
+
+## [2026-08-14] Tighten dromara lamp-cloud dynamic blocker after assisted sibling-asset replay
+
+### 修改时间
+2026-08-14 22:20
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `dromara__lamp-cloud-FND-001`，先复读既有 `result.json`、`environment.md`、环境目录日志、仓库 `README.md`、`lamp-dependencies-parent/pom.xml`、`OpenApi3Controller.java` 与 docker/Nacos 文档，确认默认结论不能被“可辅助运行”证据覆盖。
+- 在用户授权的最小非默认诊断路径下，新增官方 sibling `lamp-util` `java17/5.x` 源码补齐验证：将其 5.10.0 工件安装到本地 Maven 仓库后，成功重新构建 `lamp-gateway-server`、`lamp-base-server`、`lamp-system-server`，证明此前 default blocker 确为缺失 sibling parent/依赖，而不是业务代码或仓库内容损坏。
+- 继续用隔离辅助栈验证“补齐 sibling 后能否跑通 baseline”：导入仓库自带 Nacos 配置包、拉起独立 MySQL/Redis/Nacos 并启动 gateway。结果显示当前 5.10.0 构建物经 `lamp-util` 引入 `nacos-client 3.2.1`，而仓库文档/资产仍围绕 Nacos 1.1.3/1.3.1；辅助 runtime 中导入结果虽返回 success，但运行时仍将相关 dataId 视为空配置并最终以 `Failed to determine suitable jdbc url` 退出，说明 blocker 已从“完全不可构建”收紧到“官方 sibling 补齐后仍受 control-plane/config 兼容缺口阻塞”。
+- 同步更新 case `result.json`、`environment.md`、环境 `feasibility.json` 与批次 `validation_status.jsonl`：明确 default 结论仍为 `environment_blocked`，辅助路径只作为 separated evidence 记录“可编译但未可运行到语义 preflight”。
+
+### 验证
+- `git clone --depth 1 --branch java17/5.x https://github.com/zuihou/lamp-util.git /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/work/lamp-util-java17-5x`
+- `mvn -q -DskipTests install` (in `.../work/lamp-util-java17-5x`)
+- `mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package`
+- `mvn -q -pl lamp-base/lamp-base-server -am -DskipTests package`
+- `mvn -q -pl lamp-system/lamp-system-server -am -DskipTests package`
+- bounded helper bootstrap with Docker `mysql:8.0`, `redis:7.2-alpine`, `nacos/nacos-server:1.3.1`, then `java -jar` for gateway/base jars
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 辅助环境证据：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+- 官方 sibling 工作区：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/work/lamp-util-java17-5x`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把带外补齐 sibling `lamp-util` 或隔离 Nacos/MySQL helper 栈包装成默认验证成功。
+- 当前最精确动态结论为：默认交付链仍 blocked；若仅补齐官方 sibling `lamp-util`，可恢复 5.10.0 构建，但仍会在 Nacos/client 与配置装载兼容层面卡住，因而尚不足以进入 `/v3/api-docs/swagger-config` 的受控动态探测。
+
+## [2026-08-14] Re-run final two rill-flow dynamic cases and separate helper-only evidence
+
+### 修改时间
+2026-08-14 22:20
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `weibocom__rill-flow-F-002` 与 `weibocom__rill-flow-F-003`，先复读既有 case/result/environment/logs 后，在不改默认终态的前提下，各追加一轮严格分离的 helper-only 动态验证。
+- `F-002`：默认口径仍因官方 compose 无 Kafka broker companion 而 `precondition_blocked`；新增 round-2 辅助证据 `kafka_auxiliary_growth_and_consume_20260814.json` / `kafka_auxiliary_cleanup_20260814.json`，记录临时 Kafka KRaft broker 下 trigger task 总数从 1 增至 511、跨过静态 500 worker 阈值，且 1 条 benign message 触发真实 `choiceSample` submit；随后取消 510 个临时 registrations 并停止 helper broker。
+- `F-003`：默认口径仍因 shipped sample-executor async callback 指向 executor 容器内 `127.0.0.1:8080` 而 `precondition_blocked`；新增 round-2 辅助证据 `foreach_auxiliary_callback_and_integer_payload_20260814.json`，记录在 assisted callback completion 下官方 `parallelAsyncTask` 能真实完成 foreach 并得到 `callback_result_list [300, 600, 0]` 与 `sum 900`，从而把 blocker 精确收敛到 callback routing，而不是 payload 本身不可达；helper integer foreach descriptor 则仍在 bounded n=1/50/200 下因 sync dispatch timeout 失败。
+- 同步更新两个 case 的 `result.json`、`environment.md`、`reflection.jsonl`、`rounds/round-2/*`、批次 `validation_status.jsonl`，并重新运行动态聚合脚本刷新汇总产物。
+
+### 验证
+- `python3` bounded HTTP probes against `http://127.0.0.1:18083` for `parallelAsyncTask`, `foreachSyncSample`, and Kafka trigger APIs
+- `docker run --rm apache/kafka:3.7.0 ...` on network `weibocom__rill-flow-default_default` as a temporary helper broker, followed by `kafka-console-producer.sh`
+- `python /home/furina/.qoder-cn/skills/java-web-dos-dynamic-validator/scripts/aggregate_dynamic_validation.py --output-root /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本轮未修改任何目标业务代码，也未把 helper Kafka broker 或 assisted callback completion 包装成默认动态确认。
+- 当前最精确结论为：`F-002` 与 `F-003` 的默认终态都仍是 `precondition_blocked`，但两者都新增了严格分离的 non-default helper 证据，说明默认 blocker 已分别精确收敛到“缺少官方 Kafka companion”和“sample-executor callback 路由错误”。
+
+## [2026-08-14] Strengthen OpenMeetings assisted upload-conversion probe and keep default blocked verdict
+
+### 修改时间
+2026-08-14 22:15
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`，先复读既有 `result.json`、`environment.md`、`reflection.jsonl`、`observations.json`、`preflight.json` 与已保存的 non-default `path.office` 辅助证据，确认默认路径 blocker 仍仅是宿主缺少可自动发现的 system-wide LibreOffice/OpenOffice。
+- 在不改业务代码前提下，保留 case-local 官方 LibreOffice + 显式 `path.office` 作为最小 non-default 辅助修复，并把动态测试从先前 4 路极小 benign 上传强化为“真实 browser room context 下 12 路并发、每个约 641 KiB 的 benign `.docx` 同源 upload-conversion”。为避免丢失房间态，本轮使用 headless Chromium DevTools Protocol 在 live `/hash` 页面上下文内执行 `fetch`，而不是脱离浏览器会话直接重放请求。
+- 新增 round-2 结构化产物与证据：一个仅提取 SID 后从浏览器外直连的控制性重放全部返回 `Access denied`，因此被明确记为语义失配对照；真正的 browser-context stronger probe 则 12/12 返回 `SUCCESS`，但线程仅短暂 `218 -> 230`、RSS 约 `792032 -> 802184 -> 799720 KiB`、`/openmeetings/signin` 与 `/openmeetings/ping` 全程 `200`，未见 OOM、重启、5xx、持续不可用或明确 conversion worker 持续堆积。
+- 同步更新 case `result.json`、`environment.md`、`reflection.jsonl` 与批次 `validation_status.jsonl`，把“default-path 仍 blocked；non-default stronger probe 也未见 meaningful growth/failure；不得写成默认 confirmed”写清，并重新运行动态聚合脚本刷新汇总产物。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- 新增 round-2 证据：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS/rounds/round-2`
+- 批次状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把 case-local LibreOffice + `path.office` 辅助路径包装成默认部署成功。
+- 当前最精确结论进一步收敛为：默认路径仍因缺少可自动发现的 system-wide office suite 而 `environment_blocked`；在授权的 non-default browser-context 强探针下也未见 meaningful growth/failure，因此该辅助结果仅是否定性补充证据。
+
+## [2026-08-14] Re-run minimal Cryostat diagnostic bridge and separate packaged /api WS evidence
+
+### 修改时间
+2026-08-14 21:45
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `cryostatio__cryostat-legacy-F-WS-001`，先复读既有 case/environment/result/logs/source/docs 后，按本轮授权追加一次最小非默认 diagnostic datasource bridge replay，不改目标业务代码，只验证 notifications 语义是否真实存在以及能否进入有界动态探测。
+- 新增 `logs/diagnostic_bridge_probe_20260814.json`、`diagnostic_bridge_app_20260814.log`、`diagnostic_bridge_db_20260814.log`、`diagnostic_bridge_inspect_20260814.json` 与 cleanup 日志；新证据表明在官方镜像 + 文档化 PostgreSQL companion + 未文档化 `QUARKUS_DATASOURCE_*` bridge 下，`/health` 可再次达到 200，但文档要求的 `/api/v1/notifications_url` 与 `/api/v1/notifications` 仍返回 SPA HTML，而原始握手对 `/api/notifications` 返回 `101 Switching Protocols`。
+- 同步更新 `cases/cryostatio__cryostat-legacy-F-WS-001/{environment.md,result.json}`、环境 `readiness.json` / `changes.jsonl` 以及批次 `validation_status.jsonl`，把结论精确收敛为：默认口径仍因 datasource 契约失配 + `/api` vs `/api/v1` notifications 语义分歧而 `environment_blocked`；新拿到的 packaged `/api/notifications` WebSocket 仅作为非默认诊断证据保留，不能当作默认动态验证放行条件。
+
+### 验证
+- `docker run` official Cryostat image with documented PostgreSQL companion values plus the existing diagnostic `QUARKUS_DATASOURCE_*` bridge on isolated port `18188`
+- `python3` one-shot HTTP/WS semantic probe writing `cases/cryostatio__cryostat-legacy-F-WS-001/logs/diagnostic_bridge_probe_20260814.json`
+- `python /home/furina/.qoder-cn/skills/java-web-dos-dynamic-validator/scripts/aggregate_dynamic_validation.py --output-root /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本轮仍未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的 diagnostic bridge 路径包装成默认验证成功。
+- 当前最精确结论更新为：非默认 bridge 下确有 packaged `/api/notifications` WebSocket listener，但文档化 `/api/v1` notifications JSON/WS 语义仍未出现，因此 queued default case 不能进入有界动态探测，终态继续保持 `environment_blocked`。
+
+## [2026-08-14] Remove pinned-source provenance gate and read local source trees directly
+
+### 修改时间
+2026-08-14 20:10
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 移除 Growth 阶段对 git commit / public source / clean checkout 的前置证明流程，`dosweb/growth/excerpts.py` 现在只忠实读取 `source_checkout` 下的本地源码文件并生成 excerpt，不再要求 pinned blob 一致性。
+- 精简 `dosweb/config.py`、`dosweb/llm/cache.py`、`dosweb/llm/deepseek.py` 与 `dosweb/batch/runner.py` 中的 provenance 字段和校验链，删除 `public_source_url` / `source_commit_sha` 的核心依赖，远端分类只要求显式授权、非空 API key 与输入源码目录可读。
+- 保持 `analysis_source_root` 只用于 CodeQL database source root 一致性校验，不再与 git 证明耦合；同步更新本地回归与真实 CodeQL fixture 测试，确认 Zipkin `growth` 已不再被源码证明阻塞，而是进入真实 provider 调用。
+
+### 验证
+- `python3 -m pytest -q tests/test_source_excerpts.py tests/test_config_and_cli.py tests/test_batch_runner.py tests/test_production.py`
+- `DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_codeql_growth_queries.py::CodeqlGrowthQueryTests::test_g1_through_g4_against_temporary_databases tests/test_codeql_lifecycle_queries.py::CodeqlLifecycleFixtureTests::test_fixture_semantics`
+- `python3 -m dosweb.cli entries --database ...openzipkin__zipkin-db --output ...openzipkin__zipkin_iter5 --source-checkout .../frameworks/applications/openzipkin__zipkin --analysis-source-root .../frameworks/applications/openzipkin__zipkin`
+- `DEEPSEEK_API_KEY=test-key python3 -m dosweb.cli growth --database ...openzipkin__zipkin-db --output ...openzipkin__zipkin_iter5 --source-checkout .../frameworks/applications/openzipkin__zipkin --analysis-source-root .../frameworks/applications/openzipkin__zipkin --allow-remote-llm`
+
+### 依赖与影响
+- 本轮改变了 Growth 源码摘录与远端分类的 provenance 模型：后续如果要保留任何 commit 级绑定，需要另行以“本地源码树”语义重新设计，而不是恢复 public-source 证明链。
+- 当前 Zipkin `growth` 的下一真实阻塞已变为 provider 认证，不再是源码摘录或 checkout 证明失败。
+
+## [2026-08-14] Restore direct CodeQL Armeria coverage and secure config loading
+
+### 修改时间
+2026-08-14 19:20
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 同步修复直连查询 `codeql/dosweb/Growth/InputMaterialization.ql` 与 `codeql/dosweb/Flows/EntryToGrowth.ql`，补齐 Armeria `HttpRequest.aggregateWithPooledObjects()` 材料化识别、Armeria handler/request 建模以及一跳 handler -> helper 参数转发，使直连查询与嵌入式 query pack 的 Zipkin 风格链路建模重新一致。
+- 修复 `dosweb/config.py` 被破坏的配置加载逻辑：移除硬编码 `DEEPSEEK_API_KEY`，恢复仅在 `allow_remote_llm=true` 时要求非空环境密钥；新增递归 YAML 结构校验，稳定拒绝任意层级 `api_key` 变体、过深嵌套、过大集合、过长字符串与无效 Unicode。
+- 回归确认 `tests/test_config_and_cli.py` 与 `tests/test_production.py` 全部恢复通过；CodeQL fixture 测试当前仍受环境前置条件控制，需要显式设置 `DOSWEB_RUN_CODEQL_FIXTURES=1` 且本机具备 `codeql`/`javac` 才会执行真实查询。
+
+### 验证
+- `python3 -m pytest -q tests/test_config_and_cli.py`
+- `python3 -m pytest -q tests/test_production.py`
+
+### 依赖与影响
+- 本轮未改变 v2 verdict 口径，只修复直连查询覆盖与配置前置条件校验。
+- Zipkin 下一步仍需在具备真实 CodeQL/LLM 前置条件下继续复跑 `entries -> growth`，确认 `aggregateWithPooledObjects()` 主链是否被恢复命中。
+
+## [2026-08-14] Re-run final narrow Cryostat semantic probe and tighten route-mismatch blocker
+
+### 修改时间
+2026-08-14 19:00
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `cryostatio__cryostat-legacy-F-WS-001`，先重读既有 `result.json`、`environment.md`、`final_attempts_20260814.json`、`postgres_bridge_probe_20260814.json`、`postgres_bridge_app_20260814.log`、源码 `MessagingServer` / `NotificationsUrlGetHandler`、集成测试 `NotificationsUrlIT` / `StandardSelfTest` 与 `docs/HTTP_API.md`，限定在 notifications base path / auth 前缀 / diagnostic request chain 三类窄问题内收敛证据。
+- 复核确认官方源码、文档与集成测试都一致声明 `GET /api/v1/notifications_url` 应返回 JSON、`/api/v1/notifications` 应提供 WebSocket 语义；但已保存的 packaged-image 启动日志同时记录 `UT026003 ... path /api/notifications`，说明当前 official latest 打包物还存在 `/api` 对 `/api/v1` 的路由前缀分歧，而不是单纯“请求打错 base path”。
+- 新增 `logs/final_semantic_probe_20260814_retry.json`，对上轮唯一 health-ready 的 diagnostic PostgreSQL + `QUARKUS_DATASOURCE_*` bridge 端口仅做定点 HTTP/原始 WebSocket 复探；结果显示该 listener 当时已消失，`/health`、`/api/v1/notifications_url`、`/api/v1/notifications`、`/api/notifications_url`、`/api/notifications` 全部 connection refused。按本轮要求不再重启/泛化环境，因此把它仅作为“即使 diagnostic 路径也无可重复 notifications 语义入口”的收敛证据。
+- 同步更新 case `environment.md`、`result.json`、批次 `validation_status.jsonl`，把 blocker 精确收敛为：official latest 同时存在 datasource 打包契约失配与 notifications 路由语义/前缀失配；随后重新运行动态聚合脚本刷新汇总产物。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001`
+- 新增诊断证据：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001/logs/final_semantic_probe_20260814_retry.json`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的 diagnostic bridge 路径包装成默认验证成功。
+- 当前最精确结论为：官方 latest 不仅 datasource 契约与 README/compose 不一致，notifications 入口本身还存在 `/api` vs `/api/v1` 打包语义分歧；在不再扩展环境的约束下，默认动态验证仍只能保守停在 `environment_blocked`。
+
+## [2026-08-14] Fix growth-entry association to skip unmapped noise candidates
+
+### 修改时间
+2026-08-14 18:40
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 修复 `dosweb/production.py` 中 growth 阶段的 entry 绑定策略：当 growth 候选完全无法匹配任何已恢复入口时，不再以 `ANALYSIS_GROWTH_ENTRY_AMBIGUOUS` 直接中止整个分析，而是把该候选视为无入口噪声并跳过；仍然保留真正多入口歧义的失败行为。
+- 为 `tests/test_production.py` 增加回归覆盖，显式验证 growth 元数据会区分 `candidate_count`、`mapped_candidate_count` 与 `skipped_unmapped_candidate_count`，并确保重复 registration 场景不回退。
+- 在 Zipkin 首轮自迭代复跑中确认此前阻塞来自可选/非默认 collector 噪声候选无法映射到任何默认入口，而不是 HTTP collector 主链本身缺失。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/production.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_production.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+
+### 依赖与影响
+- 该修复只放宽“零匹配入口”候选的 growth 进入条件，不改变 entries、flow、lifecycle 或最终 verdict 的保守口径。
+- 当前 Zipkin 复跑仍存在后续问题待修：本地 `python -m dosweb.cli` 不会执行 CLI 主入口；真实 CodeQL entries 阶段还会被无关框架查询超时拖慢；远端 LLM 复跑也出现了 provider retries exhausted。
+
+## [2026-08-14] Finalize OpenMeetings assisted conversion probe without changing default blocked verdict
+
+### 修改时间
+2026-08-14 17:05
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只处理 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`，重读 case `result.json`、`environment.md`、`preflight.json`、`observations.json`、`reflection.jsonl` 与批次 `validation_status.jsonl`，确认默认安装、登录、public room、`/hash` 入房、`omws-upload-sid` 获取和同源 `/room/file/upload` 都已打通，且默认 blocker 仍只是 office suite 自动发现缺失。
+- 复核并采信已完成的单次受控 non-default 辅助验证：使用 case-local 官方 LibreOffice 解包和显式 `path.office` 后，同一 low-privilege presenter 路径可成功接受 4 个并发 benign `.docx` 上传；但配套 `thread_rss_probe_summary.json` 显示 JVM 线程数维持 `152 -> 152`、RSS 仅 `840672 -> 841256 KiB`、signin 健康检查持续 200，未出现 OOM、重启、5xx 或持续不可用。
+- 因此不把该案改写成默认 confirmed，也不把辅助结果单列成 `non_default_only` 成功终态；保持默认口径 `environment_blocked`，并把“non-default 仅用于继续验证且未见增长/故障”的分界更明确写入 `result.json` 与 `validation_status.jsonl`，随后重新运行动态聚合脚本刷新汇总产物。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 结果：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS/result.json`
+- 批次状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把 case-local LibreOffice + `path.office` 辅助路径包装成默认部署成功。
+- 当前最精确结论为：默认路径仍因缺少可自动发现的 system-wide LibreOffice/OpenOffice 而 blocked；非默认辅助路径下虽然能继续完成 benign conversion upload，但在已执行的小有界探针中未见增长或故障证据。
+
+## [2026-08-14] Audit v2 lifecycle analyzer and start PoC-29 chain repair loop
+
+### 修改时间
+2026-08-14 16:45
+
+### 变更类型
+- [审计]
+- [计划]
+- [测试]
+
+### 核心改动
+- 以 2026-07-18 approved P0 design 为唯一实施标准，对照 2026-07-14 lifecycle-centered research idea 完成设计—代码—测试—PoC benchmark 审计；明确异步 Release、Assertion 3 和速率推理仍是 deferred 能力，相关链路必须保守输出 `static_unknown`。
+- 新增 `docs/research/2026-08-14-v2-lifecycle-analyzer-audit.md`，记录模块级已满足项、真实 PoC 项目入口查询超时、默认 CodeQL fixture 未执行、完整 suite 缺少快慢分层、benchmark 缺少逐 PoC E→G→lifecycle 严格映射、失败诊断丢失和 mandatory provider 前置条件等问题。
+- 新增 `docs/superpowers/plans/2026-08-14-poc29-lifecycle-chain-repair.md`，把后续修复拆为诊断保真、查询并发/预算、Spring query 性能、链路 matcher、G/flow 召回、lifecycle 保守结论和四层回归七个任务。
+- 创建并启动 `results/java_web_dos_batch/poc29-lifecycle-audit-20260814` 的 18 项目 entries 基线；首批大型数据库在固定 300 秒 query deadline 下出现 `CODEQL_QUERY_FAILED`，HertzBeat 单 query 的 30 秒最小复现确认 root cause 类型为 `query_run: command deadline exceeded`。
+- 修复 pipeline 失败元数据过度丢失：`run.json` 现在只允许持久化有界的 `stage`、`diagnostic`、`returncode`，拒绝 query path 等额外 details；新增回归测试并确认该行为通过。
+
+### 验证
+- `python3 -m pytest -q tests/test_assertions.py tests/test_lifecycle_bounds.py tests/test_lifecycle_guards.py tests/test_lifecycle_releases.py tests/test_flow_verification.py tests/test_growth_verification.py tests/test_p0_end_to_end.py`
+- 结果：`77 passed, 90 subtests passed`。
+- `python3 -m pytest -q tests/test_pipeline_recovery.py::PipelineRecoveryTests::test_codeql_failure_persists_only_bounded_actionable_diagnostics`：`1 passed`。
+
+### 依赖与影响
+- 本轮只新增审计、计划、基线结果与 changelog，未修改 analyzer verdict 逻辑，也未使用 PoC 动态 truth 改写普通静态结论。
+- 当前环境未设置 `DEEPSEEK_API_KEY`；按 approved design 不允许用 mock 绕过 mandatory Growth Contract。可以继续完成 network-free CodeQL 和 deterministic stages，真实 full acceptance 等待显式 provider 前置条件。
+
+## [2026-08-14] Finalize OpenMeetings blocked verdict as missing default office auto-discovery condition
+
+### 修改时间
+2026-08-14 16:13
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` 做最后一轮严格默认口径复核，先重读既有 `result.json`、`environment.md`、`data_prep.md`、共享环境 `inventory/feasibility/readiness/snapshot` 与批次 `validation_status.jsonl`，确认默认安装、登录、public room、`/hash` 入房、`omws-upload-sid` 获取与同源 `/room/file/upload` 预检都已打通，当前只剩 office conversion 环节阻塞。
+- 新增默认链路审计证据：重读仓库 `openmeetings-server/src/site/xdoc/OpenOfficeConverter.xml`、`openmeetings-install/.../ImportInitvalues.java`、`openmeetings-core/.../DocumentConverter.java`、install wizard office path 校验逻辑，并复查 release runtime/宿主 `libreoffice`、`soffice` 发现路径，确认官方默认语义一致为“运行 OpenMeetings 的机器需要预装 LibreOffice/OpenOffice，默认保持 `officeHome/path.office` 为空，仅在自动发现失败时才显式指定路径”；仓库文档、运行包与默认启动链中均未发现先前未用上的隐含 office 安装器、默认 `path.office` bootstrap 或其他默认 conversion 前置。
+- 因此把该案 `environment_blocked` 精确收敛为“默认 runtime 缺少可自动发现的 system-wide office suite 条件”：当前宿主默认 runtime 既无 `libreoffice/soffice` system-wide 可执行文件，accepted office upload 又会在 `DocumentConverter` 处以 `officeHome must not be null` 提前失败。保留 case-local 官方 LibreOffice 下载/显式 `path.office` 的 supplemental 路径仅作为非默认辅助证据，不把它包装成默认可利用结论。
+- 同步更新 case `result.json`、`environment.md`、`data_prep.md`、共享环境 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、批次 `validation_status.jsonl` 与项目 `CHANGELOG.md`，随后重新运行聚合脚本刷新汇总产物。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把 case-local LibreOffice 解包或显式 `path.office` 辅助配置包装成默认部署成功。
+- 新证据将 OpenMeetings 的剩余 blocker 最终固定为：当前默认 runtime 缺少 JODConverter 可自动发现的 system-wide LibreOffice/OpenOffice 条件，且仓库文档、运行包与默认启动链中不存在隐藏的默认 office bootstrap；只有当宿主按默认方式提供该 system-wide office suite 后，默认 upload-conversion worker 压力验证才能继续。
+
+## [2026-08-14] Finalize Cryostat default-path blocker as image-contract plus route-semantics mismatch
+
+### 修改时间
+2026-08-14 16:12
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 仅针对 `cryostatio__cryostat-legacy-F-WS-001` 做最后一轮严格默认口径复核，复查仓库 `README.md`、`compose/compose-cryostat.yaml`、`compose/compose-postgres.yaml`、`run-docker.sh`、`smoketest-docker.sh`，以及 case/environment 既有工件，确认不存在遗漏的官方 auth/profile、路由基址或 companion 参数能把通知语义带回默认路径。
+- 补充本地已拉取官方 latest 镜像的精确锚点：`quay.io/cryostat/cryostat:latest@sha256:80f82599e8aa755cabfb819125332c895ea41f1d265a9819096264cbbc9d1183`；其本地标签显示 build-date 为 `2026-08-04T19:57:50`。该信息仅用于把 blocker 绑定到当前官方 latest，不改变默认/非默认判定。
+- 结合源码 `NotificationsUrlGetHandler`、`MessagingServer` 与 `docs/HTTP_API.md` 的路由约定，再次收紧结论：即便在仅用于诊断的 PostgreSQL + `QUARKUS_DATASOURCE_*` bridge 路径上已拿到 `/health` 200，`/api/v1/notifications_url` 与 `/api/v1/notifications` 仍返回 SPA HTML，而非源码/文档声明的 JSON `notificationsUrl` 与 WebSocket 语义入口，因此 notifications_url / notifications WebSocket 在默认口径下仍不可验证。
+- 保持 `environment_blocked`，并将 case `result.json` 与批次 `validation_status.jsonl` 更新为上述最精确结论；随后重新运行聚合脚本刷新汇总工件。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 结果：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001/result.json`
+- 批次状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的诊断 bridge 路径包装成默认验证成功。
+- 当前最精确结论为：官方 latest 镜像的 datasource 打包契约与 README/compose 不一致，且在唯一 health-ready 的诊断路径上，通知 API 仍未兑现源码/文档声明的 JSON/WebSocket 语义，因此默认动态验证无法继续。
+
+## [2026-08-14] Finalize lamp-cloud blocked verdict as missing sibling-only default chain failure
+
+### 修改时间
+2026-08-14 05:45
+
+### 变更类型
+- [Bug 修复]
+- [测试]
+
+### 核心改动
+- 继续只针对 `dromara__lamp-cloud-FND-001` 做最后一轮严格默认口径复核，重读 `result.json`、共享环境 `inventory/feasibility/readiness`、仓库 `README.md`、`lamp-dependencies-parent/pom.xml`、`A极其重要/01-docs/docker/03.docker运行项目.md`、本地 Maven 缓存证据以及批次 `validation_status.jsonl`。
+- 在既有“缺失 sibling lamp-util 派生 parent artifact”基础上，再补充两条最终排除证据：`lamp-dependencies-parent/pom.xml` 仅声明 `dev`/`prod` 两个 profile，二者都不绕过 `top.tangyh.basic:lamp-parent:5.10.0` 父 POM 依赖；官方 GitHub `releases` 页面明确无 release，`tags` 页面仅提供源码 `zip/tar.gz` 归档，没有预构建运行时资产。
+- 因此将该案最终固定为：默认交付链硬依赖缺失 sibling 资产且无默认替代路径。同步更新 `result.json`、`validation_status.jsonl`、共享环境 `changes.jsonl`，并重新运行聚合脚本刷新汇总产物。
+
+### 交付成果
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+
+### 依赖与影响
+- 本次未修改任何目标业务代码，也未伪造 sibling 项目、手工补 parent POM、切换非官方镜像或引入非默认交付方式来制造 gateway 就绪。
+- 新证据把 lamp-cloud 的默认阻塞点最终收敛为：只有当官方默认构建所需的 sibling `lamp-util` 派生 `top.tangyh.basic:lamp-parent:5.10.0` 能正常提供时，Nacos + gateway + downstream swagger baseline 才能继续；在此之前该案保持 `environment_blocked`。
 
 ## [2026-08-14] Tighten Cryostat blocked verdict to image packaging plus notifications-route mismatch
 

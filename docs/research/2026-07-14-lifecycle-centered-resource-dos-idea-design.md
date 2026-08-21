@@ -832,7 +832,7 @@ LLM/ML 相关指标：
 
 统计分析按 project 做 cluster bootstrap，报告 95% confidence interval。配对系统比较可使用 McNemar 或 paired permutation test，并对多个消融比较进行校正。
 
-当前集合有 29 个严格 confirmed positive，但正式顶会评价还需要补充独立确认的 CV、真实 VB 和 I，避免仅在正例丰富的 POC 集合上报告结果。
+当前集合有 33 个严格 confirmed positive，但正式顶会评价还需要补充独立确认的 CV、真实 VB 和 I，避免仅在正例丰富的 POC 集合上报告结果。
 
 ## 20. 动态验证在方案中的角色
 

@@ -5,6 +5,12 @@ from dosweb.growth.evidence import (
     adapt_growth_static_evidence,
 )
 from dosweb.growth.excerpts import extract_source_excerpt
+from dosweb.growth.completeness import (
+    AmplificationDecision,
+    CandidateDisposition,
+    CandidateEntryLink,
+    RepeatabilityDecision,
+)
 from dosweb.growth.models import (
     AttackerInfluence,
     BoundedSlice,
@@ -37,7 +43,10 @@ from dosweb.growth.verify import (
 )
 
 __all__ = [
+    "AmplificationDecision",
     "AttackerInfluence",
+    "CandidateDisposition",
+    "CandidateEntryLink",
     "BoundedSlice",
     "BoundedSlicePayload",
     "CfgSummary",
@@ -51,6 +60,7 @@ __all__ = [
     "GrowthKind",
     "GrowthStaticEvidence",
     "RegistrationFact",
+    "RepeatabilityDecision",
     "ResourceDimension",
     "SourceExcerpt",
     "SourceLocation",

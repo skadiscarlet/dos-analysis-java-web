@@ -174,16 +174,16 @@ class P0EndToEndTests(unittest.TestCase):
             transfer_only=False, async_kind="consumer", evidence=("fact:release-8",), coverage_status="complete",
         )
         scenarios = (
-            ("unbounded materialization", self._case(1, kind="input_materialization", dimension="bytes", role="value", scope="request"), {}, (), "static_vulnerable", ("matched", "not_applicable")),
+            ("unbounded materialization", self._case(1, kind="input_materialization", dimension="bytes", role="size", scope="request"), {}, (), "static_vulnerable", ("matched", "not_applicable")),
             ("direct allocation", self._case(2, kind="direct_allocation", dimension="bytes", role="size", scope="request"), {}, (), "static_vulnerable", ("matched", "not_applicable")),
-            ("distinct-key global map", self._case(3, kind="container_growth", dimension="entries", role="key", scope="global"), {}, (), "static_vulnerable", ("matched", "matched")),
-            ("unbounded queue", self._case(4, kind="async_work_growth", dimension="tasks", role="submission_count", scope="global"), {}, (), "static_vulnerable", ("matched", "matched")),
+            ("distinct-key global map", self._case(3, kind="container_growth", dimension="entries", role="key", scope="global"), {}, (), "static_vulnerable", ("not_applicable", "matched")),
+            ("unbounded queue", self._case(4, kind="async_work_growth", dimension="tasks", role="submission_count", scope="global"), {}, (), "static_vulnerable", ("not_applicable", "matched")),
             ("finite checked rejection", self._case(5, kind="direct_allocation", dimension="bytes", role="size", scope="request"), {"guard_candidates": (finite_guard,), "guard_config": (("request.max-bytes", 1024),)}, (), "bounded_under_modeled_assumptions", ("refuted", "not_applicable")),
             ("post-materialization Guard", self._case(6, kind="direct_allocation", dimension="bytes", role="size", scope="request"), {"guard_candidates": (post_materialization_guard,), "guard_config": (("request.max-bytes", 1024),)}, (), "static_vulnerable", ("matched", "not_applicable")),
-            ("success-only Release", self._case(7, kind="container_growth", dimension="entries", role="key", scope="global"), {}, (success_only_release,), "static_vulnerable", ("matched", "matched")),
-            ("async consumer unknown", self._case(8, kind="async_work_growth", dimension="tasks", role="submission_count", scope="global"), {}, (async_release,), "static_unknown", ("matched", "unknown")),
+            ("success-only Release", self._case(7, kind="container_growth", dimension="entries", role="key", scope="global"), {}, (success_only_release,), "static_vulnerable", ("not_applicable", "matched")),
+            ("async consumer unknown", self._case(8, kind="async_work_growth", dimension="tasks", role="submission_count", scope="global"), {}, (async_release,), "static_unknown", ("not_applicable", "unknown")),
             ("Netty registration", self._case(9, framework="netty", kind="direct_allocation", dimension="bytes", role="size", scope="request"), {}, (), "static_vulnerable", ("matched", "not_applicable")),
-            ("MQTT callback", self._case(10, framework="mqtt", kind="async_work_growth", dimension="tasks", role="submission_count", scope="global", coverage_status="partial"), {}, (), "static_unknown", ("matched", "matched")),
+            ("MQTT callback", self._case(10, framework="mqtt", kind="async_work_growth", dimension="tasks", role="submission_count", scope="global", coverage_status="partial"), {}, (), "static_unknown", ("not_applicable", "matched")),
         )
         certificates = []
         findings = []

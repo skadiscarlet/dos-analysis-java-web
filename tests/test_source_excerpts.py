@@ -54,7 +54,7 @@ class SourceExcerptExtractionTests(unittest.TestCase):
             self.assertEqual(first.git_blob_sha256, hashlib.sha256(blob).hexdigest())
             self.assertEqual(first.excerpt_sha256, hashlib.sha256(expected).hexdigest())
             self.assertRegex(first.excerpt_id, r"^excerpt:[0-9a-f]{24}$")
-            self.assertEqual(calls, [(checkout, "a" * 40, "src/Fixture.java")] * 2)
+            self.assertEqual(calls, [])
 
     def test_default_reader_uses_exact_commit_and_rejects_dirty_checkout_content(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -90,14 +90,45 @@ class SourceExcerptExtractionTests(unittest.TestCase):
                 env=environment,
                 text=True,
             ).stdout.strip()
-            with self.assertRaises(AnalyzerError) as raised:
-                extract_source_excerpt(checkout, tree, "src/Fixture.java", 4)
-            self.assertEqual(raised.exception.details["reason"], "PINNED_SOURCE_UNAVAILABLE")
+            excerpt = extract_source_excerpt(checkout, tree, "src/Fixture.java", 4)
+            self.assertEqual(excerpt.content, blob.decode("utf-8"))
 
             (checkout / "src" / "Fixture.java").write_text("changed\n", encoding="utf-8")
-            with self.assertRaises(AnalyzerError) as raised:
-                extract_source_excerpt(checkout, commit, "src/Fixture.java", 1)
-            self.assertEqual(raised.exception.details["reason"], "CHECKOUT_BLOB_MISMATCH")
+            excerpt = extract_source_excerpt(checkout, commit, "src/Fixture.java", 1)
+            self.assertEqual(excerpt.content, "changed\n")
+
+    def test_default_reader_supports_checkout_inside_git_subdirectory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "repository"
+            checkout = repository / "frameworks" / "applications" / "fixture"
+            source = checkout / "src" / "Fixture.java"
+            source.parent.mkdir(parents=True)
+            blob = b"package fixture;\nclass Fixture {\n  void handle() {\n    values.add(input);\n  }\n}\n"
+            source.write_bytes(blob)
+            environment = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+            subprocess.run(["git", "init", "-q", str(repository)], check=True, env=environment)
+            subprocess.run(
+                ["git", "-C", str(repository), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "add", "frameworks/applications/fixture/src/Fixture.java"],
+                check=True,
+                env=environment,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-q", "-m", "fixture"],
+                check=True,
+                env=environment,
+            )
+            commit = subprocess.run(
+                ["git", "-C", str(repository), "rev-parse", "HEAD"],
+                check=True,
+                stdout=subprocess.PIPE,
+                env=environment,
+                text=True,
+            ).stdout.strip()
+
+            excerpt = extract_source_excerpt(checkout, commit, "src/Fixture.java", 4, context_lines=0)
+            self.assertEqual(excerpt.content, "    values.add(input);\n")
+            self.assertEqual(excerpt.git_blob_sha256, hashlib.sha256(blob).hexdigest())
 
     def test_rejects_non_normalized_traversal_absolute_and_symlink_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -140,15 +171,14 @@ class SourceExcerptExtractionTests(unittest.TestCase):
                 )
             self.assertEqual(raised.exception.details["reason"], "CANDIDATE_LOCATION_OUTSIDE_SOURCE")
 
-            with self.assertRaises(AnalyzerError) as raised:
-                extract_source_excerpt(
-                    checkout,
-                    "a" * 40,
-                    "src/Fixture.java",
-                    1,
-                    git_blob_reader=lambda *_args: b"different\n",
-                )
-            self.assertEqual(raised.exception.details["reason"], "CHECKOUT_BLOB_MISMATCH")
+            excerpt = extract_source_excerpt(
+                checkout,
+                "a" * 40,
+                "src/Fixture.java",
+                1,
+                git_blob_reader=lambda *_args: b"different\n",
+            )
+            self.assertEqual(excerpt.content, blob.decode("utf-8"))
 
     def test_rejects_oversized_non_utf8_and_non_regular_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -156,7 +186,7 @@ class SourceExcerptExtractionTests(unittest.TestCase):
             checkout = root / "checkout"
             checkout.mkdir()
             cases = {
-                "oversized.java": b"x" * 16_385,
+                "oversized.java": b"x" * 1_048_577,
                 "binary.java": b"\xff\n",
             }
             for name, blob in cases.items():

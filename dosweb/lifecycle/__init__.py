@@ -9,11 +9,12 @@ from dosweb.lifecycle.guards import (
     evaluate_guard,
 )
 from dosweb.lifecycle.releases import ReleaseCandidate, ReleaseDecision, evaluate_synchronous_release
+from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, LifecycleSummary
 
 __all__ = [
     "BoundCandidate", "BoundDecision", "BoundStatus", "DecisionCheck",
     "GuardCandidate", "GuardDecision", "ModeledConfiguration", "ReleaseCandidate",
-    "ReleaseDecision", "evaluate_bound", "evaluate_guard", "evaluate_synchronous_release",
+    "ReleaseDecision", "LifecycleCoverage", "LifecycleEvidence", "LifecycleSummary", "evaluate_bound", "evaluate_guard", "evaluate_synchronous_release",
     "LifecycleCertificate", "StaticFinding", "build_lifecycle_certificate",
 ]
 

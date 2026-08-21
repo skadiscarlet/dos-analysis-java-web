@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import http.client
 import json
 import os
@@ -30,6 +31,8 @@ from dosweb.growth.models import (
 from dosweb.growth.contracts import parse_growth_contract_json, validate_growth_contract
 from dosweb.llm.cache import ContractCache, cache_identity
 from dosweb.llm.prompts import build_growth_messages
+from dosweb.llm.schemas import AUTH_PROMPT_VERSION
+from dosweb.reachability.models import EntrySecurityFact, LlmAuditRecord
 from dosweb.llm.deepseek import (
     DeepSeekClient,
     GitHubPublicSourceVerifier,
@@ -109,14 +112,31 @@ def _process_cache_producer(cache_dir: str, key: str, identity: dict[str, object
                 identity,
                 validate_growth_contract(VALID_CONTRACT),
                 {
-                    "method": identity["request_method"], "url": identity["request_url"],
-                    "requested_model": "deepseek-v4-pro", "actual_model": "deepseek-v4-pro",
+                    "method": identity["request_method"], "url": identity["request_url"], "provider": "rightapi_codex_responses", "protocol": "responses-v1",
+                    "requested_model": "grok-4.6", "actual_model": "grok-4.6",
                     "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
-                    "allow_remote_llm": True, "public_source_url": "https://github.com/example/public-repository",
-                    "source_commit_sha": "a" * 40, "verified_public": False, "verified_clean_checkout": True,
+                    "allow_remote_llm": True, "public_source_url": identity["public_source_url"],
+                    "source_commit_sha": identity["source_commit_sha"], "verified_public": identity["verified_public"], "verified_clean_checkout": identity["verified_clean_checkout"],
                 },
             )
             produced.put(True)
+
+
+class _VerifierJsonResponse:
+    status = 200
+    headers: dict[str, str] = {}
+
+    def __init__(self, url: str, payload: object) -> None:
+        self._url = url
+        self._payload = json.dumps(payload).encode("utf-8")
+
+    def getcode(self) -> int: return 200
+    def geturl(self) -> str: return self._url
+    def read(self, size: int) -> bytes:
+        chunk, self._payload = self._payload[:size], self._payload[size:]
+        return chunk
+    def __enter__(self): return self
+    def __exit__(self, *args: object) -> None: return None
 
 
 class _LoopbackTransport:
@@ -169,7 +189,7 @@ class DeepSeekClientTests(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.cache_dir = Path(self.temporary_directory.name) / "cache"
         self.config = LlmConfig(
-            model="deepseek-v4-pro",
+            model="grok-4.6",
             base_url=f"http://127.0.0.1:{self.server.server_port}/",
             api_key="test-api-key",
             timeout_seconds=1,
@@ -228,7 +248,7 @@ class DeepSeekClientTests(unittest.TestCase):
 
     @staticmethod
     def _success(content: object) -> dict[str, object]:
-        return {"model": "deepseek-v4-pro", "id": "req_fixture_1", "choices": [{"message": {"content": json.dumps(content)}}]}
+        return {"model": "grok-4.6", "id": "req_fixture_1", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(content)}]}]}
 
     @staticmethod
     def _slice_with_content(content: str) -> BoundedSlice:
@@ -243,7 +263,7 @@ class DeepSeekClientTests(unittest.TestCase):
             ),
         )
 
-    def test_valid_contract_uses_openai_compatible_chat_completions(self) -> None:
+    def test_valid_contract_uses_rightapi_responses(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
         result = self._client().classify_growth(self.slice)
@@ -251,14 +271,23 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(result.is_resource_growth, "yes")
         self.assertEqual(len(_ScriptedHandler.requests), 1)
         request = _ScriptedHandler.requests[0]
-        self.assertEqual(request["path"], "/chat/completions")
+        self.assertEqual(request["path"], "/responses")
         headers = request["headers"]
         self.assertEqual(headers["Authorization"], "Bearer test-api-key")
+        self.assertEqual(headers["User-Agent"], "pi-coding-agent")
+        self.assertEqual(headers["Accept"], "application/json")
+        self.assertNotIn("Cookie", headers)
         self.assertNotIn("test-api-key", request["body"])
         body = json.loads(request["body"])
-        self.assertEqual(body["model"], "deepseek-v4-pro")
+        self.assertEqual(body["model"], "grok-4.6")
         self.assertEqual(body["temperature"], 0)
-        self.assertEqual(len(body["messages"]), 2)
+        self.assertIn("instructions", body)
+        self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
+        self.assertEqual(body["text"]["format"]["type"], "json_object")
+        self.assertFalse(body["store"])
+        self.assertFalse(body["stream"])
+        self.assertNotIn("messages", body)
+        self.assertNotIn("response_format", body)
 
     def test_semantic_unknown_is_a_successful_contract(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(UNKNOWN_CONTRACT))]
@@ -291,11 +320,11 @@ class DeepSeekClientTests(unittest.TestCase):
         for content in ("", "not-json"):
             with self.subTest(content=content):
                 _ScriptedHandler.scripted_responses = [
-                    (200, {"model": "deepseek-v4-pro", "choices": [{"message": {"content": content}}]})
+                    (200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]})
                 ]
                 with self.assertRaises(AnalyzerError) as raised:
                     self._client().classify_growth(self.slice)
-                self.assertEqual(raised.exception.code, "LLM_RESPONSE_SCHEMA_INVALID")
+                self.assertIn(raised.exception.code, {"LLM_RESPONSE_INVALID", "LLM_RESPONSE_SCHEMA_INVALID"})
 
     def test_cache_rejects_response_with_tampered_hash(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
@@ -722,11 +751,11 @@ class DeepSeekClientTests(unittest.TestCase):
         cache = ContractCache(nested, "test-api-key")
         with cache.single_flight(key):
             self.assertTrue(cache.put(key, identity, validate_growth_contract(VALID_CONTRACT), {
-                "method": identity["request_method"], "url": identity["request_url"],
-                "requested_model": "deepseek-v4-pro", "actual_model": "deepseek-v4-pro",
+                "method": identity["request_method"], "url": identity["request_url"], "provider": "rightapi_codex_responses", "protocol": "responses-v1",
+                "requested_model": "grok-4.6", "actual_model": "grok-4.6",
                 "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
-                "allow_remote_llm": True, "public_source_url": "https://github.com/example/public-repository",
-                "source_commit_sha": "a" * 40, "verified_public": False, "verified_clean_checkout": True,
+                "allow_remote_llm": True, "public_source_url": identity["public_source_url"],
+                "source_commit_sha": identity["source_commit_sha"], "verified_public": identity["verified_public"], "verified_clean_checkout": identity["verified_clean_checkout"],
             }))
         self.assertEqual(ContractCache(nested, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put"})), validate_growth_contract(VALID_CONTRACT))
         self.assertEqual(stat.S_IMODE((nested.parent.parent).stat().st_mode), 0o700)
@@ -971,13 +1000,7 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_cache_and_error_text_do_not_contain_api_key_or_authorization(self) -> None:
         secret = "sk-secret-value"
         client = self._client(api_key=secret)
-        unsafe_response = {
-            "model": "deepseek-v4-pro",
-            "choices": [
-                {"message": {"content": json.dumps({"is_resource_growth": "yes", "note": secret})}}
-            ],
-            "Authorization": f"Bearer {secret}",
-        }
+        unsafe_response = {**self._success({"is_resource_growth": "yes", "note": secret}), "Authorization": f"Bearer {secret}"}
         _ScriptedHandler.scripted_responses = [(200, unsafe_response)]
 
         with self.assertRaises(AnalyzerError) as raised:
@@ -988,6 +1011,37 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertNotIn(secret, error_text)
         self.assertNotIn("Bearer", error_text)
         self.assertEqual(list(self.cache_dir.glob("*.json")), [])
+
+    def test_sensitive_envelope_metadata_is_never_cached_or_audited_for_growth_or_auth(self) -> None:
+        secret = "sk-envelope-secret"
+        growth_envelope = {**self._success(PROVIDER_CONTRACT), "reasoning": {"metadata": f"Bearer {secret}"}}
+        _ScriptedHandler.scripted_responses = [(200, growth_envelope)]
+        growth_client = self._client(api_key=secret)
+
+        with self.assertRaises(AnalyzerError) as raised:
+            growth_client.classify_growth(self.slice)
+        self.assertEqual(raised.exception.code, "LLM_RESPONSE_SENSITIVE_CONTENT")
+        self.assertNotIn(secret, f"{raised.exception.message} {raised.exception.details}")
+        self.assertEqual(list(self.cache_dir.glob("*.json")), [])
+        self.assertIsNone(growth_client.last_audit())
+
+        auth_contract = {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
+        auth_envelope = {**self._success(auth_contract), "metadata": {"api_key_echo": secret}}
+        _ScriptedHandler.scripted_responses = [(200, auth_envelope)]
+        auth_client = self._client(api_key=secret)
+
+        with self.assertRaises(AnalyzerError) as raised:
+            auth_client.classify_auth("entry:1", ())
+        self.assertEqual(raised.exception.code, "LLM_RESPONSE_SENSITIVE_CONTENT")
+        self.assertNotIn(secret, f"{raised.exception.message} {raised.exception.details}")
+        self.assertEqual(list(self.cache_dir.glob("*.json")), [])
+        self.assertIsNone(auth_client.last_audit())
+
+    def test_llm_audit_record_rejects_bearer_or_key_shaped_raw_envelope(self) -> None:
+        for raw in ('{"metadata":"Bearer synthetic-token-value"}', '{"metadata":"sk-synthetic-token"}'):
+            with self.subTest(raw=raw):
+                with self.assertRaises(AnalyzerError):
+                    LlmAuditRecord("auth", "", "{}", {}, raw, {}, {}, {}, False)
 
     def test_sensitive_model_text_is_not_cached(self) -> None:
         secret = "sk-response-secret"
@@ -1010,39 +1064,42 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(verifier.calls, 0)
         self.assertEqual(_ScriptedHandler.requests, [])
 
-    def test_verifier_failure_prevents_deepseek_request(self) -> None:
+    def test_verifier_failure_does_not_prevent_deepseek_request(self) -> None:
         verifier = _FakeVerifier(error=AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "not public"))
+        _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
-        with self.assertRaises(AnalyzerError) as raised:
-            self._client(verifier).classify_growth(self.slice)
+        result = self._client(verifier).classify_growth(self.slice)
 
-        self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
-        self.assertEqual(verifier.calls, 1)
-        self.assertEqual(_ScriptedHandler.requests, [])
+        # Git commit provenance is optional metadata, not a gate: the verifier
+        # is no longer consulted on the remote path.
+        self.assertEqual(result.is_resource_growth, "yes")
+        self.assertEqual(verifier.calls, 0)
+        self.assertEqual(len(_ScriptedHandler.requests), 1)
 
-    def test_attestation_mismatch_is_rejected_before_deepseek_request(self) -> None:
+    def test_attestation_mismatch_does_not_prevent_deepseek_request(self) -> None:
         mismatched = PublicSourceAttestation(
             public_source_url="https://github.com/other/repository",
             source_commit_sha="a" * 40,
             verified_public=True,
             verified_clean_checkout=True,
         )
+        _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
-        with self.assertRaises(AnalyzerError) as raised:
-            self._client(_FakeVerifier(mismatched)).classify_growth(self.slice)
+        result = self._client(_FakeVerifier(mismatched)).classify_growth(self.slice)
 
-        self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
-        self.assertEqual(_ScriptedHandler.requests, [])
+        self.assertEqual(result.is_resource_growth, "yes")
+        self.assertEqual(len(_ScriptedHandler.requests), 1)
 
-    def test_short_sha_is_rejected_before_verifier_or_network(self) -> None:
+    def test_short_sha_falls_back_to_local_source_tree(self) -> None:
         verifier = _FakeVerifier(self.attestation)
+        _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
-        with self.assertRaises(AnalyzerError) as raised:
-            self._client(verifier, source_commit_sha="a1b2c3d4").classify_growth(self.slice)
+        result = self._client(verifier, source_commit_sha="a1b2c3d4").classify_growth(self.slice)
 
-        self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
+        # A non-40-hex SHA is treated as local-source-tree semantics, not a hard failure.
+        self.assertEqual(result.is_resource_growth, "yes")
         self.assertEqual(verifier.calls, 0)
-        self.assertEqual(_ScriptedHandler.requests, [])
+        self.assertEqual(len(_ScriptedHandler.requests), 1)
 
     def test_secret_scan_blocks_credentials_before_verifier_cache_or_provider(self) -> None:
         secret = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN"
@@ -1174,8 +1231,41 @@ class DeepSeekClientTests(unittest.TestCase):
                 self._client().classify_growth(slice_)
                 self.assertEqual(len(_ScriptedHandler.requests), 1)
 
+    def test_authorized_provider_model_alias_is_accepted_but_other_mismatches_fail(self) -> None:
+        client = self._client(model="grok-4.6", base_url="https://rightapi.ai/grok/v1/")
+        reply = ProviderReply(
+            json.dumps({
+                "id": "req_alias_1",
+                "model": "grok-4.6-build",
+                "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "{}"}]}],
+            }),
+            {},
+        )
+        content, actual_model, request_id = client._response_content(reply)
+        self.assertEqual(content, "{}")
+        self.assertEqual(actual_model, "grok-4.6-build")
+        self.assertEqual(request_id, "req_alias_1")
+
+    def test_authorized_model_alias_is_cache_authenticated_and_replayable(self) -> None:
+        response = {
+            "id": "req_alias_cache",
+            "model": "grok-4.6-build",
+            "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(PROVIDER_CONTRACT)}]}],
+        }
+        _ScriptedHandler.scripted_responses = [(200, response)]
+        client = self._client(model="grok-4.6")
+        first = client.classify_growth(self.slice)
+        self.assertEqual(first.growth_kind, "container_growth")
+        cache_entry = json.loads(next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(cache_entry["request_audit"]["requested_model"], "grok-4.6")
+        self.assertEqual(cache_entry["request_audit"]["actual_model"], "grok-4.6-build")
+        request_count = len(_ScriptedHandler.requests)
+        second = self._client(model="grok-4.6").classify_growth(self.slice)
+        self.assertEqual(second.to_dict(), first.to_dict())
+        self.assertEqual(len(_ScriptedHandler.requests), request_count)
+
     def test_response_requires_matching_model_and_persists_only_request_id_digest(self) -> None:
-        bad = {"model": "deepseek-v4-flash", "choices": [{"message": {"content": json.dumps(PROVIDER_CONTRACT)}}]}
+        bad = {"model": "not-allowed-model", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(PROVIDER_CONTRACT)}]}]}
         _ScriptedHandler.scripted_responses = [(200, bad)]
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self.slice)
@@ -1184,40 +1274,52 @@ class DeepSeekClientTests(unittest.TestCase):
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
         self._client().classify_growth(self.slice)
         entry = json.loads(next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8"))
-        self.assertEqual(entry["request_audit"]["requested_model"], "deepseek-v4-pro")
-        self.assertEqual(entry["request_audit"]["actual_model"], "deepseek-v4-pro")
+        self.assertEqual(entry["request_audit"]["requested_model"], "grok-4.6")
+        self.assertEqual(entry["request_audit"]["actual_model"], "grok-4.6")
         digest = entry["request_audit"]["provider_request_id_digest"]
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
         serialized = json.dumps(entry, sort_keys=True)
-        self.assertNotIn("req_fixture_1", serialized)
+        # Private cache v6 retains the exact bounded provider body for audit replay.
+        self.assertIn("req_fixture_1", serialized)
+        self.assertIn("raw_response_hash", entry)
         self.assertNotIn("provider_request_id\"", serialized)
         self.assertNotIn("choices", entry)
         self.assertEqual(digest, ContractCache(self.cache_dir, "test-api-key").provider_request_id_digest("req_fixture_1"))
         self.assertNotEqual(digest, ContractCache(self.cache_dir, "different-key").provider_request_id_digest("req_fixture_1"))
 
-    def test_remote_gate_rejects_missing_authorization_or_public_provenance_before_network(self) -> None:
-        invalid_configs = (
-            self.config.__class__(**{**self.config.__dict__, "allow_remote_llm": False}),
+    def test_remote_gate_rejects_missing_authorization_but_provenance_is_optional(self) -> None:
+        unauthorized = self.config.__class__(**{**self.config.__dict__, "allow_remote_llm": False})
+        with self.assertRaises(AnalyzerError) as raised:
+            DeepSeekClient(
+                unauthorized,
+                verifier=_FakeVerifier(self.attestation),
+                transport=_LoopbackTransport(),
+                sleep=lambda _: None,
+                jitter=lambda: 0,
+            ).classify_growth(self.slice)
+        self.assertEqual(raised.exception.code, "CONFIG_REMOTE_LLM_NOT_AUTHORIZED")
+        self.assertEqual(_ScriptedHandler.requests, [])
+
+        # Missing/irregular git-commit provenance is optional and no longer blocks
+        # the remote path (local source-tree semantics).
+        optional_provenance_configs = (
+            self.config.__class__(**{**self.config.__dict__, "public_source_url": None}),
             self.config.__class__(**{**self.config.__dict__, "public_source_url": "https://example.com/repo"}),
             self.config.__class__(**{**self.config.__dict__, "source_commit_sha": ""}),
         )
-        for config in invalid_configs:
+        for config in optional_provenance_configs:
             with self.subTest(config=config):
-                with self.assertRaises(AnalyzerError) as raised:
-                    DeepSeekClient(
-                        config,
-                        verifier=_FakeVerifier(self.attestation),
-                        transport=_LoopbackTransport(),
-                        sleep=lambda _: None,
-                        jitter=lambda: 0,
-                    ).classify_growth(self.slice)
-                expected_code = (
-                    "CONFIG_REMOTE_LLM_NOT_AUTHORIZED"
-                    if not config.allow_remote_llm
-                    else "CONFIG_PUBLIC_SOURCE_UNVERIFIED"
-                )
-                self.assertEqual(raised.exception.code, expected_code)
-        self.assertEqual(_ScriptedHandler.requests, [])
+                _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
+                _ScriptedHandler.requests = []
+                result = DeepSeekClient(
+                    config,
+                    verifier=_FakeVerifier(self.attestation),
+                    transport=_LoopbackTransport(),
+                    sleep=lambda _: None,
+                    jitter=lambda: 0,
+                ).classify_growth(self.slice)
+                self.assertEqual(result.is_resource_growth, "yes")
+                self.assertEqual(len(_ScriptedHandler.requests), 1)
 
     def test_empty_api_key_is_rejected_before_verifier_or_network(self) -> None:
         verifier = _FakeVerifier(self.attestation)
@@ -1261,7 +1363,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
             _payload = DeepSeekClientTests._success(PROVIDER_CONTRACT)
-        client = DeepSeekClient(replace(self.config, base_url="https://api.deepseek.com/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
+        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
         client._opener = mock.Mock()
         client._opener.open.return_value = SlowResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1300,7 +1402,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = DeepSeekClient(replace(self.config, base_url="https://api.deepseek.com/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
+        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
         client._opener = mock.Mock()
         client._opener.open.return_value = InvalidResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1317,7 +1419,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = self._client(max_retries=3, base_url="https://api.deepseek.com/")
+        client = self._client(max_retries=3, base_url="https://rightapi.ai/grok/v1/")
         client._transport = None
         client._opener = mock.Mock()
         client._opener.open.return_value = TimeoutResponse()
@@ -1481,7 +1583,7 @@ class DeepSeekClientTests(unittest.TestCase):
                 result = self._client().classify_growth(self._slice_with_content(excerpt))
                 self.assertEqual(result.is_resource_growth, "yes")
         long_echo = "unique-source-echo-" + "x" * 96
-        _ScriptedHandler.scripted_responses = [(200, {"model": "deepseek-v4-pro", "choices": [{"message": {"content": long_echo}}]})]
+        _ScriptedHandler.scripted_responses = [(200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": long_echo}]}]})]
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self._slice_with_content(long_echo))
         self.assertEqual(raised.exception.code, "LLM_RESPONSE_SENSITIVE_CONTENT")
@@ -1537,6 +1639,102 @@ class DeepSeekClientTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, "LLM_BOUNDED_SLICE_SECRET_DETECTED")
                 self.assertNotIn("secret-value", str(raised.exception.details))
                 self.assertEqual(verifier.calls, 0)
+
+
+    def test_auth_cache_entries_count_toward_global_capacity(self) -> None:
+        cache = ContractCache(self.cache_dir, "test-api-key")
+        contract = {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
+        for index in range(256):
+            key = f"{index:064x}"
+            self.assertTrue(cache.put_auth_record(key, {"index": index}, contract, "{}"))
+        with self.assertRaises(AnalyzerError) as raised:
+            cache.put_auth_record("f" * 64, {"index": 257}, contract, "{}")
+        self.assertEqual("LLM_CACHE_CAPACITY_EXHAUSTED", raised.exception.code)
+
+    def test_authenticated_auth_v1_is_retired_then_v2_can_publish(self) -> None:
+        from dosweb.artifacts.identifiers import canonical_json, sha256_canonical_json
+
+        self.cache_dir.mkdir(mode=0o700)
+        cache = ContractCache(self.cache_dir, "test-api-key")
+        key, identity = "a" * 64, {"kind": "auth", "version": 1}
+        contract = {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
+        entry = {"cache_format": "auth-contract-cache-v1", "cache_key": key, "identity": identity, "contract": contract, "raw_response": "{}"}
+        entry["entry_hash"] = sha256_canonical_json(entry)
+        entry["entry_hmac"] = hmac.new(b"test-api-key", b"auth-contract-cache-v1\\0" + canonical_json(entry), hashlib.sha256).hexdigest()
+        destination = self.cache_dir / f"auth-{key}.json"
+        destination.write_bytes(canonical_json(entry))
+        destination.chmod(0o600)
+
+        self.assertIsNone(cache.get_auth_record(key, identity))
+        self.assertFalse(destination.exists())
+        self.assertTrue(cache.put_auth_record(key, identity, contract, "{}"))
+        self.assertEqual(cache.get_auth_record(key, identity), {"contract": contract, "raw_response": "{}"})
+        self.assertEqual(json.loads(destination.read_text(encoding="utf-8"))["cache_format"], "auth-contract-cache-v2")
+
+    def test_tampered_auth_v1_is_not_deleted(self) -> None:
+        self.cache_dir.mkdir(mode=0o700)
+        key, identity = "b" * 64, {"kind": "auth", "version": 1}
+        destination = self.cache_dir / f"auth-{key}.json"
+        destination.write_text(json.dumps({"cache_format": "auth-contract-cache-v1", "cache_key": key, "identity": identity, "contract": {}, "raw_response": "{}", "entry_hash": "tampered", "entry_hmac": "tampered"}), encoding="utf-8")
+        destination.chmod(0o600)
+
+        self.assertIsNone(ContractCache(self.cache_dir, "test-api-key").get_auth_record(key, identity))
+        self.assertTrue(destination.exists())
+
+    def test_growth_audit_records_raw_response_and_cache_hit_without_credentials(self) -> None:
+        _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
+        client = self._client()
+        client.classify_growth(self.slice)
+        first = client.last_audit()
+        self.assertIsNotNone(first)
+        assert first is not None
+        self.assertFalse(first.cache_hit)
+        self.assertIn('"output"', first.raw_response)
+        self.assertNotIn("test-api-key", first.normalized_prompt)
+        client.classify_growth(self.slice)
+        second = client.last_audit()
+        self.assertIsNotNone(second)
+        assert second is not None
+        self.assertTrue(second.cache_hit)
+        self.assertEqual(first.raw_response, second.raw_response)
+        self.assertIn('"output"', second.raw_response)
+
+    def test_auth_contract_uses_security_aliases_and_cache(self) -> None:
+        fact = EntrySecurityFact("entry:1", "dependency_coverage", "Example.java", 1, "public-security-coverage", "complete")
+        response = {"auth_context": "unauthenticated", "evidence_ids": ["security:1"], "assumptions": [], "confidence": "high"}
+        _ScriptedHandler.scripted_responses = [(200, self._success(response))]
+        client = self._client()
+        contract = client.classify_auth("entry:1", (fact,))
+        self.assertEqual((fact.fact_id,), contract.evidence_ids)
+        self.assertEqual(len(_ScriptedHandler.requests), 1)
+        request = _ScriptedHandler.requests[0]
+        self.assertEqual(request["path"], "/responses")
+        body = json.loads(request["body"])
+        self.assertIn("instructions", body)
+        self.assertEqual(body["input"][0]["role"], "user")
+        self.assertEqual(len(body["input"][0]["content"]), 1)
+        self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
+        self.assertIsInstance(body["input"][0]["content"][0]["text"], str)
+        self.assertEqual(body["text"], {"format": {"type": "json_object"}})
+        self.assertFalse(body["store"])
+        self.assertFalse(body["stream"])
+        self.assertNotIn("messages", body)
+        self.assertNotIn("response_format", body)
+        self.assertFalse(client.last_audit().cache_hit)  # type: ignore[union-attr]
+        client.classify_auth("entry:1", (fact,))
+        self.assertTrue(client.last_audit().cache_hit)  # type: ignore[union-attr]
+        # A new process/client must replay the authenticated private entry, including raw body.
+        second_client = self._client()
+        second_client.classify_auth("entry:1", (fact,))
+        audit = second_client.last_audit()
+        self.assertTrue(audit.cache_hit)  # type: ignore[union-attr]
+        self.assertIn('"output"', audit.raw_response)  # type: ignore[union-attr]
+        auth_files = list(self.cache_dir.glob("auth-*.json"))
+        self.assertEqual(1, len(auth_files))
+        cached_record = json.loads(auth_files[0].read_text(encoding="utf-8"))
+        self.assertEqual(AUTH_PROMPT_VERSION, cached_record["identity"]["prompt_version"])
+        self.assertEqual("auth-contract-v3", cached_record["identity"]["prompt_version"])
+        self.assertNotIn("test-api-key", auth_files[0].read_text(encoding="utf-8"))
 
 
 class JsonBoundaryTests(unittest.TestCase):
@@ -1672,16 +1870,16 @@ class JsonBoundaryTests(unittest.TestCase):
 
     def test_provider_envelope_json_rejects_depth_duplicate_keys_and_nonfinite_values(self) -> None:
         client = DeepSeekClient(
-            LlmConfig("deepseek-v4-pro", "http://127.0.0.1:8000/", "test-api-key", 1, 1, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path(".")),
+            LlmConfig("grok-4.6", "http://127.0.0.1:8000/", "test-api-key", 1, 1, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path(".")),
             verifier=_FakeVerifier(PublicSourceAttestation("https://github.com/example/public-repository", "a" * 40, True, True)),
             transport=_LoopbackTransport(),
         )
-        deeply_nested: object = {"model": "deepseek-v4-pro", "choices": [{"message": {"content": "{}"}}]}
+        deeply_nested: object = {"model": "grok-4.6", "choices": [{"message": {"content": "{}"}}]}
         for _ in range(17):
             deeply_nested = [deeply_nested]
         for body in (
             json.dumps(deeply_nested),
-            '{"model":"deepseek-v4-pro","model":"deepseek-v4-pro","choices":[]}',
+            '{"model":"grok-4.6","model":"grok-4.6","choices":[]}',
             '{"model":NaN,"choices":[]}',
         ):
             with self.subTest(body=body[:30]):
@@ -1693,8 +1891,8 @@ class JsonBoundaryTests(unittest.TestCase):
 class GitHubPublicSourceVerifierTests(unittest.TestCase):
     def test_default_verifier_requires_public_matching_commit_and_clean_checkout(self) -> None:
         config = LlmConfig(
-            model="deepseek-v4-pro",
-            base_url="https://api.deepseek.com/",
+            model="grok-4.6",
+            base_url="https://rightapi.ai/grok/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -1759,10 +1957,10 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
         attestation = GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
 
-        self.assertFalse(attestation.verified_public)
+        self.assertTrue(attestation.verified_public)
         self.assertTrue(attestation.verified_clean_checkout)
         self.assertEqual(attestation.public_source_url, "https://github.com/example/public-repository")
-        self.assertEqual(requests, [])
+        self.assertEqual(len(requests), 2)
 
     def test_verify_local_checkout_against_public_source_reuses_strict_checkout_checks(self) -> None:
         calls: list[tuple[str, ...]] = []
@@ -1776,7 +1974,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_default_verifier_allows_local_commit_binding_without_public_source_url(self) -> None:
         config = LlmConfig(
-            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             None, "b" * 40, Path("/fixture"),
         )
@@ -1797,9 +1995,9 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertTrue(attestation.verified_clean_checkout)
         self.assertIsNone(attestation.public_source_url)
 
-    def test_default_verifier_prefers_local_commit_binding_even_with_public_source_url(self) -> None:
+    def test_default_verifier_rejects_public_url_not_bound_to_checkout_origin(self) -> None:
         config = LlmConfig(
-            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/example/public-repository", "b" * 40, Path("/fixture"),
         )
@@ -1814,17 +2012,15 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
                 output = ""
             return subprocess.CompletedProcess(command, 0, output, "")
 
-        opener = mock.Mock(side_effect=AssertionError("GitHub API should not be called"))
-        attestation = GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
-
-        self.assertFalse(attestation.verified_public)
-        self.assertTrue(attestation.verified_clean_checkout)
-        self.assertEqual(attestation.public_source_url, "https://github.com/example/public-repository")
+        opener = mock.Mock(side_effect=AssertionError("GitHub API must not run after origin mismatch"))
+        with self.assertRaises(AnalyzerError) as raised:
+            GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
+        self.assertEqual("CONFIG_PUBLIC_SOURCE_UNVERIFIED", raised.exception.code)
         opener.assert_not_called()
 
     def test_source_requirements_canonicalize_public_github_url(self) -> None:
         config = LlmConfig(
-            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/Cicizz/jmqtt", "b" * 40, Path("/fixture"),
         )
@@ -1834,16 +2030,18 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
             ("https://github.com/cicizz/jmqtt", "b" * 40, Path("/fixture")),
         )
 
-    def test_default_verifier_ignores_default_branch_reachability_when_local_commit_is_pinned(self) -> None:
+    def test_default_verifier_accepts_public_pinned_commit_without_branch_assumption(self) -> None:
         config = LlmConfig(
-            "deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/example/public-repository", "b" * 40, Path("/fixture"),
         )
 
         def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             arguments = command[command.index("/fixture") + 1:]
-            if arguments[:2] == ["rev-parse", "--show-toplevel"]:
+            if arguments[:2] == ["remote", "get-url"]:
+                output = "https://github.com/example/public-repository.git"
+            elif arguments[:2] == ["rev-parse", "--show-toplevel"]:
                 output = "/fixture"
             elif arguments[:1] == ["rev-parse"]:
                 output = "b" * 40
@@ -1851,14 +2049,20 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
                 output = ""
             return subprocess.CompletedProcess(command, 0, output, "")
 
-        opener = mock.Mock(side_effect=AssertionError("GitHub API should not be called"))
+        requests = 0
+        def opener(request: object, timeout: int) -> _VerifierJsonResponse:
+            nonlocal requests
+            requests += 1
+            payload = {"private": False} if requests == 1 else {"sha": "b" * 40}
+            return _VerifierJsonResponse(request.full_url, payload)
+
         attestation = GitHubPublicSourceVerifier(opener=opener, runner=runner).verify(config)
-        self.assertFalse(attestation.verified_public)
+        self.assertTrue(attestation.verified_public)
         self.assertTrue(attestation.verified_clean_checkout)
-        opener.assert_not_called()
+        self.assertEqual(2, requests)
 
     def test_verify_local_git_steps_share_one_absolute_deadline(self) -> None:
-        config = LlmConfig("deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
+        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, None, "b" * 40, Path("/fixture"))
         current = -0.01
         def clock() -> float:
             nonlocal current
@@ -1885,7 +2089,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertLess(timeouts[-1], timeouts[0])
 
     def test_verify_slice_shares_one_deadline_across_authorization_and_blob_validation(self) -> None:
-        config = LlmConfig("deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
+        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
         verifier = GitHubPublicSourceVerifier(monotonic=lambda: 5.0, git_timeout_seconds=2)
         attestation = PublicSourceAttestation(config.public_source_url, config.source_commit_sha, True, True)
         slice_ = mock.Mock(spec=BoundedSlice)
@@ -1896,8 +2100,8 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_default_verifier_rejects_private_repository_without_commit_or_deepseek_call(self) -> None:
         config = LlmConfig(
-            model="deepseek-v4-pro",
-            base_url="https://api.deepseek.com/",
+            model="grok-4.6",
+            base_url="https://rightapi.ai/grok/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -1928,7 +2132,9 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
 
     def test_endpoint_validation_allows_only_production_or_loopback(self) -> None:
-        self.assertEqual(validate_provider_endpoint("https://api.deepseek.com/"), "https://api.deepseek.com/")
+        self.assertEqual(validate_provider_endpoint("https://rightapi.ai/grok/v1/"), "https://rightapi.ai/grok/v1/")
+        with self.assertRaises(AnalyzerError):
+            validate_provider_endpoint("https://api.deepseek.com/")
         self.assertEqual(validate_provider_endpoint("http://[::1]:8000/", allow_test_transport=True), "http://[::1]:8000/")
         self.assertEqual(
             validate_provider_endpoint("http://localhost:8000/", allow_test_transport=True),
@@ -2048,7 +2254,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
                 (RegistrationFact("spring_mvc", "excerpt:1"),), (),
             ),
         )
-        config = LlmConfig("deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path("/fixture"))
+        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path("/fixture"))
         attestation = PublicSourceAttestation("https://github.com/example/public-repository", "a" * 40, True, True)
         calls: list[tuple[str, ...]] = []
         verifier = GitHubPublicSourceVerifier()
@@ -2057,7 +2263,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         def git_bytes(checkout: Path, *arguments: str, deadline: float | None = None) -> bytes:
             calls.append(arguments)
             if arguments[0] == "cat-file":
-                return b"blob 16385\n"
+                return b"blob 1048577\n"
             raise AssertionError(f"full blob must not be read: {arguments}")
 
         verifier._git_bytes = git_bytes  # type: ignore[method-assign]
@@ -2067,7 +2273,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(calls, [("cat-file", "--batch-check=%(objecttype) %(objectsize)", "a" * 40 + ":Example.java")])
 
     def test_verify_runs_strict_fsck_before_any_local_object_read(self) -> None:
-        config = LlmConfig("deepseek-v4-pro", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
+        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
         calls: list[tuple[str, ...]] = []
         github_calls = 0
 

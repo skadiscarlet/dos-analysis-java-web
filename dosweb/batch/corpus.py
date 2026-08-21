@@ -19,6 +19,7 @@ _DEFAULT_MANIFEST = "intel/applications/java_web_205_targets.json"
 _FINGERPRINT_RE = {"git-commit": re.compile(r"^[0-9a-f]{40}$"), "tree-sha256": re.compile(r"^[0-9a-f]{64}$")}
 _OWNER_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _EXCLUDED_TREE_PARTS = frozenset({".agents", ".git", ".gradle", ".idea", ".mvn", "build", "node_modules", "out", "target"})
+_ANALYZER_OUTPUT_PREFIX = ("results", "applications_static_analysis")
 _MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 _MAX_JSON_DEPTH = 32
 _MAX_JSON_NODES = 100_000
@@ -82,6 +83,8 @@ def _own_git_head(source: Path) -> str | None:
 def _iter_source_files(source: Path):
     for path in source.rglob("*"):
         relative = path.relative_to(source)
+        if relative.parts[:2] == _ANALYZER_OUTPUT_PREFIX:
+            continue
         if any(part in _EXCLUDED_TREE_PARTS for part in relative.parts):
             continue
         try:
@@ -193,10 +196,10 @@ def _validate_row(row: Mapping[str, object], expected_index: int, repo_root: Pat
     except (OSError, RuntimeError, ValueError) as exc:
         raise _invalid("DATABASE_SOURCE_ROOT_INVALID", index=index) from exc
     capability = TargetCapability(
-        provider_eligible=fingerprint_type == "git-commit",
+        provider_eligible=True,
         public_source_url=f"https://github.com/{name}" if fingerprint_type == "git-commit" else None,
         attestation=fingerprint_type,
-        reason=None if fingerprint_type == "git-commit" else "attestation_unavailable",
+        reason=None,
     )
     identity = TargetIdentity(index, name, fingerprint_type, fingerprint, source_path, database_path)
     return CorpusTarget(identity, source, database, capability, info.fingerprint)

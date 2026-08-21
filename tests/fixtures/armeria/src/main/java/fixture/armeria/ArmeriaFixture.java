@@ -13,7 +13,10 @@ import java.util.Optional;
 @Target(ElementType.METHOD)
 @interface Get { String value(); }
 
-class HttpRequest {}
+class AggregatedHttpRequest {}
+class HttpRequest {
+    AggregatedHttpRequest aggregateWithPooledObjects() { return new AggregatedHttpRequest(); }
+}
 class HttpResponse {}
 class ServerBuilder {
     void annotatedService(Object service) {}
@@ -27,10 +30,18 @@ public class ArmeriaFixture {
 
 class RegisteredCollector {
     @Post("/api/v2/spans")
-    public HttpResponse uploadSpans(HttpRequest request) { return new HttpResponse(); }
+    public HttpResponse uploadSpans(HttpRequest request) { return validateAndStore(request); }
 
     @Get("/api/v2/spans")
     public HttpResponse querySpans(HttpRequest request) { return new HttpResponse(); }
+
+    HttpResponse validateAndStore(HttpRequest request) {
+        AggregatedHttpRequest aggregated = request.aggregateWithPooledObjects();
+        if (aggregated == null) {
+            return new HttpResponse();
+        }
+        return new HttpResponse();
+    }
 }
 
 class UnregisteredCollector {

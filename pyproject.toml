@@ -16,3 +16,6 @@ include = ["dosweb*"]
 
 [tool.setuptools.package-data]
 "dosweb.codeql" = ["pack/**/*.ql", "pack/*.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

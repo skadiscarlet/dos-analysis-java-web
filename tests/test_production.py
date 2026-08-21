@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from dosweb.cli import main, parse_cli_values
@@ -12,9 +13,12 @@ from dosweb.codeql import DatabaseInfo, QueryResult
 from dosweb.codeql.decoder import (
     BOUND_COLUMNS,
     ENTRY_COLUMNS,
+    INTERPOSITION_COLUMNS,
     FLOW_COLUMNS,
     GROWTH_COLUMNS,
     GUARD_COLUMNS,
+    LIFECYCLE_COVERAGE_COLUMNS,
+    LIFECYCLE_SUMMARY_COLUMNS,
     RELEASE_COLUMNS,
 )
 from dosweb.entries import AttackerInputFact, EntryFact, HandlerFact, RegistrationFact
@@ -43,8 +47,6 @@ class ProductionFactoryTests(unittest.TestCase):
             "output": root / "output",
             "config": None,
             "allow_remote_llm": allow_remote_llm,
-            "public_source_url": "https://github.com/example/project",
-            "source_commit_sha": "a" * 40,
             "source_checkout": root,
             "analysis_source_root": root,
             "model": None,
@@ -70,6 +72,34 @@ class ProductionFactoryTests(unittest.TestCase):
             )
 
         return {stage: execute for stage in STAGES}
+
+    def test_amplification_requires_exact_global_flow_loop_witness(self) -> None:
+        positive = SimpleNamespace(
+            kind="container_growth",
+            coverage_notes=("persistent_field_container_write:attacker_controlled_loop_multiplicity_proven",),
+        )
+        self.assertEqual(
+            ("proven", "AMPLIFICATION_CFG_DATAFLOW_LOOP_WITNESS"),
+            production._amplification_decision_for_candidate(positive),  # noqa: SLF001
+        )
+        for notes in (
+            ("persistent_field_container_write:loop_bound_not_attacker_proven",),
+            ("finite_queue_submission_candidate:finite_capacity_prevents_amplification",),
+            ("persistent_field_container_write:loop_multiplicity_unmodeled",),
+        ):
+            with self.subTest(notes=notes):
+                self.assertEqual(
+                    ("unknown", "AMPLIFICATION_LOOP_OR_BATCH_UNMODELED"),
+                    production._amplification_decision_for_candidate(
+                        SimpleNamespace(kind="container_growth", coverage_notes=notes)  # noqa: SLF001
+                    ),
+                )
+        self.assertEqual(
+            ("not_applicable", "AMPLIFICATION_DIRECT_DEMAND_ASSERTION"),
+            production._amplification_decision_for_candidate(
+                SimpleNamespace(kind="async_work_growth", coverage_notes=("queue:single_submission_no_enclosing_loop",))
+            ),
+        )
 
     def test_factory_loads_config_and_injects_environment_without_network(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -136,7 +166,7 @@ class ProductionFactoryTests(unittest.TestCase):
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
                 decoded = output_dir / f"{query.stem}.json"
-                decoded.write_text(json.dumps(self._entry_payload()), encoding="utf-8")
+                decoded.write_text(json.dumps(self._payload_for_query(query)), encoding="utf-8")
                 return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
 
             with mock.patch("dosweb.production.DeepSeekClient") as provider:
@@ -195,6 +225,11 @@ class ProductionFactoryTests(unittest.TestCase):
             if run_path.exists():
                 self.assertNotIn(secret, run_path.read_text(encoding="utf-8"))
 
+    def _payload_for_query(self, query: Path) -> dict[str, object]:
+        if query.name == "EntryInterpositions.ql":
+            return {"#select": {"columns": list(INTERPOSITION_COLUMNS), "tuples": []}}
+        return self._entry_payload()
+
     def _entry_payload(self) -> dict[str, object]:
         columns = [
             {"name": name, "kind": "String"}
@@ -225,7 +260,8 @@ class ProductionFactoryTests(unittest.TestCase):
             source = root / "source"
             database.mkdir()
             source.mkdir()
-            info = DatabaseInfo(database, root, "d" * 64)
+            (source / "pom.xml").write_text("<project><dependencies><dependency>org.springframework</dependency></dependencies></project>", encoding="utf-8")
+            info = DatabaseInfo(database, source, "d" * 64)
             validations: list[Path] = []
             query_databases: list[DatabaseInfo] = []
             queries: list[str] = []
@@ -238,7 +274,7 @@ class ProductionFactoryTests(unittest.TestCase):
                 queries.append(query.name)
                 query_databases.append(database_info)
                 generation = output_dir / f"{query.stem}.json"
-                generation.write_text(json.dumps(self._entry_payload()), encoding="utf-8")
+                generation.write_text(json.dumps(self._payload_for_query(query)), encoding="utf-8")
                 return QueryResult(
                     query_name="entries",
                     query_path=query,
@@ -248,31 +284,141 @@ class ProductionFactoryTests(unittest.TestCase):
                     bqrs_sha256="b" * 64,
                 )
 
+            values = self._values(root)
+            values["source_checkout"] = source
+            values["analysis_source_root"] = source
             pipeline = build_production_pipeline(
-                self._values(root),
+                values,
                 environ={},
                 validate_database_fn=fake_validate,
                 run_query_fn=fake_run,
             )
             result = pipeline.run("entries")
             self.assertEqual(result["status"], "completed")
-            self.assertEqual(queries, [
-                "SpringMvcEntries.ql", "ServletEntries.ql", "NettyEntries.ql", "MqttEntries.ql",
-                "JaxRsEntries.ql", "GrpcEntries.ql",
-            ])
+            self.assertEqual(queries, [*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY])
             self.assertEqual(validations, [database])
-            self.assertEqual(query_databases, [info] * 6)
+            self.assertEqual(query_databases, [info] * (len(production._ENTRY_QUERIES) + 1))
             self.assertEqual(
                 {path.name for path in (root / "output").iterdir()},
-                {"entry_facts.jsonl", "coverage.json", "run.json", ".stage-manifests", ".pipeline.lock"},
+                {"entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "coverage.json", "configuration_coverage.json", "descriptor_coverage.json", "modeled_configuration.jsonl", "entry_security_facts.jsonl", "run.json", ".stage-manifests", ".pipeline.lock"},
             )
             self.assertEqual(
                 {item["path"] for item in result["stages"]["entries"]["artifacts"]},
-                {"entry_facts.jsonl", "coverage.json"},
+                {"entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "coverage.json", "configuration_coverage.json", "descriptor_coverage.json", "modeled_configuration.jsonl", "entry_security_facts.jsonl"},
             )
-            self.assertNotIn("DEEPSEEK_API_KEY", (root / "output" / "run.json").read_text())
+            run_metadata = (root / "output" / "run.json").read_text(encoding="utf-8")
+            self.assertNotIn("DEEPSEEK_API_KEY", run_metadata)
+            self.assertNotIn("Authorization", run_metadata)
+            self.assertIn('"analysis_mode":"formal"', run_metadata)
             self.assertEqual(pipeline._fingerprint("entries", {}).database_fingerprint, "d" * 64)  # noqa: SLF001
             self.assertRegex(pipeline._fingerprint("entries", {}).query_pack_hash, r"^[0-9a-f]{64}$")  # noqa: SLF001
+
+    def test_formal_entries_query_failure_aborts_without_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"; source = root / "source"
+            database.mkdir(); (source / "src/main/java/app").mkdir(parents=True)
+            (source / "pom.xml").write_text("<project><dependencies><dependency>org.springframework</dependency></dependencies></project>", encoding="utf-8")
+            info = DatabaseInfo(database, source, "d" * 64)
+            def failing_run(*_args: object, **_kwargs: object) -> QueryResult:
+                raise AnalyzerError("CODEQL_QUERY_FAILED", "CodeQL query execution failed.")
+            values = self._values(root)
+            values["source_checkout"] = source; values["analysis_source_root"] = source
+            pipeline = build_production_pipeline(values, environ={}, validate_database_fn=lambda *_args, **_kwargs: info, run_query_fn=failing_run)
+            with self.assertRaisesRegex(AnalyzerError, "CodeQL query execution failed") as raised:
+                pipeline.run("entries")
+            self.assertEqual(raised.exception.code, "CODEQL_QUERY_FAILED")
+            self.assertFalse((root / "output" / ".stage-manifests" / "entries.json").exists())
+
+    def test_default_entries_marks_failed_selected_queries_as_partial_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"
+            source = root / "source"
+            database.mkdir()
+            (source / "src/main/java/app").mkdir(parents=True)
+            (source / "pom.xml").write_text("<project><dependencies><dependency>org.springframework</dependency></dependencies></project>", encoding="utf-8")
+            info = DatabaseInfo(database, source, "d" * 64)
+
+            def failing_run(_query: Path, _database: DatabaseInfo, _output_dir: Path, **_kwargs: object) -> QueryResult:
+                raise AnalyzerError("CODEQL_QUERY_FAILED", "CodeQL query execution failed.", {"stage": "query_run", "diagnostic": "timeout"})
+
+            values = self._values(root)
+            values["source_checkout"] = source
+            values["analysis_source_root"] = source
+            values["allow_partial_codeql"] = True
+            values["command"] = "entries"
+            pipeline = build_production_pipeline(
+                values,
+                environ={},
+                validate_database_fn=lambda *_args, **_kwargs: info,
+                run_query_fn=failing_run,
+            )
+            result = pipeline.run("entries")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["stages"]["entries"]["metadata"]["query_count"], 2)
+            self.assertEqual(result["stages"]["entries"]["metadata"]["skipped_query_count"], 2)
+            self.assertEqual(
+                result["stages"]["entries"]["metadata"]["query_diagnostics"],
+                [{
+                    "code": "CODEQL_QUERY_FAILED",
+                    "diagnostic": "timeout",
+                    "query_name": "SpringMvcEntries.ql",
+                    "stage": "query_run",
+                }, {
+                    "code": "CODEQL_QUERY_FAILED",
+                    "query_name": "EntryInterpositions.ql",
+                }],
+            )
+            coverage = json.loads((root / "output" / "coverage.json").read_text(encoding="utf-8"))
+            spring = next(item for item in coverage if item["framework"] == "spring_mvc")
+            self.assertEqual(spring["status"], "partial")
+            self.assertIn("query_failed:SpringMvcEntries", spring["unsupported_patterns"])
+            servlet = next(item for item in coverage if item["framework"] == "servlet")
+            self.assertEqual(servlet["status"], "unsupported")
+            self.assertIn("framework_evidence_absent:ServletEntries", servlet["unsupported_patterns"])
+            self.assertEqual((root / "output" / "entry_facts.jsonl").read_text(encoding="utf-8"), "")
+
+    def test_truncated_entry_hint_scan_marks_unselected_frameworks_partial(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"
+            source = root / "source"
+            database.mkdir()
+            java = source / "src/main/java/app"
+            java.mkdir(parents=True)
+            for index in range(513):
+                (java / f"A{index:03d}.java").write_text(
+                    "class A {}\n" if index else "@RestController class A {}\n",
+                    encoding="utf-8",
+                )
+            info = DatabaseInfo(database, source, "d" * 64)
+
+            def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
+                payload = self._payload_for_query(query)
+                if query.name != "EntryInterpositions.ql":
+                    payload["#select"]["tuples"][0][0] = "spring_mvc"  # type: ignore[index]
+                    payload["#select"]["tuples"][0][16] = "spring_annotation_mapping"  # type: ignore[index]
+                decoded = output_dir / f"{query.stem}.json"
+                decoded.write_text(json.dumps(payload), encoding="utf-8")
+                return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+
+            values = self._values(root)
+            values["source_checkout"] = source
+            values["analysis_source_root"] = source
+            values["allow_partial_codeql"] = True
+            values["command"] = "entries"
+            pipeline = build_production_pipeline(
+                values,
+                environ={},
+                validate_database_fn=lambda *_args, **_kwargs: info,
+                run_query_fn=fake_run,
+            )
+            self.assertEqual(pipeline.run("entries")["status"], "completed")
+            coverage = json.loads((root / "output" / "coverage.json").read_text(encoding="utf-8"))
+            servlet = next(item for item in coverage if item["framework"] == "servlet")
+            self.assertEqual(servlet["status"], "partial")
+            self.assertIn("framework_evidence_scan_truncated:ServletEntries", servlet["unsupported_patterns"])
 
     def test_default_entries_executes_the_preflight_query_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -281,14 +427,15 @@ class ProductionFactoryTests(unittest.TestCase):
             source = root / "source"
             database.mkdir()
             source.mkdir()
-            info = DatabaseInfo(database, root, "d" * 64)
+            (source / "pom.xml").write_text("<project><dependencies><dependency>org.springframework</dependency></dependencies></project>", encoding="utf-8")
+            info = DatabaseInfo(database, source, "d" * 64)
             observed: list[tuple[Path, bytes]] = []
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
                 observed.append((query, query.read_bytes()))
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.parent.mkdir(parents=True, exist_ok=True)
-                decoded.write_text(json.dumps(self._entry_payload()), encoding="utf-8")
+                decoded.write_text(json.dumps(self._payload_for_query(query)), encoding="utf-8")
                 return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
 
             import dosweb.production as production
@@ -299,8 +446,11 @@ class ProductionFactoryTests(unittest.TestCase):
                 "dosweb.production._query_pack_snapshot",
                 return_value=(pack_hash, snapshot),
             ):
+                values = self._values(root)
+                values["source_checkout"] = source
+                values["analysis_source_root"] = source
                 pipeline = build_production_pipeline(
-                    self._values(root),
+                    values,
                     environ={},
                     validate_database_fn=lambda *_args, **_kwargs: info,
                     run_query_fn=fake_run,
@@ -308,10 +458,15 @@ class ProductionFactoryTests(unittest.TestCase):
                 self.assertEqual(pipeline.run("entries")["status"], "completed")
 
             original = production._ENTRY_QUERY_DIR / "SpringMvcEntries.ql"  # noqa: SLF001
+            self.assertEqual(len(observed), len(production._ENTRY_QUERIES) + 1)
             self.assertNotEqual(observed[0][0], original)
             self.assertEqual(
                 observed[0][1],
                 snapshot["dosweb/Entries/SpringMvcEntries.ql"],
+            )
+            self.assertEqual(
+                {query.name for query, _ in observed},
+                {*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY},
             )
 
     def test_default_preflight_rejects_invalid_database_validator_result(self) -> None:
@@ -361,7 +516,7 @@ class ProductionFactoryTests(unittest.TestCase):
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
                 decoded = output_dir / f"{query.stem}.json"
-                decoded.write_text(json.dumps(self._entry_payload()), encoding="utf-8")
+                decoded.write_text(json.dumps(self._payload_for_query(query)), encoding="utf-8")
                 return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
 
             pipeline = build_production_pipeline(
@@ -388,7 +543,7 @@ class ProductionFactoryTests(unittest.TestCase):
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
                 generation = output_dir / f"{query.stem}.json"
-                generation.write_text(json.dumps(self._entry_payload()), encoding="utf-8")
+                generation.write_text(json.dumps(self._payload_for_query(query)), encoding="utf-8")
                 return QueryResult(query.name, query, query, generation, "a" * 64, "b" * 64)
 
             pipeline = build_production_pipeline(
@@ -402,7 +557,7 @@ class ProductionFactoryTests(unittest.TestCase):
     def test_packaged_query_assets_are_available_to_the_default_executor(self) -> None:
         import dosweb.production as production
 
-        expected = set(production._ENTRY_QUERIES)  # noqa: SLF001 - packaging contract
+        expected = {*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY}  # noqa: SLF001 - packaging contract
         packaged = {path.name for path in production._ENTRY_QUERY_DIR.glob("*.ql")}  # noqa: SLF001
         self.assertEqual(packaged, expected)
         self.assertTrue((production._QUERY_PACK_DIR / "qlpack.yml").is_file())  # noqa: SLF001
@@ -420,7 +575,7 @@ class ProductionFactoryTests(unittest.TestCase):
                 return info
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
-                payload = self._entry_payload()
+                payload = self._payload_for_query(query)
                 payload["#select"]["tuples"] *= 1025  # type: ignore[index,operator]
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(json.dumps(payload), encoding="utf-8")
@@ -571,21 +726,28 @@ class ProductionFactoryTests(unittest.TestCase):
                 ]]),
                 "InputMaterialization": (GROWTH_COLUMNS, [[
                     "src/Handler.java", 24, "input_materialization", "request.readAllBytes",
-                    "bytes", "fixture.Handler.body", "this.body", "body", "value", "request",
+                    "bytes", "fixture.Handler.body", "this.body", "body", "size", "request",
                     "fact:growth", "complete", "input_materialization",
                 ]]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
-                    "src/Handler.java", 20, "src/Handler.java", 24, "value", "body", "body",
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
                     "fixture.Handler.handle>request.readAllBytes", "in_handler", "data_flow", "proven",
                     "complete", "entry_to_growth",
+                ]]),
+                "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
+                    "fixture.Handler.handle>request.readAllBytes", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
                 ]]),
                 "GuardCandidates": (GUARD_COLUMNS, []),
                 "BoundCandidates": (BOUND_COLUMNS, []),
                 "SynchronousReleaseCandidates": (RELEASE_COLUMNS, []),
+                "LifecycleCoverage": (LIFECYCLE_COVERAGE_COLUMNS, []),
+                "LifecycleSummary": (LIFECYCLE_SUMMARY_COLUMNS, []),
             }
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
-                columns, rows = rows_by_query.get(query.stem, (ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []))
+                columns, rows = rows_by_query.get(query.stem, (INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []))
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")
                 return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
@@ -623,25 +785,47 @@ class ProductionFactoryTests(unittest.TestCase):
             llm_calls: list[object] = []
 
             rows_by_query: dict[str, tuple[tuple[str, ...], list[list[object]]]] = {
-                "SpringMvcEntries": (ENTRY_COLUMNS, [[
-                    "spring_mvc", "http", "fixture.Handler.handle", "src/Handler.java", 20,
-                    "annotation_mapping", "fixture.Handler", "src/Handler.java", 8, "/items",
-                    "unknown", "body", "byte[]", "request_body", "in_handler", "complete",
-                    "spring_annotation_mapping",
-                ]]),
-                "InputMaterialization": (GROWTH_COLUMNS, [[
-                    "src/Handler.java", 24, "input_materialization", "request.readAllBytes",
-                    "bytes", "fixture.Handler.body", "this.body", "body", "value", "request",
-                    "fact:growth", "complete", "input_materialization",
-                ]]),
+                "SpringMvcEntries": (ENTRY_COLUMNS, [
+                    [
+                        "spring_mvc", "http", "fixture.Handler.handle", "src/Handler.java", 20,
+                        "annotation_mapping", "fixture.Handler", "src/Handler.java", 8, "/items",
+                        "unknown", "body", "byte[]", "request_body", "in_handler", "complete",
+                        "spring_annotation_mapping",
+                    ],
+                    [
+                        "spring_mvc", "http", "fixture.Other.handle", "src/OtherController.java", 40,
+                        "annotation_mapping", "fixture.Other", "src/OtherController.java", 36, "/other",
+                        "unknown", "body", "byte[]", "request_body", "in_handler", "complete",
+                        "spring_annotation_mapping",
+                    ],
+                ]),
+                "InputMaterialization": (GROWTH_COLUMNS, [
+                    [
+                        "src/Handler.java", 24, "input_materialization", "request.readAllBytes",
+                        "bytes", "fixture.Handler.body", "this.body", "body", "size", "request",
+                        "fact:growth", "complete", "input_materialization",
+                    ],
+                    [
+                        "src/Detached.java", 9, "input_materialization", "request.readAllBytes",
+                        "bytes", "fixture.Detached.body", "this.body", "body", "size", "request",
+                        "fact:other-growth", "complete", "input_materialization",
+                    ],
+                ]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
-                    "src/Handler.java", 20, "src/Handler.java", 24, "value", "body", "body",
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
                     "fixture.Handler.handle>request.readAllBytes", "in_handler", "data_flow", "proven",
                     "complete", "entry_to_growth",
+                ]]),
+                "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
+                    "fixture.Handler.handle>request.readAllBytes", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
                 ]]),
                 "GuardCandidates": (GUARD_COLUMNS, []),
                 "BoundCandidates": (BOUND_COLUMNS, []),
                 "SynchronousReleaseCandidates": (RELEASE_COLUMNS, []),
+                "LifecycleCoverage": (LIFECYCLE_COVERAGE_COLUMNS, []),
+                "LifecycleSummary": (LIFECYCLE_SUMMARY_COLUMNS, []),
             }
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
@@ -649,7 +833,7 @@ class ProductionFactoryTests(unittest.TestCase):
                 if query.stem in rows_by_query:
                     columns, rows = rows_by_query[query.stem]
                 else:
-                    columns = ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS
+                    columns = INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS
                     rows = []
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")
@@ -682,10 +866,16 @@ class ProductionFactoryTests(unittest.TestCase):
             self.assertEqual(result["status"], "completed")
             self.assertTrue(all(result["stages"][stage]["status"] == "completed" for stage in STAGES))
             self.assertEqual(len(llm_calls), 1)
-            self.assertEqual(len(excerpt_calls), 2)
-            self.assertEqual({call[1] for call in excerpt_calls}, {"a" * 40})
-            self.assertEqual({call[2:] for call in excerpt_calls}, {("src/Handler.java", 8), ("src/Handler.java", 24)})
-            self.assertEqual(len(query_calls), 14)
+            self.assertEqual(len(excerpt_calls), 3)
+            self.assertEqual({call[1] for call in excerpt_calls}, {None})
+            self.assertEqual(
+                {call[2:] for call in excerpt_calls},
+                {("src/Handler.java", 8), ("src/Handler.java", 20), ("src/Handler.java", 24)},
+            )
+            self.assertEqual(result["stages"]["growth"]["metadata"]["candidate_count"], 2)
+            self.assertEqual(result["stages"]["growth"]["metadata"]["mapped_candidate_count"], 1)
+            self.assertEqual(result["stages"]["growth"]["metadata"]["skipped_unmapped_candidate_count"], 0)
+            self.assertEqual(len(query_calls), 19)
             self.assertEqual(
                 {item["path"] for item in result["stages"]["conclude"]["artifacts"]},
                 {"lifecycle_certificates.jsonl", "static_findings.jsonl"},
@@ -694,6 +884,98 @@ class ProductionFactoryTests(unittest.TestCase):
                 {item["path"] for item in result["stages"]["report"]["artifacts"]},
                 {"summary.json", "report.md"},
             )
+
+    def test_full_production_graph_publishes_certificate_backed_unknown_when_lifecycle_absence_is_unproven(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "database").mkdir()
+            source_file = root / "src" / "Handler.java"
+            source_file.parent.mkdir()
+            lines = ["// fixture"] * 30
+            lines[0] = "import org.springframework.web.bind.annotation.PostMapping;"
+            lines[7] = "@PostMapping(\"/items\")"
+            lines[19] = "public void handle(byte[] body) {"
+            lines[23] = "  byte[] materialized = body;"
+            lines[25] = "}"
+            source_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            info = DatabaseInfo(root / "database", root, "d" * 64)
+            rows_by_query: dict[str, tuple[tuple[str, ...], list[list[object]]]] = {
+                "SpringMvcEntries": (ENTRY_COLUMNS, [[
+                    "spring_mvc", "http", "fixture.Handler.handle", "src/Handler.java", 20,
+                    "annotation_mapping", "fixture.Handler", "src/Handler.java", 8, "/items",
+                    "unauthenticated", "body", "byte[]", "request_body", "in_handler", "complete",
+                    "spring_annotation_mapping",
+                ]]),
+                "InputMaterialization": (GROWTH_COLUMNS, [[
+                    "src/Handler.java", 24, "input_materialization", "spring_request_body_materialization",
+                    "bytes", "fixture.Handler.handle", "body", "body", "size", "request",
+                    "fact:growth", "complete", "recognized_spring_request_body_bytes",
+                ]]),
+                "EntryToGrowth": (FLOW_COLUMNS, [[
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
+                    "fixture.Handler.handle", "entry>materialization", "data_flow", "proven",
+                    "complete", "request_body_parameter_materialization",
+                ]]),
+                "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "fixture.Handler.handle", "fixture.Handler.handle",
+                    "fixture.Handler.handle", "entry>materialization", "data_flow", "proven",
+                    "complete", "same_handler_request_body_materialization",
+                ]]),
+                "GuardCandidates": (GUARD_COLUMNS, []),
+                "BoundCandidates": (BOUND_COLUMNS, []),
+                "SynchronousReleaseCandidates": (RELEASE_COLUMNS, []),
+                "LifecycleCoverage": (LIFECYCLE_COVERAGE_COLUMNS, []),
+                "LifecycleSummary": (LIFECYCLE_SUMMARY_COLUMNS, []),
+            }
+
+            def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
+                columns, rows = rows_by_query.get(
+                    query.stem,
+                    (INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []),
+                )
+                decoded = output_dir / f"{query.stem}.json"
+                decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")
+                return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+
+            def fake_excerpt(checkout: Path, commit: str, path: str, line: int) -> SourceExcerpt:
+                import hashlib
+                content = f"attested line {line}\n"
+                return SourceExcerpt(
+                    f"excerpt:{line}", path, line, line, content, "c" * 64,
+                    hashlib.sha256(content.encode()).hexdigest(),
+                )
+
+            class FakeLlm:
+                def classify_auth(self, entry_id: str, facts: object, configuration: object):
+                    from dosweb.reachability import AuthContract
+                    fact = tuple(facts)[0]
+                    return AuthContract("unauthenticated", (fact.fact_id,), (), "high")
+
+                def classify_growth(self, bounded: object) -> GrowthContract:
+                    flow = next(fact for fact in bounded.payload.static_facts if fact.relation == "flows_to")
+                    sink = next(fact for fact in bounded.payload.static_facts if fact.relation == "sink")
+                    return GrowthContract(
+                        "yes", "input_materialization", "bytes",
+                        (AttackerInfluence("size", flow.fact_id),),
+                        "materializes_bytes", (flow.fact_id, sink.fact_id), "high",
+                    )
+
+            pipeline = build_production_pipeline(
+                self._values(root, allow_remote_llm=True),
+                environ={"DEEPSEEK_API_KEY": "fixture-secret"},
+                validate_database_fn=lambda *_args, **_kwargs: info,
+                run_query_fn=fake_run,
+                deepseek_client=FakeLlm(),
+                source_excerpt_fn=fake_excerpt,
+            )
+            result = pipeline.run("analyze")
+            self.assertEqual("completed", result["status"])
+            findings = json.loads((root / "output" / "static_findings.jsonl").read_text().strip())
+            self.assertEqual("static_unknown", findings["verdict"])
+            certificate = json.loads((root / "output" / "lifecycle_certificates.jsonl").read_text().strip())
+            self.assertEqual(findings["certificate_id"], certificate["certificate_id"])
+            self.assertIn("VERDICT_UNRESOLVED_EVIDENCE", findings["reason_codes"])
+            self.assertIn("static_unknown", (root / "output" / "report.md").read_text())
 
     def test_lifecycle_decision_records_preserve_exact_boolean_checks_and_coverage(self) -> None:
         for decision in (

@@ -16,6 +16,16 @@ docs/superpowers/
 dynamic-verification/target/
 build/
 codeql/
+# Source-controlled v2 query additions remain visible despite local CodeQL cache ignore.
+!codeql/
+!codeql/dosweb/
+!codeql/dosweb/Entries/
+!codeql/dosweb/Entries/EntryInterpositions.ql
+!dosweb/codeql/
+!dosweb/codeql/pack/
+!dosweb/codeql/pack/dosweb/
+!dosweb/codeql/pack/dosweb/Entries/
+!dosweb/codeql/pack/dosweb/Entries/EntryInterpositions.ql
 dos_analysis_web.egg-info/
 
 # Local Qoder state.
@@ -54,3 +64,6 @@ __pycache__/
 # Local agent state.
 .codex/
 .claude/
+
+# Local provider credentials (API key). Never commit.
+config/local_secrets.json

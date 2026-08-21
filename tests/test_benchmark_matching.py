@@ -101,6 +101,36 @@ class BenchmarkMatchingTests(unittest.TestCase):
         }
         self.assertEqual(match_case(truth, [candidate()])["status"], "no_candidate")
 
+    def test_unique_match_emits_replayable_chain_ids(self):
+        truth = {
+            "case_id": "case",
+            "repository": "owner/repo",
+            "entry": "POST /api/items",
+            "truth_id": "truth:t",
+        }
+        value = candidate()
+        value.update({
+            "route_or_event": "POST /api/items",
+            "finding": {"finding_id": "finding:f"},
+            "entry": {"entry_id": "entry:e", "route_or_event": "POST /api/items", "protocol": "http"},
+            "growth": {"growth_id": "growth:g"},
+            "flows": [{"path_id": "flow:p"}],
+            "certificate": {"certificate_id": "certificate:c"},
+        })
+        result = match_case(truth, [value])
+        self.assertEqual(
+            result["chain"],
+            {
+                "candidate_id": value["candidate_id"],
+                "finding_id": "finding:f",
+                "entry_id": "entry:e",
+                "growth_id": "growth:g",
+                "flow_ids": ["flow:p"],
+                "certificate_id": "certificate:c",
+                "static_conclusion": "static_vulnerable",
+            },
+        )
+
     def test_ambiguity_invalid_verdict_and_fail_closed_states(self):
         truth = {
             "case_id": "c",

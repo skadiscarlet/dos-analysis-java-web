@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import tempfile
+import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -18,8 +19,8 @@ from dosweb.artifacts.identifiers import canonical_json, file_sha256
 from dosweb.errors import AnalyzerError
 
 STAGES: Final[tuple[str, ...]] = ("entries", "growth", "flows", "lifecycle", "conclude", "report")
-SCHEMA_VERSION: Final = "2.0"
-TOOL_VERSION: Final = "0.1.0"
+SCHEMA_VERSION: Final = "2.5"
+TOOL_VERSION: Final = "0.4.0"
 _MAX_RECORDS: Final = 4096
 _MAX_RECORD_BYTES: Final = 262144
 _MAX_TOTAL_BYTES: Final = 16 * 1024 * 1024
@@ -163,7 +164,7 @@ def _encode_payload(payload: Payload) -> tuple[bytes, int]:
 
 
 class Pipeline:
-    def __init__(self, output_root: Path | str | None = None, executors: Mapping[str, Executor] | None = None, *, output_dir: Path | str | None = None, database_fingerprint: str = "", model_fingerprint: str = "", report_fingerprint: str = "", config_fingerprint: str = "", query_pack_hash: str = "", config_hash: str = "", schema_version: str = SCHEMA_VERSION, tool_version: str = TOOL_VERSION, implementation_versions: Mapping[str, str] | None = None, fingerprints: Mapping[str, str] | None = None, resume: bool = False, preflight: Callable[[], None] | None = None) -> None:
+    def __init__(self, output_root: Path | str | None = None, executors: Mapping[str, Executor] | None = None, *, output_dir: Path | str | None = None, database_fingerprint: str = "", model_fingerprint: str = "", report_fingerprint: str = "", config_fingerprint: str = "", query_pack_hash: str = "", config_hash: str = "", schema_version: str = SCHEMA_VERSION, tool_version: str = TOOL_VERSION, implementation_versions: Mapping[str, str] | None = None, fingerprints: Mapping[str, str] | None = None, resume: bool = False, preflight: Callable[[], None] | None = None, run_identity: Mapping[str, object] | None = None) -> None:
         root = output_root if output_root is not None else output_dir
         if root is None:
             raise TypeError("output_root is required")
@@ -181,6 +182,8 @@ class Pipeline:
         self.implementation_versions = dict(implementation_versions or {})
         self.resume = resume
         self.preflight = preflight
+        # Caller supplies only non-secret, canonical run identity fields.
+        self.run_identity = dict(run_identity or {})
         self._run: dict[str, object] = {}
         self._prior_stage_metadata: dict[str, Mapping[str, object]] = {}
 
@@ -213,7 +216,21 @@ class Pipeline:
                 self.preflight()
             self._prior_stage_metadata = self._load_prior_stage_manifests()
             self._run = self._load_run() if self.resume else self._new_run()
-            self._run.update(status="running", error=None)
+            previous_identity = self._run.get("identity")
+            if previous_identity != self.run_identity and isinstance(previous_identity, Mapping):
+                self._run["previous_identity_hash"] = hashlib.sha256(canonical_json(previous_identity)).hexdigest()
+            prior_attempt = self._run.get("attempt", 0)
+            if not isinstance(prior_attempt, int) or isinstance(prior_attempt, bool) or prior_attempt < 0:
+                prior_attempt = 0
+            self._run.update(
+                schema_version=self.schema_version,
+                tool_version=self.tool_version,
+                identity=dict(self.run_identity),
+                attempt=prior_attempt + 1,
+                status="running",
+                error=None,
+                started_at=time.time(),
+            )
             self._write_run()
             upstream_hashes: dict[str, str] = {}
             upstream: dict[str, Mapping[str, object]] = {}
@@ -222,7 +239,8 @@ class Pipeline:
                 if not self._reusable(stage, expected):
                     self._invalidate_from(stage)
                     try:
-                        self._publish(stage, expected, self._execute(stage, expected, upstream))
+                        started_at = time.time()
+                        self._publish(stage, expected, self._execute(stage, expected, upstream), started_at=started_at, ended_at=time.time())
                         self._write_run()
                     except AnalyzerError as exc:
                         self._mark_failure(stage, exc)
@@ -238,12 +256,12 @@ class Pipeline:
                 upstream_hashes[stage] = str(metadata.get("output_hash", ""))
                 if stage == last_stage:
                     break
-            self._run.update(status="completed", error=None)
+            self._run.update(status="completed", error=None, ended_at=time.time())
             self._write_run()
             return self._run
 
     def _new_run(self) -> dict[str, object]:
-        return {"schema_version": self.schema_version, "tool_version": self.tool_version, "status": "pending", "error": None, "stages": {stage: {"status": "pending"} for stage in STAGES}}
+        return {"schema_version": self.schema_version, "tool_version": self.tool_version, "status": "pending", "error": None, "identity": dict(self.run_identity), "stages": {stage: {"status": "pending"} for stage in STAGES}}
 
     def _load_run(self) -> dict[str, object]:
         if not self.run_path.exists():
@@ -348,7 +366,7 @@ class Pipeline:
             return StageOutput(value)
         raise AnalyzerError("ARTIFACT_INVALID_RECORD", "Stage executor returned an invalid output.", {"stage": stage})
 
-    def _publish(self, stage: str, fingerprint: StageFingerprint, result: StageOutput) -> None:
+    def _publish(self, stage: str, fingerprint: StageFingerprint, result: StageOutput, *, started_at: float, ended_at: float) -> None:
         if not result.artifacts:
             raise AnalyzerError("ARTIFACT_EMPTY_STAGE", "A completed stage must publish an artifact.", {"stage": stage})
         normalized: dict[str, tuple[Path, Payload]] = {}
@@ -376,7 +394,7 @@ class Pipeline:
                     raise AnalyzerError("ARTIFACT_VALIDATION_FAILED", "Staged artifact validation failed.", {"path": relative})
                 written.append((relative, destination, {"path": relative, "sha256": digest, "record_count": count, "byte_count": len(data), "schema_version": self.schema_version}))
             artifacts = [item[2] for item in written]
-            manifest = {"stage": stage, "status": "completed", "fingerprint": fingerprint.to_dict(), "artifacts": artifacts, "output_hash": hashlib.sha256(canonical_json(artifacts)).hexdigest(), "metadata": dict(result.metadata)}
+            manifest = {"stage": stage, "status": "completed", "fingerprint": fingerprint.to_dict(), "artifacts": artifacts, "output_hash": hashlib.sha256(canonical_json(artifacts)).hexdigest(), "metadata": dict(result.metadata), "started_at": started_at, "ended_at": ended_at, "duration_seconds": max(0.0, ended_at - started_at), "identity": dict(self.run_identity)}
             staged_manifest = temporary_root / "manifest.json"
             with staged_manifest.open("wb") as stream:
                 stream.write(canonical_json(manifest) + b"\n")
@@ -406,6 +424,9 @@ class Pipeline:
                         os.replace(destination, backup)
                         backups.append((destination, backup))
                     os.replace(temporary_root / relative, destination)
+                    # Provider audit artifacts can contain bounded raw provider bodies; keep them private.
+                    if relative.endswith(".private.jsonl"):
+                        os.chmod(destination, 0o600)
                     published.append(destination)
                 manifest_destination.parent.mkdir(parents=True, exist_ok=True)
                 if manifest_destination.exists():
@@ -436,16 +457,31 @@ class Pipeline:
             shutil.rmtree(temporary_root, ignore_errors=True)
 
     def _mark_failure(self, stage: str, error: AnalyzerError) -> None:
+        details: dict[str, object] = {}
+        diagnostic_stage = error.details.get("stage")
+        diagnostic = error.details.get("diagnostic")
+        returncode = error.details.get("returncode")
+        if isinstance(diagnostic_stage, str):
+            details["stage"] = diagnostic_stage[-128:]
+        if isinstance(diagnostic, str):
+            details["diagnostic"] = diagnostic[-2048:]
+        if isinstance(returncode, int) and not isinstance(returncode, bool):
+            details["returncode"] = returncode
         stages = self._run.get("stages")
         if isinstance(stages, dict):
             seen = False
             for name in STAGES:
                 if name == stage:
                     stages[name] = {"status": "failed", "error": error.code}
+                    if details:
+                        stages[name]["details"] = details
                     seen = True
                 elif seen:
                     stages[name] = {"status": "pending"}
-        self._run.update(status="failed", error={"code": error.code, "message": error.message})
+        failure: dict[str, object] = {"code": error.code, "message": error.message}
+        if details:
+            failure["details"] = details
+        self._run.update(status="failed", error=failure)
 
 
 __all__ = ["Executor", "Pipeline", "Payload", "SCHEMA_VERSION", "StageContext", "StageFingerprint", "StageOutput", "STAGES"]

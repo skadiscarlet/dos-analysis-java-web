@@ -45,6 +45,34 @@ class BoundEvaluationTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertEqual(evaluate_bound(self.entry, self.growth, self.flow, candidates, self.config).status, status)
 
+    def test_empty_partial_coverage_is_unknown_but_complete_is_absent(self) -> None:
+        self.assertEqual(
+            evaluate_bound(self.entry, self.growth, self.flow, (), self.config, coverage_status="partial").status,
+            "unknown",
+        )
+        self.assertEqual(
+            evaluate_bound(self.entry, self.growth, self.flow, (), self.config, coverage_status="complete").status,
+            "absent",
+        )
+
+    def test_positive_literal_capacity_does_not_require_external_configuration(self) -> None:
+        effective = evaluate_bound(
+            self.entry,
+            self.growth,
+            self.flow,
+            (self._candidate(configuration_key="literal", configuration_value="64"),),
+            ModeledConfiguration(()),
+        )
+        self.assertEqual("effective", effective.status)
+        invalid = evaluate_bound(
+            self.entry,
+            self.growth,
+            self.flow,
+            (self._candidate(configuration_key="literal", configuration_value="0"),),
+            ModeledConfiguration(()),
+        )
+        self.assertEqual("unknown", invalid.status)
+
     def test_bound_requires_same_receiver_and_consistent_enabled_configuration(self) -> None:
         cases = (
             ({"receiver": "other"}, self.config, "BOUND_RECEIVER_MISMATCH"),

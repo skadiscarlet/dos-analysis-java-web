@@ -23,7 +23,7 @@ _BASE_CORPUS = "java-web-200"
 _ACTIVE_CORPUS = "java-web-205"
 _BASE_TOTAL = 200
 _ACTIVE_TOTAL = 205
-_GENERATED_AT = "2026-08-03T00:00:00+00:00"
+_GENERATED_AT = "2026-08-16T00:00:00+00:00"
 
 
 def normalize_repository(value: object) -> str:

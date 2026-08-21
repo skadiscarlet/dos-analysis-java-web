@@ -402,6 +402,26 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
     if not isinstance(stages, dict):
         malformed.append(f"{run_path}: stages must be an object")
         stages = {}
+    stage_metrics: dict[str, dict[str, object]] = {}
+    entries_stage = stages.get("entries")
+    if isinstance(entries_stage, dict):
+        metadata = entries_stage.get("metadata")
+        if isinstance(metadata, dict):
+            metrics: dict[str, object] = {}
+            for field in ("query_count", "skipped_query_count"):
+                value = metadata.get(field)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    metrics[field] = value
+            truncated = metadata.get("entry_evidence_scan_truncated")
+            if isinstance(truncated, bool):
+                metrics["entry_evidence_scan_truncated"] = truncated
+            diagnostics = metadata.get("query_diagnostics")
+            if isinstance(diagnostics, list):
+                metrics["query_diagnostic_count"] = len(diagnostics)
+            if metrics:
+                stage_metrics["entries"] = metrics
+    if stage_metrics:
+        meta["stage_metrics"] = stage_metrics
     stage_manifest_root = output_dir / ".stage-manifests"
     if stage_manifest_root.is_symlink() or not stage_manifest_root.is_dir():
         malformed.append(f"{stage_manifest_root}: stage manifest directory must be a non-symlink directory")

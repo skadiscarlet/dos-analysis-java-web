@@ -230,5 +230,37 @@
     "status": "verified_oom",
     "output_dir": "poc/XXL-JOB-APP-STATIC-0004",
     "entry": "/trigger"
+  },
+  {
+    "record_id": "grobidorg__grobid-GROBID-STATIC-001",
+    "app": "grobidorg/grobid",
+    "source_batch": "new_confirmed_20260812",
+    "status": "confirmed_oom",
+    "output_dir": "poc/grobidorg__grobid-GROBID-STATIC-001",
+    "entry": "POST /api/processFulltextAssetDocument"
+  },
+  {
+    "record_id": "grobidorg__grobid-GROBID-STATIC-002",
+    "app": "grobidorg/grobid",
+    "source_batch": "new_confirmed_20260812",
+    "status": "confirmed_oom",
+    "output_dir": "poc/grobidorg__grobid-GROBID-STATIC-002",
+    "entry": "POST /api/annotatePDF"
+  },
+  {
+    "record_id": "jetlinks__jetlinks-community-JL-STAGEA-0001",
+    "app": "jetlinks/jetlinks-community",
+    "source_batch": "new_confirmed_20260812",
+    "status": "confirmed_oom",
+    "output_dir": "poc/jetlinks__jetlinks-community-JL-STAGEA-0001",
+    "entry": "GET /authorize/captcha/image"
+  },
+  {
+    "record_id": "walmartlabs__concord-fnd3",
+    "app": "walmartlabs/concord",
+    "source_batch": "new_confirmed_20260812",
+    "status": "confirmed_oom",
+    "output_dir": "poc/walmartlabs__concord-fnd3",
+    "entry": "POST /api/v2/process/{id}/log/segment/{segmentId}/data"
   }
 ]

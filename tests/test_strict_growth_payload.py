@@ -56,6 +56,15 @@ class StrictGrowthPayloadTests(unittest.TestCase):
                 with self.assertRaises(AnalyzerError):
                     ConfigFact("request_limit", value, "excerpt:1")
 
+    def test_config_fact_accepts_matching_virtual_config_provenance_only(self) -> None:
+        from dosweb.growth.models import ConfigFact
+
+        fact = ConfigFact("capacity", 16, "config:explicit", "config:explicit")
+        payload = self._payload(config_facts=(fact,))
+        self.assertEqual("config:explicit", payload.config_facts[0].source_location_ref)
+        with self.assertRaises(AnalyzerError):
+            ConfigFact("capacity", 16, "config:other", "config:explicit")
+
     def test_payload_rejects_dangling_static_fact_value_reference(self) -> None:
         with self.assertRaises(AnalyzerError) as raised:
             self._payload(static_facts=[StaticFact("fact:1", "container_write", "excerpt:1", "sink", "fact:missing")])

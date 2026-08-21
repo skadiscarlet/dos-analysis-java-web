@@ -61,9 +61,14 @@ class ReleaseDecision:
     candidate_ids: tuple[str, ...]
 
 
-def evaluate_synchronous_release(entry: EntryFact, growth: VerifiedGrowthResult, flow: VerifiedFlow, candidates: Sequence[ReleaseCandidate]) -> ReleaseDecision:
-    _validate_context(entry, growth, flow); ordered = tuple(sorted(candidates, key=lambda item: item.release_id))
-    if not ordered: return ReleaseDecision("absent", "absent", ("RELEASE_ABSENT",), (), (), (), ())
+def evaluate_synchronous_release(entry: EntryFact, growth: VerifiedGrowthResult, flow: VerifiedFlow, candidates: Sequence[ReleaseCandidate], *, coverage_status: str = "complete") -> ReleaseDecision:
+    _validate_context(entry, growth, flow)
+    if coverage_status not in {"complete", "partial", "unsupported"}:
+        raise AnalyzerError("ANALYSIS_LIFECYCLE_INVALID", "Release coverage status is invalid.")
+    ordered = tuple(sorted(candidates, key=lambda item: item.release_id))
+    if not ordered:
+        if coverage_status == "complete": return ReleaseDecision("absent", "absent", ("RELEASE_ABSENT",), (), (), (), ())
+        return ReleaseDecision("unknown", "unknown", ("RELEASE_COVERAGE_UNKNOWN",), (), (), ("release_coverage",), ())
     reasons: set[str] = set(); checks: list[DecisionCheck] = []; unresolved: set[str] = set(); effective = False
     classification = "not_effective"
     for candidate in ordered:

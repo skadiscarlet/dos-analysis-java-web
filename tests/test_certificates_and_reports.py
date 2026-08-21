@@ -191,6 +191,13 @@ class CertificateReportTests(unittest.TestCase):
         record["resource_point"]["receiver"] = "mutated"
         self.assertNotEqual(record["resource_point"], certificate.to_dict()["resource_point"])
 
+    def test_report_rejects_orphan_certificate(self) -> None:
+        certificate = self._certificate()
+        summary = build_summary((), (self._framework_coverage(),))
+        with self.assertRaises(AnalyzerError) as raised:
+            render_report(summary, (), (certificate,))
+        self.assertEqual(raised.exception.code, "ANALYSIS_REPORT_INVALID")
+
     def test_report_rejects_finding_certificate_disagreement(self) -> None:
         certificate = self._certificate()
         finding = StaticFinding.from_certificate(certificate)

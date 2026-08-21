@@ -45,6 +45,28 @@ def _safe_relative(value: str) -> str:
     return path.as_posix()
 
 
+def resolve_asset_directory(repo_root: Path, base: str, target_lower: str) -> str:
+    """Resolve a repository-relative asset directory case-preservingly.
+
+    Repository identities are normalized to lowercase for matching, but on-disk
+    directories preserve their original case (e.g. ``grobidOrg__grobid``).  This
+    resolver maps a lower-cased slug back to the single real directory, rejecting
+    symlinks and case-insensitive ambiguity.
+    """
+    base_dir = _assert_nonsymlink(repo_root, base)
+    if not base_dir.is_dir():
+        raise ValueError(f"asset base directory missing: {base}")
+    try:
+        entries = list(base_dir.iterdir())
+    except OSError as exc:
+        raise ValueError(f"asset base directory unreadable: {base}") from exc
+    target = target_lower.casefold()
+    matches = [entry.name for entry in entries if not entry.is_symlink() and entry.name.casefold() == target]
+    if len(matches) != 1:
+        raise ValueError(f"asset directory ambiguous or missing for {target_lower!r}: {len(matches)} match(es)")
+    return _safe_relative(f"{base}/{matches[0]}")
+
+
 def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -213,8 +235,8 @@ def build_asset_manifest(
         raise ValueError(f"database override has unknown repositories: {sorted(unknown_overrides)!r}")
     for index, repository in enumerate(normalized_repositories, 1):
         slug = repo_slug(repository)
-        source_path = _safe_relative(f"frameworks/applications/{slug}")
-        default_database_path = _safe_relative(f"databases/applications/{slug}-db")
+        source_path = resolve_asset_directory(repo_root, "frameworks/applications", slug)
+        default_database_path = resolve_asset_directory(repo_root, "databases/applications", f"{slug}-db")
         database_path = _safe_relative(overrides[repository]) if repository in overrides else default_database_path
         source = _assert_nonsymlink(repo_root, source_path)
         database = _assert_nonsymlink(repo_root, database_path)
@@ -351,12 +373,12 @@ def corpus_from_manifest(
             provider_source_path = source_path if actual_type == "git-commit" else None
             provider_source_commit = actual_fingerprint if actual_type == "git-commit" else None
             public_source_url = f"https://github.com/{name}" if actual_type == "git-commit" else None
-        provider_eligible = provider_source_path is not None and provider_source_commit is not None
+        provider_eligible = True
         capability = TargetCapability(
             provider_eligible=provider_eligible,
             public_source_url=public_source_url,
-            attestation="git-commit" if provider_eligible else actual_type,
-            reason=None if provider_eligible else "attestation_unavailable",
+            attestation=actual_type,
+            reason=None,
             provider_source_path=provider_source_path,
             provider_source_commit=provider_source_commit,
         )
@@ -391,6 +413,11 @@ def normalize_truth(
     rows = raw.get("confirmed_true_positive")
     if not isinstance(rows, list):
         raise ValueError("confirmed_true_positive must be a list")
+    # PoC-29 is a frozen historical benchmark.  The live truth collection may
+    # grow, but later batches must not silently change this oracle or its
+    # source/database corpus identity.
+    historical_batches = frozenset({"new", "new_retest", "p0", "p1", "p2"})
+    rows = [row for row in rows if isinstance(row, Mapping) and row.get("source_batch") in historical_batches]
     source_digest = file_sha256(source)
     normalized: list[dict[str, Any]] = []
     errors: list[str] = []

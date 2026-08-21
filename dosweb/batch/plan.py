@@ -13,7 +13,7 @@ from dosweb.batch.models import BatchPlan, BatchTargetPlan, CanonicalCorpus, Tar
 from dosweb.errors import AnalyzerError
 
 TOOL_VERSION = "dosweb-v2"
-BATCH_SCHEMA_VERSION = "java-web-dos-batch-v1"
+BATCH_SCHEMA_VERSION = "java-web-dos-batch-v2"
 
 
 def _invalid(reason: str, **details: object) -> AnalyzerError:
@@ -178,12 +178,11 @@ def build_batch_plan(
         if not re.fullmatch(r"[0-9a-f]{64}", target.database_fingerprint):
             raise _invalid("DATABASE_FINGERPRINT_INVALID", target_id=target.identity.identity_id)
         target_output = f"{output}/targets/{target.index:03d}-{target.slug}"
-        state = "queued"
         targets.append(BatchTargetPlan(
             identity=target.identity,
             output_path=target_output,
             capability=target.capability,
-            initial_state=state,
+            initial_state="queued",
             target_id=target.identity.identity_id,
             database_fingerprint=target.database_fingerprint,
         ))
@@ -202,6 +201,8 @@ def build_batch_plan(
     provider = _provider_settings(provider_settings)
     if mode == "entries":
         provider["allow_remote_llm"] = False
+    analysis_mode = "exploratory_entries" if mode == "entries" else "formal"
+    query_failure_policy = "coverage_gap" if mode == "entries" else "fail_closed"
     unsigned = {
         "schema_version": 1,
         "tool_version": tool_version,
@@ -211,6 +212,8 @@ def build_batch_plan(
         "output_root": output,
         "inventory_digest": corpus.inventory_digest,
         "provider": provider,
+        "analysis_mode": analysis_mode,
+        "query_failure_policy": query_failure_policy,
         "targets": [target.to_dict() for target in targets],
     }
     digest = sha256_canonical_json(unsigned)
@@ -219,6 +222,7 @@ def build_batch_plan(
         schema_version=1, tool_version=tool_version, batch_schema_version=BATCH_SCHEMA_VERSION,
         run_id=run_id, mode=mode, output_root=output, inventory_digest=corpus.inventory_digest,
         targets=tuple(targets), plan_id=plan_id, plan_digest=digest, provider=unsigned["provider"],
+        analysis_mode=analysis_mode, query_failure_policy=query_failure_policy,
     )
 
 
@@ -333,11 +337,13 @@ def load_batch_plan(path: Path | str) -> BatchPlan:
         raise _invalid("PLAN_READ_FAILED") from exc
     if not isinstance(raw, Mapping):
         raise _invalid("PLAN_NOT_OBJECT")
-    required = {"schema_version", "tool_version", "batch_schema_version", "run_id", "mode", "output_root", "inventory_digest", "provider", "targets", "plan_id", "plan_digest"}
-    if set(raw) != required or not isinstance(raw["targets"], list):
+    legacy_required = {"schema_version", "tool_version", "batch_schema_version", "run_id", "mode", "output_root", "inventory_digest", "provider", "targets", "plan_id", "plan_digest"}
+    required = legacy_required | {"analysis_mode", "query_failure_policy"}
+    if (set(raw) != legacy_required and set(raw) != required) or not isinstance(raw["targets"], list):
         raise _invalid("PLAN_FIELDS_INVALID")
     try:
-        unsigned = {key: raw[key] for key in required - {"plan_id", "plan_digest"}}
+        unsigned_fields = (required if set(raw) == required else legacy_required) - {"plan_id", "plan_digest"}
+        unsigned = {key: raw[key] for key in unsigned_fields}
         digest = sha256_canonical_json(unsigned)
     except (TypeError, ValueError, MemoryError, RecursionError) as exc:
         raise _invalid("PLAN_DIGEST_INVALID") from exc
@@ -350,8 +356,10 @@ def load_batch_plan(path: Path | str) -> BatchPlan:
             raise ValueError("plan digest")
         if not isinstance(raw["plan_id"], str) or not re.fullmatch(r"plan:[0-9a-f]{24}", raw["plan_id"]):
             raise ValueError("plan id")
-        if raw["batch_schema_version"] != BATCH_SCHEMA_VERSION or raw["mode"] not in {"plan", "entries", "full"}:
+        if raw["batch_schema_version"] not in {"java-web-dos-batch-v1", BATCH_SCHEMA_VERSION} or raw["mode"] not in {"plan", "entries", "full"}:
             raise ValueError("enum")
+        if set(raw) == required and (raw["analysis_mode"] not in {"formal", "exploratory_entries"} or raw["query_failure_policy"] not in {"fail_closed", "coverage_gap"}):
+            raise ValueError("analysis mode")
         if (
             not isinstance(raw["run_id"], str) or not raw["run_id"]
             or "/" in raw["run_id"] or "\\" in raw["run_id"] or ".." in raw["run_id"]
@@ -380,7 +388,7 @@ def load_batch_plan(path: Path | str) -> BatchPlan:
             raise ValueError("duplicate target")
     except (TypeError, ValueError, KeyError, AttributeError, AnalyzerError) as exc:
         raise _invalid("TARGET_INVALID") from exc
-    return BatchPlan(raw["schema_version"], raw["tool_version"], raw["batch_schema_version"], raw["run_id"], raw["mode"], output_root, raw["inventory_digest"], tuple(targets), raw["plan_id"], raw["plan_digest"], dict(provider))
+    return BatchPlan(raw["schema_version"], raw["tool_version"], raw["batch_schema_version"], raw["run_id"], raw["mode"], output_root, raw["inventory_digest"], tuple(targets), raw["plan_id"], raw["plan_digest"], dict(provider), str(raw.get("analysis_mode", "")), str(raw.get("query_failure_policy", "")))
 
 
 def write_target_binding(plan: BatchPlan, target: BatchTargetPlan, output_directory: Path | str) -> Path:
@@ -388,7 +396,7 @@ def write_target_binding(plan: BatchPlan, target: BatchTargetPlan, output_direct
     if target not in plan.targets:
         raise _invalid("TARGET_NOT_IN_PLAN")
     path = Path(output_directory) / "batch_target.json"
-    binding = {"plan_id": plan.plan_id, "plan_digest": plan.plan_digest, "run_id": plan.run_id, "mode": plan.mode, "target": target.to_dict()}
+    binding = {"plan_id": plan.plan_id, "plan_digest": plan.plan_digest, "run_id": plan.run_id, "mode": plan.mode, "analysis_mode": plan.analysis_mode, "query_failure_policy": plan.query_failure_policy, "target": target.to_dict()}
     _atomic_write(path, canonical_json(binding) + b"\n")
     return path
 

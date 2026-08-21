@@ -2,17 +2,15 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import datetime, timezone
 import inspect
 import json
 import os
 from pathlib import Path, PurePosixPath
 import signal
-import subprocess
-import tempfile
 import threading
 from typing import Any
 
@@ -21,8 +19,8 @@ from dosweb.batch.models import BatchPlan, BatchTargetPlan
 from dosweb.batch.plan import write_target_binding
 from dosweb.batch.state import BatchState, atomic_write_json, batch_lock
 from dosweb.codeql.database import DatabaseInfo, validate_database
+from dosweb.config import _DEFAULT_SECRETS_PATH, resolve_api_key
 from dosweb.errors import AnalyzerError
-from dosweb.llm.deepseek import verify_local_checkout_at_commit
 
 PipelineFactory = Callable[..., object]
 DatabaseValidator = Callable[..., DatabaseInfo]
@@ -130,37 +128,6 @@ def _atomic_jsonl(path: Path, rows: list[Mapping[str, object]]) -> None:
             os.close(descriptor)
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def _git_checkout(checkout: Path, *arguments: str) -> str:
-    command = [
-        "git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-        "-c", "status.showUntrackedFiles=all",
-        "-c", "fsck.missingEmail=error", "-c", "fsck.badEmail=error",
-        "-c", "fsck.zeroPaddedFilemode=error", "--no-pager", "-C", str(checkout), *arguments,
-    ]
-    environment = {
-        "PATH": "/usr/bin:/bin",
-        "LC_ALL": "C",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": "",
-        "GIT_NO_REPLACE_OBJECTS": "1",
-    }
-    try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            env=environment,
-            timeout=60,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "Local source checkout could not be prepared.") from exc
-    if completed.returncode != 0:
-        raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "Local source checkout could not be prepared.")
-    return completed.stdout.strip()
 
 
 class BatchRunner:
@@ -367,7 +334,7 @@ class BatchRunner:
             run = json.loads(run_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             return False
-        expected = {"plan_id": self.plan.plan_id, "plan_digest": self.plan.plan_digest, "run_id": self.plan.run_id, "mode": self.plan.mode, "target": target.to_dict()}
+        expected = {"plan_id": self.plan.plan_id, "plan_digest": self.plan.plan_digest, "run_id": self.plan.run_id, "mode": self.plan.mode, "analysis_mode": self.plan.analysis_mode, "query_failure_policy": self.plan.query_failure_policy, "target": target.to_dict()}
         return binding == expected and isinstance(run, Mapping) and run.get("status") == "completed"
 
     def _normalize_completed_gaps(self) -> None:
@@ -457,33 +424,6 @@ class BatchRunner:
                 return False
         return attempt < self.max_attempts
 
-    @contextmanager
-    def _prepared_provider_checkout(
-        self,
-        source_checkout: Path,
-        source_commit_sha: str,
-        public_source_url: str | None = None,
-    ) -> Iterator[Path]:
-        try:
-            verify_local_checkout_at_commit(source_checkout, source_commit_sha, public_source_url)
-        except AnalyzerError as original_exc:
-            with tempfile.TemporaryDirectory(prefix="dosweb-provider-") as temporary:
-                worktree = Path(temporary)
-                try:
-                    _git_checkout(source_checkout, "worktree", "add", "--detach", "--force", str(worktree), source_commit_sha)
-                    verify_local_checkout_at_commit(worktree, source_commit_sha, public_source_url)
-                except AnalyzerError:
-                    raise original_exc
-                try:
-                    yield worktree
-                finally:
-                    try:
-                        _git_checkout(source_checkout, "worktree", "remove", "--force", str(worktree))
-                    except AnalyzerError:
-                        pass
-        else:
-            yield source_checkout
-
     def _run_target(self, target: BatchTargetPlan) -> None:
         assert self._state is not None
         record = self._state.targets[target.target_id]
@@ -516,7 +456,7 @@ class BatchRunner:
                     binding = json.loads(binding_path.read_text(encoding="utf-8"))
                 except (OSError, UnicodeError, json.JSONDecodeError) as exc:
                     raise AnalyzerError("BATCH_TARGET_BINDING_INVALID", "Existing target binding is malformed.") from exc
-                expected = {"plan_id": self.plan.plan_id, "plan_digest": self.plan.plan_digest, "run_id": self.plan.run_id, "mode": self.plan.mode, "target": target.to_dict()}
+                expected = {"plan_id": self.plan.plan_id, "plan_digest": self.plan.plan_digest, "run_id": self.plan.run_id, "mode": self.plan.mode, "analysis_mode": self.plan.analysis_mode, "query_failure_policy": self.plan.query_failure_policy, "target": target.to_dict()}
                 if binding != expected:
                     raise AnalyzerError("BATCH_TARGET_IDENTITY_MISMATCH", "Existing target output belongs to another identity.")
             else:
@@ -525,18 +465,19 @@ class BatchRunner:
             public_source_url = target.capability.public_source_url
             provider_commit = target.capability.provider_source_commit or (
                 target.identity.fingerprint if target.identity.fingerprint_type == "git-commit"
-                else _git_checkout(source_checkout, "rev-parse", "HEAD").lower()
+                else None
             )
             if self.plan.mode == "entries":
                 provider_checkout = nullcontext(source_checkout)
-            else:
-                if not environment.get("DEEPSEEK_API_KEY", "").strip():
+            elif self.plan.mode == "full":
+                if self.plan.analysis_mode not in {"", "formal"} or self.plan.query_failure_policy not in {"", "fail_closed"}:
+                    raise AnalyzerError("BATCH_PLAN_INVALID", "Formal plan has an invalid query failure policy.")
+                if not resolve_api_key(environment, _DEFAULT_SECRETS_PATH):
                     raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires explicit provider authorization.")
-                provider_checkout = self._prepared_provider_checkout(
-                    source_checkout,
-                    provider_commit,
-                    public_source_url,
-                )
+                # Git commit provenance is not required: use the local source tree directly.
+                provider_checkout = nullcontext(source_checkout)
+            else:
+                provider_checkout = nullcontext(source_checkout)
             with provider_checkout as prepared_checkout:
                 values: dict[str, object] = {
                     "command": "entries" if self.plan.mode == "entries" else "analyze",
@@ -548,8 +489,11 @@ class BatchRunner:
                     "public_source_url": public_source_url,
                     "resume": self.resume,
                     "allow_remote_llm": self.plan.mode == "full",
+                    "allow_partial_codeql": self.plan.analysis_mode == "exploratory_entries" and self.plan.query_failure_policy == "coverage_gap",
                 }
                 if self.plan.mode == "entries":
+                    if self.plan.analysis_mode not in {"", "exploratory_entries"} or self.plan.query_failure_policy not in {"", "coverage_gap"}:
+                        raise AnalyzerError("BATCH_PLAN_INVALID", "Entries plan has an invalid query failure policy.")
                     # Entry extraction must be provider-independent even if the
                     # parent process happens to carry credentials.
                     environment.pop("DEEPSEEK_API_KEY", None)
@@ -594,7 +538,7 @@ class BatchRunner:
         if self.plan.mode == "full":
             if self.plan.provider.get("allow_remote_llm") is not True:
                 raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch plan requires explicit remote provider authorization.")
-            if not self.environ.get("DEEPSEEK_API_KEY", "").strip():
+            if not resolve_api_key(self.environ, _DEFAULT_SECRETS_PATH):
                 raise AnalyzerError("BATCH_REMOTE_LLM_NOT_AUTHORIZED", "Full batch mode requires provider credentials.")
         try:
             with batch_lock(self.lock_path, blocking=False):

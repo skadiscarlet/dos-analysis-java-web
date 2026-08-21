@@ -32,7 +32,7 @@ P0 does not implement asynchronous Release capacity analysis, lifecycle assertio
 3. **Coverage gaps are explicit.** Unsupported registration, routing, reflection, framework patterns, and lifecycle semantics must be reported rather than silently ignored.
 4. **The ordinary analyzer remains static-only.** Historical PoCs and dynamic-validation results do not influence ordinary scan verdicts.
 5. **Artifacts are stable and recoverable.** Every stage writes versioned, validated, content-addressed artifacts.
-6. **Secrets never enter repository configuration or artifacts.** The DeepSeek API key is accepted only through the process environment.
+6. **Secrets never enter repository configuration or artifacts.** The DeepSeek API key is accepted only through the process environment or a gitignored local secrets file (`config/local_secrets.json`).
 
 ## 3. Architecture
 
@@ -67,7 +67,11 @@ Java source / CodeQL database
  Lifecycle certificates + static findings
 ```
 
-### 3.2 Python package boundaries
+#### 3.1.1 Compliance-repair interfaces (2026-08-17)
+
+`entries` remains offline and additionally publishes bounded `ModeledConfigurationFact` and `EntrySecurityFact` artifacts. A formal Growth run may use a separate constrained Auth Contract: its answer is accepted only when every cited security/configuration fact belongs to the candidate's bounded slice; unresolved authentication remains `unknown`. `analysis.modeled_defaults` and repeated non-secret `--modeled-default key=value` are provenance-bearing modeled defaults (CLI > config > extracted default > unknown). Formal stages fail on selected CodeQL query failure; only explicit exploratory `entries --allow-partial-codeql` may publish a coverage-gap result, which formal full runs cannot resume. Formal Growth/Auth calls additionally publish a bounded 0600 private audit artifact containing normalized prompt, schema/version, non-secret settings, raw provider envelope, parsed result, attestation, hashes and cache provenance; credentials, headers and environment are prohibited. Application configuration extraction is allowlist-based and never persists or transmits password/token/key/credential fields or arbitrary business strings. Remote provider use requires a public GitHub URL whose local origin, unauthenticated public-repository API result, and exact commit SHA all match; a local-only commit attestation cannot authorize source upload.
+
+## 3.2 Python package boundaries
 
 ```text
 dos-web-analyzer
@@ -190,6 +194,14 @@ export DEEPSEEK_API_KEY='...'
 export DEEPSEEK_BASE_URL='https://api.deepseek.com/'
 ```
 
+Alternatively the API key may be pinned in a gitignored local secrets file `config/local_secrets.json`:
+
+```json
+{"deepseek_api_key": "sk-..."}
+```
+
+The environment variable takes precedence over the local secrets file.
+
 A configuration file may contain non-secret provider settings:
 
 ```yaml
@@ -202,7 +214,7 @@ llm:
   temperature: 0
 ```
 
-An `api_key` field in a configuration file is rejected with `CONFIG_SECRET_IN_FILE`. The analyzer never persists the key, authorization headers, or the complete process environment.
+An `api_key` field in a configuration file is rejected with `CONFIG_SECRET_IN_FILE` (it belongs in the separate gitignored `config/local_secrets.json`, never in the tracked YAML). The analyzer never persists the key, authorization headers, or the complete process environment.
 
 ### 4.4 Provider behavior
 
@@ -348,7 +360,9 @@ Deterministic verification enforces that:
 4. a model `yes` does not directly create `verified_growth`;
 5. unsupported or unprovable claims produce `unresolved` rather than a vulnerability fact.
 
-The complete normalized prompt, response schema version, model settings, raw response body, parsed response, and content hashes are retained for audit. Authentication material is excluded.
+The complete normalized prompt, response schema version, model settings, raw response body, parsed response, and content hashes are retained for audit. Authentication material is excluded. Cache hits are replayable only from a private, HMAC-authenticated, atomically published cache entry containing the same bounded raw response and parsed contract; old cache schemas are not reusable.
+
+P0 flow sources use real Spring MVC, Servlet, Netty, and MQTT qualified APIs. Global data-flow may prove supported callable paths, but unproven multi-wrapper, field/alias, reflection, custom dispatch, loop/fan-out or submission-count semantics must be emitted as partial coverage rather than upgraded from expression-string matching.
 
 ## 8. Lifecycle Analysis
 
@@ -400,24 +414,27 @@ P0 confirms a Release only when static evidence proves:
 
 Workers, timers, callbacks, protocol acknowledgements, consumer throughput, and other asynchronous Release mechanisms are not proven safe in P0. Potential asynchronous Release evidence is recorded and forces `static_unknown` for assertion 2 rather than being treated as absent.
 
+Lifecycle screening is path-bound: every usable Guard, Bound, or Release row is emitted as `LifecycleEvidence(entry_id, growth_id, path_id, growth_anchor, candidate_location, canonical_resource_identity, cfg_relation, coverage)`. Every relevant path/family also has a `LifecycleCoverage` row. Absence is valid only for that exact path/family when an explicit modeled-domain coverage witness is complete and it has no linked candidate; candidate-query zero rows alone never prove absence. Partial/unsupported/ambiguous CFG, alias, receiver, or configuration evidence is `unknown`. Global same-name receiver/key matching is forbidden.
+
 ## 9. P0 Assertions
 
 ### 9.1 Assertion 1: unbounded direct growth
 
 ```text
 proven E->G
-and attacker controls resource demand
+and attacker controls direct size demand, or proven single-request loop/batch/submission amplification
 and verified growth
 and no effective Guard
 and no effective Bound
 ```
 
-This primarily covers input materialization and direct allocation, while permitting a single request to amplify container or asynchronous-work growth.
+This primarily covers input materialization and direct allocation. A single `put(key,value)` or `submit(task)` is not amplification; container or asynchronous-work growth requires separately proven loop/batch/submission multiplicity.
 
 ### 9.2 Assertion 2: persistent accumulation without Release
 
 ```text
-proven repeatable E->G
+ordinary-attacker reachability proven by constrained security evidence
+and proven repeatable E->G
 and attacker controls key, value, submission, or resource creation
 and verified escaping growth
 and no effective Bound
@@ -666,6 +683,12 @@ P0 excludes:
 
 These exclusions must appear as coverage or lifecycle limitations rather than being treated as evidence of safety.
 
+> **2026-08-18 P0.1 amendment.** JAX-RS and gRPC entry modeling are no longer
+> deferred: they are covered by the explicit P0.1 extension in section 19 with
+> the same fail-closed three-value verdict semantics. WebSocket, arbitrary custom
+> protocol dispatch, and reflection-based registration remain deferred and must
+> stay `partial`/`static_unknown`.
+
 ## 18. P0 Acceptance Criteria
 
 P0 is complete only when all of the following are true:
@@ -682,3 +705,97 @@ P0 is complete only when all of the following are true:
 - an opt-in real-provider test is available;
 - ordinary conclusions remain independent from historical and current dynamic evidence;
 - P0 performs no dynamic DoS execution.
+
+### 2026-08-17 implementation clarification: formal entry-to-growth evidence
+
+A formal P0 flow must use real framework qualified APIs and a CodeQL global data-flow witness. Source-order proximity is not an association proof. Candidate/entry association is a distinct artifact: only complete call-graph association permits a Growth Contract; ambiguous or unsupported association emits partial coverage and must remain `static_unknown`. For Netty, `initChannel` plus `addLast` alone is partial; a supported `ServerBootstrap.childHandler` or `handler` installation is required for complete registration. A submitted task value is not evidence that the attacker controls submission count; a loop or batch-count witness is required.
+
+## 19. PoC-33 Recall Hardening / P0.1 Extension (2026-08-18)
+
+This section hardens the analyzer for the PoC-33 true-positive recall without
+changing the P0 core model. The fixed formula, phase order, three-value verdict
+(`static_vulnerable` / `bounded_under_modeled_assumptions` / `static_unknown`),
+and fail-closed semantics are unchanged.
+
+### 19.1 Scope split
+
+- **Track A — approved P0 support-domain repair.** Fixes confined to the already
+  approved Spring MVC, Servlet, Netty, and MQTT entry families plus the shared
+  pipeline (configuration traversal, decoder diagnostics, bounded-slice
+  redaction, formal entry-query selection, entry interposition, bounded
+  interprocedural E→G). These are P0 repairs, not extensions.
+- **Track B — explicit P0.1 extension.** Adds JAX-RS, gRPC streaming, Armeria,
+  and Solr form pre-handler entry modeling as an *explicit* amendment. It does
+  not silently widen P0; anything not provable remains `partial`/`static_unknown`.
+
+### 19.2 Remote LLM authorization (corrected wording)
+
+The only hard gates for a remote Growth/Auth call are: explicit
+`allow_remote_llm`, a non-empty API key resolved from the gitignored local
+secrets file (environment override allowed), and a readable, traversable local
+`source_checkout`. `public_source_url`, `source_commit_sha`, `verified_public`,
+and `verified_clean_checkout` are optional audit metadata only — they are never a
+scheduling or call-permission gate. Secret configuration values must never be
+persisted, transmitted, or placed in a prompt; bounded-slice redaction applies
+before any remote call.
+
+### 19.2a Track A interposition and bounded-flow boundaries
+
+- `FilterRegistrationBean` interposition may bind a source-defined filter to a
+  Spring handler only through a constant URL mapping and a unique normalized
+  registration identity. A static order value is recorded but does not prove
+  pre-auth execution. Until CFG action-before-chain is proven, the fact remains
+  `partial` with `phase=unknown` and cannot by itself verify Growth or change a
+  verdict.
+- Filter-to-Growth call associations resolve only concrete source methods or one
+  unique source-defined implementation within depth ≤ 3. Multiple
+  implementations, reflection, custom dispatch, and deeper paths emit no
+  complete edge. Any cross-call association/flow remains `partial` unless its
+  full path coverage is independently proven.
+- G1 recognizes bounded read-all APIs (`readAllBytes`, Hutool/Commons/Spring
+  equivalents) and source-defined `HttpServletRequestWrapper` reader-loop /
+  `StringBuilder` materialization. These are screening facts only; entry
+  coverage, attacker flow, content-type predicates, and effective bounds remain
+  independent proof obligations.
+
+### 19.3 Track B complete/partial boundaries
+
+- **JAX-RS**: `javax/jakarta.ws.rs` class/method path synthesis, HTTP verb,
+  entity/InputStream/multipart parameters, `@PermitAll`/`@RolesAllowed`, and
+  source-defined resource registration with a unique application/package
+  registration are `complete`. Auto-scanning or dynamic registration is
+  `partial`.
+- **gRPC streaming**: generated `*ImplBase` overrides, `bindService`/`addService`
+  registration, and unary/client/server/bidi streaming method identity are
+  `complete` when the service is uniquely bound. Unproven concurrent-stream
+  multiplicity, interceptor/auth, or ambiguous server registration stay
+  `partial`/`static_unknown`.
+- **Armeria**: annotated-service registration bound to a specific handler method
+  is `complete`; a shared request-aggregation candidate linked ambiguously to
+  multiple routes is `partial`. Decompressed-size bounds remain `unknown`.
+- **Solr**: a Servlet/Jetty `application/x-www-form-urlencoded` parser running
+  before the business handler is an interposition fact; `formdataUploadLimitInKB`
+  is an effective Bound only when default configuration, current path, and
+  pre-parse rejection are all provable.
+- Reflection, unresolvable dispatch, and asynchronous Release capacity remain
+  `partial`/`static_unknown` and are never promoted to `complete`.
+
+### 19.4 Truth independence and chain-level disposition
+
+Ordinary scans never read PoC truth. Dynamic truth is consumed only by the
+benchmark/post-hoc recall stage, where each of the 33 records receives a
+chain-level disposition spanning entry → growth → association → flow →
+lifecycle/certificate → finding, with an explicit reason code and the furthest
+reached stage. String route markers are secondary diagnostics only; the primary
+match uses canonical repository identity plus entry and sink/growth identity.
+
+### 19.5 Artifact and version impact
+
+New artifacts: `entry_gap_facts.jsonl`, `entry_interposition_facts.jsonl`,
+`configuration_coverage.json`, and benchmark-only `truth_dispositions.jsonl`. Entry registration/event, Growth
+operation, and reason-code enums are extended; the four core Growth kinds and the
+three-value verdict are unchanged. LLM audit adds original/transmitted excerpt
+hashes and redaction metadata without storing the original secret. Query
+diagnostics keep the safe contract reason. This amendment raises the artifact
+schema to **2.5** and the tool version to **0.4.0**; legacy 2.4 artifacts are
+preserved but are not resumable.

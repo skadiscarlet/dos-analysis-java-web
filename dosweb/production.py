@@ -5,25 +5,29 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Final, cast
 
 from dosweb.artifacts.identifiers import canonical_json, stable_identifier
-from dosweb.artifacts.jsonl import read_jsonl_strict
-from dosweb.artifacts.metadata import resolve_upstream_artifact
-from dosweb.artifacts.schemas import validate_records
+from dosweb.artifacts.jsonl import read_jsonl_bytes_strict
+from dosweb.artifacts.metadata import read_upstream_artifact_bytes
+from dosweb.artifacts.schemas import SCHEMA_VERSION as ARTIFACT_SCHEMA_VERSION, validate_records, validate_references
 from dosweb.codeql.database import DatabaseInfo, validate_database as _validate_database
 from dosweb.codeql.decoder import DecodeSource, decode_bqrs_json
 from dosweb.codeql.runner import QueryResult, run_query as _run_query
-from dosweb.config import AnalyzerConfig, load_config
+from dosweb.config import AnalyzerConfig, _DEFAULT_SECRETS_PATH, load_config, resolve_api_key
+from dosweb.configuration import extract_modeled_configuration_with_coverage
+from dosweb.configuration.models import ModeledConfigurationFact
+from dosweb.reachability.models import EntrySecurityFact
 from dosweb.conclude.assertions import evaluate_assertion_1, evaluate_assertion_2
 from dosweb.conclude.verdicts import CandidateCoverage, derive_verdict
 from dosweb.entries import EntryFact, FrameworkCoverage
-from dosweb.entries.models import load_entry_facts
-from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage
+from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
 from dosweb.errors import AnalyzerError
+from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_descriptor_coverage
 from dosweb.flows.models import FlowProof, normalize_flow_rows
 from dosweb.flows.verify import VerifiedFlow, verify_flow
 from dosweb.growth.contracts import validate_contract_static_evidence
@@ -36,26 +40,85 @@ from dosweb.lifecycle.bounds import BoundCandidate, BoundDecision, evaluate_boun
 from dosweb.lifecycle.certificates import LifecycleCertificate, StaticFinding, build_lifecycle_certificate
 from dosweb.lifecycle.guards import DecisionCheck, GuardCandidate, GuardDecision, ModeledConfiguration, evaluate_guard
 from dosweb.lifecycle.releases import ReleaseCandidate, ReleaseDecision, evaluate_synchronous_release
+from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, LifecycleSummary
 from dosweb.llm.deepseek import DeepSeekClient
 from dosweb.pipeline import Executor, Pipeline, STAGES, StageContext, StageOutput
 from dosweb.report.markdown import render_report
 from dosweb.report.summary import build_summary
 
-_IMPLEMENTATION_VERSIONS: Final = {stage: "production-v2" for stage in STAGES}
+_IMPLEMENTATION_VERSIONS: Final = {stage: "production-v2.5-poc33-recall" for stage in STAGES}
 _QUERY_PACK_DIR: Final = Path(__file__).resolve().parent / "codeql" / "pack"
 _ENTRY_QUERY_DIR: Final = _QUERY_PACK_DIR / "dosweb" / "Entries"
+_INTERPOSITION_QUERY: Final = "EntryInterpositions.ql"
 _ENTRY_QUERIES: Final = (
     "SpringMvcEntries.ql", "ServletEntries.ql", "NettyEntries.ql", "MqttEntries.ql",
     "JaxRsEntries.ql", "GrpcEntries.ql",
 )
+_ENTRY_QUERY_FRAMEWORKS: Final[dict[str, tuple[str, str]]] = {
+    "SpringMvcEntries.ql": ("spring_mvc", "http"),
+    "ServletEntries.ql": ("servlet", "http"),
+    "NettyEntries.ql": ("netty", "tcp"),
+    "MqttEntries.ql": ("mqtt", "mqtt"),
+    "JaxRsEntries.ql": ("jax_rs", "http"),
+    "GrpcEntries.ql": ("grpc", "grpc"),
+}
+_ENTRY_QUERY_HINTS: Final[dict[str, tuple[str, ...]]] = {
+    "SpringMvcEntries.ql": ("org.springframework", "com.linecorp.armeria", "ServiceRequestContext", "@Controller", "@RestController", "@RequestMapping", "@PostMapping", "@GetMapping", "@Post("),
+    "ServletEntries.ql": ("@WebServlet", "HttpServlet", "GenericServlet", "FilterRegistrationBean", "ServletContextHandler"),
+    "NettyEntries.ql": ("io.netty", "ChannelHandler", "ChannelInboundHandler", "ServerBootstrap"),
+    "MqttEntries.ql": ("org.eclipse.paho", "io.netty.handler.codec.mqtt", "mqtt", "Mqtt"),
+    "JaxRsEntries.ql": ("javax.ws.rs", "jakarta.ws.rs", "@Path", "@GET", "@POST"),
+    "GrpcEntries.ql": ("io.grpc", "BindableService", "ServerServiceDefinition", "GrpcService", "grpc"),
+}
 _QUERY_FAMILIES: Final[dict[str, tuple[str, ...]]] = {
     "growth": ("InputMaterialization.ql", "DirectAllocation.ql", "ContainerGrowth.ql", "AsyncWorkGrowth.ql"),
     "flows": ("EntryToGrowth.ql",),
-    "lifecycle": ("GuardCandidates.ql", "BoundCandidates.ql", "SynchronousReleaseCandidates.ql"),
+    "associations": ("EntryToGrowthAssociations.ql",),
+    "lifecycle": ("GuardCandidates.ql", "BoundCandidates.ql", "SynchronousReleaseCandidates.ql", "LifecycleCoverage.ql", "LifecycleSummary.ql"),
 }
-_QUERY_DIRS: Final[dict[str, str]] = {"growth": "Growth", "flows": "Flows", "lifecycle": "Lifecycle"}
+_QUERY_DIRS: Final[dict[str, str]] = {"growth": "Growth", "flows": "Flows", "associations": "Flows", "lifecycle": "Lifecycle"}
 _MAX_DECODED_BYTES: Final = 64 * 1024 * 1024
 _MAX_QUERY_INPUT_BYTES: Final = 2 * 1024 * 1024
+_MAX_SECURITY_SOURCE_BYTES: Final = 512 * 1024
+
+
+def _same_java_callable(source_root: Path, relative_file: str, first_line: int, second_line: int) -> bool:
+    """Conservatively bind two source locations to the same Java method body.
+
+    This is intentionally a narrow parser: malformed/large files, lambdas and
+    interprocedural code return ``False`` and therefore preserve partial
+    lifecycle coverage. It prevents a global candidate with the same receiver
+    spelling from being reused across handlers until CodeQL emits a stronger
+    CFG/alias witness.
+    """
+    if first_line < 1 or second_line < 1 or ".." in Path(relative_file).parts:
+        return False
+    try:
+        path = (source_root / relative_file).resolve(strict=True)
+        if path.parent != source_root.resolve() and source_root.resolve() not in path.parents:
+            return False
+        if path.stat().st_size > 512 * 1024:
+            return False
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError, ValueError):
+        return False
+    if max(first_line, second_line) > len(lines):
+        return False
+    # Identify the innermost brace scope whose header resembles a method. This
+    # avoids treating class-level field initializers as a common callable.
+    stack: list[tuple[int, bool]] = []
+    scopes: list[tuple[int, int]] = []
+    for index, line in enumerate(lines, 1):
+        header = "(" in line and ")" in line and ("{" in line or index < len(lines) and "{" in lines[index])
+        for _ in range(line.count("{")):
+            stack.append((index, header))
+        for _ in range(line.count("}")):
+            if stack:
+                start, is_method = stack.pop()
+                if is_method:
+                    scopes.append((start, index))
+    common = [scope for scope in scopes if scope[0] <= first_line <= scope[1] and scope[0] <= second_line <= scope[1]]
+    return bool(common)
 _MAX_ENTRY_ROWS: Final = 4096
 _CODEQL_TIMEOUT_SECONDS: Final = 300
 
@@ -63,14 +126,96 @@ validate_database = _validate_database
 run_query = _run_query
 
 
+
+def _normalize_interposition_rows(
+    rows: Sequence[Mapping[str, object]], entries: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Bind source-backed filter rows only to one complete extracted entry.
+
+    A row with route-normalization duplicates or any other ambiguous handler
+    identity is deliberately not published: interposition evidence must not
+    invent an Entry identity.
+    """
+    by_location: dict[tuple[str, int], list[Mapping[str, object]]] = {}
+    for entry in entries:
+        handler = entry.get("handler")
+        if not isinstance(handler, Mapping):
+            continue
+        file_name, line, entry_id = handler.get("file"), handler.get("start_line"), entry.get("entry_id")
+        if isinstance(file_name, str) and isinstance(line, int) and isinstance(entry_id, str):
+            by_location.setdefault((file_name, line), []).append(entry)
+    output: list[dict[str, object]] = []
+    for row in rows:
+        entry_file, entry_line = row.get("entry_file"), row.get("entry_start_line")
+        if not isinstance(entry_file, str) or not isinstance(entry_line, int):
+            continue
+        matches = by_location.get((entry_file, entry_line), ())
+        if not matches:
+            continue
+        registration_identities = {
+            (
+                registration.get("kind"), registration.get("callable"),
+                registration.get("file"), registration.get("start_line"),
+            )
+            for candidate in matches
+            for registration in (candidate.get("registration"),)
+            if isinstance(registration, Mapping)
+        }
+        # Route-normalization variants (for example `/x` and `POST /x`) are
+        # one registration identity. Prefer the verb-qualified fact; truly
+        # distinct registrations remain ambiguous and are not published.
+        if len(registration_identities) != 1:
+            continue
+        ordered_matches = sorted(
+            matches,
+            key=lambda candidate: (
+                0 if str(candidate.get("route_or_event", "")).split(" ", 1)[0] in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} else 1,
+                str(candidate.get("entry_id", "")),
+            ),
+        )
+        required_strings = (
+            "interposer_fqn", "interposer_file", "registration_kind", "registration_fqn",
+            "registration_file", "url_predicate_kind", "url_predicate_value", "order_status",
+            "order_value", "action_fqn", "action_file", "chain_file", "phase",
+            "coverage_status", "coverage_note",
+        )
+        required_lines = ("interposer_start_line", "registration_start_line", "action_start_line", "chain_start_line")
+        if (not all(isinstance(row.get(key), str) and row[key] for key in required_strings)
+                or not all(isinstance(row.get(key), int) and not isinstance(row[key], bool) and row[key] > 0 for key in required_lines)
+                or not isinstance(row.get("action_before_chain"), bool)):
+            continue
+        entry_id = str(ordered_matches[0]["entry_id"])
+        record = {
+            "interposition_id": stable_identifier("interposition", {"entry_id": entry_id, "row": dict(row)}),
+            "entry_id": entry_id,
+            "kind": "filter_registration_bean",
+            "interposer": {"callable": row["interposer_fqn"], "file": row["interposer_file"], "start_line": row["interposer_start_line"]},
+            "registration": {"kind": row["registration_kind"], "callable": row["registration_fqn"], "file": row["registration_file"], "start_line": row["registration_start_line"]},
+            "url_predicate": {"kind": row["url_predicate_kind"], "value": row["url_predicate_value"]},
+            "order": {"status": row["order_status"], "value": row["order_value"]},
+            "action": {"callable": row["action_fqn"], "file": row["action_file"], "start_line": row["action_start_line"]},
+            "chain_call": {"file": row["chain_file"], "start_line": row["chain_start_line"]},
+            "phase": row["phase"], "action_before_chain": row["action_before_chain"],
+            "coverage_status": row["coverage_status"], "coverage_note": row["coverage_note"],
+        }
+        # A query cannot claim complete evidence without a strict CFG witness.
+        if record["coverage_status"] == "complete" and not (record["phase"] == "before_handler" and record["action_before_chain"]):
+            record["coverage_status"] = "partial"
+            record["coverage_note"] = "interposition_complete_claim_rejected"
+        output.append(record)
+    return output
+
+
 def _non_secret_config(config: AnalyzerConfig) -> dict[str, object]:
     return {
         "codeql_binary": config.codeql_binary, "database": str(config.database),
         "llm": {"allow_remote_llm": config.llm.allow_remote_llm, "analysis_source_root": str(config.llm.analysis_source_root) if config.llm.analysis_source_root else None, "base_url": config.llm.base_url,
                 "cache_dir": str(config.llm.cache_dir), "max_retries": config.llm.max_retries,
-                "model": config.llm.model, "public_source_url": config.llm.public_source_url,
+                "model": config.llm.model,
+                "public_source_url": config.llm.public_source_url,
+                "source_commit_sha": config.llm.source_commit_sha,
                 "source_checkout": str(config.llm.source_checkout) if config.llm.source_checkout else None,
-                "source_commit_sha": config.llm.source_commit_sha, "temperature": config.llm.temperature,
+                "temperature": config.llm.temperature,
                 "timeout_seconds": config.llm.timeout_seconds},
         "output": str(config.output),
     }
@@ -159,6 +304,71 @@ def _bounded_json_file(path: Path) -> Mapping[str, object]:
     return value
 
 
+def _scan_entry_query_evidence(source_root: Path) -> tuple[set[str], bool]:
+    evidence: set[str] = set()
+    scanned_files = 0
+    scanned_bytes = 0
+    candidates: list[Path] = []
+    for pattern in ("pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
+        candidates.extend(source_root.glob(pattern))
+    for pattern in ("src/main/java/**/*.java", "src/**/*.java"):
+        candidates.extend(source_root.glob(pattern))
+    seen: set[Path] = set()
+    truncated = False
+    for path in sorted(candidates):
+        if path in seen or not path.is_file() or path.is_symlink():
+            continue
+        seen.add(path)
+        try:
+            raw = _bounded_regular_file(path, 65536 if path.suffix in {".xml", ".gradle", ".kts"} else 16384)
+        except AnalyzerError:
+            continue
+        scanned_files += 1
+        scanned_bytes += len(raw)
+        lowered = raw.decode("utf-8", errors="ignore").lower()
+        for query_name, hints in _ENTRY_QUERY_HINTS.items():
+            if any(hint.lower() in lowered for hint in hints):
+                evidence.add(query_name)
+        if scanned_files >= 512 or scanned_bytes >= 2 * 1024 * 1024:
+            truncated = len(seen) < len(set(candidates))
+            break
+    return evidence, truncated
+
+
+def _selected_entry_queries(source_root: Path, *, formal: bool) -> tuple[tuple[str, ...], bool]:
+    if formal:
+        # A formal run must execute every enabled P0 entry family; source hints are
+        # only a cost heuristic for exploratory entries, never a coverage reduction.
+        return _ENTRY_QUERIES, False
+    evidence, truncated = _scan_entry_query_evidence(source_root)
+    if not evidence:
+        return _ENTRY_QUERIES, truncated
+    return tuple(name for name in _ENTRY_QUERIES if name in evidence), truncated
+
+
+def _entry_gap_row(query_name: str, note: str, *, status: str = "partial") -> dict[str, object]:
+    framework, protocol = _ENTRY_QUERY_FRAMEWORKS[query_name]
+    return {
+        "framework": framework,
+        "protocol": protocol,
+        "handler_fqn": f"{framework}.query_gap",
+        "handler_file": f"gaps/{query_name}",
+        "handler_start_line": 1,
+        "registration_kind": "dynamic_unresolved",
+        "registration_fqn": f"{framework}.query_gap",
+        "registration_file": f"gaps/{query_name}",
+        "registration_start_line": 1,
+        "route_or_event": f"{framework}_query_gap",
+        "auth_context": "unknown",
+        "attacker_input_name": "unknown",
+        "attacker_input_type": "unknown",
+        "attacker_input_kind": "unknown",
+        "materialization_phase": "unknown",
+        "coverage_status": status,
+        "coverage_note": note,
+    }
+
+
 def _query_files(stage: str, pack_root: Path) -> tuple[Path, ...]:
     if stage == "entries":
         return tuple(pack_root / "dosweb" / "Entries" / name for name in _ENTRY_QUERIES)
@@ -177,16 +387,98 @@ def _run_codeql_family(config: AnalyzerConfig, database: DatabaseInfo, stage: st
             payload = _bounded_json_file(Path(result.decoded_path))
             if stage == "growth":
                 family = "growth"
-            elif stage == "flows":
+            elif stage in {"flows", "associations"}:
                 family = "flow"
             else:
                 lowered = query.stem.lower()
-                family = "guard" if "guard" in lowered else "bound" if "bound" in lowered else "release"
+                family = "lifecycle_summary" if "lifecyclesummary" in lowered else "lifecycle_coverage" if "lifecyclecoverage" in lowered else "guard" if "guard" in lowered else "bound" if "bound" in lowered else "release"
             decoded = decode_bqrs_json(family, payload, DecodeSource(database.source_root, result.query_sha256))
             if len(rows) + len(decoded) > _MAX_ENTRY_ROWS:
                 raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL output exceeds the aggregate row limit.")
-            rows.extend(decoded)
+            rows.extend({"query_name": family, **item} for item in decoded)
     return rows
+
+
+def _bounded_source_text(source_root: Path, relative_file: str) -> str | None:
+    """Read one bounded source file without following any symlink component."""
+    relative = Path(relative_file)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        return None
+    try:
+        root = source_root.resolve(strict=True)
+        candidate = root
+        for part in relative.parts:
+            candidate = candidate / part
+            if candidate.is_symlink():
+                return None
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(root)
+        descriptor = os.open(resolved, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_SECURITY_SOURCE_BYTES:
+                return None
+            raw = os.read(descriptor, _MAX_SECURITY_SOURCE_BYTES + 1)
+            if len(raw) != info.st_size or len(raw) > _MAX_SECURITY_SOURCE_BYTES:
+                return None
+        finally:
+            os.close(descriptor)
+        return raw.decode("utf-8")
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        return None
+
+
+def _extract_entry_security_facts(entries: Sequence[Mapping[str, object]], source_root: Path) -> list[dict[str, object]]:
+    """Extract explicit source-local authorization evidence; absence remains partial."""
+    facts: list[dict[str, object]] = []
+    for entry in entries:
+        handler = entry.get("handler")
+        if not isinstance(handler, Mapping):
+            continue
+        file_name, line = handler.get("file"), handler.get("start_line")
+        if not isinstance(file_name, str) or not isinstance(line, int) or isinstance(line, bool) or line < 1:
+            continue
+        value, coverage, kind = "security_extraction_not_modeled", "partial", "dependency_coverage"
+        declared_context = entry.get("auth_context")
+        if declared_context in {"unauthenticated", "low_privilege", "privileged"}:
+            value, coverage, kind = f"{declared_context}_annotation", "complete", "annotation"
+        else:
+            content = _bounded_source_text(source_root, file_name)
+            if content is not None:
+                lines = content.splitlines()
+                index = min(max(line - 1, 0), max(len(lines) - 1, 0))
+                selected: list[str] = []
+                if lines:
+                    current = lines[index].strip()
+                    selected.append(lines[index])
+                    if current.startswith("@"):
+                        for following in lines[index + 1:min(len(lines), index + 4)]:
+                            selected.append(following)
+                            if "(" in following and ("{" in following or ";" in following):
+                                break
+                    else:
+                        for previous in reversed(lines[max(0, index - 8):index]):
+                            stripped = previous.strip()
+                            if not stripped and not selected:
+                                continue
+                            if stripped.startswith("@"):
+                                selected.insert(0, previous)
+                                continue
+                            break
+                window = "\n".join(selected)
+                compact = "".join(window.split())
+                if (
+                    "@PermitAll" in window
+                    or "@AnonymousAllowed" in window
+                    or ("@PreAuthorize" in window and "permitAll()" in compact)
+                ):
+                    value, coverage, kind = "unauthenticated_annotation", "complete", "annotation"
+                elif "@PreAuthorize" in window and "isAuthenticated()" in compact:
+                    value, coverage, kind = "low_privilege_annotation", "complete", "annotation"
+                elif "@RolesAllowed" in window or "@Secured" in window or "@PreAuthorize" in window:
+                    value, coverage, kind = "privileged_annotation", "complete", "annotation"
+        facts.append(EntrySecurityFact(str(entry["entry_id"]), kind, file_name, line, value, coverage).to_dict())
+    return facts
 
 
 def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, database_info_fn: Callable[[], DatabaseInfo] | None = None, query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]] | None = None, query_dir: Path = _ENTRY_QUERY_DIR) -> Executor:
@@ -196,6 +488,7 @@ def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Calla
         database = database_info_fn() if database_info_fn else validate(config.database)
         if not isinstance(database, DatabaseInfo):
             raise AnalyzerError("CODEQL_DATABASE_INVALID", "CodeQL database validation failed.")
+        selected_queries, evidence_scan_truncated = _selected_entry_queries(database.source_root, formal=not config.allow_partial_codeql)
         with tempfile.TemporaryDirectory(prefix="dosweb-entry-queries-") as temporary:
             root = Path(temporary) / "pack"
             if query_pack_snapshot_fn:
@@ -204,38 +497,111 @@ def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Calla
                 effective = query_dir
             rows: list[dict[str, object]] = []
             results = Path(temporary) / "results"; results.mkdir()
+            skipped_queries = 0
+            query_diagnostics: list[dict[str, object]] = []
+            selected_names = frozenset(selected_queries)
             for name in _ENTRY_QUERIES:
-                result = runner(effective / name, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
+                if name in selected_names:
+                    continue
+                reason = "framework_evidence_scan_truncated" if evidence_scan_truncated else "framework_evidence_absent"
+                rows.append(_entry_gap_row(
+                    name,
+                    f"{reason}:{Path(name).stem}",
+                    status="partial" if evidence_scan_truncated else "unsupported",
+                ))
+            for name in selected_queries:
+                try:
+                    result = runner(effective / name, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
+                except AnalyzerError as exc:
+                    if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
+                        # Formal runs never publish an entries stage after a selected query fails.
+                        raise
+                    skipped_queries += 1
+                    rows.append(_entry_gap_row(name, f"query_failed:{Path(name).stem}"))
+                    diagnostic: dict[str, object] = {
+                        "code": exc.code,
+                        "query_name": name,
+                    }
+                    for field in ("stage", "diagnostic", "returncode"):
+                        value = exc.details.get(field)
+                        if field == "returncode" and isinstance(value, int) and not isinstance(value, bool):
+                            diagnostic[field] = value
+                        elif field != "returncode" and isinstance(value, str) and value:
+                            diagnostic[field] = value[:512]
+                    query_diagnostics.append(diagnostic)
+                    continue
                 if not isinstance(result, QueryResult):
                     raise AnalyzerError("CODEQL_QUERY_FAILED", "The entry query runner returned an invalid result.")
                 rows.extend(decode_bqrs_json("entries", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256)))
                 if len(rows) > _MAX_ENTRY_ROWS:
                     raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL entry output exceeds the aggregate row limit.")
+            try:
+                result = runner(effective / _INTERPOSITION_QUERY, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
+            except AnalyzerError as exc:
+                if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
+                    raise
+                skipped_queries += 1
+                query_diagnostics.append({"code": exc.code, "query_name": _INTERPOSITION_QUERY})
+                interposition_rows: list[dict[str, object]] = []
+            else:
+                if not isinstance(result, QueryResult):
+                    raise AnalyzerError("CODEQL_QUERY_FAILED", "The interposition query runner returned an invalid result.")
+                interposition_rows = decode_bqrs_json("entry_interposition", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256))
+        rows, descriptor_coverage = resolve_webxml_servlet_candidates(rows, database.source_root)
+        validate_descriptor_coverage(descriptor_coverage)
         entries = normalize_entry_rows(rows); coverage = normalize_framework_coverage(rows)
+        entry_gaps = normalize_gap_entry_rows(rows)
+        interpositions = _normalize_interposition_rows(interposition_rows, entries)
         validate_records("entry_facts", entries)
-        return StageOutput({"entry_facts.jsonl": entries, "coverage.json": canonical_json(coverage) + b"\n"}, {"database_fingerprint": database.fingerprint, "query_count": len(_ENTRY_QUERIES)})
+        validate_records("entry_gap_facts", entry_gaps)
+        validate_references("entry_interposition_facts", interpositions, {"entry_id": {str(entry["entry_id"]) for entry in entries}})
+        modeled_defaults, configuration_coverage = extract_modeled_configuration_with_coverage(database.source_root, config.modeled_defaults)
+        validate_records("modeled_configuration", modeled_defaults)
+        # This extraction is deliberately offline and never infers public access from absence.
+        security = _extract_entry_security_facts(entries, database.source_root)
+        validate_records("entry_security_facts", security)
+        return StageOutput(
+            {"entry_facts.jsonl": entries, "entry_gap_facts.jsonl": entry_gaps, "entry_interposition_facts.jsonl": interpositions, "coverage.json": canonical_json(coverage) + b"\n", "configuration_coverage.json": canonical_json(configuration_coverage) + b"\n", "descriptor_coverage.json": canonical_json(descriptor_coverage) + b"\n", "modeled_configuration.jsonl": modeled_defaults, "entry_security_facts.jsonl": security},
+            {
+                "database_fingerprint": database.fingerprint,
+                "query_count": len(selected_queries) + 1,
+                "skipped_query_count": skipped_queries,
+                "query_diagnostics": query_diagnostics,
+                "entry_evidence_scan_truncated": evidence_scan_truncated,
+                "analysis_mode": "exploratory_entries" if config.allow_partial_codeql else "formal",
+                "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed",
+            },
+        )
     return execute
 
 
-def _upstream(context: StageContext, stage: str, artifact: str) -> Path:
-    return resolve_upstream_artifact(context.output_root, context.upstream, stage, artifact, schema_version="2.0")
+def _upstream_bytes(context: StageContext, stage: str, artifact: str) -> bytes:
+    return read_upstream_artifact_bytes(
+        context.output_root,
+        context.upstream,
+        stage,
+        artifact,
+        schema_version=ARTIFACT_SCHEMA_VERSION,
+    )
 
 
 def _records(context: StageContext, stage: str, artifact: str, schema: str) -> list[dict[str, object]]:
-    path = _upstream(context, stage, artifact)
-    records = read_jsonl_strict(path, schema)
+    records = read_jsonl_bytes_strict(_upstream_bytes(context, stage, artifact), schema, source_name=artifact)
     validate_records(schema, records)
     return records
 
 
 def _strict_records(context: StageContext, stage: str, artifact: str) -> list[dict[str, object]]:
-    """Read a strict JSONL artifact whose richer model schema is self-validating."""
-    return read_jsonl_strict(_upstream(context, stage, artifact), artifact.removesuffix(".jsonl"))
+    """Read a strict JSONL artifact from its authenticated byte snapshot."""
+    return read_jsonl_bytes_strict(
+        _upstream_bytes(context, stage, artifact),
+        artifact.removesuffix(".jsonl"),
+        source_name=artifact,
+    )
 
 
 def _coverage(context: StageContext) -> tuple[FrameworkCoverage, ...]:
-    path = _upstream(context, "entries", "coverage.json")
-    value = json.loads(_bounded_regular_file(path, _MAX_DECODED_BYTES).decode("utf-8"))
+    value = json.loads(_upstream_bytes(context, "entries", "coverage.json").decode("utf-8"))
     if not isinstance(value, list):
         raise AnalyzerError("ARTIFACT_INVALID_JSON", "Coverage artifact must be a list.")
     result = tuple(FrameworkCoverage(item["framework"], item["status"], tuple(item["supported_patterns"]), tuple(item["unsupported_patterns"]), item["effect_on_verdict"]) for item in value if isinstance(item, Mapping))
@@ -245,8 +611,22 @@ def _coverage(context: StageContext) -> tuple[FrameworkCoverage, ...]:
 
 
 def _load_entries(context: StageContext) -> dict[str, EntryFact]:
-    path = _upstream(context, "entries", "entry_facts.jsonl")
-    return {entry.entry_id: entry for entry in load_entry_facts(path)}
+    facts = tuple(EntryFact.from_dict(record) for record in _records(context, "entries", "entry_facts.jsonl", "entry_facts"))
+    if len({fact.entry_id for fact in facts}) != len(facts):
+        raise AnalyzerError("ARTIFACT_SCHEMA_MISMATCH", "Entry artifact contains duplicate identifiers.")
+    return {entry.entry_id: entry for entry in facts}
+
+
+def _load_security_facts(context: StageContext) -> dict[str, tuple[EntrySecurityFact, ...]]:
+    grouped: dict[str, list[EntrySecurityFact]] = {}
+    for row in _strict_records(context, "entries", "entry_security_facts.jsonl"):
+        fact = EntrySecurityFact.from_dict(row)
+        grouped.setdefault(fact.entry_id, []).append(fact)
+    return {entry_id: tuple(sorted(items, key=lambda item: item.fact_id)) for entry_id, items in grouped.items()}
+
+
+def _load_configuration_facts(context: StageContext) -> tuple[dict[str, object], ...]:
+    return tuple(_strict_records(context, "entries", "modeled_configuration.jsonl"))
 
 
 def _candidate_from_record(record: Mapping[str, object]) -> GrowthCandidate:
@@ -311,43 +691,133 @@ def _canonical_entry(matches: Sequence[EntryFact], candidate: GrowthCandidate) -
 
 
 def _entry_for_candidate(entries: Mapping[str, EntryFact], candidate: GrowthCandidate) -> EntryFact:
-    matches = tuple(
-        entry for entry in entries.values()
-        if entry.handler.file == candidate.site.file and entry.handler.start_line <= candidate.site.start_line
-    )
+    """Legacy helper retained for fixture compatibility; never evidence of a complete link."""
+    matches = tuple(entry for entry in entries.values() if entry.handler.file == candidate.site.file and entry.handler.start_line <= candidate.site.start_line)
     if not matches:
         all_entries = tuple(sorted(entries.values(), key=lambda entry: entry.entry_id))
         if all_entries and len({_entry_semantic_key(entry) for entry in all_entries}) == 1:
             return _canonical_entry(all_entries, candidate)
-        raise AnalyzerError(
-            "ANALYSIS_GROWTH_ENTRY_AMBIGUOUS",
-            "Growth candidate must map to exactly one normalized entry.",
-            {"growth_id": candidate.growth_id, "match_count": 0},
-        )
+        raise AnalyzerError("ANALYSIS_GROWTH_ENTRY_AMBIGUOUS", "Growth candidate must map to exactly one normalized entry.", {"growth_id": candidate.growth_id, "match_count": 0})
     nearest_line = max(entry.handler.start_line for entry in matches)
-    narrowed = tuple(sorted(
-        (entry for entry in matches if entry.handler.start_line == nearest_line),
+    return _canonical_entry(tuple(sorted((entry for entry in matches if entry.handler.start_line == nearest_line), key=lambda entry: entry.entry_id)), candidate)
+
+
+def _candidate_association(entries: Mapping[str, EntryFact], candidate: GrowthCandidate, association_rows: Sequence[Mapping[str, object]] = ()):
+    """Return only auditable partial legacy links until the call-graph query lands.
+
+    Same-file/source-order is useful triage evidence, not proof of an E->G association.
+    Never select a nearest handler as a complete link.
+    """
+    from dosweb.growth import CandidateDisposition, CandidateEntryLink
+    # Association query evidence is the only source of complete links.  The
+    # source-order fallback below is retained solely as explicit partial triage.
+    linked: list[CandidateEntryLink] = []
+    for row in association_rows:
+        if row.get("sink_file") != candidate.site.file or row.get("sink_start_line") != candidate.site.start_line:
+            continue
+        for entry in entries.values():
+            if row.get("source_file") == entry.handler.file and row.get("source_start_line") == entry.handler.start_line:
+                status = "complete" if row.get("coverage_status") == "complete" and row.get("confidence") == "proven" else "partial"
+                linked.append(CandidateEntryLink.create(candidate.growth_id, entry.entry_id, status, (candidate.growth_id, entry.entry_id), (str(row.get("coverage_note", "ASSOCIATION_QUERY")),)))
+    if linked:
+        # Recursive call paths can decode to the same semantic association row.
+        # Artifact IDs are set-like identities, so collapse exact duplicates
+        # before publication without merging distinct evidence/status claims.
+        linked = list({link.link_id: link for link in linked}.values())
+        # Entry queries may emit route-normalization variants (for example
+        # `/path` and `GET /path`) for the exact same handler/registration.
+        # They are one semantic entry association, not an ambiguity.
+        linked_entries = tuple(entries[link.entry_id] for link in linked)
+        if len(linked) > 1 and len({_entry_registration_identity(entry) for entry in linked_entries}) == 1:
+            canonical = _canonical_entry(linked_entries, candidate)
+            canonical_status = "complete" if all(link.status == "complete" for link in linked) else "partial"
+            canonical_link = CandidateEntryLink.create(
+                candidate.growth_id, canonical.entry_id, canonical_status,
+                (candidate.growth_id, canonical.entry_id),
+                ("ASSOCIATION_QUERY_DUPLICATE_REGISTRATION_CANONICALIZED",),
+            )
+            disposition_status = "verified_relevant" if canonical_status == "complete" else "unresolved"
+            return (canonical_link,), CandidateDisposition.create(
+                candidate.growth_id, disposition_status, (canonical_link.link_id,),
+                ("ASSOCIATION_QUERY_EVIDENCE",),
+            )
+        disposition_status = "verified_relevant" if len(linked) == 1 and linked[0].status == "complete" else "unresolved"
+        return tuple(linked), CandidateDisposition.create(candidate.growth_id, disposition_status, tuple(link.link_id for link in linked), ("ASSOCIATION_QUERY_EVIDENCE",))
+    matches = tuple(sorted(
+        (entry for entry in entries.values()
+         if entry.handler.file == candidate.site.file and entry.handler.start_line <= candidate.site.start_line),
         key=lambda entry: entry.entry_id,
     ))
-    return _canonical_entry(narrowed, candidate)
+    if not matches:
+        # Growth coverage says nothing about Entry extraction completeness.
+        # Without an explicit candidate-scoped Entry coverage proof, absence of
+        # a link remains unresolved rather than being mislabeled unreachable.
+        return (), CandidateDisposition.create(
+            candidate.growth_id,
+            "unresolved",
+            (),
+            ("ASSOCIATION_ENTRY_COVERAGE_UNPROVEN",),
+        )
+    # Duplicate registrations for one semantic handler are one candidate link.
+    if len({_entry_semantic_key(entry) for entry in matches}) == 1:
+        matches = (_canonical_entry(matches, candidate),)
+    links = tuple(
+        CandidateEntryLink.create(candidate.growth_id, entry.entry_id, "partial",
+            (candidate.growth_id, entry.entry_id), ("ASSOCIATION_LEGACY_SOURCE_ORDER_PARTIAL",))
+        for entry in matches
+    )
+    return links, CandidateDisposition.create(candidate.growth_id, "unresolved", tuple(link.link_id for link in links), ("ASSOCIATION_CALL_GRAPH_UNAVAILABLE",))
 
 
 def _slice_for(
     config: AnalyzerConfig,
     entry: EntryFact,
     candidate: GrowthCandidate,
-    source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt,
+    source_excerpt_fn: Callable[[Path, str | None, str, int], SourceExcerpt] = extract_source_excerpt,
+    flow_rows: Sequence[Mapping[str, object]] = (),
+    configuration_facts: Sequence[ModeledConfigurationFact] = (),
 ) -> BoundedSlice:
     checkout = config.llm.source_checkout
-    commit = config.llm.source_commit_sha
-    if checkout is None or commit is None:
-        raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "Pinned source checkout is required for Growth classification.")
-    locations = {(candidate.site.file, candidate.site.start_line), (entry.registration.file, entry.registration.start_line)}
-    excerpts = tuple(
-        source_excerpt_fn(checkout, commit, path, line)
-        for path, line in sorted(locations)
+    if checkout is None:
+        raise AnalyzerError("CONFIG_INVALID_VALUE", "source_checkout is required for Growth classification.")
+    dimension_tokens = {
+        "bytes": ("max", "limit", "size", "body", "payload", "request", "upload", "buffer"),
+        "tasks": ("max", "limit", "capacity", "queue", "quota"),
+        "entries": ("max", "limit", "capacity", "quota"),
+        "connections": ("max", "limit", "capacity", "timeout"),
+        "objects": ("max", "limit", "capacity", "quota"),
+    }.get(candidate.resource_dimension, ())
+    relevant_configuration = tuple(
+        fact
+        for fact in configuration_facts
+        if fact.status == "known"
+        and fact.default_effective
+        and any(token in fact.key.lower() for token in dimension_tokens)
+    )[:16]
+    locations = {
+        (candidate.site.file, candidate.site.start_line),
+        (entry.handler.file, entry.handler.start_line),
+        (entry.registration.file, entry.registration.start_line),
+        *((fact.source_file, fact.source_line) for fact in relevant_configuration if fact.source_file and fact.source_line >= 1),
+    }
+    excerpts_list: list[SourceExcerpt] = []
+    for path, line in sorted(locations):
+        try:
+            excerpts_list.append(source_excerpt_fn(checkout, None, path, line))
+        except AnalyzerError as exc:
+            if exc.code != "LLM_BOUNDED_SLICE_INVALID":
+                raise
+            details = dict(exc.details) if isinstance(exc.details, Mapping) else {}
+            details.update({"candidate_id": candidate.growth_id, "repo_relative_path": path, "candidate_line": line})
+            raise AnalyzerError(exc.code, exc.message, details) from exc
+    excerpts = tuple(excerpts_list)
+    evidence = adapt_growth_static_evidence(
+        entry,
+        candidate,
+        excerpts,
+        flow_rows,
+        relevant_configuration,
     )
-    evidence = adapt_growth_static_evidence(entry, candidate, excerpts)
     payload = BoundedSlicePayload(
         entry.entry_id,
         candidate.growth_id,
@@ -360,6 +830,27 @@ def _slice_for(
     return BoundedSlice(stable_identifier("slice", payload.to_dict()), payload)
 
 
+def _amplification_decision_for_candidate(candidate: object) -> tuple[str, str]:
+    """Require the exact CodeQL global-flow loop witness; roles alone never prove A1."""
+    kind = getattr(candidate, "kind", "")
+    notes = tuple(getattr(candidate, "coverage_notes", ()))
+    if kind in {"input_materialization", "direct_allocation"} or any(
+        note.endswith((":single_submission_no_enclosing_loop", ":single_operation_no_enclosing_loop"))
+        for note in notes
+    ):
+        return "not_applicable", "AMPLIFICATION_DIRECT_DEMAND_ASSERTION"
+    if (
+        any(note.endswith(":attacker_controlled_loop_multiplicity_proven") for note in notes)
+        and not any(
+            note.endswith(":finite_capacity_prevents_amplification")
+            or note.endswith(":loop_bound_not_attacker_proven")
+            for note in notes
+        )
+    ):
+        return "proven", "AMPLIFICATION_CFG_DATAFLOW_LOOP_WITNESS"
+    return "unknown", "AMPLIFICATION_LOOP_OR_BATCH_UNMODELED"
+
+
 def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] = DeepSeekClient, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> Executor:
     runner = run_query_fn or globals()["run_query"]
     def execute(context: StageContext) -> StageOutput:
@@ -367,13 +858,100 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
         with tempfile.TemporaryDirectory(prefix="dosweb-pack-") as temporary:
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
             rows = _run_codeql_family(config, database, "growth", pack, runner)
+            association_rows = _run_codeql_family(config, database, "associations", pack, runner)
+            preliminary_flow_rows = _run_codeql_family(config, database, "flows", pack, runner)
         candidate_records = normalize_growth_rows(rows); validate_records("growth_candidates", candidate_records)
         entries = _load_entries(context); classifier = deepseek_client or deepseek_client_factory(config.llm)
+        security_by_entry = _load_security_facts(context)
+        configuration_facts = _load_configuration_facts(context)
+        configuration_models = tuple(ModeledConfigurationFact.from_dict(item) for item in configuration_facts)
         contracts: list[dict[str, object]] = []; verified: list[dict[str, object]] = []
+        links: list[dict[str, object]] = []; dispositions: list[dict[str, object]] = []
+        repeatability: list[dict[str, object]] = []; amplification: list[dict[str, object]] = []
+        auth_contracts: list[dict[str, object]] = []; reachability: list[dict[str, object]] = []; audits: list[dict[str, object]] = []
+        auth_by_entry: dict[str, object] = {}
         for record in candidate_records:
             candidate = _candidate_from_record(record)
-            entry = _entry_for_candidate(entries, candidate)
-            bounded = _slice_for(config, entry, candidate, source_excerpt_fn)
+            candidate_links, disposition = _candidate_association(entries, candidate, association_rows)
+            links.extend(link.to_dict() for link in candidate_links)
+            dispositions.append(disposition.to_dict())
+            # A source-order link is only triage evidence, but can still produce a
+            # conservative unresolved chain.  Never classify no-entry candidates.
+            if disposition.status != "verified_relevant" or len(candidate_links) != 1:
+                # A single partial association is still candidate-relevant. Publish
+                # an unresolved Growth result so flows/lifecycle/conclude emit a
+                # certificate-backed static_unknown rather than silently ending at
+                # an internal disposition. Ambiguous multi-entry links remain only
+                # auditable until they can be canonicalized.
+                if len(candidate_links) == 1:
+                    unresolved = VerifiedGrowthResult.create(
+                        candidate=candidate,
+                        slice_id=stable_identifier("slice", {"growth_id": candidate.growth_id, "reason": "association_incomplete"}),
+                        status="unresolved",
+                        reason_codes=("GROWTH_ASSOCIATION_INCOMPLETE",),
+                        checks=(VerificationCheck("candidate_entry_association", False, "GROWTH_ASSOCIATION_INCOMPLETE"),),
+                    )
+                    verified.append(unresolved.to_dict())
+                continue
+            entry = entries[candidate_links[0].entry_id]
+            from dosweb.growth import RepeatabilityDecision, AmplificationDecision
+            repeatable_registrations = {
+                "annotation_mapping", "static_registration", "pipeline_registration",
+                "subscription_registration", "broker_registration",
+            }
+            repeatability_status = (
+                "proven"
+                if candidate_links[0].status == "complete"
+                and entry.protocol in {"http", "tcp", "mqtt"}
+                and entry.registration.kind in repeatable_registrations
+                else "unknown"
+            )
+            repeatability_reason = (
+                "REPEATABILITY_REGISTERED_PROTOCOL_TRIGGER"
+                if repeatability_status == "proven"
+                else "REPEATABILITY_TRIGGER_SEMANTICS_UNMODELED"
+            )
+            repeatability.append(RepeatabilityDecision.create(
+                "repeatability", entry.entry_id, candidate.growth_id, repeatability_status,
+                (entry.entry_id, candidate.growth_id, candidate_links[0].link_id),
+                (repeatability_reason,),
+            ).to_dict())
+            amplification_status, amplification_reason = _amplification_decision_for_candidate(candidate)
+            amplification.append(AmplificationDecision.create(
+                "amplification", entry.entry_id, candidate.growth_id, amplification_status,
+                (candidate.growth_id, candidate_links[0].link_id), (amplification_reason,),
+            ).to_dict())
+            # Auth is constrained to the Entry's pre-extracted security/configuration facts.
+            # Test-only classifiers without this optional transport remain conservatively unknown.
+            cached_auth = auth_by_entry.get(entry.entry_id)
+            if cached_auth is None:
+                security_facts = security_by_entry.get(entry.entry_id, ())
+                classify_auth = getattr(classifier, "classify_auth", None)
+                if callable(classify_auth):
+                    auth = classify_auth(entry.entry_id, security_facts, configuration_facts)
+                    from dosweb.reachability.verify import verify_auth_contract
+                    decision = verify_auth_contract(entry.entry_id, auth, security_facts, slice_fact_ids=frozenset(item.fact_id for item in security_facts))
+                else:
+                    from dosweb.reachability.models import AuthContract, ReachabilityDecision
+                    auth = AuthContract("unknown", (), ("auth_transport_unavailable",), "low")
+                    contract_id = "auth_contract:" + hashlib.sha256((entry.entry_id + repr(auth.to_dict())).encode()).hexdigest()
+                    decision = ReachabilityDecision(entry.entry_id, contract_id, "unknown", "unknown", ())
+                auth_by_entry[entry.entry_id] = (auth, decision)
+                auth_contracts.append({"auth_contract_id": decision.auth_contract_id, "entry_id": entry.entry_id, **auth.to_dict()})
+                reachability.append(decision.to_dict())
+                last_audit = getattr(classifier, "last_audit", None)
+                if callable(last_audit):
+                    audit = last_audit()
+                    if audit is not None:
+                        audits.append(audit.to_dict())
+            bounded = _slice_for(
+                config,
+                entry,
+                candidate,
+                source_excerpt_fn,
+                preliminary_flow_rows,
+                configuration_models,
+            )
             classify = getattr(classifier, "classify_growth", None)
             if not callable(classify):
                 raise AnalyzerError("INTERNAL_STAGE_EXECUTORS_UNAVAILABLE", "Growth classifier is unavailable.")
@@ -383,10 +961,18 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             contract = validate_contract_static_evidence(contract, frozenset(fact.fact_id for fact in bounded.payload.static_facts))
             contract_record = {"growth_contract_id": stable_identifier("contract", {"growth_id": candidate.growth_id, **contract.to_dict()}), "growth_id": candidate.growth_id, **contract.to_dict()}
             contracts.append(contract_record)
+            last_audit = getattr(classifier, "last_audit", None)
+            if callable(last_audit):
+                audit = last_audit()
+                if audit is not None:
+                    audits.append(audit.to_dict())
             result = verify_growth_contract(candidate, bounded, contract, {fact.fact_id: fact for fact in bounded.payload.static_facts})
             verified.append(result.to_dict())
         validate_records("growth_contracts", contracts); validate_records("verified_growth", verified)
-        return StageOutput({"growth_candidates.jsonl": candidate_records, "growth_contracts.jsonl": contracts, "verified_growth.jsonl": verified}, {"candidate_count": len(candidate_records)})
+        validate_records("candidate_entry_links", links); validate_records("candidate_dispositions", dispositions)
+        validate_records("repeatability_decisions", repeatability); validate_records("amplification_decisions", amplification)
+        validate_records("auth_contracts", auth_contracts); validate_records("reachability_decisions", reachability); validate_records("llm_audit", audits)
+        return StageOutput({"growth_candidates.jsonl": candidate_records, "candidate_entry_links.jsonl": links, "candidate_dispositions.jsonl": dispositions, "repeatability_decisions.jsonl": repeatability, "amplification_decisions.jsonl": amplification, "growth_contracts.jsonl": contracts, "verified_growth.jsonl": verified, "auth_contracts.jsonl": auth_contracts, "reachability_decisions.jsonl": reachability, "llm_audit.private.jsonl": audits}, {"candidate_count": len(candidate_records), "candidate_disposition_count": len(dispositions), "relevant_candidate_count": sum(item["status"] == "verified_relevant" for item in dispositions), "mapped_candidate_count": len(verified), "skipped_unmapped_candidate_count": sum(item["status"] == "not_entry_reachable" for item in dispositions), "auth_contract_count": len(auth_contracts), "llm_audit_count": len(audits)})
     return execute
 
 
@@ -398,8 +984,35 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
         with tempfile.TemporaryDirectory(prefix="dosweb-pack-") as temporary:
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
             rows = _run_codeql_family(config, database_info_fn(), "flows", pack, runner)
-        proofs = normalize_flow_rows(rows, entries, candidates); validate_records("flow_proofs", proofs)
-        return StageOutput({"flow_proofs.jsonl": proofs}, {"flow_count": len(proofs)})
+        # Raw flow screening may include candidates the Growth contract rejected.
+        # They are not candidate-relevant formal paths and must not make the
+        # decoder resolve an absent verified-growth reference.
+        candidate_sites = {(item.candidate.site.file, item.candidate.site.start_line) for item in candidates.values() if item.candidate is not None}
+        rows = [row for row in rows if (row.get("sink_file"), row.get("sink_start_line")) in candidate_sites]
+        proofs = normalize_flow_rows(rows, entries, candidates)
+        # Every Growth that was even partially associated to an Entry gets a flow
+        # record.  Missing CodeQL evidence is a partial path, never an omission.
+        existing = {(item["entry_id"], item["growth_id"]) for item in proofs}
+        for link_record in _strict_records(context, "growth", "candidate_entry_links.jsonl"):
+            if link_record["growth_id"] not in candidates:
+                continue
+            key = (link_record["entry_id"], link_record["growth_id"])
+            if key in existing:
+                continue
+            entry, result = entries[key[0]], candidates[key[1]]
+            candidate = result.candidate
+            if candidate is None or not entry.attacker_inputs or not candidate.demand_inputs:
+                continue
+            from dosweb.flows import AttackerControl
+            demand = candidate.demand_inputs[0]
+            source = entry.attacker_inputs[0].name
+            proof = FlowProof.create(entry_id=entry.entry_id, growth_id=result.growth_id,
+                attacker_control=AttackerControl(demand.role, source, demand.name),
+                call_path=(entry.handler.callable, "unmodeled_flow"), phase_sequence=(entry.materialization_phase, "unknown"),
+                confidence="partial", flow_kind="unmodeled", coverage_status="partial", coverage_note="FLOW_CODEQL_ROW_MISSING")
+            proofs.append(proof.to_dict()); existing.add(key)
+        validate_records("flow_proofs", proofs)
+        return StageOutput({"flow_proofs.jsonl": proofs}, {"flow_count": len(proofs), "partial_flow_count": sum(item["confidence"] == "partial" for item in proofs)})
     return execute
 
 
@@ -422,12 +1035,21 @@ def _load_verified_growth(context: StageContext) -> dict[str, VerifiedGrowthResu
 
 def _decision_record(decision: object) -> dict[str, object]:
     """Serialize a lifecycle decision without changing any proven field."""
+    checks = sorted(
+        decision.checks,
+        key=lambda check: (
+            check.name,
+            not check.passed,
+            check.reason_code or "",
+            tuple(check.evidence_ids),
+        ),
+    )[:64]
     return {
         "status": decision.status,
         "reason_codes": list(decision.reason_codes),
         "checks": [
             {"name": check.name, "passed": check.passed, "reason_code": check.reason_code, "evidence_ids": list(check.evidence_ids)}
-            for check in decision.checks
+            for check in checks
         ],
         "evidence_ids": list(decision.evidence_ids),
         "unresolved_facts": list(decision.unresolved_facts),
@@ -488,35 +1110,56 @@ def _release_decision(record: Mapping[str, object]) -> ReleaseDecision:
     )
 
 
+def _modeled_configuration(context: StageContext) -> ModeledConfiguration:
+    """Use only known, default-effective facts; ambiguous defaults stay unknown."""
+    values: dict[str, str | int | bool] = {}
+    for raw in _strict_records(context, "entries", "modeled_configuration.jsonl"):
+        fact = ModeledConfigurationFact.from_dict(raw)
+        if fact.status == "known" and fact.default_effective and fact.value is not None:
+            # Extractor already applies CLI > config > source precedence. A duplicate
+            # here means an ambiguous artifact and must not be silently selected.
+            if fact.key in values and values[fact.key] != fact.value:
+                raise AnalyzerError("ARTIFACT_SCHEMA_MISMATCH", "Modeled configuration has conflicting effective defaults.")
+            values[fact.key] = fact.value
+    return ModeledConfiguration(tuple(values.items()))
+
+
 def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None) -> Executor:
     runner = run_query_fn or globals()["run_query"]
     def execute(context: StageContext) -> StageOutput:
+        database = database_info_fn()
+        analysis_root = config.llm.analysis_source_root or database.source_root
         with tempfile.TemporaryDirectory(prefix="dosweb-pack-") as temporary:
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
-            rows = _run_codeql_family(config, database_info_fn(), "lifecycle", pack, runner)
+            rows = _run_codeql_family(config, database, "lifecycle", pack, runner)
         # Re-query family rows by decoder provenance, retaining strict normalization.
-        guards_raw, bounds_raw, releases_raw = [], [], []
+        guards_raw, bounds_raw, releases_raw, coverage_raw, summaries_raw = [], [], [], [], []
         for row in rows:
             query = row.get("query_name", "")
             if query == "guard": guards_raw.append(row)
             elif query == "bound": bounds_raw.append(row)
             elif query == "release": releases_raw.append(row)
+            elif query == "lifecycle_coverage": coverage_raw.append(row)
+            elif query == "lifecycle_summary": summaries_raw.append(row)
             else: raise AnalyzerError("CODEQL_RESULT_INVALID", "Lifecycle query family is unknown.")
+        # Candidate rows carry the exact CodeQL Growth anchor.  Do not recover
+        # callable/CFG membership from source ordering or expression strings.
+        candidate_anchors: dict[str, dict[str, set[tuple[str, int]]]] = {"guard": {}, "bound": {}, "release": {}}
         def normalized(raw: list[Mapping[str, object]], kind: str) -> list[dict[str, object]]:
-            # Candidate schemas intentionally expose only the stable public subset.
-            output = []
+            output: dict[str, dict[str, object]] = {}
             for r in raw:
-                site_key = {"file": r["site_file"], "start_line": r["site_start_line"]}
                 if kind == "guard":
                     candidate = GuardCandidate.create(site_file=r["site_file"], site_start_line=r["site_start_line"], kind=r["guard_kind"], resource_dimension=r["resource_dimension"], scope=r["scope"], behavior=r["behavior"], dominates_growth=r["dominates_growth"], reject_path_reaches_growth=r["reject_path_reaches_growth"], configuration_key=r["configuration_key"], configuration_value=r["configuration_value"], representation=r["representation"], phase=r["phase"], covers_materialization=r["covers_materialization"], authorization_only=r["authorization_only"], evidence=[r["evidence"]], coverage_status=r["coverage_status"])
-                    output.append(candidate.to_dict())
+                    candidate_id = candidate.guard_id
                 elif kind == "bound":
                     candidate = BoundCandidate.create(site_file=r["site_file"], site_start_line=r["site_start_line"], kind=r["bound_kind"], resource_dimension=r["resource_dimension"], scope=r["scope"], behavior=r["behavior"], receiver=r["receiver"], field_path=r["field_path"], result_checked=r["result_checked"], configuration_key=r["configuration_key"], configuration_value=r["configuration_value"], phase=r["phase"], covers_flow=r["covers_flow"], request_encoding=r["request_encoding"], queue_resource=r["queue_resource"], product_bound=r["product_bound"], evidence=[r["evidence"]], coverage_status=r["coverage_status"])
-                    output.append(candidate.to_dict())
+                    candidate_id = candidate.bound_id
                 else:
                     candidate = ReleaseCandidate.create(site_file=r["site_file"], site_start_line=r["site_start_line"], kind=r["release_kind"], resource_dimension=r["resource_dimension"], scope=r["scope"], receiver=r["receiver"], key_identity=r["key_identity"], synchronous=r["synchronous"], normal_path=r["normal_path"], exceptional_path=r["exceptional_path"], actual_reduction=r["actual_reduction"], after_growth=r["after_growth"], transfer_only=r["transfer_only"], async_kind=r["async_kind"], evidence=[r["evidence"]], coverage_status=r["coverage_status"])
-                    output.append(candidate.to_dict())
-            return output
+                    candidate_id = candidate.release_id
+                output[candidate_id] = candidate.to_dict()
+                candidate_anchors[kind].setdefault(candidate_id, set()).add((r["anchor_file"], r["anchor_start_line"]))
+            return [output[key] for key in sorted(output)]
         guard_records, bound_records, release_records = normalized(guards_raw, "guard"), normalized(bounds_raw, "bound"), normalized(releases_raw, "release")
         tuple(GuardCandidate.from_dict(record) for record in guard_records); tuple(BoundCandidate.from_dict(record) for record in bound_records); tuple(ReleaseCandidate.from_dict(record) for record in release_records)
         guards = [GuardCandidate.from_dict(record) for record in guard_records]
@@ -530,18 +1173,131 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
                 context, "flows", "flow_proofs.jsonl", "flow_proofs"
             )
         ]
+        # Lifecycle CodeQL results are candidate-only. Bind each row to one
+        # concrete E->G path.  Filename equality is never a binding proof: a
+        # candidate must share the Growth callable and (for resource families)
+        # the canonical resource identity.  This deliberately leaves custom or
+        # interprocedural lifecycle patterns partial rather than reusing a
+        # same-named receiver from another handler.
+        configuration = _modeled_configuration(context)
+        lifecycle_evidence: list[dict[str, object]] = []
+        lifecycle_coverage: list[dict[str, object]] = []
+        lifecycle_summaries: list[dict[str, object]] = []
         lifecycle_records = []
+        # Strict one-wrapper Guard summaries are independent CodeQL evidence.
+        # Promote only their complete, source/CFG/dimension-bearing form to a
+        # real candidate; Bound/Release summaries remain partial audit facts.
+        wrapper_guards: dict[str, GuardCandidate] = {}
+        families = (("guard", guards), ("bound", bounds), ("release", releases))
         for flow in flows:
             entry, result = entries[flow.entry_id], growth[flow.growth_id]
+            if result.candidate is None:
+                raise AnalyzerError("ANALYSIS_DANGLING_FACT_REFERENCE", "Lifecycle flow has no Growth anchor.")
+            anchor = result.candidate
+            # Summary rows are independently decoded source locations and are
+            # re-bound here to the exact verified flow anchor. They are audit
+            # evidence only until a family candidate with the same CodeQL
+            # receiver/argument witness is available; never promote a summary
+            # based on source ordering or expression text.
+            for summary in summaries_raw:
+                if summary["anchor_file"] != anchor.site.file or summary["anchor_start_line"] != anchor.site.start_line:
+                    continue
+                lifecycle_summaries.append(LifecycleSummary(
+                    entry.entry_id, result.growth_id, flow.path_id, summary["family"],
+                    summary["candidate_file"], summary["candidate_start_line"],
+                    summary["callsite_file"], summary["callsite_start_line"],
+                    summary["receiver_file"], summary["receiver_start_line"], summary["argument_index"],
+                    summary["resource_dimension"], summary["scope"], summary["configuration_key"], summary["configuration_value"],
+                    summary["representation"], summary["phase"], summary["covers_materialization"], summary["dominates_growth"],
+                    summary["reject_path_reaches_growth"], summary["evidence"],
+                    summary["cfg_relation"], summary["coverage_status"], summary["coverage_note"],
+                ).to_dict())
+                if (
+                    summary["family"] == "guard" and summary["coverage_status"] == "complete"
+                    and summary["cfg_relation"] == "one_wrapper" and summary["covers_materialization"]
+                    and summary["resource_dimension"] == anchor.resource_dimension
+                    and summary["scope"] == anchor.escape_scope
+                    and summary["phase"] in {"before_growth", "inside_growth"}
+                ):
+                    wrapper = GuardCandidate.create(
+                        site_file=summary["candidate_file"], site_start_line=summary["candidate_start_line"],
+                        kind="input_validation", resource_dimension=summary["resource_dimension"], scope=summary["scope"],
+                        behavior="reject", dominates_growth=summary["dominates_growth"],
+                        reject_path_reaches_growth=summary["reject_path_reaches_growth"],
+                        configuration_key=summary["configuration_key"], configuration_value=summary["configuration_value"],
+                        representation=summary["representation"], phase=summary["phase"],
+                        covers_materialization=summary["covers_materialization"], authorization_only=False,
+                        evidence=[summary["evidence"]], coverage_status="complete",
+                    )
+                    if wrapper.guard_id not in wrapper_guards:
+                        wrapper_guards[wrapper.guard_id] = wrapper
+                        guards.append(wrapper)
+                        guard_records.append(wrapper.to_dict())
+                    candidate_anchors["guard"].setdefault(wrapper.guard_id, set()).add((anchor.site.file, anchor.site.start_line))
+            linked: dict[str, list[object]] = {"guard": [], "bound": [], "release": []}
+            coverage_by_family: dict[str, str] = {}
+            for family, candidates_for_family in families:
+                local = []
+                complete = []
+                for candidate in candidates_for_family:
+                    candidate_id = getattr(candidate, f"{family}_id")
+                    anchored = (anchor.site.file, anchor.site.start_line) in candidate_anchors[family].get(candidate_id, set())
+                    candidate_receiver = getattr(candidate, "receiver", anchor.receiver)
+                    # The query provides the anchored CFG witness.  For resource
+                    # families retain canonical receiver equality; guard is
+                    # representation-bound by its own complete witness.
+                    # Guard rows are usable only for the exact anchored bytes
+                    # demand; a dominating unrelated authorization/condition is
+                    # never a resource-bound witness.
+                    same_resource = (
+                        candidate.resource_dimension == anchor.resource_dimension
+                        if family == "guard"
+                        else candidate_receiver == anchor.receiver
+                    )
+                    if anchored and same_resource:
+                        local.append(candidate)
+                        if candidate.coverage_status == "complete":
+                            complete.append(candidate)
+                modeled = [
+                    item for item in coverage_raw
+                    if item.get("anchor_file") == anchor.site.file
+                    and item.get("anchor_start_line") == anchor.site.start_line
+                    and item.get("family") == family
+                ]
+                # A candidate row alone never proves no-match coverage. Only the
+                # explicit modeled-domain query may make a candidate-free family
+                # complete, and it is tied to this exact Growth anchor.
+                if complete:
+                    status, reason = "complete", "LIFECYCLE_SAME_CALLABLE_RESOURCE_WITNESS"
+                elif any(item.get("coverage_status") == "complete" for item in modeled):
+                    status = "complete"
+                    reason = str(next(item.get("coverage_note") for item in modeled if item.get("coverage_status") == "complete"))
+                elif local:
+                    status, reason = "partial", "LIFECYCLE_CANDIDATE_PARTIAL"
+                elif modeled:
+                    status, reason = "partial", str(modeled[0].get("coverage_note", "LIFECYCLE_CFG_OR_RESOURCE_ALIAS_UNPROVEN"))
+                else:
+                    status, reason = "partial", "LIFECYCLE_CFG_OR_RESOURCE_ALIAS_UNPROVEN"
+                coverage_by_family[family] = status
+                lifecycle_coverage.append(LifecycleCoverage(entry.entry_id, result.growth_id, flow.path_id, family, status, reason).to_dict())
+                for candidate in local:
+                    candidate_id = getattr(candidate, f"{family}_id")
+                    receiver = getattr(candidate, "receiver", anchor.receiver)
+                    field = getattr(candidate, "field_path", anchor.field_path) or anchor.field_path
+                    key = getattr(candidate, "key_identity", "none")
+                    relation = "same_cfg" if candidate in complete else "partial"
+                    evidence_status = "complete" if candidate in complete else "partial"
+                    lifecycle_evidence.append(LifecycleEvidence(entry.entry_id, result.growth_id, flow.path_id, family, candidate_id, anchor.site.file, anchor.site.start_line, candidate.site_file, candidate.site_start_line, receiver, field, key, relation, evidence_status).to_dict())
+                    linked[family].append(candidate)
             if not flow.satisfies_premise or result.status != "verified":
                 reasons = tuple(sorted(set((*flow.reason_codes, *result.reason_codes, "LIFECYCLE_PREMISE_UNRESOLVED"))))
                 guard = GuardDecision("unknown", reasons, (), (), reasons, ())
                 bound = BoundDecision("unknown", reasons, (), (), reasons, ())
                 release = ReleaseDecision("unknown", "unknown", reasons, (), (), reasons, ())
             else:
-                guard = evaluate_guard(entry, result, flow, guards, ModeledConfiguration(()))
-                bound = evaluate_bound(entry, result, flow, bounds, ModeledConfiguration(()))
-                release = evaluate_synchronous_release(entry, result, flow, releases)
+                guard = evaluate_guard(entry, result, flow, cast(Sequence[GuardCandidate], linked["guard"]), configuration, coverage_status=coverage_by_family["guard"])
+                bound = evaluate_bound(entry, result, flow, cast(Sequence[BoundCandidate], linked["bound"]), configuration, coverage_status=coverage_by_family["bound"])
+                release = evaluate_synchronous_release(entry, result, flow, cast(Sequence[ReleaseCandidate], linked["release"]), coverage_status=coverage_by_family["release"])
             semantic = {
                 "entry_id": entry.entry_id,
                 "growth_id": result.growth_id,
@@ -555,8 +1311,11 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
                 "release": _decision_record(release),
             }
             lifecycle_records.append({"lifecycle_result_id": stable_identifier("lifecycle", semantic), **semantic})
+        validate_records("lifecycle_evidence", lifecycle_evidence)
+        validate_records("lifecycle_summaries", lifecycle_summaries)
+        validate_records("lifecycle_coverage", lifecycle_coverage)
         validate_records("lifecycle_results", lifecycle_records)
-        return StageOutput({"guard_candidates.jsonl": guard_records, "bound_candidates.jsonl": bound_records, "release_candidates.jsonl": release_records, "lifecycle_results.jsonl": lifecycle_records}, {"flow_count": len(flows)})
+        return StageOutput({"guard_candidates.jsonl": guard_records, "bound_candidates.jsonl": bound_records, "release_candidates.jsonl": release_records, "lifecycle_summaries.jsonl": lifecycle_summaries, "lifecycle_evidence.jsonl": lifecycle_evidence, "lifecycle_coverage.jsonl": lifecycle_coverage, "lifecycle_results.jsonl": lifecycle_records}, {"flow_count": len(flows), "coverage_partial_count": len(lifecycle_coverage), "summary_count": len(lifecycle_summaries)})
     return execute
 
 
@@ -566,16 +1325,35 @@ def make_conclude_executor() -> Executor:
         growth = _load_verified_growth(context)
         flows = [verify_flow(FlowProof.from_dict(record), entries, growth) for record in _records(context, "flows", "flow_proofs.jsonl", "flow_proofs")]
         lifecycle = {record["path_id"]: record for record in _records(context, "lifecycle", "lifecycle_results.jsonl", "lifecycle_results")}
+        coverage_records = [LifecycleCoverage.from_dict(record) for record in _strict_records(context, "lifecycle", "lifecycle_coverage.jsonl")]
+        coverage_keys = {(item.entry_id, item.growth_id, item.path_id, item.family) for item in coverage_records}
         guards = [GuardCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "guard_candidates.jsonl")]
         bounds = [BoundCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "bound_candidates.jsonl")]
         releases = [ReleaseCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "release_candidates.jsonl")]
         framework_coverage = {item.framework: item for item in _coverage(context)}
+        from dosweb.reachability.models import ReachabilityDecision
+        reachability = {record["entry_id"]: ReachabilityDecision(record["entry_id"], record["auth_contract_id"], record["auth_context"], record["status"], tuple(record["evidence_ids"]), record["decision_id"]) for record in _strict_records(context, "growth", "reachability_decisions.jsonl")}
+        from dosweb.growth import RepeatabilityDecision, AmplificationDecision
+        repeatability = {(record["entry_id"], record["growth_id"]): RepeatabilityDecision(record["decision_id"], record["entry_id"], record["growth_id"], record["status"], tuple(record["evidence_ids"]), tuple(record["reason_codes"]), "repeatability") for record in _strict_records(context, "growth", "repeatability_decisions.jsonl")}
+        amplification = {(record["entry_id"], record["growth_id"]): AmplificationDecision(record["decision_id"], record["entry_id"], record["growth_id"], record["status"], tuple(record["evidence_ids"]), tuple(record["reason_codes"]), "amplification") for record in _strict_records(context, "growth", "amplification_decisions.jsonl")}
         certificates: list[dict[str, object]] = []
         findings: list[dict[str, object]] = []
+        links_by_id = {record["link_id"]: record for record in _strict_records(context, "growth", "candidate_entry_links.jsonl")}
+        relevant = [record for record in _strict_records(context, "growth", "candidate_dispositions.jsonl") if record["status"] == "verified_relevant"]
+        flow_pairs = {(flow.entry_id, flow.growth_id) for flow in flows}
+        for disposition in relevant:
+            if any(link_id not in links_by_id for link_id in disposition["link_ids"]):
+                raise AnalyzerError("ANALYSIS_DANGLING_FACT_REFERENCE", "Candidate disposition references a missing Entry link.")
+            linked = [links_by_id[link_id] for link_id in disposition["link_ids"]]
+            if not linked or any((link["entry_id"], disposition["growth_id"]) not in flow_pairs for link in linked):
+                raise AnalyzerError("ARTIFACT_UPSTREAM_HASH_MISMATCH", "Candidate-relevant Growth is missing its required flow artifact.")
         grouped: dict[tuple[str, str], list[VerifiedFlow]] = {}
         for flow in flows:
             if flow.path_id not in lifecycle:
-                raise AnalyzerError("ARTIFACT_UPSTREAM_INVALID", "Lifecycle result is missing a flow path.")
+                raise AnalyzerError("ARTIFACT_UPSTREAM_HASH_MISMATCH", "Lifecycle result is missing a flow path.")
+            missing_families = {family for family in ("guard", "bound", "release") if (flow.entry_id, flow.growth_id, flow.path_id, family) not in coverage_keys}
+            if missing_families:
+                raise AnalyzerError("ARTIFACT_UPSTREAM_HASH_MISMATCH", "Lifecycle family coverage is missing for a relevant flow.")
             grouped.setdefault((flow.entry_id, flow.growth_id), []).append(flow)
         for (entry_id, growth_id), group in sorted(grouped.items()):
             ordered = tuple(sorted(group, key=lambda flow: flow.path_id))
@@ -598,15 +1376,27 @@ def make_conclude_executor() -> Executor:
                 evaluation
                 for flow in ordered
                 for evaluation in (
-                    evaluate_assertion_1(result, flow, guard, bound),
-                    evaluate_assertion_2(result, flow, bound, release),
+                    evaluate_assertion_1(result, flow, guard, bound, amplification=amplification.get((entry_id, growth_id)), reachability=reachability.get(entry_id)),
+                    evaluate_assertion_2(result, flow, bound, release, reachability=reachability.get(entry_id), repeatability=repeatability.get((entry_id, growth_id))),
                 )
             )
-            coverage = CandidateCoverage.from_framework(framework_coverage.get(entry.framework, FrameworkCoverage(entry.framework, "unsupported", (), ("no_coverage",), "forces_unknown")), registration_pattern=entry.registration.kind)
+            framework_item = framework_coverage.get(entry.framework, FrameworkCoverage(entry.framework, "unsupported", (), ("no_coverage",), "forces_unknown"))
+            registration_pattern = entry.registration.kind
+            # Framework-level dynamic/reflection gaps do not taint a concrete
+            # entry whose exact registration pattern was proven complete.
+            pattern_proven = any(registration_pattern in pattern for pattern in framework_item.supported_patterns)
+            if pattern_proven and registration_pattern != "dynamic_unresolved":
+                coverage = CandidateCoverage(
+                    entry.framework, "complete", tuple(sorted(set(framework_item.supported_patterns))), (), "none",
+                    registration_pattern=registration_pattern, entry_id=entry.entry_id, growth_id=growth_id,
+                )
+            else:
+                coverage = CandidateCoverage.from_framework(framework_item, registration_pattern=registration_pattern, entry_id=entry.entry_id, growth_id=growth_id)
             verdict = derive_verdict(assertions, coverage)
             certificate = build_lifecycle_certificate(
                 entry, result, ordered, guard, bound, release,
                 assertions, coverage, verdict,
+                reachability=reachability.get(entry_id), repeatability=repeatability.get((entry_id, growth_id)), amplification=amplification.get((entry_id, growth_id)),
             )
             finding = StaticFinding.from_certificate(certificate)
             certificates.append(certificate.to_dict()); findings.append(finding.to_dict())
@@ -642,13 +1432,15 @@ class ProductionPipeline:
         return self._pipeline.run(target)
 
 
-def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[str, str] | None = None, stage_executors: Mapping[str, Executor] | None = None, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] | None = None, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> ProductionPipeline:
+def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[str, str] | None = None, secrets_path: Path | None = None, stage_executors: Mapping[str, Executor] | None = None, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] | None = None, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> ProductionPipeline:
     config_path = values.get("config")
     if config_path is not None and not isinstance(config_path, Path): raise AnalyzerError("CONFIG_INVALID_VALUE", "config must be a path.")
+    if secrets_path is None:
+        secrets_path = _DEFAULT_SECRETS_PATH
     env = os.environ if environ is None else environ
     if values.get("command") == "entries":
         env = {key: value for key, value in env.items() if key != "DEEPSEEK_API_KEY"}; values = dict(values); values["allow_remote_llm"] = False
-    config = load_config(values, config_path, env); validate = validate_database_fn or globals()["validate_database"]; runner = run_query_fn or globals()["run_query"]
+    config = load_config(values, config_path, env, secrets_path=secrets_path); validate = validate_database_fn or globals()["validate_database"]; runner = run_query_fn or globals()["run_query"]
     validated_database: DatabaseInfo | None = None; validated_pack: dict[str, bytes] | None = None
     def current_database() -> DatabaseInfo:
         if validated_database is None: raise AnalyzerError("CODEQL_DATABASE_INVALID", "CodeQL database validation failed.")
@@ -681,7 +1473,19 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
                 "CodeQL database source provenance does not match the configured checkout.",
             )
         validated_database, validated_pack = database, snapshot; pipeline.query_pack_hash = pack_hash; pipeline.database_fingerprint = database.fingerprint
-    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest(_non_secret_config(config)), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None)
+        # Bounded best-effort metadata only; query execution remains authoritative.
+        codeql_version = "unavailable"
+        try:
+            completed = subprocess.run([config.codeql_binary, "version"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5, check=False)
+            if completed.returncode == 0:
+                codeql_version = completed.stdout.strip().replace("\x00", " ")[:256] or "unavailable"
+        except (OSError, subprocess.SubprocessError):
+            pass
+        pipeline.run_identity.update({"codeql_cli_version": codeql_version, "query_pack_hash": pack_hash, "database_fingerprint": database.fingerprint, "source_root": str(source_root)})
+    if config.allow_partial_codeql and values.get("command") != "entries":
+        raise AnalyzerError("CONFIG_INVALID_VALUE", "Partial CodeQL execution is restricted to exploratory entries runs.")
+    analysis_mode = "exploratory_entries" if config.allow_partial_codeql else "formal"
+    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed"}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary})
     # DeepSeekClient is constructed lazily by the Growth executor, so exposing
     # the complete graph here does not perform provider work during factory
     # construction or pipeline preflight.

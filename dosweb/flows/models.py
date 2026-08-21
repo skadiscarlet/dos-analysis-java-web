@@ -232,12 +232,21 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
         sink_file = _path(row["sink_file"], "sink_file")
         sink_line = _line(row["sink_start_line"], "sink_start_line")
         entry_matches = [item for item in entries.values() if isinstance(item, EntryFact) and item.handler.file == source_file and item.handler.start_line == source_line]
-        growth_matches = [item for item in growth.values() if isinstance(item, VerifiedGrowthResult) and item.candidate is not None and item.candidate.site.file == sink_file and item.candidate.site.start_line == sink_line]
+        control = AttackerControl(cast(AttackerTarget, row["attacker_target"]), _string(row["attacker_source"], "attacker_source"), _string(row["attacker_sink"], "attacker_sink"))
+        # One source location may legitimately yield more than one verified G
+        # (for example a materialization and an allocation). Resolve the raw
+        # flow row by its demand role/name before declaring an ambiguity.
+        growth_matches = [
+            item for item in growth.values()
+            if isinstance(item, VerifiedGrowthResult) and item.candidate is not None
+            and item.candidate.site.file == sink_file and item.candidate.site.start_line == sink_line
+            and control.target in {demand.role for demand in item.candidate.demand_inputs}
+            and any(demand.role == control.target and demand.name in control.sink for demand in item.candidate.demand_inputs)
+        ]
         if len(growth_matches) != 1 or not entry_matches:
             raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
         growth_result = growth_matches[0]
         entry = _canonical_entry_for_growth(tuple(sorted(entry_matches, key=lambda item: item.entry_id)), growth_result)
-        control = AttackerControl(cast(AttackerTarget, row["attacker_target"]), _string(row["attacker_source"], "attacker_source"), _string(row["attacker_sink"], "attacker_sink"))
         roles = {item.role for item in growth_result.candidate.demand_inputs}
         input_names = {item.name for item in entry.attacker_inputs}
         demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == control.target}

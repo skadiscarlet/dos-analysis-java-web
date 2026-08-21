@@ -26,6 +26,7 @@ from dosweb.benchmark.truth import (
     normalize_repo,
     normalize_truth,
 )
+from dosweb.config import DEFAULT_BASE_URL, DEFAULT_MODEL
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -131,8 +132,8 @@ def main(argv: list[str] | None = None) -> int:
         provider_settings = None
         if plan_mode == "full":
             provider_settings = {
-                "model": "deepseek-v4-pro",
-                "base_url": "https://api.deepseek.com/",
+                "model": DEFAULT_MODEL,
+                "base_url": DEFAULT_BASE_URL,
                 "temperature": 0,
                 "timeout_seconds": 60,
                 "max_retries": 3,

@@ -12,6 +12,8 @@ from dosweb.benchmark.truth import (
     load_source_overrides,
     normalize_repo,
     normalize_truth,
+    repo_slug,
+    resolve_asset_directory,
 )
 
 
@@ -32,6 +34,31 @@ class BenchmarkTruthTests(unittest.TestCase):
             normalize_repo("dependencytrack__dependency-track"),
             "dependencytrack/dependency-track",
         )
+
+    def test_case_preserving_asset_resolution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frameworks/applications/grobidOrg__grobid").mkdir(parents=True)
+            (root / "databases/applications/grobidOrg__grobid-db").mkdir(parents=True)
+            (root / "frameworks/applications/other__repo").mkdir(parents=True)
+            slug = repo_slug("grobidOrg/grobid")
+            self.assertEqual(slug, "grobidorg__grobid")
+            self.assertEqual(
+                resolve_asset_directory(root, "frameworks/applications", slug),
+                "frameworks/applications/grobidOrg__grobid",
+            )
+            self.assertEqual(
+                resolve_asset_directory(root, "databases/applications", f"{slug}-db"),
+                "databases/applications/grobidOrg__grobid-db",
+            )
+
+    def test_case_preserving_resolution_rejects_ambiguity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "frameworks/applications/grobidOrg__grobid").mkdir(parents=True)
+            (root / "frameworks/applications/GROBIDORG__GROBID").mkdir(parents=True)
+            with self.assertRaises(ValueError):
+                resolve_asset_directory(root, "frameworks/applications", "grobidorg__grobid")
 
     def test_real_truth_is_29_cases_and_18_repositories_with_assets(self):
         root = Path(__file__).parents[1]
@@ -135,11 +162,11 @@ class BenchmarkTruthTests(unittest.TestCase):
             self.assertTrue(run_manifest["plan_ready_only"])
             self.assertFalse(run_manifest["plan_is_complete_recall_run"])
 
-    def test_full_plan_fails_closed_until_all_sources_have_public_commit_attestation(self):
+    def test_full_plan_succeeds_without_commit_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "full"
             self.assertEqual(
-                2,
+                0,
                 _EVALUATOR.main([
                     "--output-dir", str(output),
                     "--plan-run-id", "poc29-full",
@@ -147,7 +174,10 @@ class BenchmarkTruthTests(unittest.TestCase):
                     "--allow-remote-llm",
                 ]),
             )
-            self.assertFalse((output / "batch_plan.json").exists())
+            plan = json.loads((output / "batch_plan.json").read_text(encoding="utf-8"))
+            self.assertEqual("full", plan["mode"])
+            self.assertEqual(18, len(plan["targets"]))
+            self.assertTrue(all(target["initial_state"] == "queued" for target in plan["targets"]))
 
     def test_full_plan_succeeds_with_strict_source_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,7 +194,9 @@ class BenchmarkTruthTests(unittest.TestCase):
                 ]),
             )
             plan = json.loads((output / "batch_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual("35fcae172671ea29b6ceacfeb0a99613ac2b3a3a08d7da3d1b5eaedf4c08d8a4", plan["plan_digest"])
+            self.assertEqual("b2b6adb789c54d7612c29991439e44ede8b1cb9a1ee1cbd1ac17eda3ffe531b0", plan["plan_digest"])
+            self.assertEqual("grok-4.6", plan["provider"]["model"])
+            self.assertEqual("https://rightapi.ai/grok/v1/", plan["provider"]["base_url"])
             self.assertEqual(18, len(plan["targets"]))
             self.assertTrue(all(target["initial_state"] == "queued" for target in plan["targets"]))
             run_manifest = json.loads((output / "run_manifest.json").read_text(encoding="utf-8"))
@@ -179,7 +211,7 @@ class BenchmarkTruthTests(unittest.TestCase):
                 json.dumps(
                     {
                         "confirmed_true_positive": [
-                            {"record_id": "x", "app": "nobody/nope"}
+                            {"record_id": "x", "app": "nobody/nope", "source_batch": "p0"}
                         ]
                     }
                 ),

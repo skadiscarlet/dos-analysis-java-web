@@ -1,29 +1,27 @@
 package fixture.servlet;
+import javax.servlet.Filter;
+import javax.servlet.FilterChain;
+import javax.servlet.ServletContext;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+import javax.servlet.annotation.WebServlet;
+import javax.annotation.security.PermitAll;
+import javax.servlet.http.*;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import java.io.*;
+import java.util.*;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.ArrayList;
-
-@interface WebServlet { String value(); }
-class HttpServletRequest { byte[] body() { return new byte[0]; } }
-class HttpServletResponse {}
-class HttpServlet {
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) {}
-}
-interface ServletRegistration {}
-class ServletContext {
-    void addServlet(String name, String className) {}
-}
-
-@WebServlet("/items")
+@WebServlet("/upload")
 public class ServletFixture extends HttpServlet {
     private final Map<String, byte[]> registry = new HashMap<>();
     private static final List<byte[]> globalItems = new ArrayList<>();
 
     @Override
+    @PermitAll
     protected void doPost(HttpServletRequest request, HttpServletResponse response) {
         byte[] body = request.body();
+        int requested = Integer.parseInt(request.getParameter("size"));
+        byte[] allocated = new byte[requested];
         if (body.length > 1024) return;
         registry.put(String.valueOf(body.length), body);
         globalItems.add(body);
@@ -35,6 +33,40 @@ public class ServletFixture extends HttpServlet {
             registry.remove(String.valueOf(body.length));
         }
     }
+}
+
+class RegisteredStreamFilter implements Filter {
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+        chain.doFilter(request, response);
+    }
+}
+
+class ServletFilterConfiguration {
+    void register() {
+        FilterRegistrationBean<RegisteredStreamFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new RegisteredStreamFilter());
+        bean.addUrlPatterns("/api/push/*");
+    }
+}
+
+class BodyCachingWrapper extends HttpServletRequestWrapper {
+    private final String body;
+    BodyCachingWrapper(HttpServletRequest request) throws IOException {
+        super(request);
+        StringBuilder builder = new StringBuilder();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(request.getInputStream()));
+        char[] buffer = new char[128];
+        int count;
+        while ((count = reader.read(buffer)) > 0) {
+            builder.append(buffer, 0, count);
+        }
+        body = builder.toString();
+    }
+}
+
+class DescriptorServlet extends HttpServlet {
+    protected void service(HttpServletRequest request, HttpServletResponse response) {}
 }
 
 class UnregisteredServlet extends HttpServlet {

@@ -1,19 +1,87 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from dosweb.cli import parse_cli_values
-from dosweb.config import load_config
+from dosweb.cli import main, parse_cli_values
+from dosweb.config import DEFAULT_BASE_URL, DEFAULT_MODEL, load_config, resolve_api_key
 from dosweb.errors import AnalyzerError
 
 
 class ConfigTests(unittest.TestCase):
+    def test_default_provider_uses_the_current_authorized_endpoint_and_model(self):
+        result = load_config(
+            cli_values={"database": Path("db"), "output": Path("out")},
+            config_path=None,
+            environ={},
+        )
+        self.assertEqual(result.llm.base_url, DEFAULT_BASE_URL)
+        self.assertEqual(result.llm.model, DEFAULT_MODEL)
+        self.assertEqual(DEFAULT_BASE_URL, "https://rightapi.ai/grok/v1/")
+        self.assertEqual(DEFAULT_MODEL, "grok-4.6")
+
+    def test_local_secrets_file_provides_the_api_key_without_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "local_secrets.json"
+            secrets.write_text('{"deepseek_api_key": "sk-local-fixed-key"}', encoding="utf-8")
+            secrets.chmod(0o600)
+            result = load_config(
+                cli_values={"database": Path("db"), "output": Path("out"), "allow_remote_llm": True},
+                config_path=None,
+                environ={},
+                secrets_path=secrets,
+            )
+            self.assertEqual(result.llm.api_key, "sk-local-fixed-key")
+
+    def test_environment_key_overrides_local_secrets_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "local_secrets.json"
+            secrets.write_text('{"deepseek_api_key": "sk-local-fixed-key"}', encoding="utf-8")
+            secrets.chmod(0o600)
+            self.assertEqual(resolve_api_key({"DEEPSEEK_API_KEY": "sk-env-key"}, secrets), "sk-env-key")
+            self.assertEqual(resolve_api_key({}, secrets), "sk-local-fixed-key")
+
+    def test_local_secrets_file_rejects_group_or_world_readable_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            secrets = Path(tmp) / "local_secrets.json"
+            secrets.write_text('{"deepseek_api_key": "sk-local-fixed-key"}', encoding="utf-8")
+            secrets.chmod(0o644)
+            with self.assertRaises(AnalyzerError) as raised:
+                resolve_api_key({}, secrets)
+            self.assertEqual("CONFIG_SECRET_FILE_UNSAFE", raised.exception.code)
+
+    def test_python_module_cli_runs_main_and_returns_invalid_argument_status(self):
+        root = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            ["python", "-m", "dosweb.cli", "unknown-command"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertEqual(
+            completed.stderr,
+            "CONFIG_INVALID_VALUE: Command-line arguments are invalid.\n",
+        )
+
+    def test_cli_returns_codeql_exit_three_for_formal_query_failure(self):
+        class FailingPipeline:
+            def run(self, _command: str) -> object:
+                raise AnalyzerError("CODEQL_QUERY_FAILED", "selected query failed")
+        self.assertEqual(
+            main(["entries", "--database", "db", "--output", "out"], pipeline_factory=lambda _values: FailingPipeline()),
+            3,
+        )
+
     def test_cli_overrides_yaml_environment_and_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "config.yml"
             config.write_text(
                 "llm:\n"
-                "  model: deepseek-v4-flash\n"
+                "  model: grok-4.6\n"
                 "  base_url: https://yaml.example/\n"
                 "  timeout_seconds: 41\n",
                 encoding="utf-8",
@@ -22,7 +90,7 @@ class ConfigTests(unittest.TestCase):
                 cli_values={
                     "database": Path("db"),
                     "output": Path("out"),
-                    "model": "deepseek-v4-pro",
+                    "model": "grok-4.6",
                     "base_url": None,
                     "timeout_seconds": None,
                     "max_retries": None,
@@ -37,7 +105,7 @@ class ConfigTests(unittest.TestCase):
                     "DEEPSEEK_BASE_URL": "https://env.example/",
                 },
             )
-        self.assertEqual(result.llm.model, "deepseek-v4-pro")
+        self.assertEqual(result.llm.model, "grok-4.6")
         self.assertEqual(result.llm.base_url, "https://yaml.example/")
         self.assertEqual(result.llm.timeout_seconds, 41)
         self.assertEqual(result.llm.api_key, "test-secret")
@@ -69,6 +137,31 @@ class ConfigTests(unittest.TestCase):
                     environ={"DEEPSEEK_API_KEY": "test-secret"},
                 )
         self.assertEqual(raised.exception.code, "CONFIG_SECRET_IN_FILE")
+
+    def test_modeled_defaults_reject_sensitive_or_irrelevant_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config.yml"
+            config.write_text(
+                "analysis:\n  modeled_defaults:\n    spring.datasource.password: forbidden\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(AnalyzerError) as raised:
+                load_config(
+                    cli_values={"database": Path("db"), "output": Path("out")},
+                    config_path=config,
+                    environ={},
+                )
+            self.assertEqual("CONFIG_INVALID_FILE", raised.exception.code)
+        with self.assertRaises(AnalyzerError) as raised:
+            load_config(
+                cli_values={
+                    "database": Path("db"), "output": Path("out"),
+                    "modeled_default": ["service.api-key=forbidden"],
+                },
+                config_path=None,
+                environ={},
+            )
+        self.assertEqual("CONFIG_INVALID_VALUE", raised.exception.code)
 
     def test_configuration_file_rejects_recursive_yaml_alias(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,14 +213,15 @@ class ConfigTests(unittest.TestCase):
             "CONFIG_MISSING_DEEPSEEK_API_KEY",
         )
 
-    def test_remote_llm_consent_and_public_provenance_follow_precedence(self):
+    def test_remote_llm_consent_and_source_paths_follow_precedence(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "config.yml"
             config.write_text(
                 "llm:\n"
                 "  allow_remote_llm: false\n"
                 "  public_source_url: https://github.com/yaml/repository\n"
-                "  source_commit_sha: yaml-sha\n",
+                "  source_commit_sha: yaml-sha\n"
+                "  source_checkout: yaml-checkout\n",
                 encoding="utf-8",
             )
             result = load_config(
@@ -161,6 +255,23 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(result.llm.source_checkout, Path("checkout"))
         self.assertEqual(result.llm.analysis_source_root, Path("checkout"))
+
+    def test_output_must_not_be_nested_in_analysis_source_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            with self.assertRaises(AnalyzerError) as raised:
+                load_config(
+                    cli_values={
+                        "database": Path(tmp) / "database",
+                        "output": source / "results/applications_static_analysis/run-1",
+                        "source_checkout": source,
+                        "analysis_source_root": source,
+                    },
+                    config_path=None,
+                    environ={},
+                )
+        self.assertEqual(raised.exception.code, "CONFIG_OUTPUT_INSIDE_SOURCE")
 
     def test_llm_numeric_bounds_reject_zero_negative_nonfinite_and_excessive_temperature(self):
         for values in (

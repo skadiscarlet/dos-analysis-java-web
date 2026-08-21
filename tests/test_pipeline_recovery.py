@@ -9,7 +9,8 @@ import unittest
 from unittest import mock
 
 from dosweb.artifacts.identifiers import canonical_json
-from dosweb.artifacts.metadata import resolve_upstream_artifact
+from dosweb.artifacts.metadata import read_upstream_artifact_bytes, resolve_upstream_artifact
+import dosweb.artifacts.metadata as metadata_module
 from dosweb.cli import dispatch, main, parse_cli_values
 from dosweb.errors import AnalyzerError
 from dosweb.pipeline import Pipeline, SCHEMA_VERSION, StageOutput, STAGES, StageFingerprint
@@ -42,6 +43,22 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertEqual([calls[stage] for stage in STAGES], [1] * len(STAGES))
             self.assertEqual(set(json.loads((Path(tmp) / "run.json").read_text())["stages"]), set(STAGES))
 
+    def test_resume_updates_root_run_identity_and_records_prior_identity_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = {stage: 0 for stage in STAGES}
+            Pipeline(
+                tmp, self._executors(calls), run_identity={"analysis_mode": "exploratory_entries"},
+            ).run("entries")
+            Pipeline(
+                tmp, self._executors(calls), resume=True,
+                run_identity={"analysis_mode": "formal"},
+                config_fingerprint="formal-config",
+            ).run("entries")
+            run = json.loads((Path(tmp) / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual({"analysis_mode": "formal"}, run["identity"])
+            self.assertRegex(run["previous_identity_hash"], r"^[0-9a-f]{64}$")
+            self.assertEqual(2, run["attempt"])
+
     def test_named_upstream_artifact_resolution_verifies_manifest_and_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             calls = {stage: 0 for stage in STAGES}
@@ -55,6 +72,29 @@ class PipelineRecoveryTests(unittest.TestCase):
                 schema_version=SCHEMA_VERSION,
             )
             self.assertEqual(path, Path(tmp) / "entries.jsonl")
+
+    def test_authenticated_upstream_bytes_reject_replacement_between_validation_and_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = {stage: 0 for stage in STAGES}
+            result = Pipeline(tmp, self._executors(calls)).run("entries")
+            original = metadata_module._verify_upstream_file  # noqa: SLF001
+            attempts = 0
+
+            def replace_after_first(path: Path, **kwargs: object) -> bytes:
+                nonlocal attempts
+                attempts += 1
+                payload = original(path, **kwargs)
+                if attempts == 1:
+                    path.write_text('{"tampered":true}\n', encoding="utf-8")
+                return payload
+
+            with mock.patch.object(metadata_module, "_verify_upstream_file", side_effect=replace_after_first):
+                with self.assertRaises(AnalyzerError) as raised:
+                    read_upstream_artifact_bytes(
+                        Path(tmp), {"entries": result["stages"]["entries"]},
+                        "entries", "entries.jsonl", schema_version=SCHEMA_VERSION,
+                    )
+            self.assertEqual("ARTIFACT_UPSTREAM_HASH_MISMATCH", raised.exception.code)
 
     def test_named_upstream_artifact_resolution_rejects_metadata_and_file_tampering(self):
         mutations = ("missing", "path", "hash", "count", "bytes", "file")
@@ -87,8 +127,16 @@ class PipelineRecoveryTests(unittest.TestCase):
                     )
                 self.assertIn(
                     raised.exception.code,
-                    {"ARTIFACT_UPSTREAM_MISSING", "ARTIFACT_UPSTREAM_INVALID"},
+                    {"ARTIFACT_UPSTREAM_MISSING", "ARTIFACT_UPSTREAM_INVALID", "ARTIFACT_UPSTREAM_HASH_MISMATCH"},
                 )
+
+    def test_named_upstream_artifact_schema_mismatch_has_stable_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = {stage: 0 for stage in STAGES}
+            result = Pipeline(tmp, self._executors(calls)).run("entries")
+            with self.assertRaises(AnalyzerError) as raised:
+                resolve_upstream_artifact(Path(tmp), {"entries": result["stages"]["entries"]}, "entries", "entries.jsonl", schema_version="incompatible")
+            self.assertEqual(raised.exception.code, "ARTIFACT_SCHEMA_MISMATCH")
 
     def test_failed_stage_publishes_no_partial_artifact_and_preserves_upstream(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -105,6 +153,30 @@ class PipelineRecoveryTests(unittest.TestCase):
             run = json.loads((Path(tmp) / "run.json").read_text())
             self.assertEqual(run["status"], "failed")
             self.assertEqual(run["error"]["code"], "LLM_LOCAL_FAILURE")
+
+    def test_codeql_failure_persists_only_bounded_actionable_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fail(_context):
+                raise AnalyzerError(
+                    "CODEQL_QUERY_FAILED",
+                    "CodeQL query execution failed.",
+                    {
+                        "stage": "query_run",
+                        "diagnostic": "command deadline exceeded" + "x" * 3000,
+                        "returncode": 124,
+                        "query_path": "/secret/source/query.ql",
+                    },
+                )
+
+            with self.assertRaises(AnalyzerError):
+                Pipeline(tmp, {"entries": fail}).run("entries")
+
+            run = json.loads((Path(tmp) / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(run["error"]["details"]["stage"], "query_run")
+            self.assertEqual(run["error"]["details"]["returncode"], 124)
+            self.assertLessEqual(len(run["error"]["details"]["diagnostic"]), 2048)
+            self.assertNotIn("query_path", run["error"]["details"])
+            self.assertEqual(run["stages"]["entries"]["details"], run["error"]["details"])
 
     def test_database_change_invalidates_every_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -366,15 +438,16 @@ class CliDispatchTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (root / "source").mkdir()
-            with self.assertRaises(AnalyzerError) as raised:
-                dispatch(
-                    {
-                        "command": "growth",
-                        "database": database,
-                        "output": root / "output",
-                        "allow_remote_llm": True,
-                    }
-                )
+            with mock.patch("dosweb.production._DEFAULT_SECRETS_PATH", root / "absent-secrets.json"):
+                with self.assertRaises(AnalyzerError) as raised:
+                    dispatch(
+                        {
+                            "command": "growth",
+                            "database": database,
+                            "output": root / "output",
+                            "allow_remote_llm": True,
+                        }
+                    )
         self.assertEqual(raised.exception.code, "CONFIG_MISSING_DEEPSEEK_API_KEY")
 
     def test_factory_exceptions_are_wrapped_and_unknown_commands_rejected(self):

@@ -1,14 +1,6 @@
 package fixture.mqtt;
-
-class MqttMessage {
-    byte[] getPayload() { return new byte[0]; }
-}
-interface IMqttMessageListener {
-    void messageArrived(String topic, MqttMessage message);
-}
-class MqttAsyncClient {
-    void subscribe(String topic, int qos, IMqttMessageListener listener) {}
-}
+import org.eclipse.paho.client.mqttv3.*;
+import javax.annotation.security.PermitAll;
 
 public class MqttFixture {
     void register(MqttAsyncClient client) {
@@ -36,6 +28,7 @@ class FakeMqttLookalike {
 
 class RegisteredListener implements IMqttMessageListener {
     @Override
+    @PermitAll
     public void messageArrived(String topic, MqttMessage message) {
         byte[] materialized = message.getPayload().clone();
         if (materialized.length > 4096) return;

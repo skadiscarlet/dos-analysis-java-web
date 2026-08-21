@@ -46,6 +46,16 @@ class GuardEvaluationTests(unittest.TestCase):
         self.assertFalse(result.reason_codes)
         self.assertTrue(all(check.passed for check in result.checks))
 
+    def test_positive_literal_limit_does_not_require_external_configuration(self) -> None:
+        result = evaluate_guard(
+            self.entry,
+            self.growth,
+            self.flow,
+            (self._candidate(configuration_key="literal", configuration_value="1024"),),
+            ModeledConfiguration(()),
+        )
+        self.assertEqual("effective", result.status)
+
     def test_known_false_safe_patterns_have_stable_reasons(self) -> None:
         cases = (
             ({"phase": "after_materialization"}, "GUARD_AFTER_MATERIALIZATION"),

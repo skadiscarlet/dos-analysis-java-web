@@ -21,9 +21,11 @@ Status: COMPLETE — P0 PRODUCTION PIPELINE AND STATIC GATES VERIFIED
 
 ## Security and provenance invariants
 
+> **已过时（2026-08-18）：** 以下“public repository default branch + clean/pinned commit + Git blob 一致”的 provenance 门槛已被用户明确授权移除；当前只保留显式授权、非空 API key、可读本地源码目录与凭据不落盘。保留此报告仅供历史追溯。
+
 - Remote classification requires explicit authorization and `DEEPSEEK_API_KEY` from the environment.
 - The key is absent from configuration, fingerprints, artifacts, manifests, cache identities, reports, diagnostics, and controlled errors.
-- The selected source commit must be reachable from the public repository's current default branch, the local checkout must be clean and pinned to that commit, and each transmitted excerpt must match the pinned Git blob.
+- （历史）The selected source commit must be reachable from the public repository's current default branch, the local checkout must be clean and pinned to that commit, and each transmitted excerpt must match the pinned Git blob.
 - The CodeQL database `sourceLocationPrefix` must resolve to the same configured checkout before production queries run.
 - Credential assignments in code or comments and credential-bearing Java mutator/header calls are rejected before public-source verification, cache access, or provider transport.
 - Default tests use injected seams and make no DeepSeek or GitHub request.

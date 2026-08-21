@@ -81,11 +81,26 @@ class BatchAggregationContractTests(unittest.TestCase):
                 manifest = {"stage": stage, "status": "completed", "artifacts": entries, "output_hash": __import__("hashlib").sha256(json.dumps(entries, separators=(",", ":"), sort_keys=True).encode()).hexdigest()}
                 (target / ".stage-manifests" / f"{stage}.json").write_text(json.dumps(manifest), encoding="utf-8")
             run = {"run_id": "run-1", "status": "completed", "stages": {stage: json.loads((target / ".stage-manifests" / f"{stage}.json").read_text()) for stage in STAGES}}
+            run["stages"]["entries"]["metadata"] = {
+                "query_count": 2,
+                "skipped_query_count": 1,
+                "entry_evidence_scan_truncated": False,
+                "query_diagnostics": [{"code": "CODEQL_QUERY_FAILED", "query_name": "ServletEntries.ql"}],
+            }
             (target / "run.json").write_text(json.dumps(run), encoding="utf-8")
             aggregate(root, format="p0")
             inventory = json.loads((root / "aggregate_inventory.json").read_text())
             self.assertEqual("completed", inventory["targets"][0]["status"], inventory["targets"][0])
             self.assertEqual(1, inventory["verdict_counts"].get("static_unknown", 0))
+            self.assertEqual(
+                inventory["targets"][0]["stage_metrics"]["entries"],
+                {
+                    "entry_evidence_scan_truncated": False,
+                    "query_count": 2,
+                    "query_diagnostic_count": 1,
+                    "skipped_query_count": 1,
+                },
+            )
 
     def test_p0_binding_mismatch_is_accounted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

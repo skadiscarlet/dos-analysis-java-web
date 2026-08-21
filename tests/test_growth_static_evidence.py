@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import unittest
 
+from dosweb.configuration.models import ModeledConfigurationFact
 from dosweb.entries import (
     AttackerInputFact,
     EntryFact,
@@ -44,10 +45,10 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
         coverage_note: str = "fixture",
     ) -> GrowthCandidate:
         dimensions = {
-            "input_materialization": ("bytes", "value", "request"),
+            "input_materialization": ("bytes", "size", "request"),
             "direct_allocation": ("bytes", "size", "request"),
             "container_growth": ("entries", "key", "instance"),
-            "async_work_growth": ("tasks", "submission_count", "global"),
+            "async_work_growth": ("tasks", "value", "global"),
         }
         dimension, role, scope = dimensions[kind]
         return GrowthCandidate.from_raw(
@@ -83,7 +84,24 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
             hashlib.sha256(content.encode()).hexdigest(),
         )
 
-    def test_maps_all_query_growth_kinds_without_fabricating_flow_or_config(self) -> None:
+    def _flow(self, candidate: GrowthCandidate) -> dict[str, object]:
+        return {
+            "source_file": "src/Handler.java",
+            "source_start_line": 20,
+            "sink_file": candidate.site.file,
+            "sink_start_line": candidate.site.start_line,
+            "attacker_target": candidate.demand_inputs[0].role,
+            "attacker_source": "body",
+            "attacker_sink": candidate.demand_inputs[0].name,
+            "call_path": "fixture.Handler.handle>fixture.Handler.grow",
+            "phase_sequence": "entry>dataflow>growth",
+            "flow_kind": "data_flow",
+            "confidence": "proven",
+            "coverage_status": "complete",
+            "coverage_note": "fixture_flow",
+        }
+
+    def test_maps_all_query_growth_kinds_only_with_extracted_flow_and_without_config(self) -> None:
         expected_kinds = {
             "input_materialization": "input_materialization",
             "direct_allocation": "allocation",
@@ -92,7 +110,8 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
         }
         excerpts = (
             self._excerpt("excerpt:registration", 1, 10),
-            self._excerpt("excerpt:growth", 20, 30),
+            self._excerpt("excerpt:handler", 15, 22),
+            self._excerpt("excerpt:growth", 23, 30),
         )
         for growth_kind, static_kind in expected_kinds.items():
             with self.subTest(growth_kind=growth_kind):
@@ -101,25 +120,27 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
                     self._entry(),
                     candidate,
                     excerpts,
+                    (self._flow(candidate),),
                 )
+                sink_facts = tuple(fact for fact in evidence.static_facts if fact.relation == "sink")
+                source_facts = tuple(fact for fact in evidence.static_facts if fact.relation == "flows_to")
                 self.assertEqual(
-                    tuple(fact.fact_id for fact in evidence.static_facts),
+                    tuple(fact.fact_id for fact in sink_facts),
                     tuple(sorted(candidate.evidence_ids)),
                 )
                 self.assertEqual(
-                    {fact.kind for fact in evidence.static_facts},
+                    {fact.kind for fact in sink_facts},
                     {static_kind},
                 )
                 self.assertEqual(
-                    {fact.relation for fact in evidence.static_facts},
-                    {"sink"},
-                )
-                self.assertEqual(
                     {fact.location_ref for fact in evidence.static_facts},
-                    {"excerpt:growth"},
+                    {"excerpt:handler", "excerpt:growth"},
                 )
-                self.assertEqual(evidence.cfg_summary.path_ids, ())
-                self.assertEqual(evidence.cfg_summary.phases, ())
+                self.assertTrue(source_facts)
+                self.assertEqual({fact.kind for fact in source_facts}, {"flow"})
+                self.assertEqual({fact.relation for fact in source_facts}, {"flows_to"})
+                self.assertTrue(evidence.cfg_summary.path_ids)
+                self.assertEqual(evidence.cfg_summary.phases, ("in_handler",))
                 self.assertEqual(evidence.cfg_summary.branch_facts, ())
                 self.assertEqual(evidence.config_facts, ())
                 self.assertEqual(
@@ -141,12 +162,14 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
             evidence_ids=frozenset({"fact:z", "fact:a"}),
         )
         registration = self._excerpt("excerpt:registration", 1, 10)
-        growth = self._excerpt("excerpt:growth", 20, 30)
-        left = adapt_growth_static_evidence(self._entry(), second, (growth, registration))
-        right = adapt_growth_static_evidence(self._entry(), second, (registration, growth))
+        handler = self._excerpt("excerpt:handler", 15, 22)
+        growth = self._excerpt("excerpt:growth", 23, 30)
+        flow = self._flow(second)
+        left = adapt_growth_static_evidence(self._entry(), second, (growth, registration, handler), (flow,))
+        right = adapt_growth_static_evidence(self._entry(), second, (registration, handler, growth), (flow,))
         self.assertEqual(left, right)
         self.assertEqual(
-            tuple(fact.fact_id for fact in left.static_facts),
+            tuple(fact.fact_id for fact in left.static_facts if fact.relation == "sink"),
             ("fact:a", "fact:z"),
         )
 
@@ -161,22 +184,60 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
             candidate,
             (
                 self._excerpt("excerpt:registration", 1, 10),
-                self._excerpt("excerpt:growth", 20, 30),
+                self._excerpt("excerpt:handler", 15, 22),
+                self._excerpt("excerpt:growth", 23, 30),
             ),
+            (self._flow(candidate),),
         )
         self.assertEqual(evidence.coverage_status, "partial")
         self.assertEqual(
             evidence.coverage_notes,
             ("queue_or_executor_capacity_requires_contract",),
         )
-        self.assertEqual(evidence.cfg_summary, evidence.cfg_summary.__class__((), (), ()))
+        self.assertTrue(evidence.cfg_summary.path_ids)
         self.assertEqual(evidence.config_facts, ())
+
+    def test_cli_or_yaml_configuration_without_source_line_remains_auditable_by_config_id(self) -> None:
+        candidate = self._candidate("direct_allocation")
+        configured = ModeledConfigurationFact(
+            "request.max-bytes", 1024, "", 0, "default", "cli_override", True, "known",
+        )
+        evidence = adapt_growth_static_evidence(
+            self._entry(),
+            candidate,
+            (
+                self._excerpt("excerpt:registration", 1, 10),
+                self._excerpt("excerpt:handler", 15, 22),
+                self._excerpt("excerpt:growth", 23, 30),
+            ),
+            (self._flow(candidate),),
+            (configured,),
+        )
+        self.assertEqual(1, len(evidence.config_facts))
+        self.assertEqual(configured.config_id, evidence.config_facts[0].source_location_ref)
+        self.assertEqual(1024, evidence.config_facts[0].normalized_value)
+
+    def test_does_not_fabricate_attacker_flow_when_codeql_has_no_matching_row(self) -> None:
+        candidate = self._candidate("direct_allocation")
+        evidence = adapt_growth_static_evidence(
+            self._entry(),
+            candidate,
+            (
+                self._excerpt("excerpt:registration", 1, 10),
+                self._excerpt("excerpt:handler", 15, 22),
+                self._excerpt("excerpt:growth", 23, 30),
+            ),
+            (),
+        )
+        self.assertFalse(any(fact.relation in {"source", "flows_to"} for fact in evidence.static_facts))
+        self.assertEqual(evidence.cfg_summary.path_ids, ())
+        self.assertTrue(all(fact.value_ref is None for fact in evidence.static_facts if fact.relation == "sink"))
 
     def test_requires_attested_candidate_and_registration_locations(self) -> None:
         candidate = self._candidate("container_growth")
         cases = (
-            (self._excerpt("excerpt:registration", 1, 10),),
-            (self._excerpt("excerpt:growth", 20, 30),),
+            (self._excerpt("excerpt:registration", 1, 10), self._excerpt("excerpt:handler", 15, 22)),
+            (self._excerpt("excerpt:handler", 15, 22), self._excerpt("excerpt:growth", 23, 30)),
         )
         for excerpts in cases:
             with self.subTest(excerpts=excerpts):

@@ -19,8 +19,11 @@ def render_report(
     if len(cert_by_id) != len(certificates):
         raise AnalyzerError("ANALYSIS_REPORT_INVALID", "Report certificates are duplicated.")
     ordered = tuple(sorted(findings, key=lambda item: item.finding_id))
+    finding_certificate_ids = {item.certificate_id for item in ordered}
     if any(item.certificate_id not in cert_by_id for item in ordered):
         raise AnalyzerError("ANALYSIS_REPORT_INVALID", "Finding references an absent certificate.")
+    if finding_certificate_ids != set(cert_by_id):
+        raise AnalyzerError("ANALYSIS_REPORT_INVALID", "Report contains a certificate without a finding.")
     for finding in ordered:
         certificate = cert_by_id[finding.certificate_id]
         if (

@@ -16,14 +16,14 @@ from dosweb.artifacts.jsonl import (
     write_jsonl_atomically,
 )
 from dosweb.artifacts.metadata import StageFingerprint, invalidate_from, reusable_stage
-from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, validate_references
+from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, SCHEMA_VERSION, validate_references
 from dosweb.errors import AnalyzerError
 
 
 class ArtifactContractTests(unittest.TestCase):
     def _fingerprint(self):
         return StageFingerprint(
-            schema_version="2.0",
+            schema_version=SCHEMA_VERSION,
             tool_version="0.1.0",
             implementation_version="entries-v1",
             database_fingerprint="db-a",
@@ -205,13 +205,27 @@ class ArtifactContractTests(unittest.TestCase):
             set(ARTIFACT_SCHEMAS),
             {
                 "entry_facts",
+                "entry_gap_facts",
+                "entry_interposition_facts",
+                "entry_security_facts",
+                "modeled_configuration",
                 "growth_candidates",
+                "candidate_entry_links",
+                "candidate_dispositions",
+                "repeatability_decisions",
+                "amplification_decisions",
                 "growth_contracts",
+                "auth_contracts",
+                "reachability_decisions",
+                "llm_audit",
                 "verified_growth",
                 "flow_proofs",
                 "guard_candidates",
                 "bound_candidates",
                 "release_candidates",
+                "lifecycle_summaries",
+                "lifecycle_evidence",
+                "lifecycle_coverage",
                 "lifecycle_results",
                 "static_findings",
                 "lifecycle_certificates",
@@ -654,7 +668,7 @@ class ArtifactContractTests(unittest.TestCase):
             artifact = root / "records.jsonl"
             artifact.write_text('{"a":1}\n{"a":2}\n', encoding="utf-8")
             fingerprint = self._fingerprint()
-            metadata = {"path": artifact.name, "sha256": file_sha256(artifact), "record_count": 999, "schema_version": "2.0"}
+            metadata = {"path": artifact.name, "sha256": file_sha256(artifact), "record_count": 999, "schema_version": SCHEMA_VERSION}
             self.assertFalse(reusable_stage(self._completed_run(fingerprint, [metadata]), "entries", fingerprint, root))
 
     def test_reusable_stage_requires_complete_artifact_metadata(self):

@@ -1,5 +1,15 @@
-PROMPT_VERSION = "growth-contract-v1"
-RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v1"
+# Bumped after audit artifacts became part of formal reproducibility.
+PROMPT_VERSION = "growth-contract-v3"
+RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v3"
+AUTH_PROMPT_VERSION = "auth-contract-v3"
+AUTH_RESPONSE_SCHEMA_VERSION = "auth-contract-schema-v2"
+
+AUTH_CONTRACT_RESPONSE_SCHEMA = {
+    "auth_context": ["unauthenticated", "low_privilege", "privileged", "unknown"],
+    "evidence_ids": ["security:<ordinal>"],
+    "assumptions": ["bounded text"],
+    "confidence": ["high", "medium", "low"],
+}
 
 GROWTH_CONTRACT_RESPONSE_SCHEMA = {
     "is_resource_growth": ["yes", "no", "unknown"],

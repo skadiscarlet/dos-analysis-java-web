@@ -84,8 +84,9 @@ class BatchRunnerTests(unittest.TestCase):
     def test_full_requires_auth_before_creating_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "out"
-            with self.assertRaises(AnalyzerError) as raised:
-                run_batch(_plan("full", 1), output, pipeline_factory=lambda values: None, environ={})
+            with mock.patch("dosweb.batch.runner._DEFAULT_SECRETS_PATH", Path(directory) / "absent-secrets.json"):
+                with self.assertRaises(AnalyzerError) as raised:
+                    run_batch(_plan("full", 1), output, pipeline_factory=lambda values: None, environ={})
             self.assertEqual(raised.exception.code, "BATCH_REMOTE_LLM_NOT_AUTHORIZED")
             self.assertFalse(output.exists())
 
@@ -234,159 +235,69 @@ class BatchRunnerTests(unittest.TestCase):
             provider = root / "provider" / "repo1"
             provider.mkdir(parents=True)
             calls: list[dict[str, object]] = []
-            verify_calls: list[Path] = []
 
-            def verify(checkout: Path, public_source_url: str, source_commit_sha: str) -> None:
-                verify_calls.append(checkout)
-                if checkout == provider:
-                    raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "dirty")
-
-            with mock.patch("dosweb.batch.runner.verify_local_checkout_at_commit", side_effect=verify), mock.patch(
-                "dosweb.batch.runner._git_checkout",
-                side_effect=lambda checkout, *arguments: "" if arguments[:3] != ("worktree", "add", "--detach") else "",
-            ):
-                state = run_batch(
-                    plan,
-                    root / "out",
-                    pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
-                    repo_root=root,
-                    environ={"DEEPSEEK_API_KEY": "x"},
-                )
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={"DEEPSEEK_API_KEY": "x"},
+            )
             self.assertEqual(state["status"], "completed")
             self.assertEqual(calls[0]["analysis_source_root"], root / target.identity.source_path)
-            self.assertNotEqual(calls[0]["source_checkout"], provider)
-            self.assertEqual(verify_calls[0], provider)
+            self.assertEqual(calls[0]["source_checkout"], provider)
 
-    def test_full_mode_falls_back_to_temporary_provider_worktree(self) -> None:
+    def test_full_mode_invalid_query_failure_policy_stops_before_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             base_plan = _plan("full", 1)
-            capability = replace(
-                base_plan.targets[0].capability,
-                provider_source_path="provider/repo1",
-                provider_source_commit="f" * 40,
-            )
-            target = replace(base_plan.targets[0], capability=capability)
-            unsigned = {**base_plan.unsigned_dict(), "targets": [target.to_dict()]}
+            plan = replace(base_plan, analysis_mode="formal", query_failure_policy="coverage_gap")
+            unsigned = plan.unsigned_dict()
             digest = sha256_canonical_json(unsigned)
-            plan = replace(base_plan, targets=(target,), plan_id=f"plan:{digest[:24]}", plan_digest=digest)
+            plan = replace(plan, plan_id=f"plan:{digest[:24]}", plan_digest=digest)
             self._tree(root, plan)
-            provider = root / "provider" / "repo1"
-            provider.mkdir(parents=True)
-            calls: list[dict[str, object]] = []
-            worktrees: list[Path] = []
-
-            def verify(checkout: Path, public_source_url: str, source_commit_sha: str) -> None:
-                if checkout == provider:
-                    raise AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "dirty")
-
-            def fake_git(checkout: Path, *arguments: str) -> str:
-                if arguments[:3] == ("worktree", "add", "--detach"):
-                    worktree = Path(arguments[4])
-                    worktree.mkdir(parents=True, exist_ok=True)
-                    worktrees.append(worktree)
-                return ""
-
-            with mock.patch("dosweb.batch.runner.verify_local_checkout_at_commit", side_effect=verify), mock.patch(
-                "dosweb.batch.runner._git_checkout",
-                side_effect=fake_git,
-            ):
-                state = run_batch(
-                    plan,
-                    root / "out",
-                    pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
-                    repo_root=root,
-                    environ={"DEEPSEEK_API_KEY": "x"},
-                )
-            self.assertEqual(state["status"], "completed")
-            self.assertTrue(worktrees)
-            self.assertEqual(calls[0]["source_checkout"], worktrees[0])
-
-    def test_full_mode_preflight_failure_stops_before_pipeline(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            base_plan = _plan("full", 1)
-            capability = replace(
-                base_plan.targets[0].capability,
-                provider_source_path="provider/repo1",
-                provider_source_commit="f" * 40,
-            )
-            target = replace(base_plan.targets[0], capability=capability)
-            unsigned = {**base_plan.unsigned_dict(), "targets": [target.to_dict()]}
-            digest = sha256_canonical_json(unsigned)
-            plan = replace(base_plan, targets=(target,), plan_id=f"plan:{digest[:24]}", plan_digest=digest)
-            self._tree(root, plan)
-            provider = root / "provider" / "repo1"
-            provider.mkdir(parents=True)
             pipeline_calls: list[dict[str, object]] = []
-
-            def fake_git(checkout: Path, *arguments: str) -> str:
-                if arguments[:3] == ("worktree", "add", "--detach"):
-                    Path(arguments[4]).mkdir(parents=True, exist_ok=True)
-                return ""
-
-            with mock.patch(
-                "dosweb.batch.runner.verify_local_checkout_at_commit",
-                side_effect=AnalyzerError("CONFIG_PUBLIC_SOURCE_UNVERIFIED", "bad checkout"),
-            ), mock.patch(
-                "dosweb.batch.runner._git_checkout",
-                side_effect=fake_git,
-            ):
-                state = run_batch(
-                    plan,
-                    root / "out",
-                    pipeline_factory=lambda values, environ: _Pipeline(dict(values), pipeline_calls),
-                    repo_root=root,
-                    environ={"DEEPSEEK_API_KEY": "x"},
-                )
-            record = state["targets"][target.target_id]
-            self.assertEqual(record["error_code"], "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), pipeline_calls),
+                repo_root=root,
+                environ={"DEEPSEEK_API_KEY": "x"},
+            )
+            record = state["targets"][plan.targets[0].target_id]
+            self.assertEqual(record["error_code"], "BATCH_PLAN_INVALID")
             self.assertEqual(pipeline_calls, [])
 
     def test_paused_target_is_not_scheduled_in_full(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); plan = _plan("full", 2, paused_last=True); self._tree(root, plan); calls = []
-            with mock.patch("dosweb.batch.runner.verify_local_checkout_at_commit"):
-                state = run_batch(plan, root / "out", pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls), repo_root=root, environ={"DEEPSEEK_API_KEY": "x"})
+            state = run_batch(plan, root / "out", pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls), repo_root=root, environ={"DEEPSEEK_API_KEY": "x"})
             self.assertEqual(len(calls), 1)
             self.assertEqual(state["targets"][plan.targets[-1].target_id]["state"], "paused")
             self.assertEqual(state["status"], "completed_with_gaps")
 
-    def test_full_mode_tree_sha_target_uses_local_head_commit(self) -> None:
+    def test_full_mode_tree_sha_target_uses_local_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             plan = _plan("full", 1)
             identity = replace(plan.targets[0].identity, fingerprint_type="tree-sha256", fingerprint="a" * 64)
-            capability = replace(plan.targets[0].capability, provider_eligible=False, public_source_url=None, provider_source_commit=None)
+            capability = replace(plan.targets[0].capability, provider_eligible=True, public_source_url=None, provider_source_commit=None)
             target = replace(plan.targets[0], identity=identity, capability=capability)
             unsigned = {**plan.unsigned_dict(), "targets": [target.to_dict()]}
             digest = sha256_canonical_json(unsigned)
             plan = replace(plan, targets=(target,), plan_id=f"plan:{digest[:24]}", plan_digest=digest)
             self._tree(root, plan)
             calls: list[dict[str, object]] = []
-            verify_calls: list[tuple[Path, str, object]] = []
 
-            def fake_git(checkout: Path, *arguments: str) -> str:
-                if arguments[:2] == ("rev-parse", "HEAD"):
-                    return "f" * 40
-                return ""
-
-            def verify(checkout: Path, source_commit_sha: str, public_source_url: str | None = None) -> None:
-                verify_calls.append((checkout, source_commit_sha, public_source_url))
-
-            with mock.patch("dosweb.batch.runner._git_checkout", side_effect=fake_git), mock.patch(
-                "dosweb.batch.runner.verify_local_checkout_at_commit", side_effect=verify,
-            ):
-                state = run_batch(
-                    plan,
-                    root / "out",
-                    pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
-                    repo_root=root,
-                    environ={"DEEPSEEK_API_KEY": "x"},
-                )
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={"DEEPSEEK_API_KEY": "x"},
+            )
             self.assertEqual(state["status"], "completed")
-            self.assertEqual(verify_calls, [(root / target.identity.source_path, "f" * 40, None)])
-            self.assertEqual(calls[0]["source_commit_sha"], "f" * 40)
+            self.assertIsNone(calls[0]["source_commit_sha"])
 
     def test_rejects_mismatched_existing_target_binding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

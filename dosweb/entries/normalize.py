@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from dosweb.artifacts.identifiers import canonical_json
+from dosweb.artifacts.identifiers import canonical_json, stable_identifier
 from dosweb.codeql import ENTRY_COLUMNS
 from dosweb.errors import AnalyzerError
 from dosweb.entries.models import EntryFact, FrameworkCoverage
@@ -108,6 +108,66 @@ def normalize_entry_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str,
         )
     normalized.sort(key=lambda fact: canonical_json(fact.semantic_identity()))
     return [fact.to_dict() for fact in normalized]
+
+
+_PLACEHOLDER_GAP_ROUTES: Final = frozenset({
+    "unresolved_jax_rs_resource", "dynamic_route", "dynamic_topic",
+    "dynamic_servlet_mapping", "web_xml_servlet_mapping", "grpc_dynamic_unresolved", "channelRead",
+})
+# ``mqtt_protocol`` normally carries too little route information to identify a
+# service. SMQTT's Reactor registration is the narrow exception: the query has
+# a source-backed receiver location and this diagnostic identifies the specific
+# unresolved decoder/dispatcher binding. Keep it as a partial gap only.
+_SMqtt_PROTOCOL_GAP_NOTE: Final = "smqtt_protocol_dispatch_binding_unresolved"
+
+
+def normalize_gap_entry_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Persist partial/dynamic entry gaps that still carry a concrete route.
+
+    A dynamic JAX-RS/Servlet/MQTT resource whose registration is unproven is a
+    coverage gap, not a complete entry, but its annotation-derived route is still
+    recall evidence and must not be silently dropped.
+    """
+    materialized = _materialize_rows(rows)
+    gaps: dict[str, dict[str, object]] = {}
+    for row in materialized:
+        registration_kind = row["registration_kind"]
+        coverage_status = row["coverage_status"]
+        if registration_kind != "dynamic_unresolved" and coverage_status == "complete":
+            continue
+        _validate_gap_row(row)
+        route = row.get("route_or_event")
+        if not isinstance(route, str) or not route or route in _PLACEHOLDER_GAP_ROUTES:
+            continue
+        handler_file = row.get("handler_file")
+        handler_start_line = row.get("handler_start_line")
+        if not isinstance(handler_file, str) or not handler_file.endswith(".java") or not isinstance(handler_start_line, int):
+            continue
+        if route == "mqtt_protocol" and not (
+            row.get("framework") == "mqtt"
+            and row.get("protocol") == "mqtt"
+            and row.get("coverage_note") == _SMqtt_PROTOCOL_GAP_NOTE
+            and row.get("handler_fqn") == row.get("registration_fqn")
+            and row.get("handler_file") == row.get("registration_file")
+            and row.get("handler_fqn") == "io.github.quickmsg.core.mqtt.MqttReceiver.newTcpServer"
+            and isinstance(row.get("handler_file"), str)
+            and "/mqtt/MqttReceiver.java" in row["handler_file"]
+            and isinstance(row.get("registration_start_line"), int)
+            and row["registration_start_line"] > 0
+        ):
+            continue
+        identity = {
+            "framework": row["framework"],
+            "protocol": row["protocol"],
+            "route_or_event": route,
+            "handler_file": handler_file,
+            "handler_start_line": handler_start_line,
+            "coverage_status": coverage_status,
+            "coverage_note": row["coverage_note"],
+        }
+        gap_id = stable_identifier("gap", identity)
+        gaps[gap_id] = {"gap_id": gap_id, **identity}
+    return [gaps[gap_id] for gap_id in sorted(gaps)]
 
 
 def normalize_framework_coverage(
@@ -268,4 +328,4 @@ def _validate_gap_fields(
         )
 
 
-__all__ = ["normalize_entry_rows", "normalize_framework_coverage"]
+__all__ = ["normalize_entry_rows", "normalize_framework_coverage", "normalize_gap_entry_rows"]

@@ -8,11 +8,16 @@ from typing import Any, Mapping
 
 from dosweb.artifacts.identifiers import canonical_json, file_sha256
 from dosweb.artifacts.jsonl import read_jsonl_strict
-from dosweb.artifacts.schemas import validate_records
+from dosweb.artifacts.schemas import SCHEMA_VERSION, validate_records
 from dosweb.batch.plan import load_batch_plan
 from dosweb.entries.models import FrameworkCoverage
 
-_ENTRY_ARTIFACTS = {"coverage.json", "entry_facts.jsonl"}
+_LEGACY_ENTRY_ARTIFACTS = {"coverage.json", "entry_facts.jsonl"}
+_CURRENT_ENTRY_ARTIFACTS = {
+    "coverage.json", "entry_facts.jsonl", "entry_gap_facts.jsonl",
+    "entry_interposition_facts.jsonl", "configuration_coverage.json",
+    "modeled_configuration.jsonl", "entry_security_facts.jsonl",
+}
 
 
 def _read_object(path: Path) -> Mapping[str, Any]:
@@ -33,7 +38,7 @@ def _record_count(path: Path) -> int:
     return count
 
 
-def _safe_artifact(target_dir: Path, metadata: Mapping[str, Any]) -> Path:
+def _safe_artifact(target_dir: Path, metadata: Mapping[str, Any], *, schema_version: str) -> Path:
     raw_path = metadata.get("path")
     if not isinstance(raw_path, str):
         raise ValueError("entry artifact path is missing")
@@ -49,7 +54,7 @@ def _safe_artifact(target_dir: Path, metadata: Mapping[str, Any]) -> Path:
         raise ValueError("entry artifact byte count mismatch")
     if metadata.get("record_count") != _record_count(path):
         raise ValueError("entry artifact record count mismatch")
-    if metadata.get("schema_version") != "2.0":
+    if metadata.get("schema_version") != schema_version:
         raise ValueError("entry artifact schema version mismatch")
     return path
 
@@ -84,17 +89,22 @@ def _entry_paths(target_dir: Path, run: Mapping[str, Any], *, target_id: str, re
         raise ValueError("entry stage artifact manifest mismatch")
     if manifest.get("output_hash") != hashlib.sha256(canonical_json(artifacts)).hexdigest():
         raise ValueError("entry stage output hash mismatch")
-    if {item.get("path") for item in artifacts if isinstance(item, Mapping)} != _ENTRY_ARTIFACTS:
+    artifact_names = {item.get("path") for item in artifacts if isinstance(item, Mapping)}
+    if artifact_names == _LEGACY_ENTRY_ARTIFACTS:
+        expected_artifacts, schema_version = _LEGACY_ENTRY_ARTIFACTS, "2.0"
+    elif artifact_names == _CURRENT_ENTRY_ARTIFACTS:
+        expected_artifacts, schema_version = _CURRENT_ENTRY_ARTIFACTS, SCHEMA_VERSION
+    else:
         raise ValueError("entry stage artifact set mismatch")
     found: dict[str, Path] = {}
     for item in artifacts:
         if not isinstance(item, Mapping):
             raise ValueError("entry artifact metadata is malformed")
-        path = _safe_artifact(target_dir, item)
+        path = _safe_artifact(target_dir, item, schema_version=schema_version)
         if path.name in found:
             raise ValueError("entry artifact is listed more than once")
         found[path.name] = path
-    if set(found) != _ENTRY_ARTIFACTS:
+    if set(found) != expected_artifacts:
         raise ValueError("entry stage artifacts are incomplete")
     return found
 

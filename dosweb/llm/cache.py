@@ -15,12 +15,13 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from dosweb.artifacts.identifiers import canonical_json, sha256_canonical_json
+from dosweb.config import model_response_matches
 from dosweb.errors import AnalyzerError
 from dosweb.growth.contracts import validate_contract_static_evidence, validate_growth_contract
 from dosweb.growth.models import BoundedSlice, GrowthContract
 from dosweb.llm.schemas import PROMPT_VERSION, RESPONSE_SCHEMA_VERSION
 
-_CACHE_FORMAT = "growth-contract-cache-v5"
+_CACHE_FORMAT = "growth-contract-cache-v7"
 _LOCK_STRIPES = 64
 _LOCKS_GUARD = threading.Lock()
 _LOCKS: tuple[threading.Lock, ...] = tuple(threading.Lock() for _ in range(_LOCK_STRIPES))
@@ -47,8 +48,8 @@ def _reset_locks_after_fork() -> None:
 
 if hasattr(os, "register_at_fork"):
     os.register_at_fork(after_in_child=_reset_locks_after_fork)
-_AUDIT_KEYS = frozenset({"method", "url", "requested_model", "actual_model", "provider_request_id_digest", "slice_content_hash", "allow_remote_llm", "public_source_url", "source_commit_sha", "verified_public", "verified_clean_checkout"})
-_ENTRY_KEYS = frozenset({"cache_format", "cache_key", "response_schema_version", "identity", "identity_hash", "request_audit", "audit_hash", "contract", "contract_hash", "entry_hash", "entry_hmac"})
+_AUDIT_KEYS = frozenset({"method", "url", "provider", "protocol", "requested_model", "actual_model", "provider_request_id_digest", "slice_content_hash", "allow_remote_llm", "public_source_url", "source_commit_sha", "verified_public", "verified_clean_checkout"})
+_ENTRY_KEYS = frozenset({"cache_format", "cache_key", "response_schema_version", "identity", "identity_hash", "request_audit", "audit_hash", "raw_response", "raw_response_hash", "contract", "contract_hash", "entry_hash", "entry_hmac"})
 _UNSIGNED_ENTRY_KEYS = _ENTRY_KEYS - {"entry_hmac"}
 _MAX_CACHE_BYTES = 524288
 _MAX_CACHE_ENTRIES = 256
@@ -85,7 +86,8 @@ def canonical_base_url(value: object) -> str:
 def cache_identity(config: object, slice_: BoundedSlice) -> tuple[str, dict[str, object]]:
     normalized = _normalized_slice(slice_)
     identity = {
-        "provider": "deepseek",
+        "provider": "rightapi_codex_responses",
+        "protocol": "responses-v1",
         "base_url": canonical_base_url(getattr(config, "base_url")),
         "model": getattr(config, "model"),
         "temperature": getattr(config, "temperature"),
@@ -93,14 +95,14 @@ def cache_identity(config: object, slice_: BoundedSlice) -> tuple[str, dict[str,
         "prompt_version": PROMPT_VERSION,
         "response_schema_version": RESPONSE_SCHEMA_VERSION,
         "attestation_schema_version": "public-source-attestation-v1",
-        "public_source_url": getattr(config, "public_source_url"),
-        "source_commit_sha": str(getattr(config, "source_commit_sha")).lower(),
+        "public_source_url": getattr(config, "public_source_url") or "",
+        "source_commit_sha": (getattr(config, "source_commit_sha") or "").lower(),
         "slice_content_hash": sha256_canonical_json(normalized),
         "request_method": "POST",
-        "request_url": f"{canonical_base_url(getattr(config, 'base_url'))}chat/completions",
+        "request_url": f"{canonical_base_url(getattr(config, 'base_url'))}responses",
         "allow_remote_llm": getattr(config, "allow_remote_llm"),
         "verified_public": False,
-        "verified_clean_checkout": True,
+        "verified_clean_checkout": False,
     }
     return sha256_canonical_json(identity), identity
 
@@ -144,6 +146,9 @@ class ContractCache:
             audit = raw["request_audit"]
             if not _valid_audit(audit, identity) or raw["audit_hash"] != sha256_canonical_json(audit):
                 return None
+            raw_response = raw["raw_response"]
+            if not isinstance(raw_response, str) or len(raw_response.encode("utf-8")) > _MAX_JSON_STRING_BYTES or raw["raw_response_hash"] != hashlib.sha256(raw_response.encode("utf-8")).hexdigest():
+                return None
             contract_payload = raw["contract"]
             if raw["contract_hash"] != sha256_canonical_json(contract_payload):
                 return None
@@ -177,11 +182,13 @@ class ContractCache:
             pass
 
     @contextmanager
-    def capacity_reservation(self, key: str, *, allow_existing: bool = False) -> Iterator[None]:
+    def capacity_reservation(self, key: str, *, allow_existing: bool = False, entry_prefix: str = "") -> Iterator[None]:
         if not _safe_key(key):
             raise ValueError("invalid cache key")
+        if entry_prefix not in {"", "auth-"}:
+            raise ValueError("invalid cache entry prefix")
         active = getattr(_ACTIVE_RESERVATIONS, "keys", set())
-        marker = (str(self._cache_dir.absolute()), key)
+        marker = (str(self._cache_dir.absolute()), f"{entry_prefix}{key}")
         if marker in active:
             yield
             return
@@ -196,7 +203,7 @@ class ContractCache:
                     raise AnalyzerError("LLM_CACHE_LOCK_FAILED", "LLM cache capacity lock is unsafe.")
                 _ACTIVE_FLOCK_FDS.add(descriptor)
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
-                destination = f"{key}.json"
+                destination = f"{entry_prefix}{key}.json"
                 if _entry_is_unsafe(directory, destination):
                     raise AnalyzerError("LLM_CACHE_UNSAFE", "LLM cache destination is unsafe.")
                 exists = _entry_exists(directory, destination)
@@ -260,13 +267,40 @@ class ContractCache:
                         pass
                 os.close(directory)
 
-    def put(self, key: str, identity: Mapping[str, object], contract: GrowthContract, request_audit: Mapping[str, object]) -> bool:
-        if not _safe_key(key) or not _valid_audit(request_audit, identity):
+    def audit_payload(self, key: str, identity: Mapping[str, object]) -> tuple[str, dict[str, object]] | None:
+        """Return authenticated raw provider body and parsed contract for an audit replay."""
+        if not _safe_key(key):
+            return None
+        directory = self._open_cache_dir(create=False)
+        if directory is None:
+            return None
+        try:
+            data = _read_private_regular_file(directory, f"{key}.json")
+            if data is None:
+                return None
+            raw = _strict_load(data)
+            if not isinstance(raw, dict) or set(raw) != _ENTRY_KEYS or raw.get("cache_format") != _CACHE_FORMAT or raw.get("identity") != identity:
+                return None
+            unsigned = {name: raw[name] for name in _UNSIGNED_ENTRY_KEYS}
+            if not isinstance(raw.get("entry_hmac"), str) or not hmac.compare_digest(raw["entry_hmac"], self._entry_hmac(unsigned)):
+                return None
+            response = raw.get("raw_response")
+            contract = raw.get("contract")
+            if not isinstance(response, str) or not isinstance(contract, dict) or raw.get("raw_response_hash") != hashlib.sha256(response.encode("utf-8")).hexdigest():
+                return None
+            return response, dict(contract)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError, KeyError):
+            return None
+        finally:
+            os.close(directory)
+
+    def put(self, key: str, identity: Mapping[str, object], contract: GrowthContract, request_audit: Mapping[str, object], *, raw_response: str = "") -> bool:
+        if not _safe_key(key) or not _valid_audit(request_audit, identity) or not isinstance(raw_response, str) or len(raw_response.encode("utf-8")) > _MAX_JSON_STRING_BYTES:
             raise ValueError("invalid cache entry")
         marker = (str(self._cache_dir.absolute()), key)
         if marker not in getattr(_ACTIVE_RESERVATIONS, "keys", set()):
             with self.capacity_reservation(key):
-                return self.put(key, identity, contract, request_audit)
+                return self.put(key, identity, contract, request_audit, raw_response=raw_response)
         directory = self._open_cache_dir(create=True)
         if directory is None:
             return False
@@ -286,6 +320,8 @@ class ContractCache:
                 "identity_hash": sha256_canonical_json(identity),
                 "request_audit": dict(request_audit),
                 "audit_hash": sha256_canonical_json(request_audit),
+                "raw_response": raw_response,
+                "raw_response_hash": hashlib.sha256(raw_response.encode("utf-8")).hexdigest(),
                 "contract": contract_payload,
                 "contract_hash": sha256_canonical_json(contract_payload),
             }
@@ -323,13 +359,87 @@ class ContractCache:
             os.close(directory)
         return True
 
+    def get_auth_record(self, key: str, identity: Mapping[str, object]) -> dict[str, object] | None:
+        """Read v2 Auth records; authenticated v1 records are securely retired."""
+        if not _safe_key(key):
+            return None
+        directory = self._open_cache_dir(create=False)
+        if directory is None:
+            return None
+        name = f"auth-{key}.json"
+        try:
+            loaded = _read_private_regular_file_with_stat(directory, name)
+            if loaded is None:
+                return None
+            data, info = loaded
+            raw = _strict_load(data)
+            required = {"cache_format", "cache_key", "identity", "contract", "raw_response", "entry_hash", "entry_hmac"}
+            if not isinstance(raw, dict) or set(raw) != required or raw.get("cache_key") != key or raw.get("identity") != identity:
+                return None
+            unsigned = {name: raw[name] for name in required - {"entry_hmac"}}
+            valid = (
+                raw.get("entry_hash") == sha256_canonical_json({name: raw[name] for name in unsigned if name != "entry_hash"})
+                and isinstance(raw.get("entry_hmac"), str)
+                and isinstance(raw.get("contract"), dict)
+                and isinstance(raw.get("raw_response"), str)
+            )
+            if not valid:
+                return None
+            format_ = raw.get("cache_format")
+            if format_ == "auth-contract-cache-v2":
+                if not hmac.compare_digest(raw["entry_hmac"], hmac.new(self._authentication_key, b"auth-contract-cache-v2\\0" + canonical_json(unsigned), hashlib.sha256).hexdigest()):
+                    return None
+                return {"contract": dict(raw["contract"]), "raw_response": raw["raw_response"]}
+            if format_ == "auth-contract-cache-v1" and hmac.compare_digest(raw["entry_hmac"], hmac.new(self._authentication_key, b"auth-contract-cache-v1\\0" + canonical_json(unsigned), hashlib.sha256).hexdigest()):
+                _unlink_same_private_file(directory, name, info)
+            return None
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError, KeyError):
+            return None
+        finally:
+            os.close(directory)
+
+    def put_auth_record(self, key: str, identity: Mapping[str, object], contract: Mapping[str, object], raw_response: str) -> bool:
+        """Atomically persist a bounded Auth Contract response; no credentials are accepted."""
+        if not _safe_key(key) or not isinstance(contract, Mapping) or not isinstance(raw_response, str) or len(raw_response.encode()) > _MAX_JSON_STRING_BYTES:
+            raise ValueError("invalid auth cache entry")
+        with self.capacity_reservation(key, entry_prefix="auth-"):
+            directory = self._open_cache_dir(create=True)
+            if directory is None:
+                return False
+            temporary_name: str | None = None
+            try:
+                destination = f"auth-{key}.json"
+                if _entry_is_unsafe(directory, destination) or _entry_exists(directory, destination):
+                    return False
+                entry: dict[str, object] = {"cache_format": "auth-contract-cache-v2", "cache_key": key, "identity": dict(identity), "contract": dict(contract), "raw_response": raw_response}
+                entry["entry_hash"] = sha256_canonical_json(entry)
+                entry["entry_hmac"] = hmac.new(self._authentication_key, b"auth-contract-cache-v2\\0" + canonical_json(entry), hashlib.sha256).hexdigest()
+                payload = canonical_json(entry)
+                if len(payload) > _MAX_CACHE_BYTES:
+                    raise AnalyzerError("LLM_CACHE_WRITE_FAILED", "Auth cache entry exceeds its byte limit.")
+                temporary_name, temporary = _create_private_temporary(directory, key)
+                try:
+                    temporary.write(payload); temporary.flush(); os.fsync(temporary.fileno())
+                finally:
+                    temporary.close()
+                os.link(temporary_name, destination, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+                os.unlink(temporary_name, dir_fd=directory); temporary_name = None; os.fsync(directory)
+                return True
+            except OSError as exc:
+                raise AnalyzerError("LLM_CACHE_WRITE_FAILED", "Could not publish Auth Contract cache entry.") from exc
+            finally:
+                if temporary_name is not None:
+                    try: os.unlink(temporary_name, dir_fd=directory)
+                    except OSError: pass
+                os.close(directory)
+
     def provider_request_id_digest(self, value: str) -> str:
         if not isinstance(value, str):
             raise ValueError("provider request ID must be a string")
         return hmac.new(self._authentication_key, b"provider-request-id-v1\0" + value.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def _entry_hmac(self, entry: Mapping[str, object]) -> str:
-        return hmac.new(self._authentication_key, b"growth-contract-cache-entry-v5\0" + canonical_json(entry), hashlib.sha256).hexdigest()
+        return hmac.new(self._authentication_key, b"growth-contract-cache-entry-v7\0" + canonical_json(entry), hashlib.sha256).hexdigest()
 
     def _open_cache_dir(self, *, create: bool) -> int | None:
         try:
@@ -389,7 +499,13 @@ def _require_cache_capacity(directory: int, destination: str, new_size: int) -> 
     for name in names:
         if not isinstance(name, str):
             continue
-        is_entry = name.endswith(".json") and len(name) == 69
+        is_entry = (
+            name.endswith(".json")
+            and (
+                (len(name) == 69 and _safe_key(name[:-5]))
+                or (len(name) == 74 and name.startswith("auth-") and _safe_key(name[5:-5]))
+            )
+        )
         is_temporary = _TEMPORARY_NAME.fullmatch(name) is not None
         if not is_entry and not is_temporary:
             continue
@@ -414,10 +530,16 @@ def _safe_metadata(info: os.stat_result, type_check: object, required_mode: int)
 
 
 def _read_private_regular_file(directory: int, name: str) -> bytes | None:
+    loaded = _read_private_regular_file_with_stat(directory, name)
+    return None if loaded is None else loaded[0]
+
+
+def _read_private_regular_file_with_stat(directory: int, name: str) -> tuple[bytes, os.stat_result] | None:
     descriptor = _open_private_regular_file(directory, name, create=False)
     if descriptor is None:
         return None
     try:
+        info = os.fstat(descriptor)
         chunks = bytearray()
         while len(chunks) <= _MAX_CACHE_BYTES:
             chunk = os.read(descriptor, _MAX_CACHE_BYTES + 1 - len(chunks))
@@ -426,9 +548,21 @@ def _read_private_regular_file(directory: int, name: str) -> bytes | None:
             chunks.extend(chunk)
         if len(chunks) > _MAX_CACHE_BYTES:
             raise ValueError("oversized cache")
-        return bytes(chunks)
+        return bytes(chunks), info
     finally:
         os.close(descriptor)
+
+
+def _unlink_same_private_file(directory: int, name: str, expected: os.stat_result) -> None:
+    """Remove only the exact authenticated owner-only file read through this dir_fd."""
+    try:
+        current = os.lstat(name, dir_fd=directory)
+        if not _safe_metadata(current, stat.S_ISREG, 0o600) or (current.st_dev, current.st_ino) != (expected.st_dev, expected.st_ino):
+            return
+        os.unlink(name, dir_fd=directory)
+        os.fsync(directory)
+    except OSError:
+        return
 
 
 def _open_private_regular_file(directory: int, name: str, *, create: bool) -> int | None:
@@ -544,7 +678,8 @@ def _valid_audit(audit: object, identity: Mapping[str, object]) -> bool:
         or audit["url"] != identity.get("request_url")
         or audit["slice_content_hash"] != identity.get("slice_content_hash")
         or audit["requested_model"] != identity.get("model")
-        or audit["actual_model"] != identity.get("model")
+        or not isinstance(identity.get("model"), str)
+        or not model_response_matches(str(identity.get("model")), audit["actual_model"])
         or audit["public_source_url"] != identity.get("public_source_url")
         or audit["source_commit_sha"] != identity.get("source_commit_sha")
     ):

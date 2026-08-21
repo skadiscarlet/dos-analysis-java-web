@@ -1,4 +1,4 @@
-"""Opt-in DeepSeek integration using one fixed artificial public fixture slice.
+"""Opt-in provider integration using one fixed artificial public fixture slice.
 
 The only accepted checkout is the public https://github.com/octocat/Hello-World fixture.
 `DOSWEB_PUBLIC_FIXTURE_SHA` must be a full commit from that repository whose README is
@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dosweb.config import DEFAULT_BASE_URL, LlmConfig
+from dosweb.config import DEFAULT_BASE_URL, DEFAULT_MODEL, LlmConfig
 from dosweb.growth.models import BoundedSlice, BoundedSlicePayload, CfgSummary, GrowthContract, RegistrationFact, SourceExcerpt, StaticFact
 from dosweb.llm.deepseek import DeepSeekClient
 
@@ -58,7 +58,7 @@ class DeepSeekOnlineTests(unittest.TestCase):
             (RegistrationFact("spring_mvc", "excerpt:fixture"),), (),
         )
         with tempfile.TemporaryDirectory() as directory:
-            config = LlmConfig("deepseek-v4-pro", DEFAULT_BASE_URL, required["DEEPSEEK_API_KEY"], 60, 3, 0, Path(directory) / "cache", True, _FIXTURE_REPOSITORY, sha, checkout)
+            config = LlmConfig(DEFAULT_MODEL, DEFAULT_BASE_URL, required["DEEPSEEK_API_KEY"], 60, 3, 0, Path(directory) / "cache", True, _FIXTURE_REPOSITORY, sha, checkout)
             result = DeepSeekClient(config).classify_growth(BoundedSlice("slice:fixture", payload))
         self.assertIsInstance(result, GrowthContract)
 

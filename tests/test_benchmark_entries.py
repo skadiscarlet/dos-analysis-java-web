@@ -1,7 +1,10 @@
+import tempfile
 import unittest
 from pathlib import Path
 
-from dosweb.benchmark.entries import extract_entries_from_target
+from dosweb.artifacts.identifiers import file_sha256
+from dosweb.artifacts.schemas import SCHEMA_VERSION
+from dosweb.benchmark.entries import _CURRENT_ENTRY_ARTIFACTS, _safe_artifact, extract_entries_from_target
 from dosweb.benchmark.matching import match_entry_case, normalize_route
 
 
@@ -9,6 +12,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BenchmarkEntryDiagnosticsTests(unittest.TestCase):
+    def test_current_entry_artifact_contract_includes_gap_interposition_and_configuration(self):
+        self.assertIn("entry_gap_facts.jsonl", _CURRENT_ENTRY_ARTIFACTS)
+        self.assertIn("entry_interposition_facts.jsonl", _CURRENT_ENTRY_ARTIFACTS)
+        self.assertIn("configuration_coverage.json", _CURRENT_ENTRY_ARTIFACTS)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "entry_gap_facts.jsonl"
+            path.write_text("", encoding="utf-8")
+            metadata = {
+                "path": path.name,
+                "sha256": file_sha256(path),
+                "byte_count": 0,
+                "record_count": 0,
+                "schema_version": SCHEMA_VERSION,
+            }
+            self.assertEqual(_safe_artifact(root, metadata, schema_version=SCHEMA_VERSION), path)
+            with self.assertRaises(ValueError):
+                _safe_artifact(root, metadata, schema_version="2.0")
+
     def _entry(self, entry_id: str, *, registration_line: int | None = None) -> dict:
         entry = {
             "entry_id": entry_id,
