@@ -1498,6 +1498,7 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_prompt_contains_exact_typed_contract_schema(self) -> None:
         from dosweb.llm.schemas import GROWTH_CONTRACT_RESPONSE_SCHEMA, RESPONSE_SCHEMA_VERSION
 
+        self.assertEqual("growth-contract-schema-v4", RESPONSE_SCHEMA_VERSION)
         messages = build_growth_messages(self.slice)
         user = json.loads(messages[1]["content"])
         self.assertEqual(user["response_schema_version"], RESPONSE_SCHEMA_VERSION)

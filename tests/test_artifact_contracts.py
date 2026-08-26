@@ -16,7 +16,7 @@ from dosweb.artifacts.jsonl import (
     write_jsonl_atomically,
 )
 from dosweb.artifacts.metadata import StageFingerprint, invalidate_from, reusable_stage
-from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, SCHEMA_VERSION, validate_references
+from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, SCHEMA_VERSION, validate_records, validate_references
 from dosweb.errors import AnalyzerError
 from dosweb.lifecycle import BoundCandidate, GuardCandidate, ReleaseCandidate
 
@@ -202,6 +202,7 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertEqual(left_ref.sha256, right_ref.sha256)
 
     def test_schema_registry_covers_every_p0_jsonl_artifact(self):
+        self.assertEqual("2.6", SCHEMA_VERSION)
         self.assertEqual(
             set(ARTIFACT_SCHEMAS),
             {
@@ -229,9 +230,31 @@ class ArtifactContractTests(unittest.TestCase):
                 "lifecycle_coverage",
                 "lifecycle_results",
                 "static_findings",
+                "finding_families",
                 "lifecycle_certificates",
             },
         )
+
+    def test_finding_family_allowlist_is_strict_before_publication(self):
+        record = {
+            "family_id": "family:fixture",
+            "verdict": "static_unknown",
+            "priority": "inventory",
+            "primary_finding_id": "finding:primary",
+            "member_finding_ids": ["finding:primary"],
+            "member_certificate_ids": ["certificate:primary"],
+            "entry_ids": ["entry:primary"],
+            "growth_ids": ["growth:primary"],
+            "resource_id": "resource:primary",
+            "reachability_status": "unknown",
+            "amplification_class": "unknown",
+            "reason_codes": ["FIXTURE_UNKNOWN"],
+        }
+
+        validate_records("finding_families", [record])
+        with self.assertRaises(AnalyzerError) as raised:
+            validate_records("finding_families", [{**record, "unexpected": True}])
+        self.assertEqual("ARTIFACT_INVALID_RECORD", raised.exception.code)
 
     def test_lifecycle_candidate_models_match_published_artifact_schemas(self):
         guard = GuardCandidate.create(

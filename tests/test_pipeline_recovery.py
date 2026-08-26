@@ -13,7 +13,7 @@ from dosweb.artifacts.metadata import read_upstream_artifact_bytes, resolve_upst
 import dosweb.artifacts.metadata as metadata_module
 from dosweb.cli import dispatch, main, parse_cli_values
 from dosweb.errors import AnalyzerError
-from dosweb.pipeline import Pipeline, SCHEMA_VERSION, StageOutput, STAGES, StageFingerprint
+from dosweb.pipeline import Pipeline, SCHEMA_VERSION, TOOL_VERSION, StageOutput, STAGES, StageFingerprint
 
 
 class PipelineRecoveryTests(unittest.TestCase):
@@ -42,6 +42,37 @@ class PipelineRecoveryTests(unittest.TestCase):
             Pipeline(tmp, self._executors(calls), database_fingerprint="db", model_fingerprint="model", report_fingerprint="report", config_fingerprint="cfg", resume=True).run()
             self.assertEqual([calls[stage] for stage in STAGES], [1] * len(STAGES))
             self.assertEqual(set(json.loads((Path(tmp) / "run.json").read_text())["stages"]), set(STAGES))
+
+    def test_schema_26_reexecutes_every_schema_25_stage(self):
+        self.assertEqual("2.6", SCHEMA_VERSION)
+        self.assertEqual("0.5.0", TOOL_VERSION)
+        with tempfile.TemporaryDirectory() as tmp:
+            initial_calls = {stage: 0 for stage in STAGES}
+            Pipeline(
+                tmp,
+                self._executors(initial_calls),
+                schema_version="2.5",
+                tool_version="0.4.0",
+            ).run()
+            resumed_calls = {stage: 0 for stage in STAGES}
+
+            result = Pipeline(
+                tmp,
+                self._executors(resumed_calls),
+                resume=True,
+            ).run()
+
+            self.assertEqual([1] * len(STAGES), [resumed_calls[stage] for stage in STAGES])
+            self.assertEqual("2.6", result["schema_version"])
+            self.assertEqual("0.5.0", result["tool_version"])
+            for stage in STAGES:
+                manifest = json.loads(
+                    (Path(tmp) / ".stage-manifests" / f"{stage}.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual("2.6", manifest["fingerprint"]["schema_version"])
+                self.assertTrue(
+                    all(artifact["schema_version"] == "2.6" for artifact in manifest["artifacts"])
+                )
 
     def test_resume_updates_root_run_identity_and_records_prior_identity_hash(self):
         with tempfile.TemporaryDirectory() as tmp:

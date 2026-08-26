@@ -49,16 +49,7 @@ from dosweb.report.markdown import render_report
 from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
-    stage: (
-        "production-v2.5-poc33-recall-growth-config-source-jaxrs-v1"
-        if stage == "growth"
-        else "production-v2.5-poc33-recall-source-jaxrs-v1"
-        if stage == "entries"
-        else "production-v2.5-poc33-recall-flow-source-reconciliation-v1"
-        if stage == "flows"
-        else "production-v2.5-poc33-recall"
-    )
-    for stage in STAGES
+    stage: f"production-v2.6-poc33-demo-repair-{stage}-v1" for stage in STAGES
 }
 _QUERY_PACK_DIR: Final = Path(__file__).resolve().parent / "codeql" / "pack"
 _ENTRY_QUERY_DIR: Final = _QUERY_PACK_DIR / "dosweb" / "Entries"

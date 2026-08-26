@@ -9,7 +9,7 @@ from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.errors import AnalyzerError
 
 
-SCHEMA_VERSION: Final = "2.5"
+SCHEMA_VERSION: Final = "2.6"
 _CONCRETE_RESOURCE_DIMENSIONS: Final = frozenset(
     {"entries", "bytes", "tasks", "connections", "objects"}
 )
@@ -34,6 +34,7 @@ _ID_PREFIXES: Final = {
     "link_id": "candidate_link:", "disposition_id": "disposition:",
     "evidence_id": "lifecycle-evidence:", "coverage_id": "lifecycle-coverage:", "summary_id": "lifecycle-summary:",
     "gap_id": "gap:", "interposition_id": "interposition:",
+    "family_id": "family:",
 }
 _MAX_ARTIFACT_ID_BYTES: Final = 256
 
@@ -400,6 +401,51 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         field_kinds=_field_kinds(
             finding_id="string", certificate_id="string", entry_id="string", growth_id="string",
             verdict="string", reason_codes="list",
+        ),
+    ),
+    "finding_families": ArtifactSchema(
+        id_field="family_id",
+        required_fields=frozenset(
+            {
+                "family_id", "verdict", "priority", "primary_finding_id",
+                "member_finding_ids", "member_certificate_ids", "entry_ids",
+                "growth_ids", "resource_id", "reachability_status",
+                "amplification_class", "reason_codes",
+            }
+        ),
+        enum_fields={
+            "verdict": frozenset(
+                {"static_vulnerable", "bounded_under_modeled_assumptions", "static_unknown"}
+            ),
+            "priority": frozenset({"P0", "P1", "P2", "inventory"}),
+            "reachability_status": frozenset(
+                {"ordinary_attacker_reachable", "not_entry_reachable", "unknown"}
+            ),
+            "amplification_class": frozenset(
+                {
+                    "superlinear", "large_single_request", "concurrent_retention",
+                    "queue_instability", "high_cardinality_retention",
+                    "low_amplification", "unknown",
+                }
+            ),
+        },
+        reference_fields={
+            "primary_finding_id": ReferenceSpec("finding_id"),
+            "member_finding_ids": ReferenceSpec("finding_id", multiple=True),
+            "member_certificate_ids": ReferenceSpec("certificate_id", multiple=True),
+            "entry_ids": ReferenceSpec("entry_id", multiple=True),
+            "growth_ids": ReferenceSpec("growth_id", multiple=True),
+        },
+        field_kinds=_field_kinds(
+            family_id="string", verdict="string", priority="string",
+            primary_finding_id="string", member_finding_ids="nonempty_string_list",
+            member_certificate_ids="nonempty_string_list", entry_ids="nonempty_string_list",
+            growth_ids="nonempty_string_list", resource_id="string",
+            reachability_status="string", amplification_class="string",
+            reason_codes="list",
+        ),
+        record_validator=lambda record, artifact_name, line: _validate_finding_family(
+            record, artifact_name, line
         ),
     ),
     "lifecycle_certificates": ArtifactSchema(
@@ -906,6 +952,48 @@ def _validate_lifecycle_result(
         raise _error(
             "ARTIFACT_INVALID_RECORD", "Lifecycle result identifier is malformed.",
             artifact_name, line, "lifecycle_result_id",
+        )
+
+
+def _validate_finding_family(
+    record: Mapping[str, object], artifact_name: str, line: int
+) -> None:
+    for field in (
+        "member_finding_ids",
+        "member_certificate_ids",
+        "entry_ids",
+        "growth_ids",
+        "reason_codes",
+    ):
+        values = record[field]
+        if (
+            not isinstance(values, list)
+            or any(not isinstance(value, str) or not value for value in values)
+            or values != sorted(set(values))
+        ):
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Finding family collections must be sorted unique strings.",
+                artifact_name,
+                line,
+                field,
+            )
+    if record["primary_finding_id"] not in record["member_finding_ids"]:
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Finding family primary finding must be a member.",
+            artifact_name,
+            line,
+            "primary_finding_id",
+        )
+    resource_id = record["resource_id"]
+    if not isinstance(resource_id, str) or not resource_id.startswith("resource:"):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Finding family resource identifier is malformed.",
+            artifact_name,
+            line,
+            "resource_id",
         )
 
 

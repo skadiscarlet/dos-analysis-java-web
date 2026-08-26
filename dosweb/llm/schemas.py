@@ -1,6 +1,6 @@
 # Bumped after audit artifacts became part of formal reproducibility.
 PROMPT_VERSION = "growth-contract-v3"
-RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v3"
+RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v4"
 AUTH_PROMPT_VERSION = "auth-contract-v3"
 AUTH_RESPONSE_SCHEMA_VERSION = "auth-contract-schema-v2"
 

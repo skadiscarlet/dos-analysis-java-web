@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from dosweb.artifacts.identifiers import sha256_canonical_json, stable_identifier
+from dosweb.artifacts.schemas import SCHEMA_VERSION
 from dosweb.batch.aggregate import P0_ARTIFACTS, STAGES, aggregate, validate_manifest
 
 
@@ -22,7 +23,7 @@ def canonical_fixture() -> tuple[dict, dict, dict]:
 
 
 class BatchAggregationContractTests(unittest.TestCase):
-    def test_p0_artifact_contract_matches_schema_25_production_files(self) -> None:
+    def test_p0_artifact_contract_matches_current_production_files(self) -> None:
         self.assertEqual(set(P0_ARTIFACTS), {
             "configuration_coverage.json", "coverage.json", "descriptor_coverage.json",
             "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl",
@@ -89,7 +90,7 @@ class BatchAggregationContractTests(unittest.TestCase):
                     data = ("{}\n" if name.endswith(".json") else "report\n").encode()
                 path = target / name
                 path.write_bytes(data)
-                artifacts[name] = {"path": name, "schema_version": "2.5", "sha256": __import__("hashlib").sha256(data).hexdigest(), "record_count": data.count(b"\n"), "byte_count": len(data)}
+                artifacts[name] = {"path": name, "schema_version": SCHEMA_VERSION, "sha256": __import__("hashlib").sha256(data).hexdigest(), "record_count": data.count(b"\n"), "byte_count": len(data)}
             stage_files = {
                 "entries": {"configuration_coverage.json", "coverage.json", "descriptor_coverage.json", "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "entry_security_facts.jsonl", "modeled_configuration.jsonl"},
                 "growth": {"amplification_decisions.jsonl", "auth_contracts.jsonl", "candidate_dispositions.jsonl", "candidate_entry_links.jsonl", "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl", "reachability_decisions.jsonl", "repeatability_decisions.jsonl", "verified_growth.jsonl"},

@@ -799,3 +799,63 @@ hashes and redaction metadata without storing the original secret. Query
 diagnostics keep the safe contract reason. This amendment raises the artifact
 schema to **2.5** and the tool version to **0.4.0**; legacy 2.4 artifacts are
 preserved but are not resumable.
+
+## 20. PoC-33 Evidence Funnel Repair / P0.2 Extension (2026-08-26)
+
+This extension approves the evidence-funnel repair without changing the fixed
+v2 vulnerability formula, ordered analysis phases, three static verdicts, or
+formal fail-closed behavior. It supersedes only the implementation versions and
+artifact contracts amended below; sections 1–19 remain authoritative for all
+unchanged behavior.
+
+### 20.1 Candidate relevance precedes finding publication
+
+Raw CodeQL Growth screening output is not finding-eligible by itself. Every
+Growth candidate receives a deterministic disposition before LLM classification
+or finding publication. Rejected and demonstrably non-entry-reachable candidates
+remain inventory evidence and do not generate lifecycle certificates or static
+findings. Candidate-relevant partial evidence remains eligible only for an
+explicit `static_unknown` gap path.
+
+### 20.2 DoS Growth Contract
+
+Growth Contract v4 adds attacker value-space, growth function and unit,
+retention, pressure, amplification, failure mechanism and signal, contract
+status, and rejection-reason fields. Collection mutation or allocation alone is
+not proof of DoS-relevant Growth. Deterministic verification must bind every DoS
+claim to bounded static facts; free-form model prose never replaces source-backed
+evidence.
+
+### 20.3 Candidate-relevant partial evidence
+
+Partial association, flow, reachability, configuration, or lifecycle evidence
+continues to force `static_unknown` when the candidate has first been shown
+DoS-relevant. Generic unresolved screening candidates do not create an unknown
+finding cross product. Unsupported custom dispatch, reflection, depth overflow,
+and asynchronous Release capacity retain concrete coverage gaps and remain
+`static_unknown` where a candidate-relevant chain exists.
+
+### 20.4 Path-exact certificates and deterministic families
+
+Lifecycle certificates and `static_findings.jsonl` remain exact to Entry,
+Growth, flow path, and lifecycle evidence. Reporting may additionally publish
+strict deterministic finding families for actionability and deduplication.
+Family aggregation must retain every member finding and certificate identifier,
+must not merge different resource, reachability, deployment, or verdict
+identities, and must never use benchmark truth to choose a primary member.
+
+### 20.5 Truth-independent static-only operation
+
+Ordinary `entries`, `analyze`, and `full` execution remains static-only and may
+not read PoC labels, dynamic cases, benchmark dispositions, or post-hoc scores.
+Dynamic evidence is accepted only by the explicit read-only benchmark evaluator
+after static artifacts are complete, and it never rewrites production output.
+
+### 20.6 Version and resume boundary
+
+This extension raises the artifact schema to **2.6**, the tool version to
+**0.5.0**, and the Growth Contract response schema to
+`growth-contract-schema-v4`. All six production stages use new
+`production-v2.6-poc33-demo-repair-*` implementation fingerprints. Schema 2.5
+artifacts and manifests remain immutable historical inputs but are not reusable
+by a formal 2.6 resume.

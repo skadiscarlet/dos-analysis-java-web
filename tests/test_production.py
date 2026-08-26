@@ -803,10 +803,13 @@ public class ServiceApplication extends Application<Object> {
         self.assertEqual(reconciled, [valid])
 
     def test_flow_reconciliation_invalidates_pre_fix_resume_artifacts(self) -> None:
-        self.assertEqual(
-            production._IMPLEMENTATION_VERSIONS["flows"],  # noqa: SLF001
-            "production-v2.5-poc33-recall-flow-source-reconciliation-v1",
-        )
+        self.assertEqual(set(production._IMPLEMENTATION_VERSIONS), set(STAGES))  # noqa: SLF001
+        for stage, version in production._IMPLEMENTATION_VERSIONS.items():  # noqa: SLF001
+            with self.subTest(stage=stage):
+                self.assertTrue(
+                    version.startswith(f"production-v2.6-poc33-demo-repair-{stage}-"),
+                    version,
+                )
 
     def test_candidate_entry_association_falls_back_to_single_semantic_target_entry(self) -> None:
         entry, _candidate = self._entry_and_candidate()
