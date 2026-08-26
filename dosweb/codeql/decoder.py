@@ -30,6 +30,11 @@ INTERPOSITION_COLUMNS: Final = (
     "order_value", "action_fqn", "action_file", "action_start_line", "chain_file",
     "chain_start_line", "phase", "action_before_chain", "coverage_status", "coverage_note",
 )
+SECURITY_COLUMNS: Final = (
+    "handler_fqn", "handler_file", "handler_start_line", "route_or_event",
+    "fact_file", "fact_start_line", "kind", "value", "coverage_status",
+    "coverage_note",
+)
 FLOW_COLUMNS: Final = (
     "source_file", "source_start_line", "sink_file", "sink_start_line",
     "attacker_target", "attacker_source", "attacker_sink", "call_path",
@@ -166,6 +171,20 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
             },
             paths=frozenset({"entry_file", "interposer_file", "registration_file", "action_file", "chain_file"}),
             lines=frozenset({"entry_start_line", "interposer_start_line", "registration_start_line", "action_start_line", "chain_start_line"}),
+        ),
+        "entry_security": _spec(
+            "entry_security", SECURITY_COLUMNS,
+            integers={"handler_start_line", "fact_start_line"},
+            enums={
+                "kind": frozenset({
+                    "annotation", "filter", "security_filter_chain",
+                    "servlet_constraint", "netty_gate", "mqtt_gate",
+                    "configuration", "deployment_gate", "dependency_coverage",
+                }),
+                "coverage_status": frozenset({"complete", "partial"}),
+            },
+            paths=frozenset({"handler_file", "fact_file"}),
+            lines=frozenset({"handler_start_line", "fact_start_line"}),
         ),
         "flow": _spec(
             "flow", FLOW_COLUMNS,

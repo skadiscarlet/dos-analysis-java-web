@@ -26,6 +26,7 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
         embedded = _ROOT / "dosweb" / "codeql" / "pack" / "dosweb"
         direct = _ROOT / "codeql" / "dosweb"
         relatives = (
+            "Entries/EntrySecurity.ql",
             "Entries/EntryInterpositions.ql",
             "Flows/EntryToGrowth.ql", "Flows/EntryToGrowthAssociations.ql",
             "Lifecycle/GuardCandidates.ql", "Lifecycle/BoundCandidates.ql",

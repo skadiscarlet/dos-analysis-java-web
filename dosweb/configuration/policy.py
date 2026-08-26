@@ -7,7 +7,7 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _RELEVANT_KEY = re.compile(
-    r"(max|limit|cap|capacity|quota|size|timeout|queue|buffer|payload|body|upload|multipart|content[._-]?length|request|security|auth|anonymous|permit)",
+    r"(max|limit|cap|capacity|quota|size|timeout|queue|buffer|payload|body|upload|multipart|content[._-]?length|request|security|auth|anonymous|permit|profile|feature|module|enabled|conditional)",
     re.IGNORECASE,
 )
 _PLACEHOLDER = re.compile(r"\$\{|\{\{")
@@ -40,6 +40,10 @@ def normalize_modeled_value(key: str, value: object) -> str | int | bool | None:
     if not text or "\x00" in text or _PLACEHOLDER.search(text) or len(text.encode("utf-8")) > 1024:
         return None
     lowered = text.lower()
+    if key.lower() == "spring.profiles.active" and re.fullmatch(
+        r"[A-Za-z0-9_.-]+(?:\s*,\s*[A-Za-z0-9_.-]+)*", text
+    ):
+        return ",".join(part.strip() for part in text.split(","))
     if lowered in {"true", "false"}:
         return lowered == "true"
     if re.fullmatch(r"-?[0-9]+", text):

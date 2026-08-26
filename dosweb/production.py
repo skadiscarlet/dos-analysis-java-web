@@ -22,6 +22,11 @@ from dosweb.config import AnalyzerConfig, _DEFAULT_SECRETS_PATH, load_config, re
 from dosweb.configuration import extract_modeled_configuration_with_coverage
 from dosweb.configuration.models import ModeledConfigurationFact
 from dosweb.reachability.models import EntrySecurityFact
+from dosweb.reachability.extract import (
+    bind_entry_security_rows,
+    extract_entry_deployment_defaults,
+    extract_entry_security_fallback,
+)
 from dosweb.conclude.assertions import evaluate_assertion_1, evaluate_assertion_2
 from dosweb.conclude.verdicts import CandidateCoverage, derive_verdict
 from dosweb.entries import EntryFact, FrameworkCoverage
@@ -54,6 +59,7 @@ _IMPLEMENTATION_VERSIONS: Final = {
 _QUERY_PACK_DIR: Final = Path(__file__).resolve().parent / "codeql" / "pack"
 _ENTRY_QUERY_DIR: Final = _QUERY_PACK_DIR / "dosweb" / "Entries"
 _INTERPOSITION_QUERY: Final = "EntryInterpositions.ql"
+_SECURITY_QUERY: Final = "EntrySecurity.ql"
 _ENTRY_QUERIES: Final = (
     "SpringMvcEntries.ql", "ServletEntries.ql", "NettyEntries.ql", "MqttEntries.ql",
     "JaxRsEntries.ql", "GrpcEntries.ql",
@@ -83,7 +89,6 @@ _QUERY_FAMILIES: Final[dict[str, tuple[str, ...]]] = {
 _QUERY_DIRS: Final[dict[str, str]] = {"growth": "Growth", "flows": "Flows", "associations": "Flows", "lifecycle": "Lifecycle"}
 _MAX_DECODED_BYTES: Final = 64 * 1024 * 1024
 _MAX_QUERY_INPUT_BYTES: Final = 2 * 1024 * 1024
-_MAX_SECURITY_SOURCE_BYTES: Final = 512 * 1024
 
 
 def _same_java_callable(source_root: Path, relative_file: str, first_line: int, second_line: int) -> bool:
@@ -403,86 +408,9 @@ def _run_codeql_family(config: AnalyzerConfig, database: DatabaseInfo, stage: st
     return rows
 
 
-def _bounded_source_text(source_root: Path, relative_file: str) -> str | None:
-    """Read one bounded source file without following any symlink component."""
-    relative = Path(relative_file)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        return None
-    try:
-        root = source_root.resolve(strict=True)
-        candidate = root
-        for part in relative.parts:
-            candidate = candidate / part
-            if candidate.is_symlink():
-                return None
-        resolved = candidate.resolve(strict=True)
-        resolved.relative_to(root)
-        descriptor = os.open(resolved, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
-        try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_SECURITY_SOURCE_BYTES:
-                return None
-            raw = os.read(descriptor, _MAX_SECURITY_SOURCE_BYTES + 1)
-            if len(raw) != info.st_size or len(raw) > _MAX_SECURITY_SOURCE_BYTES:
-                return None
-        finally:
-            os.close(descriptor)
-        return raw.decode("utf-8")
-    except (OSError, UnicodeError, ValueError, RuntimeError):
-        return None
-
-
 def _extract_entry_security_facts(entries: Sequence[Mapping[str, object]], source_root: Path) -> list[dict[str, object]]:
-    """Extract explicit source-local authorization evidence; absence remains partial."""
-    facts: list[dict[str, object]] = []
-    for entry in entries:
-        handler = entry.get("handler")
-        if not isinstance(handler, Mapping):
-            continue
-        file_name, line = handler.get("file"), handler.get("start_line")
-        if not isinstance(file_name, str) or not isinstance(line, int) or isinstance(line, bool) or line < 1:
-            continue
-        value, coverage, kind = "security_extraction_not_modeled", "partial", "dependency_coverage"
-        declared_context = entry.get("auth_context")
-        if declared_context in {"unauthenticated", "low_privilege", "privileged"}:
-            value, coverage, kind = f"{declared_context}_annotation", "complete", "annotation"
-        else:
-            content = _bounded_source_text(source_root, file_name)
-            if content is not None:
-                lines = content.splitlines()
-                index = min(max(line - 1, 0), max(len(lines) - 1, 0))
-                selected: list[str] = []
-                if lines:
-                    current = lines[index].strip()
-                    selected.append(lines[index])
-                    if current.startswith("@"):
-                        for following in lines[index + 1:min(len(lines), index + 4)]:
-                            selected.append(following)
-                            if "(" in following and ("{" in following or ";" in following):
-                                break
-                    else:
-                        for previous in reversed(lines[max(0, index - 8):index]):
-                            stripped = previous.strip()
-                            if not stripped and not selected:
-                                continue
-                            if stripped.startswith("@"):
-                                selected.insert(0, previous)
-                                continue
-                            break
-                window = "\n".join(selected)
-                compact = "".join(window.split())
-                if (
-                    "@PermitAll" in window
-                    or "@AnonymousAllowed" in window
-                    or ("@PreAuthorize" in window and "permitAll()" in compact)
-                ):
-                    value, coverage, kind = "unauthenticated_annotation", "complete", "annotation"
-                elif "@PreAuthorize" in window and "isAuthenticated()" in compact:
-                    value, coverage, kind = "low_privilege_annotation", "complete", "annotation"
-                elif "@RolesAllowed" in window or "@Secured" in window or "@PreAuthorize" in window:
-                    value, coverage, kind = "privileged_annotation", "complete", "annotation"
-        facts.append(EntrySecurityFact(str(entry["entry_id"]), kind, file_name, line, value, coverage).to_dict())
-    return facts
+    """Compatibility wrapper for the partial-only source text fallback."""
+    return [fact.to_dict() for fact in extract_entry_security_fallback(entries, source_root)]
 
 
 def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, database_info_fn: Callable[[], DatabaseInfo] | None = None, query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]] | None = None, query_dir: Path = _ENTRY_QUERY_DIR) -> Executor:
@@ -551,6 +479,18 @@ def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Calla
                 if not isinstance(result, QueryResult):
                     raise AnalyzerError("CODEQL_QUERY_FAILED", "The interposition query runner returned an invalid result.")
                 interposition_rows = decode_bqrs_json("entry_interposition", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256))
+            try:
+                result = runner(effective / _SECURITY_QUERY, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
+            except AnalyzerError as exc:
+                if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
+                    raise
+                skipped_queries += 1
+                query_diagnostics.append({"code": exc.code, "query_name": _SECURITY_QUERY})
+                security_rows: list[dict[str, object]] = []
+            else:
+                if not isinstance(result, QueryResult):
+                    raise AnalyzerError("CODEQL_QUERY_FAILED", "The Entry security query runner returned an invalid result.")
+                security_rows = decode_bqrs_json("entry_security", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256))
         rows, descriptor_coverage = resolve_webxml_servlet_candidates(rows, database.source_root)
         validate_descriptor_coverage(descriptor_coverage)
         rows = augment_source_backed_jaxrs_entries(rows, database.source_root)
@@ -562,14 +502,35 @@ def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Calla
         validate_references("entry_interposition_facts", interpositions, {"entry_id": {str(entry["entry_id"]) for entry in entries}})
         modeled_defaults, configuration_coverage = extract_modeled_configuration_with_coverage(database.source_root, config.modeled_defaults)
         validate_records("modeled_configuration", modeled_defaults)
-        # This extraction is deliberately offline and never infers public access from absence.
-        security = _extract_entry_security_facts(entries, database.source_root)
-        validate_records("entry_security_facts", security)
+        typed_security = bind_entry_security_rows(security_rows, entries)
+        explicit_deployment_entries = frozenset(
+            fact.entry_id for fact in typed_security if fact.kind == "deployment_gate"
+        )
+        deployment_defaults = extract_entry_deployment_defaults(
+            entries,
+            excluded_entry_ids=explicit_deployment_entries,
+        )
+        complete_auth_entries = {
+            fact.entry_id
+            for fact in typed_security
+            if fact.coverage == "complete" and fact.kind != "deployment_gate"
+        }
+        fallback_security = tuple(
+            fact
+            for fact in extract_entry_security_fallback(entries, database.source_root)
+            if fact.entry_id not in complete_auth_entries
+        )
+        security_facts = {
+            fact.fact_id: fact
+            for fact in (*typed_security, *deployment_defaults, *fallback_security)
+        }
+        security = [fact.to_dict() for fact in sorted(security_facts.values(), key=lambda item: item.fact_id)]
+        validate_references("entry_security_facts", security, {"entry_id": {str(entry["entry_id"]) for entry in entries}})
         return StageOutput(
             {"entry_facts.jsonl": entries, "entry_gap_facts.jsonl": entry_gaps, "entry_interposition_facts.jsonl": interpositions, "coverage.json": canonical_json(coverage) + b"\n", "configuration_coverage.json": canonical_json(configuration_coverage) + b"\n", "descriptor_coverage.json": canonical_json(descriptor_coverage) + b"\n", "modeled_configuration.jsonl": modeled_defaults, "entry_security_facts.jsonl": security},
             {
                 "database_fingerprint": database.fingerprint,
-                "query_count": len(selected_queries) + 1,
+                "query_count": len(selected_queries) + 2,
                 "skipped_query_count": skipped_queries,
                 "query_diagnostics": query_diagnostics,
                 "entry_evidence_scan_truncated": evidence_scan_truncated,
@@ -941,12 +902,12 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                 if callable(classify_auth):
                     auth = classify_auth(entry.entry_id, security_facts, configuration_facts)
                     from dosweb.reachability.verify import verify_auth_contract
-                    decision = verify_auth_contract(entry.entry_id, auth, security_facts, slice_fact_ids=frozenset(item.fact_id for item in security_facts))
+                    decision = verify_auth_contract(entry.entry_id, auth, security_facts, slice_fact_ids=frozenset(item.fact_id for item in security_facts), configuration_facts=configuration_models)
                 else:
                     from dosweb.reachability.models import AuthContract, ReachabilityDecision
                     auth = AuthContract("unknown", (), ("auth_transport_unavailable",), "low")
                     contract_id = "auth_contract:" + hashlib.sha256((entry.entry_id + repr(auth.to_dict())).encode()).hexdigest()
-                    decision = ReachabilityDecision(entry.entry_id, contract_id, "unknown", "unknown", ())
+                    decision = ReachabilityDecision(entry.entry_id, contract_id, "unknown", "unknown", "unknown", (), ("REACH_AUTH_TRANSPORT_UNAVAILABLE", "REACH_DEPLOYMENT_UNKNOWN"))
                 auth_by_entry[entry.entry_id] = (auth, decision)
                 auth_contracts.append({"auth_contract_id": decision.auth_contract_id, "entry_id": entry.entry_id, **auth.to_dict()})
                 reachability.append(decision.to_dict())
@@ -1377,7 +1338,7 @@ def make_conclude_executor() -> Executor:
         releases = [ReleaseCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "release_candidates.jsonl")]
         framework_coverage = {item.framework: item for item in _coverage(context)}
         from dosweb.reachability.models import ReachabilityDecision
-        reachability = {record["entry_id"]: ReachabilityDecision(record["entry_id"], record["auth_contract_id"], record["auth_context"], record["status"], tuple(record["evidence_ids"]), record["decision_id"]) for record in _strict_records(context, "growth", "reachability_decisions.jsonl")}
+        reachability = {record["entry_id"]: ReachabilityDecision(record["entry_id"], record["auth_contract_id"], record["auth_context"], record["deployment_status"], record["status"], tuple(record["evidence_ids"]), tuple(record["reason_codes"]), record["decision_id"]) for record in _strict_records(context, "growth", "reachability_decisions.jsonl")}
         from dosweb.growth import RepeatabilityDecision, AmplificationDecision
         repeatability = {(record["entry_id"], record["growth_id"]): RepeatabilityDecision(record["decision_id"], record["entry_id"], record["growth_id"], record["status"], tuple(record["evidence_ids"]), tuple(record["reason_codes"]), "repeatability") for record in _strict_records(context, "growth", "repeatability_decisions.jsonl")}
         amplification = {(record["entry_id"], record["growth_id"]): AmplificationDecision(record["decision_id"], record["entry_id"], record["growth_id"], record["status"], tuple(record["evidence_ids"]), tuple(record["reason_codes"]), "amplification") for record in _strict_records(context, "growth", "amplification_decisions.jsonl")}

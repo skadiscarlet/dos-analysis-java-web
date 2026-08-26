@@ -20,6 +20,7 @@ from dosweb.codeql.decoder import (
     LIFECYCLE_COVERAGE_COLUMNS,
     LIFECYCLE_SUMMARY_COLUMNS,
     RELEASE_COLUMNS,
+    SECURITY_COLUMNS,
 )
 from dosweb.entries import AttackerInputFact, EntryFact, HandlerFact, RegistrationFact
 from dosweb.errors import AnalyzerError
@@ -230,6 +231,8 @@ class ProductionFactoryTests(unittest.TestCase):
     def _payload_for_query(self, query: Path) -> dict[str, object]:
         if query.name == "EntryInterpositions.ql":
             return {"#select": {"columns": list(INTERPOSITION_COLUMNS), "tuples": []}}
+        if query.name == "EntrySecurity.ql":
+            return {"#select": {"columns": list(SECURITY_COLUMNS), "tuples": []}}
         return self._entry_payload()
 
     def _entry_payload(self) -> dict[str, object]:
@@ -297,9 +300,9 @@ class ProductionFactoryTests(unittest.TestCase):
             )
             result = pipeline.run("entries")
             self.assertEqual(result["status"], "completed")
-            self.assertEqual(queries, [*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY])
+            self.assertEqual(queries, [*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY, production._SECURITY_QUERY])
             self.assertEqual(validations, [database])
-            self.assertEqual(query_databases, [info] * (len(production._ENTRY_QUERIES) + 1))
+            self.assertEqual(query_databases, [info] * (len(production._ENTRY_QUERIES) + 2))
             self.assertEqual(
                 {path.name for path in (root / "output").iterdir()},
                 {"entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "coverage.json", "configuration_coverage.json", "descriptor_coverage.json", "modeled_configuration.jsonl", "entry_security_facts.jsonl", "run.json", ".stage-manifests", ".pipeline.lock"},
@@ -373,7 +376,7 @@ public class ServiceApplication extends Application<Object> {
             info = DatabaseInfo(database, source, "d" * 64)
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
-                columns = INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS
+                columns = SECURITY_COLUMNS if query.name == "EntrySecurity.ql" else INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(
                     json.dumps({"#select": {"columns": list(columns), "tuples": []}}),
@@ -448,8 +451,8 @@ public class ServiceApplication extends Application<Object> {
             )
             result = pipeline.run("entries")
             self.assertEqual(result["status"], "completed")
-            self.assertEqual(result["stages"]["entries"]["metadata"]["query_count"], 2)
-            self.assertEqual(result["stages"]["entries"]["metadata"]["skipped_query_count"], 2)
+            self.assertEqual(result["stages"]["entries"]["metadata"]["query_count"], 3)
+            self.assertEqual(result["stages"]["entries"]["metadata"]["skipped_query_count"], 3)
             self.assertEqual(
                 result["stages"]["entries"]["metadata"]["query_diagnostics"],
                 [{
@@ -460,6 +463,9 @@ public class ServiceApplication extends Application<Object> {
                 }, {
                     "code": "CODEQL_QUERY_FAILED",
                     "query_name": "EntryInterpositions.ql",
+                }, {
+                    "code": "CODEQL_QUERY_FAILED",
+                    "query_name": "EntrySecurity.ql",
                 }],
             )
             coverage = json.loads((root / "output" / "coverage.json").read_text(encoding="utf-8"))
@@ -488,7 +494,7 @@ public class ServiceApplication extends Application<Object> {
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
                 payload = self._payload_for_query(query)
-                if query.name != "EntryInterpositions.ql":
+                if query.name in production._ENTRY_QUERIES:
                     payload["#select"]["tuples"][0][0] = "spring_mvc"  # type: ignore[index]
                     payload["#select"]["tuples"][0][16] = "spring_annotation_mapping"  # type: ignore[index]
                 decoded = output_dir / f"{query.stem}.json"
@@ -550,7 +556,7 @@ public class ServiceApplication extends Application<Object> {
                 self.assertEqual(pipeline.run("entries")["status"], "completed")
 
             original = production._ENTRY_QUERY_DIR / "SpringMvcEntries.ql"  # noqa: SLF001
-            self.assertEqual(len(observed), len(production._ENTRY_QUERIES) + 1)
+            self.assertEqual(len(observed), len(production._ENTRY_QUERIES) + 2)
             self.assertNotEqual(observed[0][0], original)
             self.assertEqual(
                 observed[0][1],
@@ -558,7 +564,7 @@ public class ServiceApplication extends Application<Object> {
             )
             self.assertEqual(
                 {query.name for query, _ in observed},
-                {*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY},
+                {*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY, production._SECURITY_QUERY},
             )
 
     def test_default_preflight_rejects_invalid_database_validator_result(self) -> None:
@@ -649,7 +655,7 @@ public class ServiceApplication extends Application<Object> {
     def test_packaged_query_assets_are_available_to_the_default_executor(self) -> None:
         import dosweb.production as production
 
-        expected = {*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY}  # noqa: SLF001 - packaging contract
+        expected = {*production._ENTRY_QUERIES, production._INTERPOSITION_QUERY, production._SECURITY_QUERY}  # noqa: SLF001 - packaging contract
         packaged = {path.name for path in production._ENTRY_QUERY_DIR.glob("*.ql")}  # noqa: SLF001
         self.assertEqual(packaged, expected)
         self.assertTrue((production._QUERY_PACK_DIR / "qlpack.yml").is_file())  # noqa: SLF001
@@ -883,7 +889,7 @@ public class ServiceApplication extends Application<Object> {
             }
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
-                columns, rows = rows_by_query.get(query.stem, (INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []))
+                columns, rows = rows_by_query.get(query.stem, (SECURITY_COLUMNS if query.name == "EntrySecurity.ql" else INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []))
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")
                 return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
@@ -976,7 +982,7 @@ public class ServiceApplication extends Application<Object> {
                 if query.stem in rows_by_query:
                     columns, rows = rows_by_query[query.stem]
                 else:
-                    columns = INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS
+                    columns = SECURITY_COLUMNS if query.name == "EntrySecurity.ql" else INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS
                     rows = []
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")
@@ -1018,7 +1024,7 @@ public class ServiceApplication extends Application<Object> {
             self.assertEqual(result["stages"]["growth"]["metadata"]["candidate_count"], 2)
             self.assertEqual(result["stages"]["growth"]["metadata"]["mapped_candidate_count"], 1)
             self.assertEqual(result["stages"]["growth"]["metadata"]["skipped_unmapped_candidate_count"], 0)
-            self.assertEqual(len(query_calls), 19)
+            self.assertEqual(len(query_calls), 20)
             self.assertEqual(
                 {item["path"] for item in result["stages"]["conclude"]["artifacts"]},
                 {"lifecycle_certificates.jsonl", "static_findings.jsonl"},
@@ -1074,7 +1080,7 @@ public class ServiceApplication extends Application<Object> {
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
                 columns, rows = rows_by_query.get(
                     query.stem,
-                    (INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []),
+                    (SECURITY_COLUMNS if query.name == "EntrySecurity.ql" else INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS if query.parent.name == "Entries" else GROWTH_COLUMNS, []),
                 )
                 decoded = output_dir / f"{query.stem}.json"
                 decoded.write_text(json.dumps(self._bqrs_payload(columns, rows)), encoding="utf-8")

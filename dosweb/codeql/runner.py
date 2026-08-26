@@ -34,6 +34,7 @@ _SAFE_QUERY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _QUERY_FAMILY_PATTERNS: Final = (
     (re.compile(r"entrytogrowth|flow", re.IGNORECASE), "flow"),
     (re.compile(r"entryinterpositions?", re.IGNORECASE), "entry_interposition"),
+    (re.compile(r"entrysecurity", re.IGNORECASE), "entry_security"),
     (re.compile(r"entries?$", re.IGNORECASE), "entries"),
     (re.compile(r"growth|materialization|allocation", re.IGNORECASE), "growth"),
     (re.compile(r"lifecyclesummary", re.IGNORECASE), "lifecycle_summary"),

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from dosweb.codeql import DecodeSource, ENTRY_COLUMNS, INTERPOSITION_COLUMNS, decode_bqrs_json, run_query, validate_database
+from dosweb.codeql import DecodeSource, ENTRY_COLUMNS, INTERPOSITION_COLUMNS, SECURITY_COLUMNS, decode_bqrs_json, run_query, validate_database
 from dosweb.entries import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
 from dosweb.entries.webxml import resolve_webxml_servlet_candidates
 
@@ -93,6 +93,49 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
         for column in INTERPOSITION_COLUMNS:
             self.assertIn(f'"{column}"', interposition)
         self.assertIn("cfg_action_before_chain_unproven", interposition)
+        security = (query_root / "EntrySecurity.ql").read_text(encoding="utf-8")
+        self.assertIn("@kind table", security)
+        self.assertIn("import java", security)
+        for column in SECURITY_COLUMNS:
+            self.assertIn(f'"{column}"', security)
+        for marker in (
+            "PermitAll",
+            "isAuthenticated()",
+            "ServletSecurity",
+            "requestMatchers",
+            "permitAll",
+            "hasRole",
+            "profile:",
+            "conditional_property:",
+            'value = "optional"',
+            "dynamic_security_matcher_partial",
+        ):
+            self.assertIn(marker, security)
+        self.assertNotIn("not hasConditionalDeployment", security)
+
+    def test_security_decoder_has_an_independent_strict_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "Controller.java").write_text("class Controller {}\n", encoding="utf-8")
+            payload = {
+                "#select": {
+                    "columns": list(SECURITY_COLUMNS),
+                    "tuples": [[
+                        "fixture.Controller.publicHandler", "Controller.java", 1,
+                        "GET /public", "Controller.java", 1, "annotation",
+                        "unauthenticated_annotation", "complete", "permit_all",
+                    ]],
+                }
+            }
+
+            rows = decode_bqrs_json(
+                "entry_security",
+                payload,
+                DecodeSource(root, "a" * 64),
+            )
+
+        self.assertEqual("entry_security", rows[0]["query_name"])
+        self.assertEqual("Controller.java", rows[0]["fact_file"])
 
     def test_servlet_query_models_one_helper_jetty_holder_binding(self):
         root = Path(__file__).parents[1]
@@ -107,6 +150,67 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class CodeqlEntryQueryFixtureTests(unittest.TestCase):
+    def test_entry_security_query_extracts_typed_auth_without_inventing_deployment(self):
+        root = Path(__file__).parents[1]
+        source_root = root / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database_path = temporary / "spring-security-database"
+            classes = temporary / "spring-security-classes"
+            classes.mkdir()
+            java_files = sorted(path.relative_to(source_root) for path in source_root.rglob("*.java"))
+            completed = subprocess.run(
+                [
+                    _CODEQL,
+                    "database",
+                    "create",
+                    str(database_path),
+                    "--language=java",
+                    f"--source-root={source_root}",
+                    f"--command={_JAVAC} -d {classes} "
+                    + " ".join(str(path) for path in java_files),
+                    "--overwrite",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+            database = validate_database(database_path)
+            query = root / "codeql" / "dosweb" / "Entries" / "EntrySecurity.ql"
+            result = run_query(
+                query,
+                database,
+                temporary / "security-results",
+                codeql_binary=str(_codeql_wrapper(temporary)),
+            )
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+            rows = decode_bqrs_json(
+                "entry_security",
+                payload,
+                DecodeSource(database.source_root, result.query_sha256),
+            )
+
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith("SpringFixture.handle")
+                and row["kind"] == "annotation"
+                and row["value"] == "unauthenticated_annotation"
+                and row["coverage_status"] == "complete"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertFalse(
+            any(
+                row["handler_fqn"].endswith("SpringFixture.handle")
+                and row["kind"] == "deployment_gate"
+                for row in rows
+            ),
+            rows,
+        )
+
     def test_spel_source_defaults_publish_modeled_entries_and_keep_runtime_gaps(self):
         root = Path(__file__).parents[1]
         source_root = root / "tests" / "fixtures" / "spring" / "src" / "main" / "java"

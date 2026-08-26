@@ -136,7 +136,7 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
     ),
     "entry_security_facts": ArtifactSchema(
         id_field="fact_id", required_fields=frozenset({"fact_id", "entry_id", "kind", "location", "line", "value", "coverage"}),
-        enum_fields={"kind": frozenset({"annotation", "filter", "servlet_constraint", "netty_gate", "mqtt_gate", "configuration", "dependency_coverage"}), "coverage": frozenset({"complete", "partial", "unsupported"})},
+        enum_fields={"kind": frozenset({"annotation", "filter", "security_filter_chain", "servlet_constraint", "netty_gate", "mqtt_gate", "configuration", "deployment_gate", "dependency_coverage"}), "coverage": frozenset({"complete", "partial", "unsupported"})},
         reference_fields={"entry_id": ReferenceSpec("entry_id")}, field_kinds=_field_kinds(fact_id="string", entry_id="string", kind="string", location="string", line="int", value="string", coverage="string"),
     ),
     "auth_contracts": ArtifactSchema(
@@ -144,8 +144,8 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         enum_fields={"auth_context": frozenset({"unauthenticated", "low_privilege", "privileged", "unknown"}), "confidence": frozenset({"high", "medium", "low"})}, reference_fields={"entry_id": ReferenceSpec("entry_id")}, field_kinds=_field_kinds(auth_contract_id="string", entry_id="string", auth_context="string", evidence_ids="list", assumptions="list", confidence="string"),
     ),
     "reachability_decisions": ArtifactSchema(
-        id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "auth_contract_id", "auth_context", "status", "evidence_ids"}),
-        enum_fields={"auth_context": frozenset({"unauthenticated", "low_privilege", "privileged", "unknown"}), "status": frozenset({"ordinary_attacker_reachable", "not_entry_reachable", "unknown"})}, reference_fields={"entry_id": ReferenceSpec("entry_id"), "auth_contract_id": ReferenceSpec("auth_contract_id")}, field_kinds=_field_kinds(decision_id="string", entry_id="string", auth_contract_id="string", auth_context="string", status="string", evidence_ids="list"),
+        id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "auth_contract_id", "auth_context", "deployment_status", "status", "evidence_ids", "reason_codes"}),
+        enum_fields={"auth_context": frozenset({"unauthenticated", "low_privilege", "privileged", "unknown"}), "deployment_status": frozenset({"default_enabled", "default_disabled", "optional", "unknown"}), "status": frozenset({"ordinary_attacker_reachable", "not_entry_reachable", "unknown"})}, reference_fields={"entry_id": ReferenceSpec("entry_id"), "auth_contract_id": ReferenceSpec("auth_contract_id")}, field_kinds=_field_kinds(decision_id="string", entry_id="string", auth_contract_id="string", auth_context="string", deployment_status="string", status="string", evidence_ids="list", reason_codes="list"),
     ),
     "llm_audit": ArtifactSchema(
         id_field="audit_id", required_fields=frozenset({"audit_id", "contract_kind", "request_id", "normalized_prompt", "response_schema", "raw_response", "parsed_response", "settings", "attestation", "cache_hit"}),
