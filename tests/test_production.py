@@ -26,6 +26,7 @@ from dosweb.entries import AttackerInputFact, EntryFact, HandlerFact, Registrati
 from dosweb.errors import AnalyzerError
 from dosweb.growth import (
     AttackerInfluence,
+    CandidateEntryLink,
     DemandInput,
     GrowthCandidate,
     GrowthContract,
@@ -62,6 +63,132 @@ class ProductionFactoryTests(unittest.TestCase):
             "resume": False,
         }
         return values
+
+    def test_flow_stage_does_not_cross_product_missing_rows_from_candidate_links(self) -> None:
+        handler = HandlerFact("fixture.Alias.handle", "src/Alias.java", 20)
+        registration = RegistrationFact(
+            "annotation_mapping", "fixture.Alias.handle", "src/Alias.java", 18
+        )
+        first = EntryFact.create(
+            framework="spring_mvc",
+            protocol="http",
+            handler=handler,
+            registration=registration,
+            route_or_event="POST /items",
+            auth_context="unauthenticated",
+            attacker_inputs=(AttackerInputFact("body", "byte[]", "request_body"),),
+            materialization_phase="in_handler",
+        )
+        alias = EntryFact.create(
+            framework="spring_mvc",
+            protocol="http",
+            handler=handler,
+            registration=registration,
+            route_or_event="POST /items-alias",
+            auth_context="unauthenticated",
+            attacker_inputs=(AttackerInputFact("body", "byte[]", "request_body"),),
+            materialization_phase="in_handler",
+        )
+        unrelated = EntryFact.create(
+            framework="spring_mvc",
+            protocol="http",
+            handler=HandlerFact("fixture.Other.handle", "src/Other.java", 40),
+            registration=RegistrationFact(
+                "annotation_mapping", "fixture.Other.handle", "src/Other.java", 38
+            ),
+            route_or_event="POST /other",
+            auth_context="unauthenticated",
+            attacker_inputs=(AttackerInputFact("body", "byte[]", "request_body"),),
+            materialization_phase="in_handler",
+        )
+        candidate = GrowthCandidate.create(
+            site=SourceLocation("src/Alias.java", 24),
+            kind="input_materialization",
+            operation="spring_request_body_materialization",
+            resource_dimension="bytes",
+            receiver="fixture.Alias.body",
+            field_path="body",
+            demand_inputs=(DemandInput("body", "size"),),
+            escape_scope="request",
+            evidence_ids=frozenset({"fact:growth"}),
+            coverage_notes=("recognized_spring_request_body_bytes",),
+        )
+        growth = VerifiedGrowthResult.create(
+            candidate=candidate,
+            slice_id="slice:fixture",
+            status="verified",
+            reason_codes=(),
+            checks=(VerificationCheck("resource_growth", True),),
+        )
+        canonical = min((first, alias), key=lambda entry: entry.entry_id)
+        links = (
+            CandidateEntryLink.create(
+                candidate.growth_id,
+                canonical.entry_id,
+                "complete",
+                (candidate.growth_id, canonical.entry_id),
+                ("ASSOCIATION_QUERY_EVIDENCE",),
+            ),
+            CandidateEntryLink.create(
+                candidate.growth_id,
+                unrelated.entry_id,
+                "partial",
+                (candidate.growth_id, unrelated.entry_id),
+                ("ASSOCIATION_LEGACY_SOURCE_ORDER_PARTIAL",),
+            ),
+        )
+        raw_flow = {
+            "source_file": "src/Alias.java",
+            "source_start_line": 20,
+            "sink_file": "src/Alias.java",
+            "sink_start_line": 24,
+            "attacker_target": "size",
+            "attacker_source": "body",
+            "attacker_sink": "body",
+            "call_path": "fixture.Alias.handle",
+            "phase_sequence": "entry>global_dataflow>growth",
+            "flow_kind": "data_flow",
+            "confidence": "proven",
+            "coverage_status": "complete",
+            "coverage_note": "same_handler_global_dataflow",
+        }
+        entries = {entry.entry_id: entry for entry in (first, alias, unrelated)}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"
+            database.mkdir()
+            context = StageContext(
+                "flows",
+                root,
+                StageFingerprint.for_stage("flows"),
+                {},
+                {},
+            )
+            with (
+                mock.patch.object(production, "_materialize_query_pack", return_value=root),
+                mock.patch.object(production, "_run_codeql_family", return_value=[raw_flow]),
+                mock.patch.object(production, "_load_entries", return_value=entries),
+                mock.patch.object(
+                    production,
+                    "_load_verified_growth",
+                    return_value={growth.growth_id: growth},
+                ),
+                mock.patch.object(
+                    production,
+                    "_strict_records",
+                    return_value=[link.to_dict() for link in links],
+                ),
+            ):
+                output = production.make_flows_executor(
+                    SimpleNamespace(codeql_binary="codeql"),
+                    database_info_fn=lambda: DatabaseInfo(database, root, "d" * 64),
+                    query_pack_snapshot_fn=lambda: {},
+                )(context)
+
+        proofs = output.artifacts["flow_proofs.jsonl"]
+        self.assertEqual(len(proofs), 1)
+        self.assertEqual(proofs[0]["entry_id"], canonical.entry_id)
+        self.assertEqual(proofs[0]["confidence"], "proven")
 
     def _fake_executors(self, calls: list[str], secret: str = "", *, fail: bool = False):
         def execute(context: StageContext) -> StageOutput:
@@ -773,6 +900,94 @@ public class ServiceApplication extends Application<Object> {
         chosen = production._entry_for_candidate({entry.entry_id: entry, duplicate.entry_id: duplicate}, candidate)  # noqa: SLF001
         self.assertEqual(chosen.entry_id, entry.entry_id)
 
+    def test_complete_candidate_association_requires_the_same_formal_flow_witness(self) -> None:
+        entry, candidate = self._entry_and_candidate()
+        association = {
+            "source_file": entry.handler.file,
+            "source_start_line": entry.handler.start_line,
+            "sink_file": candidate.site.file,
+            "sink_start_line": candidate.site.start_line,
+            "attacker_target": "value",
+            "attacker_source": entry.handler.callable,
+            "attacker_sink": candidate.demand_inputs[0].name,
+            "call_path": entry.handler.callable,
+            "phase_sequence": "entry>global_dataflow>growth",
+            "flow_kind": "data_flow",
+            "confidence": "proven",
+            "coverage_status": "complete",
+            "coverage_note": "same_handler_global_dataflow",
+        }
+        entries = {entry.entry_id: entry}
+
+        missing_links, missing_disposition = production._candidate_association(  # noqa: SLF001
+            entries,
+            candidate,
+            (association,),
+            (),
+        )
+        self.assertEqual(len(missing_links), 1)
+        self.assertEqual(missing_links[0].status, "partial")
+        self.assertEqual(missing_disposition.status, "unresolved")
+        self.assertIn("FLOW_CODEQL_ROW_MISSING", missing_disposition.reason_codes)
+
+        wrong_source = {
+            **association,
+            "attacker_source": "not_an_entry_input",
+        }
+        invalid_links, invalid_disposition = production._candidate_association(  # noqa: SLF001
+            entries,
+            candidate,
+            (association,),
+            (wrong_source,),
+        )
+        self.assertEqual(len(invalid_links), 1)
+        self.assertEqual(invalid_links[0].status, "partial")
+        self.assertEqual(invalid_disposition.status, "unresolved")
+        self.assertIn(
+            "FLOW_FORMAL_PROOF_INCOMPLETE",
+            invalid_disposition.reason_codes,
+        )
+
+        formal = {
+            **association,
+            "attacker_source": "body",
+        }
+        proven_links, proven_disposition = production._candidate_association(  # noqa: SLF001
+            entries,
+            candidate,
+            (association,),
+            (formal,),
+        )
+        self.assertEqual(len(proven_links), 1)
+        self.assertEqual(proven_links[0].status, "complete")
+        self.assertEqual(proven_disposition.status, "verified_relevant")
+
+        fallback_links, fallback_disposition = production._candidate_association(  # noqa: SLF001
+            entries,
+            candidate,
+            (),
+            (),
+        )
+        self.assertEqual(len(fallback_links), 1)
+        self.assertEqual(fallback_links[0].status, "partial")
+        self.assertIn("FLOW_CODEQL_ROW_MISSING", fallback_disposition.reason_codes)
+
+        partial_association = {
+            **association,
+            "confidence": "partial",
+            "coverage_status": "partial",
+            "coverage_note": "unique_call_graph_only",
+        }
+        partial_links, partial_disposition = production._candidate_association(  # noqa: SLF001
+            entries,
+            candidate,
+            (partial_association,),
+            (),
+        )
+        self.assertEqual(len(partial_links), 1)
+        self.assertEqual(partial_links[0].status, "partial")
+        self.assertIn("FLOW_CODEQL_ROW_MISSING", partial_disposition.reason_codes)
+
     def test_flow_screening_reconciles_broad_source_fallback_to_extracted_entries(self) -> None:
         entry, candidate = self._entry_and_candidate()
         growth = VerifiedGrowthResult.create(
@@ -873,12 +1088,12 @@ public class ServiceApplication extends Application<Object> {
                 ]]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
-                    "fixture.Handler.handle>request.readAllBytes", "in_handler", "data_flow", "proven",
-                    "complete", "entry_to_growth",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
                 ]]),
                 "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
-                    "fixture.Handler.handle>request.readAllBytes", "entry>callgraph>growth", "data_flow", "proven",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
                     "complete", "same_handler_call_graph_association",
                 ]]),
                 "GuardCandidates": (GUARD_COLUMNS, []),
@@ -985,24 +1200,37 @@ public class ServiceApplication extends Application<Object> {
                 ]]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
-                    "fixture.Handler.handle>request.readAllBytes", "in_handler", "data_flow", "proven",
-                    "complete", "entry_to_growth",
-                ]]),
-                "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
-                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
-                    "fixture.Handler.handle>request.readAllBytes", "entry>callgraph>growth", "data_flow", "proven",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
                     "complete", "same_handler_call_graph_association",
                 ], [
                     "src/Handler.java", 20, "src/Handler.java", 26, "size", "body", "body",
-                    "fixture.Handler.handle>request.bodyString", "entry>callgraph>growth", "data_flow", "proven",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
                     "complete", "same_handler_call_graph_association",
                 ], [
                     "src/Handler.java", 20, "src/Handler.java", 25, "size", "body", "serverLimit",
-                    "fixture.Handler.handle>array_creation", "entry>callgraph>growth", "data_flow", "proven",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
                     "complete", "same_handler_call_graph_association",
                 ], [
                     "src/OtherController.java", 40, "src/OtherController.java", 44,
-                    "size", "body", "body", "fixture.Other.handle>materialize",
+                    "size", "body", "body", "fixture.Other.handle",
+                    "entry>callgraph>growth", "data_flow", "proven", "complete",
+                    "same_handler_call_graph_association",
+                ]]),
+                "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
+                    "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
+                ], [
+                    "src/Handler.java", 20, "src/Handler.java", 26, "size", "body", "body",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
+                ], [
+                    "src/Handler.java", 20, "src/Handler.java", 25, "size", "body", "serverLimit",
+                    "fixture.Handler.handle", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
+                ], [
+                    "src/OtherController.java", 40, "src/OtherController.java", 44,
+                    "size", "body", "body", "fixture.Other.handle",
                     "entry>callgraph>growth", "data_flow", "proven", "complete",
                     "same_handler_call_graph_association",
                 ]]),

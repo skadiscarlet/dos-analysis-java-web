@@ -63,6 +63,86 @@ class FlowVerificationTests(unittest.TestCase):
         verified = verify_flow(proof, {entry.entry_id: entry}, {growth.growth_id: growth})
         self.assertEqual(verified.status, "verified")
         self.assertTrue(verified.satisfies_premise)
+        self.assertTrue(
+            {proof.path_id, entry.entry_id, growth.growth_id}.issubset(
+                set(verified.evidence_ids)
+            )
+        )
+        self.assertTrue(
+            {"entry_source_location", "growth_sink_location", "call_path_edges"}.issubset(
+                {check.name for check in verified.checks if check.passed}
+            )
+        )
+
+    def test_verifier_rejects_substring_sink_and_unbound_call_path(self) -> None:
+        entry = self._entry()
+        growth = self._growth()
+        substring_sink = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "unlimited"),
+            call_path=(entry.handler.callable,),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        invalid_sink = verify_flow(
+            substring_sink,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(invalid_sink.status, "unresolved")
+        self.assertIn("FLOW_SEMANTIC_MAPPING_INVALID", invalid_sink.reason_codes)
+
+        wrong_path = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "allocate(limit)"),
+            call_path=("fixture.Other.handle",),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        invalid_path = verify_flow(
+            wrong_path,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(invalid_path.status, "partial")
+        self.assertIn("FLOW_CALL_PATH_ENTRY_MISMATCH", invalid_path.reason_codes)
+
+        unbound_edge = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "allocate(limit)"),
+            call_path=(entry.handler.callable, "fixture.Helper.allocate"),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        invalid_edge = verify_flow(
+            unbound_edge,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(invalid_edge.status, "partial")
+        self.assertIn("FLOW_CALL_PATH_EDGE_INVALID", invalid_edge.reason_codes)
+
+        oversized_line = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "allocate(limit)"),
+            call_path=(
+                entry.handler.callable,
+                f"{entry.handler.callable}~fixture.Helper.allocate@src/Helper.java:{'9' * 5000}",
+            ),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        oversized_result = verify_flow(
+            oversized_line,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(oversized_result.status, "partial")
+        self.assertIn("FLOW_CALL_PATH_EDGE_INVALID", oversized_result.reason_codes)
 
     def test_partial_remains_audit_evidence(self) -> None:
         entry = self._entry()

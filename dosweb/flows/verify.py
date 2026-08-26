@@ -11,7 +11,7 @@ from dosweb.artifacts.schemas import validate_records
 from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.entries import EntryFact
 from dosweb.errors import AnalyzerError
-from dosweb.flows.models import FlowProof
+from dosweb.flows.models import FlowProof, expression_binds_demand
 from dosweb.growth import VerifiedGrowthResult
 
 FlowStatus = Literal["verified", "partial", "unresolved"]
@@ -85,6 +85,31 @@ def _dangling(kind: str, identifier: str) -> AnalyzerError:
     return AnalyzerError("ANALYSIS_DANGLING_FACT_REFERENCE", "Flow proof refers to a missing normalized fact.", {"kind": kind, "identifier": identifier[:128]})
 
 
+def _call_edges_are_bound(call_path: tuple[str, ...], entry_callable: str) -> bool:
+    current = entry_callable
+    for edge in call_path[1:]:
+        if edge.count("~") != 1 or edge.count("@") != 1:
+            return False
+        callables, location = edge.rsplit("@", 1)
+        source, target = callables.split("~", 1)
+        if source != current or not target or ":" not in location:
+            return False
+        path, line = location.rsplit(":", 1)
+        normalized_line = line.lstrip("0")
+        if (
+            not path
+            or path.startswith("/")
+            or ".." in path.split("/")
+            or not line.isdigit()
+            or not normalized_line
+            or len(normalized_line) > 10
+            or len(normalized_line) == 10 and normalized_line > "2147483647"
+        ):
+            return False
+        current = target
+    return True
+
+
 def verify_flow(flow: FlowProof, entries: Mapping[str, EntryFact], growth: Mapping[str, VerifiedGrowthResult]) -> VerifiedFlow:
     if not isinstance(flow, FlowProof) or not isinstance(entries, Mapping) or not isinstance(growth, Mapping):
         raise AnalyzerError("ANALYSIS_FLOW_INVALID", "Flow verification inputs are malformed.")
@@ -97,19 +122,59 @@ def verify_flow(flow: FlowProof, entries: Mapping[str, EntryFact], growth: Mappi
     if not isinstance(entry, EntryFact) or entry.entry_id != flow.entry_id or not isinstance(growth_result, VerifiedGrowthResult) or growth_result.growth_id != flow.growth_id:
         raise AnalyzerError("ANALYSIS_FLOW_INVALID", "Flow references are incompatible.")
     checks = [FlowCheck("entry_reference", True), FlowCheck("growth_reference", True)]
-    evidence = tuple(sorted(growth_result.candidate.evidence_ids)) if growth_result.candidate else ()
+    evidence = tuple(sorted({flow.path_id, entry.entry_id, growth_result.growth_id} | (
+        set(growth_result.candidate.evidence_ids) if growth_result.candidate else set()
+    )))
     if growth_result.candidate is None:
         checks.append(FlowCheck("flow_semantics", False, "FLOW_GROWTH_CONTEXT_MISSING"))
         return _result(flow, "unresolved", ("FLOW_GROWTH_CONTEXT_MISSING",), checks, evidence, ("growth_context",))
+    checks.extend((
+        FlowCheck("entry_source_location", True),
+        FlowCheck("growth_sink_location", True),
+    ))
     input_names = {item.name for item in entry.attacker_inputs}
     demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == flow.attacker_control.target}
     if (
         flow.attacker_control.source not in input_names
-        or not any(name in flow.attacker_control.sink for name in demand_names)
+        or not any(
+            expression_binds_demand(name, flow.attacker_control.sink)
+            for name in demand_names
+        )
     ):
         checks.append(FlowCheck("flow_semantics", False, "FLOW_SEMANTIC_MAPPING_INVALID"))
         return _result(flow, "unresolved", ("FLOW_SEMANTIC_MAPPING_INVALID",), checks, evidence, ("attacker_control",))
     checks.append(FlowCheck("flow_semantics", True))
+    first_edge = flow.call_path[0]
+    entry_rooted = first_edge == entry.handler.callable or first_edge.startswith(
+        entry.handler.callable + "["
+    )
+    if not entry_rooted:
+        checks.append(FlowCheck("call_path_edges", False, "FLOW_CALL_PATH_ENTRY_MISMATCH"))
+        return _result(
+            flow,
+            "partial",
+            ("FLOW_CALL_PATH_ENTRY_MISMATCH",),
+            checks,
+            evidence,
+            ("call_path",),
+        )
+    call_path_bound = (
+        len(flow.call_path) <= 4
+        and len(set(flow.call_path)) == len(flow.call_path)
+        and all(edge not in {"unmodeled_flow", "unknown"} for edge in flow.call_path)
+        and _call_edges_are_bound(flow.call_path, entry.handler.callable)
+    )
+    if not call_path_bound:
+        checks.append(FlowCheck("call_path_edges", False, "FLOW_CALL_PATH_EDGE_INVALID"))
+        return _result(
+            flow,
+            "partial",
+            ("FLOW_CALL_PATH_EDGE_INVALID",),
+            checks,
+            evidence,
+            ("call_path_edges",),
+        )
+    checks.append(FlowCheck("call_path_edges", True))
     if growth_result.status != "verified":
         checks.append(FlowCheck("verified_growth", False, "FLOW_GROWTH_NOT_VERIFIED"))
         return _result(flow, "unresolved", ("FLOW_GROWTH_NOT_VERIFIED",), checks, evidence, (growth_result.status,))

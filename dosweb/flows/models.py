@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+import re
 from dosweb.artifacts.jsonl import read_jsonl_strict
 from dosweb.artifacts.schemas import validate_records
 from typing import Literal, TypeAlias, cast
@@ -24,6 +25,7 @@ _PROVENANCE_FIELDS = frozenset({"query_name", "query_sha256", "source_location",
 _MAX_ROWS = 4096
 _MAX_ITEMS = 64
 _MAX_STRING_BYTES = 65536
+_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 
 
 def _invalid(reason: str, field: str | None = None) -> AnalyzerError:
@@ -75,6 +77,15 @@ def _sequence(value: object, field: str, separator: str = ">") -> tuple[str, ...
     if not values or len(values) > _MAX_ITEMS:
         raise _invalid("SEQUENCE_LIMIT", field)
     return tuple(_string(item, field) for item in values)
+
+
+def expression_binds_demand(name: str, expression: str) -> bool:
+    """Match one exact demand expression or Java identifier token."""
+    if name == expression:
+        return True
+    if _IDENTIFIER.fullmatch(name) is None:
+        return False
+    return name in set(_IDENTIFIER.findall(expression))
 
 
 @dataclass(frozen=True, order=True)
@@ -247,7 +258,11 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
             if isinstance(item, VerifiedGrowthResult) and item.candidate is not None
             and item.candidate.site.file == sink_file and item.candidate.site.start_line == sink_line
             and control.target in {demand.role for demand in item.candidate.demand_inputs}
-            and any(demand.role == control.target and demand.name in control.sink for demand in item.candidate.demand_inputs)
+            and any(
+                demand.role == control.target
+                and expression_binds_demand(demand.name, control.sink)
+                for demand in item.candidate.demand_inputs
+            )
         ]
         if len(growth_matches) != 1 or not entry_matches:
             raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
@@ -264,7 +279,7 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
         demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == control.target}
         if control.target not in roles:
             raise _invalid("ATTACKER_TARGET_NOT_GROWTH_DEMAND", "attacker_target")
-        if not any(name in control.sink for name in demand_names):
+        if not any(expression_binds_demand(name, control.sink) for name in demand_names):
             raise _invalid("ATTACKER_SINK_NOT_GROWTH_DEMAND", "attacker_sink")
         raw_coverage = _enum(row["coverage_status"], _COVERAGE, "coverage_status")
         raw_confidence = cast(FlowConfidence, _enum(row["confidence"], _CONFIDENCE, "confidence"))

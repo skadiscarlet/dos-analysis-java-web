@@ -34,7 +34,7 @@ from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
 from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
 from dosweb.errors import AnalyzerError
 from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_descriptor_coverage
-from dosweb.flows.models import FlowProof, normalize_flow_rows
+from dosweb.flows.models import FlowProof, expression_binds_demand, normalize_flow_rows
 from dosweb.flows.verify import VerifiedFlow, verify_flow
 from dosweb.growth.contracts import validate_contract_static_evidence
 from dosweb.growth.completeness import CandidateDisposition
@@ -670,7 +670,88 @@ def _entry_for_candidate(entries: Mapping[str, EntryFact], candidate: GrowthCand
     return _canonical_entry(tuple(sorted((entry for entry in matches if entry.handler.start_line == nearest_line), key=lambda entry: entry.entry_id)), candidate)
 
 
-def _candidate_association(entries: Mapping[str, EntryFact], candidate: GrowthCandidate, association_rows: Sequence[Mapping[str, object]] = ()):
+def _formal_flow_row_matches(
+    candidate: GrowthCandidate,
+    association: Mapping[str, object],
+    flow_rows: Sequence[Mapping[str, object]],
+) -> bool:
+    demand_names = {
+        demand.name
+        for demand in candidate.demand_inputs
+        if demand.role == association.get("attacker_target")
+    }
+    if not demand_names or not any(
+        expression_binds_demand(name, str(association.get("attacker_sink", "")))
+        for name in demand_names
+    ):
+        return False
+    identity_fields = (
+        "source_file",
+        "source_start_line",
+        "sink_file",
+        "sink_start_line",
+        "attacker_target",
+        "attacker_sink",
+        "call_path",
+        "phase_sequence",
+    )
+    return any(
+        all(row.get(field) == association.get(field) for field in identity_fields)
+        and row.get("flow_kind") in {"data_flow", "local_data_flow"}
+        for row in flow_rows
+    )
+
+
+def _formal_flow_witness(
+    entry: EntryFact,
+    candidate: GrowthCandidate,
+    association: Mapping[str, object],
+    flow_rows: Sequence[Mapping[str, object]],
+) -> bool:
+    input_names = {item.name for item in entry.attacker_inputs}
+    return _formal_flow_row_matches(candidate, association, flow_rows) and any(
+        all(
+            row.get(field) == association.get(field)
+            for field in (
+                "source_file",
+                "source_start_line",
+                "sink_file",
+                "sink_start_line",
+                "attacker_target",
+                "attacker_sink",
+                "call_path",
+                "phase_sequence",
+            )
+        )
+        and row.get("attacker_source") in input_names
+        and row.get("flow_kind") in {"data_flow", "local_data_flow"}
+        and row.get("confidence") == "proven"
+        and row.get("coverage_status") == "complete"
+        for row in flow_rows
+    )
+
+
+def _entry_candidate_has_formal_flow(
+    entry: EntryFact,
+    candidate: GrowthCandidate,
+    flow_rows: Sequence[Mapping[str, object]],
+) -> bool:
+    input_names = {item.name for item in entry.attacker_inputs}
+    return any(
+        row.get("source_file") == entry.handler.file
+        and row.get("source_start_line") == entry.handler.start_line
+        and row.get("sink_file") == candidate.site.file
+        and row.get("sink_start_line") == candidate.site.start_line
+        and row.get("attacker_source") in input_names
+        and _formal_flow_witness(entry, candidate, row, (row,))
+        for row in flow_rows
+    )
+def _candidate_association(
+    entries: Mapping[str, EntryFact],
+    candidate: GrowthCandidate,
+    association_rows: Sequence[Mapping[str, object]] = (),
+    flow_rows: Sequence[Mapping[str, object]] = (),
+):
     """Return only auditable partial legacy links until the call-graph query lands.
 
     Same-file/source-order is useful triage evidence, not proof of an E->G association.
@@ -685,8 +766,25 @@ def _candidate_association(entries: Mapping[str, EntryFact], candidate: GrowthCa
             continue
         for entry in entries.values():
             if row.get("source_file") == entry.handler.file and row.get("source_start_line") == entry.handler.start_line:
-                status = "complete" if row.get("coverage_status") == "complete" and row.get("confidence") == "proven" else "partial"
-                linked.append(CandidateEntryLink.create(candidate.growth_id, entry.entry_id, status, (candidate.growth_id, entry.entry_id), (str(row.get("coverage_note", "ASSOCIATION_QUERY")),)))
+                claimed_complete = (
+                    row.get("coverage_status") == "complete"
+                    and row.get("confidence") == "proven"
+                )
+                flow_witness = _formal_flow_witness(entry, candidate, row, flow_rows)
+                flow_row_matches = _formal_flow_row_matches(candidate, row, flow_rows)
+                status = "complete" if claimed_complete and flow_witness else "partial"
+                reasons = {str(row.get("coverage_note", "ASSOCIATION_QUERY"))}
+                if not flow_row_matches:
+                    reasons.add("FLOW_CODEQL_ROW_MISSING")
+                elif claimed_complete and not flow_witness:
+                    reasons.add("FLOW_FORMAL_PROOF_INCOMPLETE")
+                linked.append(CandidateEntryLink.create(
+                    candidate.growth_id,
+                    entry.entry_id,
+                    status,
+                    (candidate.growth_id, entry.entry_id),
+                    tuple(sorted(reasons)),
+                ))
     if linked:
         # Recursive call paths can decode to the same semantic association row.
         # Artifact IDs are set-like identities, so collapse exact duplicates
@@ -702,15 +800,26 @@ def _candidate_association(entries: Mapping[str, EntryFact], candidate: GrowthCa
             canonical_link = CandidateEntryLink.create(
                 candidate.growth_id, canonical.entry_id, canonical_status,
                 (candidate.growth_id, canonical.entry_id),
-                ("ASSOCIATION_QUERY_DUPLICATE_REGISTRATION_CANONICALIZED",),
+                tuple(sorted(
+                    {"ASSOCIATION_QUERY_DUPLICATE_REGISTRATION_CANONICALIZED"}
+                    | {reason for link in linked for reason in link.reason_codes}
+                )),
             )
             disposition_status = "verified_relevant" if canonical_status == "complete" else "unresolved"
             return (canonical_link,), CandidateDisposition.create(
                 candidate.growth_id, disposition_status, (canonical_link.link_id,),
-                ("ASSOCIATION_QUERY_EVIDENCE",),
+                tuple(sorted({"ASSOCIATION_QUERY_EVIDENCE"} | set(canonical_link.reason_codes))),
             )
         disposition_status = "verified_relevant" if len(linked) == 1 and linked[0].status == "complete" else "unresolved"
-        return tuple(linked), CandidateDisposition.create(candidate.growth_id, disposition_status, tuple(link.link_id for link in linked), ("ASSOCIATION_QUERY_EVIDENCE",))
+        return tuple(linked), CandidateDisposition.create(
+            candidate.growth_id,
+            disposition_status,
+            tuple(link.link_id for link in linked),
+            tuple(sorted(
+                {"ASSOCIATION_QUERY_EVIDENCE"}
+                | {reason for link in linked for reason in link.reason_codes}
+            )),
+        )
     matches = tuple(sorted(
         (entry for entry in entries.values()
          if entry.handler.file == candidate.site.file and entry.handler.start_line <= candidate.site.start_line),
@@ -729,12 +838,31 @@ def _candidate_association(entries: Mapping[str, EntryFact], candidate: GrowthCa
     # Duplicate registrations for one semantic handler are one candidate link.
     if len({_entry_semantic_key(entry) for entry in matches}) == 1:
         matches = (_canonical_entry(matches, candidate),)
-    links = tuple(
-        CandidateEntryLink.create(candidate.growth_id, entry.entry_id, "partial",
-            (candidate.growth_id, entry.entry_id), ("ASSOCIATION_LEGACY_SOURCE_ORDER_PARTIAL",))
+    missing_flow = any(
+        not _entry_candidate_has_formal_flow(entry, candidate, flow_rows)
         for entry in matches
     )
-    return links, CandidateDisposition.create(candidate.growth_id, "unresolved", tuple(link.link_id for link in links), ("ASSOCIATION_CALL_GRAPH_UNAVAILABLE",))
+    link_reasons = {"ASSOCIATION_LEGACY_SOURCE_ORDER_PARTIAL"}
+    disposition_reasons = {"ASSOCIATION_CALL_GRAPH_UNAVAILABLE"}
+    if missing_flow:
+        link_reasons.add("FLOW_CODEQL_ROW_MISSING")
+        disposition_reasons.add("FLOW_CODEQL_ROW_MISSING")
+    links = tuple(
+        CandidateEntryLink.create(
+            candidate.growth_id,
+            entry.entry_id,
+            "partial",
+            (candidate.growth_id, entry.entry_id),
+            tuple(sorted(link_reasons)),
+        )
+        for entry in matches
+    )
+    return links, CandidateDisposition.create(
+        candidate.growth_id,
+        "unresolved",
+        tuple(link.link_id for link in links),
+        tuple(sorted(disposition_reasons)),
+    )
 
 
 def _slice_for(
@@ -846,7 +974,12 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
         auth_by_entry: dict[str, object] = {}
         for record in candidate_records:
             candidate = _candidate_from_record(record)
-            candidate_links, disposition = _candidate_association(entries, candidate, association_rows)
+            candidate_links, disposition = _candidate_association(
+                entries,
+                candidate,
+                association_rows,
+                preliminary_flow_rows,
+            )
             links.extend(link.to_dict() for link in candidate_links)
             relevance_entry = (
                 entries[candidate_links[0].entry_id]
@@ -1069,27 +1202,6 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
         # to every reconciled row.
         rows = _reconcile_flow_rows(rows, entries, candidates)
         proofs = normalize_flow_rows(rows, entries, candidates)
-        # Every Growth that was even partially associated to an Entry gets a flow
-        # record.  Missing CodeQL evidence is a partial path, never an omission.
-        existing = {(item["entry_id"], item["growth_id"]) for item in proofs}
-        for link_record in _strict_records(context, "growth", "candidate_entry_links.jsonl"):
-            if link_record["growth_id"] not in candidates:
-                continue
-            key = (link_record["entry_id"], link_record["growth_id"])
-            if key in existing:
-                continue
-            entry, result = entries[key[0]], candidates[key[1]]
-            candidate = result.candidate
-            if candidate is None or not entry.attacker_inputs or not candidate.demand_inputs:
-                continue
-            from dosweb.flows import AttackerControl
-            demand = candidate.demand_inputs[0]
-            source = entry.attacker_inputs[0].name
-            proof = FlowProof.create(entry_id=entry.entry_id, growth_id=result.growth_id,
-                attacker_control=AttackerControl(demand.role, source, demand.name),
-                call_path=(entry.handler.callable, "unmodeled_flow"), phase_sequence=(entry.materialization_phase, "unknown"),
-                confidence="partial", flow_kind="unmodeled", coverage_status="partial", coverage_note="FLOW_CODEQL_ROW_MISSING")
-            proofs.append(proof.to_dict()); existing.add(key)
         validate_records("flow_proofs", proofs)
         return StageOutput({"flow_proofs.jsonl": proofs}, {"flow_count": len(proofs), "partial_flow_count": sum(item["confidence"] == "partial" for item in proofs)})
     return execute

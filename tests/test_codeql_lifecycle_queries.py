@@ -28,7 +28,8 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
         relatives = (
             "Entries/EntrySecurity.ql",
             "Entries/EntryInterpositions.ql",
-            "Flows/EntryToGrowth.ql", "Flows/EntryToGrowthAssociations.ql",
+            "Flows/EntryGrowthDomain.qll", "Flows/EntryToGrowth.ql",
+            "Flows/EntryToGrowthAssociations.ql",
             "Lifecycle/GuardCandidates.ql", "Lifecycle/BoundCandidates.ql",
             "Lifecycle/SynchronousReleaseCandidates.ql", "Lifecycle/LifecycleCoverage.ql",
             "Lifecycle/LifecycleSummary.ql", "Growth/LoopAmplification.qll",
@@ -68,13 +69,23 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
                     self.assertNotIn(term, content.lower())
 
     def test_flow_and_lifecycle_queries_share_growth_and_handler_domains(self) -> None:
+        shared_domain = (
+            _ROOT / "codeql/dosweb/Flows/EntryGrowthDomain.qll"
+        ).read_text(encoding="utf-8")
+
+        def effective_content(relative: str) -> str:
+            content = (_ROOT / "codeql" / "dosweb" / relative).read_text(
+                encoding="utf-8"
+            )
+            return content + ("\n" + shared_domain if relative.startswith("Flows/") else "")
+
         for relative in (
             "Flows/EntryToGrowth.ql",
             "Flows/EntryToGrowthAssociations.ql",
             "Lifecycle/LifecycleCoverage.ql",
         ):
             with self.subTest(query=relative, domain="armeria"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn('"aggregateWithPooledObjects"', content)
                 self.assertIn("isArmeriaRequestType", content)
         for relative in (
@@ -83,10 +94,10 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
             "Lifecycle/LifecycleCoverage.ql",
         ):
             with self.subTest(query=relative, domain="constructor"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("constructorCall", content)
                 self.assertIn("lexicalLambdaCall", content)
-        flow = (_ROOT / "codeql/dosweb/Flows/EntryToGrowth.ql").read_text(encoding="utf-8")
+        flow = effective_content("Flows/EntryToGrowth.ql")
         self.assertIn("servletRequestAccessor", flow)
         for relative in (
             "Flows/EntryToGrowth.ql",
@@ -94,17 +105,45 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
             "Lifecycle/LifecycleCoverage.ql",
         ):
             with self.subTest(query=relative, domain="byte_array_output_stream"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn('"java.io", "ByteArrayOutputStream", "toByteArray"', content)
             with self.subTest(query=relative, domain="source_input_stream_handler"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("sourceInputStreamHandler", content)
             with self.subTest(query=relative, domain="netty_full_http_request_string"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("nettyFullRequestStringMaterialization", content)
             with self.subTest(query=relative, domain="http_session_attribute_write"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("httpSessionAttributeWrite", content)
+
+    def test_association_and_formal_flow_share_proof_carrying_domain(self) -> None:
+        shared = _ROOT / "codeql" / "dosweb" / "Flows" / "EntryGrowthDomain.qll"
+        self.assertTrue(shared.is_file())
+        domain = shared.read_text(encoding="utf-8")
+        self.assertIn("module EntryGrowthPathDomain", domain)
+        self.assertIn("predicate entryGrowthPath", domain)
+        self.assertIn("EntryToGrowthFlow::flow", domain)
+        self.assertIn("boundedCallPath", domain)
+        self.assertIn("callEdgeId", domain)
+        self.assertIn("getStartLine().toString()", domain)
+
+        for query_name in ("EntryToGrowth.ql", "EntryToGrowthAssociations.ql"):
+            with self.subTest(query=query_name):
+                content = (
+                    _ROOT / "codeql" / "dosweb" / "Flows" / query_name
+                ).read_text(encoding="utf-8")
+                self.assertIn("import EntryGrowthDomain", content)
+                self.assertIn("EntryGrowthPathDomain::entryGrowthPath", content)
+
+    def test_shared_flow_domain_unrolls_bounded_call_path(self) -> None:
+        domain = (
+            _ROOT / "codeql" / "dosweb" / "Flows" / "EntryGrowthDomain.qll"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("predicate boundedCallEdges", domain)
+        for depth in range(4):
+            with self.subTest(depth=depth):
+                self.assertIn(f"depth = {depth}", domain)
 
 
 @unittest.skipUnless(
@@ -149,6 +188,50 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             payload,
             DecodeSource(database.source_root, query_sha256),
         )
+
+    def test_route_alias_and_unrelated_handler_share_one_proof_carrying_path(self) -> None:
+        source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
+        fixture = source_root / "fixture" / "spring" / "FlowAliasController.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        canonical_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "void canonical(HttpServletRequest request)" in line
+        )
+        unrelated_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "void unrelated(HttpServletRequest request)" in line
+        )
+        growth_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "request.getInputStream().readAllBytes()" in line
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "proof-carrying-alias")
+            associations = self._rows(
+                "Flows/EntryToGrowthAssociations.ql", database, temporary
+            )
+            flows = self._rows("Flows/EntryToGrowth.ql", database, temporary)
+
+        def matching(rows: list[dict[str, object]], source_line: int) -> list[dict[str, object]]:
+            return [
+                row for row in rows
+                if row.get("source_file", "").endswith("FlowAliasController.java")
+                and row.get("source_start_line") == source_line
+                and row.get("sink_start_line") == growth_line
+            ]
+
+        canonical_associations = matching(associations, canonical_line)
+        canonical_flows = matching(flows, canonical_line)
+        self.assertEqual(len(canonical_associations), 1, canonical_associations)
+        self.assertEqual(len(canonical_flows), 1, canonical_flows)
+        self.assertEqual(canonical_associations[0]["confidence"], "proven")
+        self.assertEqual(canonical_associations[0]["coverage_status"], "complete")
+        self.assertEqual(canonical_flows[0]["confidence"], "proven")
+        self.assertEqual(canonical_flows[0]["coverage_status"], "complete")
+        self.assertEqual(canonical_associations[0]["call_path"], canonical_flows[0]["call_path"])
+        self.assertEqual(matching(associations, unrelated_line), [])
+        self.assertEqual(matching(flows, unrelated_line), [])
 
     def test_source_input_stream_handler_and_byte_array_output_copy(self) -> None:
         source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
@@ -206,14 +289,19 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             any(row.get("sink_start_line") == copy_line for row in source_associations),
             source_associations,
         )
-        self.assertFalse(
-            any(
-                row.get("source_file", "").endswith("SourceStreamResource.java")
-                and row.get("source_start_line") == beyond_bound_line
-                and row.get("sink_start_line") == deep_copy_line
-                for row in association_rows
-            ),
-            association_rows,
+        bounded_helper_rows = [
+            row
+            for row in association_rows
+            if row.get("source_file", "").endswith("SourceStreamResource.java")
+            and row.get("source_start_line") == beyond_bound_line
+            and row.get("sink_start_line") == deep_copy_line
+        ]
+        self.assertEqual(len(bounded_helper_rows), 1, bounded_helper_rows)
+        self.assertEqual(bounded_helper_rows[0]["confidence"], "proven")
+        self.assertEqual(bounded_helper_rows[0]["coverage_status"], "complete")
+        self.assertEqual(
+            bounded_helper_rows[0]["coverage_note"],
+            "unique_bounded_call_path_global_dataflow",
         )
         self.assertTrue(
             any(
