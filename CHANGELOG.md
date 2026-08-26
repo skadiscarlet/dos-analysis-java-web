@@ -1,5 +1,8 @@
 ## 2026-08-26
 
+- 新增只读 PoC-33 21 库 demo evaluator：冻结 `eligible_positive`、`hard_negative`、`weak_negative`、`unscored` taxonomy，分别报告 supported-chain recall、ordinary-scope positive recall、hard-negative safety 与历史 TP/FP precision；CLI 显式接收 static batch、recall、historical static audit（仅基线）和 dynamic 根目录，输出 `case_matrix.jsonl`、`metrics.json`、`REPORT.md`，并拒绝向任何输入目录写回。
+- 新增 21 库 demo 的证据驱动修复计划：`docs/research/2026-08-26-poc33-21-library-demo-repair-plan.md`。计划基于当前 formal batch 的 10,678 raw Growth、95/1,177 complete/partial links、44/1,234 proven/partial flows、14/319 verified/unresolved Growth、1,277 条全 unknown findings，以及独立动态队列 TP=9/FP=29/blocked=11，确认主因是 evidence funnel、Reach/Bound 和输出交叉乘积，而不是 provider 或 batch retry。
+- 计划保留 v2 固定公式、三态结论、formal fail-closed 与 async/custom/reflection deferred 边界；推荐按离线 evaluator -> candidate relevance -> proof-carrying E→G -> DoS Growth Contract -> Reach/EffectiveB -> finding-family report -> immutable PoC-33 gate 的顺序修复。当前仅新增计划与分析记录，未修改 analyzer、CodeQL query 或历史 results。
 - Completed PoC-33 independent static-positive queue dynamic validation for 49 family-deduplicated candidates from 1,277 findings / 21 libraries.
 - Aggregator accepted 49/49 cases (`confirmed_oom` 9, `observed_growth_not_confirmed` 13, other not_confirmed 16, blocked 11).
 - Dynamic TP/FP: TP=9, FP=29, blocked/unscored=11, precision=9/38=0.237. See `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/TP_FP_REPORT.md`.
