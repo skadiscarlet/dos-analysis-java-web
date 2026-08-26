@@ -18,6 +18,7 @@ from dosweb.artifacts.jsonl import (
 from dosweb.artifacts.metadata import StageFingerprint, invalidate_from, reusable_stage
 from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, SCHEMA_VERSION, validate_references
 from dosweb.errors import AnalyzerError
+from dosweb.lifecycle import BoundCandidate, GuardCandidate, ReleaseCandidate
 
 
 class ArtifactContractTests(unittest.TestCase):
@@ -231,6 +232,68 @@ class ArtifactContractTests(unittest.TestCase):
                 "lifecycle_certificates",
             },
         )
+
+    def test_lifecycle_candidate_models_match_published_artifact_schemas(self):
+        guard = GuardCandidate.create(
+            site_file="fixture/Handler.java",
+            site_start_line=10,
+            kind="input_validation",
+            resource_dimension="bytes",
+            scope="request",
+            behavior="reject",
+            dominates_growth=True,
+            reject_path_reaches_growth=False,
+            configuration_key="request.max-bytes",
+            configuration_value="1024",
+            representation="raw_body",
+            phase="before_growth",
+            covers_materialization=True,
+            authorization_only=False,
+            evidence=("fact:guard",),
+            coverage_status="complete",
+        )
+        bound = BoundCandidate.create(
+            site_file="fixture/Handler.java",
+            site_start_line=20,
+            kind="capacity",
+            resource_dimension="tasks",
+            scope="instance",
+            behavior="block",
+            receiver="fixture.Handler.queue",
+            field_path="fixture.Handler.queue",
+            result_checked=True,
+            configuration_key="queue.capacity",
+            configuration_value="64",
+            phase="inside_growth",
+            covers_flow=True,
+            request_encoding="any",
+            queue_resource="fixture.Handler.queue",
+            product_bound=True,
+            evidence=("fact:bound",),
+            coverage_status="complete",
+        )
+        release = ReleaseCandidate.create(
+            site_file="fixture/Handler.java",
+            site_start_line=30,
+            kind="remove",
+            resource_dimension="entries",
+            scope="instance",
+            receiver="fixture.Handler.cache",
+            key_identity="key",
+            synchronous=True,
+            normal_path=True,
+            exceptional_path=True,
+            actual_reduction=True,
+            after_growth=True,
+            transfer_only=False,
+            async_kind="none",
+            evidence=("fact:release",),
+            coverage_status="complete",
+        )
+
+        validate_references("guard_candidates", [guard.to_dict()], known_ids={})
+        validate_references("bound_candidates", [bound.to_dict()], known_ids={})
+        validate_references("release_candidates", [release.to_dict()], known_ids={})
 
     def test_entry_schema_requires_p0_fields_and_enum_values(self):
         record = {
@@ -461,12 +524,21 @@ class ArtifactContractTests(unittest.TestCase):
                 {"guard_id": "guard:1"},
                 {
                     "guard_id": "guard:1",
-                    "site": {},
+                    "site": {"file": "fixture/Handler.java", "start_line": 10},
                     "kind": "request_limit",
                     "resource_dimension": "bytes",
                     "scope": "request",
                     "behavior": "reject",
-                    "evidence": [],
+                    "dominates_growth": True,
+                    "reject_path_reaches_growth": False,
+                    "configuration_key": "request.max-bytes",
+                    "configuration_value": "1024",
+                    "representation": "raw_body",
+                    "phase": "before_growth",
+                    "covers_materialization": True,
+                    "authorization_only": False,
+                    "evidence": ["fact:guard"],
+                    "coverage_status": "complete",
                 },
                 {},
             ),
@@ -474,12 +546,23 @@ class ArtifactContractTests(unittest.TestCase):
                 {"bound_id": "bound:1"},
                 {
                     "bound_id": "bound:1",
-                    "site": {},
+                    "site": {"file": "fixture/Handler.java", "start_line": 20},
                     "kind": "capacity",
-                    "resource_dimension": "entries",
-                    "scope": "global",
-                    "behavior": "reject",
-                    "evidence": [],
+                    "resource_dimension": "tasks",
+                    "scope": "instance",
+                    "behavior": "block",
+                    "receiver": "fixture.Handler.queue",
+                    "field_path": "fixture.Handler.queue",
+                    "result_checked": True,
+                    "configuration_key": "queue.capacity",
+                    "configuration_value": "64",
+                    "phase": "inside_growth",
+                    "covers_flow": True,
+                    "request_encoding": "any",
+                    "queue_resource": "fixture.Handler.queue",
+                    "product_bound": True,
+                    "evidence": ["fact:bound"],
+                    "coverage_status": "complete",
                 },
                 {},
             ),
@@ -487,12 +570,21 @@ class ArtifactContractTests(unittest.TestCase):
                 {"release_id": "release:1"},
                 {
                     "release_id": "release:1",
-                    "site": {},
+                    "site": {"file": "fixture/Handler.java", "start_line": 30},
                     "kind": "remove",
                     "resource_dimension": "entries",
-                    "scope": "global",
+                    "scope": "instance",
+                    "receiver": "fixture.Handler.cache",
+                    "key_identity": "key",
                     "synchronous": True,
-                    "evidence": [],
+                    "normal_path": True,
+                    "exceptional_path": True,
+                    "actual_reduction": True,
+                    "after_growth": True,
+                    "transfer_only": False,
+                    "async_kind": "none",
+                    "evidence": ["fact:release"],
+                    "coverage_status": "complete",
                 },
                 {},
             ),

@@ -14,7 +14,7 @@ def canonical_fixture() -> tuple[dict, dict, dict]:
     identity = {"target_id": stable_identifier("target", semantic), **semantic, "slug": "owner__repo"}
     capability = {"provider_eligible": False, "public_source_url": None, "attestation": "unavailable", "reason": None}
     item = {"target_id": identity["target_id"], "identity": identity, "output_path": "results/targets/001-owner__repo", "capability": capability, "initial_state": "queued"}
-    unsigned = {"schema_version": 1, "tool_version": "dosweb-v2", "batch_schema_version": "java-web-dos-batch-v1", "run_id": "run-1", "mode": "entries", "output_root": "results", "inventory_digest": "b" * 64, "provider": {}, "targets": [item]}
+    unsigned = {"schema_version": 1, "tool_version": "dosweb-v2", "batch_schema_version": "java-web-dos-batch-v1", "run_id": "run-1", "mode": "entries", "output_root": "results", "inventory_digest": "b" * 64, "provider": {}, "analysis_mode": "exploratory_entries", "query_failure_policy": "coverage_gap", "targets": [item]}
     digest = sha256_canonical_json(unsigned)
     plan = {**unsigned, "plan_id": f"plan:{digest[:24]}", "plan_digest": digest}
     state = {"schema_version": 1, "batch_id": plan["plan_id"], "mode": "entries", "status": "completed", "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00", "targets": {item["target_id"]: {"target_id": item["target_id"], "state": "completed", "status": "completed", "attempt": 1}}}
@@ -22,6 +22,21 @@ def canonical_fixture() -> tuple[dict, dict, dict]:
 
 
 class BatchAggregationContractTests(unittest.TestCase):
+    def test_p0_artifact_contract_matches_schema_25_production_files(self) -> None:
+        self.assertEqual(set(P0_ARTIFACTS), {
+            "configuration_coverage.json", "coverage.json", "descriptor_coverage.json",
+            "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl",
+            "entry_security_facts.jsonl", "modeled_configuration.jsonl",
+            "amplification_decisions.jsonl", "auth_contracts.jsonl",
+            "candidate_dispositions.jsonl", "candidate_entry_links.jsonl",
+            "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl",
+            "reachability_decisions.jsonl", "repeatability_decisions.jsonl",
+            "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
+            "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
+            "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl",
+            "lifecycle_certificates.jsonl", "static_findings.jsonl", "report.md", "summary.json",
+        })
+
     def test_p0_manifest_requires_nested_target_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -56,7 +71,7 @@ class BatchAggregationContractTests(unittest.TestCase):
             (root / "manifest.normalized.jsonl").write_text(json.dumps(item) + "\n", encoding="utf-8")
             (root / "batch_plan.json").write_text(json.dumps(plan), encoding="utf-8")
             (root / "batch_state.json").write_text(json.dumps(state), encoding="utf-8")
-            (target / "batch_target.json").write_text(json.dumps({"plan_id": plan["plan_id"], "plan_digest": plan["plan_digest"], "run_id": "run-1", "mode": "entries", "target": item}), encoding="utf-8")
+            (target / "batch_target.json").write_text(json.dumps({"plan_id": plan["plan_id"], "plan_digest": plan["plan_digest"], "run_id": "run-1", "mode": "entries", "analysis_mode": "exploratory_entries", "query_failure_policy": "coverage_gap", "target": item}), encoding="utf-8")
             entry_id, growth_id = "entry:fixture", "growth:fixture"
             resource = {"resource_id": stable_identifier("resource", {"dimension": "bytes", "receiver": "fixture.Handler", "field_path": "buffer"}), "dimension": "bytes", "receiver": "fixture.Handler", "field_path": "buffer"}
             entry = {"entry_id": entry_id, "framework": "servlet", "protocol": "http", "handler": {"callable": "fixture.Handler", "file": "Handler.java", "start_line": 1}, "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler", "file": "Handler.java", "start_line": 1}, "route_or_event": "/fixture", "auth_context": "unauthenticated", "attacker_inputs": [], "materialization_phase": "in_handler"}
@@ -74,9 +89,17 @@ class BatchAggregationContractTests(unittest.TestCase):
                     data = ("{}\n" if name.endswith(".json") else "report\n").encode()
                 path = target / name
                 path.write_bytes(data)
-                artifacts[name] = {"path": name, "schema_version": "2.0", "sha256": __import__("hashlib").sha256(data).hexdigest(), "record_count": data.count(b"\n"), "byte_count": len(data)}
+                artifacts[name] = {"path": name, "schema_version": "2.5", "sha256": __import__("hashlib").sha256(data).hexdigest(), "record_count": data.count(b"\n"), "byte_count": len(data)}
+            stage_files = {
+                "entries": {"configuration_coverage.json", "coverage.json", "descriptor_coverage.json", "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "entry_security_facts.jsonl", "modeled_configuration.jsonl"},
+                "growth": {"amplification_decisions.jsonl", "auth_contracts.jsonl", "candidate_dispositions.jsonl", "candidate_entry_links.jsonl", "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl", "reachability_decisions.jsonl", "repeatability_decisions.jsonl", "verified_growth.jsonl"},
+                "flows": {"flow_proofs.jsonl"},
+                "lifecycle": {"bound_candidates.jsonl", "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl", "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl"},
+                "conclude": {"static_findings.jsonl", "lifecycle_certificates.jsonl"},
+                "report": {"summary.json", "report.md"},
+            }
             for stage in STAGES:
-                names = [name for name in P0_ARTIFACTS if name in ({"entries": {"coverage.json", "entry_facts.jsonl"}, "growth": {"growth_candidates.jsonl", "growth_contracts.jsonl", "verified_growth.jsonl"}, "flows": {"flow_proofs.jsonl"}, "lifecycle": {"guard_candidates.jsonl", "bound_candidates.jsonl", "release_candidates.jsonl", "lifecycle_results.jsonl"}, "conclude": {"static_findings.jsonl", "lifecycle_certificates.jsonl"}, "report": {"summary.json", "report.md"}}[stage])]
+                names = [name for name in P0_ARTIFACTS if name in stage_files[stage]]
                 entries = [artifacts[name] for name in names]
                 manifest = {"stage": stage, "status": "completed", "artifacts": entries, "output_hash": __import__("hashlib").sha256(json.dumps(entries, separators=(",", ":"), sort_keys=True).encode()).hexdigest()}
                 (target / ".stage-manifests" / f"{stage}.json").write_text(json.dumps(manifest), encoding="utf-8")

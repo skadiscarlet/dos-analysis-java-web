@@ -33,8 +33,8 @@ class LifecycleEvidenceTests(unittest.TestCase):
         # channelRead body lines must bind internally, while an initializer and
         # handler must never share a lifecycle witness merely because they are
         # in the same source file.
-        self.assertTrue(_same_java_callable(root, relative, 46, 50))
-        self.assertFalse(_same_java_callable(root, relative, 19, 46))
+        self.assertTrue(_same_java_callable(root, relative, 50, 54))
+        self.assertFalse(_same_java_callable(root, relative, 22, 50))
 
 
 if __name__ == "__main__":

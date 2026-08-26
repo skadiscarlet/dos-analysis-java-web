@@ -1,1 +1,6 @@
-package javax.servlet.http; public class HttpServlet { protected void doPost(HttpServletRequest r,HttpServletResponse s){} }
+package javax.servlet.http;
+
+public class HttpServlet {
+    protected void service(HttpServletRequest request, HttpServletResponse response) {}
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) {}
+}

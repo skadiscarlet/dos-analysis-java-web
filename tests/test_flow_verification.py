@@ -73,6 +73,36 @@ class FlowVerificationTests(unittest.TestCase):
         self.assertFalse(result.satisfies_premise)
         self.assertIn("FLOW_CONFIDENCE_PARTIAL", result.reason_codes)
 
+    def test_distinct_route_registrations_publish_partial_flow_for_each_entry(self) -> None:
+        first = self._entry()
+        second = EntryFact.from_raw({
+            "framework": "spring_mvc", "protocol": "http",
+            "handler_fqn": "fixture.spring.SpringFixture.create",
+            "handler_file": "fixture/spring/SpringFixture.java", "handler_start_line": 15,
+            "registration_kind": "annotation_mapping",
+            "registration_fqn": "fixture.spring.SpringFixture.create",
+            "registration_file": "fixture/spring/SpringFixture.java", "registration_start_line": 16,
+            "route_or_event": "/aliases", "auth_context": "unauthenticated",
+            "attacker_input_name": "limit", "attacker_input_type": "int",
+            "attacker_input_kind": "request_parameter", "materialization_phase": "in_handler",
+            "coverage_status": "complete", "coverage_note": "registered",
+        })
+        growth = self._growth()
+        records = normalize_flow_rows(
+            (self._raw(),),
+            {first.entry_id: first, second.entry_id: second},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual({record["entry_id"] for record in records}, {first.entry_id, second.entry_id})
+        self.assertTrue(all(record["confidence"] == "partial" for record in records))
+        self.assertTrue(all(record["coverage_status"] == "partial" for record in records))
+        self.assertTrue(
+            all(
+                record["coverage_note"] == "multiple_route_registrations_require_path_coverage"
+                for record in records
+            )
+        )
+
     def test_dangling_references_raise_stable_error(self) -> None:
         entry = self._entry()
         growth = self._growth()

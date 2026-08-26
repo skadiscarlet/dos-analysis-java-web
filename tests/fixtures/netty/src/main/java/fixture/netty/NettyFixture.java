@@ -12,12 +12,16 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.util.CharsetUtil;
 
 /** Positive: this initializer is installed by a supported bootstrap call. */
 public class NettyFixture extends ChannelInitializer<Channel> {
     @Override
     protected void initChannel(Channel channel) {
         pipeline().addLast(new RegisteredHandler());
+        pipeline().addLast(new FullRequestHandler());
     }
 
     void unresolvedPipeline(ChannelInboundHandlerAdapter handler) {
@@ -61,6 +65,83 @@ class RegisteredHandler extends ChannelInboundHandlerAdapter {
 class UnregisteredHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext context, Object message) {}
+}
+
+class FullRequestHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
+    private final TriggerService triggerService = new TriggerServiceImpl();
+
+    @Override
+    protected void channelRead0(ChannelHandlerContext context, FullHttpRequest request) {
+        String uri = request.uri();
+        String requestData = request.content().toString(CharsetUtil.UTF_8);
+        new Runnable() {
+            @Override
+            public void run() {
+                dispatch(uri, requestData);
+            }
+        }.run();
+        consume(requestData);
+    }
+
+    private String dispatch(String uri, String requestData) {
+        switch (uri) {
+            case "/trigger":
+                TriggerRequest trigger = JsonTool.fromJson(requestData, TriggerRequest.class);
+                return triggerService.trigger(trigger);
+            case "/beat":
+                return "beat";
+            default:
+                return "unknown";
+        }
+    }
+
+    private void consume(String requestData) {}
+}
+
+interface TriggerService {
+    String trigger(TriggerRequest request);
+}
+
+class TriggerServiceImpl implements TriggerService {
+    private final TriggerStore store = new TriggerStore();
+
+    @Override
+    public String trigger(TriggerRequest request) {
+        return store.push(request);
+    }
+}
+
+class TriggerStore {
+    private final java.util.List<TriggerRequest> requests = new java.util.ArrayList<>();
+
+    String push(TriggerRequest request) {
+        requests.add(request);
+        return "ok";
+    }
+}
+
+class TriggerRequest {}
+
+class JsonTool {
+    static <T> T fromJson(String value, Class<T> type) { return null; }
+}
+
+class LookalikeRequestHandler extends SimpleChannelInboundHandler<FullHttpRequestLookalike> {
+    @Override
+    protected void channelRead0(ChannelHandlerContext context, FullHttpRequestLookalike request) {
+        String requestData = request.content().toString(CharsetUtil.UTF_8);
+        consume(requestData);
+    }
+
+    private void consume(String requestData) {}
+}
+
+class FullHttpRequestLookalike {
+    ByteBufLookalike content() { return new ByteBufLookalike(); }
+}
+
+class ByteBufLookalike {
+    String toString(java.nio.charset.Charset charset) { return ""; }
 }
 
 class FakePipeline {

@@ -102,10 +102,13 @@ class StrictGrowthPayloadTests(unittest.TestCase):
             CfgSummary(paths(), (), ())
         self.assertEqual(consumed, 65)
 
-    def test_config_fact_rejects_bool_and_out_of_range_integers_cleanly(self) -> None:
+    def test_config_fact_accepts_signed_64_bit_values_and_rejects_out_of_range_cleanly(self) -> None:
         from dosweb.growth.models import ConfigFact
 
-        for value in (True, False, -(2**31) - 1, 2**31):
+        fact = ConfigFact("capacity", 10_000_000_000, "excerpt:1")
+        self.assertEqual(fact.normalized_value, 10_000_000_000)
+
+        for value in (True, False, -(2**63), 2**63):
             with self.subTest(value=value):
                 with self.assertRaises(AnalyzerError) as raised:
                     ConfigFact("capacity", value, "excerpt:1")

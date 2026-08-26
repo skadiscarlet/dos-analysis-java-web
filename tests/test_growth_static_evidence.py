@@ -173,6 +173,28 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
             ("fact:a", "fact:z"),
         )
 
+    def test_multiple_attacker_inputs_on_one_cfg_path_share_one_path_identity(self) -> None:
+        candidate = self._candidate("direct_allocation")
+        first = self._flow(candidate)
+        second = {**first, "attacker_source": "height", "attacker_sink": "height"}
+
+        evidence = adapt_growth_static_evidence(
+            self._entry(),
+            candidate,
+            (
+                self._excerpt("excerpt:registration", 1, 10),
+                self._excerpt("excerpt:handler", 15, 22),
+                self._excerpt("excerpt:growth", 23, 30),
+            ),
+            (first, second),
+        )
+
+        self.assertEqual(
+            len([fact for fact in evidence.static_facts if fact.relation == "flows_to"]),
+            2,
+        )
+        self.assertEqual(len(evidence.cfg_summary.path_ids), 1)
+
     def test_preserves_partial_coverage_without_fabricating_cfg_or_config(self) -> None:
         candidate = self._candidate(
             "async_work_growth",

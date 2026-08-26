@@ -538,6 +538,23 @@ class DeepSeekClientTests(unittest.TestCase):
                 self.assertEqual(_ScriptedHandler.requests, [])
                 self.assertEqual(list(self.cache_dir.glob("*")), [])
 
+    def test_deepseek_key_scan_allows_task_configuration_names(self) -> None:
+        examples = (
+            "dt.dex-engine.task-event-buffer.flush-interval-ms",
+            "dt.dex-engine.activity-task-heartbeat-buffer.max-batch-size",
+            "dt.task-scheduler.shutdown-max-wait-ms",
+        )
+        for source in examples:
+            with self.subTest(source=source):
+                _ScriptedHandler.requests = []
+                _ScriptedHandler.scripted_responses = [
+                    (200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))
+                ]
+
+                self._client().classify_growth(self._slice_with_content(source))
+
+                self.assertEqual(len(_ScriptedHandler.requests), 1)
+
     def test_ssn_like_pii_is_rejected_before_any_side_effect(self) -> None:
         verifier = _FakeVerifier(self.attestation)
         value = "123-45-6789"
@@ -1618,6 +1635,19 @@ class DeepSeekClientTests(unittest.TestCase):
         serialized = provider.messages[1]["content"]
         bounded = json.loads(serialized)["bounded_slice"]["config_facts"]
         self.assertEqual(bounded[0]["config_id"], bounded[1]["config_id"])
+        self.assertNotIn("config:private", serialized)
+
+    def test_config_backed_source_reference_uses_config_alias(self) -> None:
+        from dosweb.llm.prompts import build_provider_payload
+
+        fact = ConfigFact("request_limit", 1024, "config:private", "config:private")
+        payload = replace(self.slice.payload, config_facts=(fact,))
+
+        provider = build_provider_payload(BoundedSlice("slice:config-source-alias", payload))
+
+        serialized = provider.messages[1]["content"]
+        bounded = json.loads(serialized)["bounded_slice"]["config_facts"][0]
+        self.assertEqual(bounded["config_id"], bounded["source_location_ref"])
         self.assertNotIn("config:private", serialized)
 
     def test_java_unicode_comments_annotations_and_compound_secret_names_are_blocked(self) -> None:

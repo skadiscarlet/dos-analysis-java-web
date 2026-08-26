@@ -1,6 +1,8 @@
 package fixture.mqtt;
 import org.eclipse.paho.client.mqttv3.*;
 import javax.annotation.security.PermitAll;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MqttFixture {
     void register(MqttAsyncClient client) {
@@ -47,7 +49,7 @@ class UnregisteredListener implements IMqttMessageListener {
     public void messageArrived(String topic, MqttMessage message) {}
 }
 
-class BrokerMqttMessage {}
+class BrokerMqttMessage { int packetId() { return 1; } }
 class BrokerContext {}
 class BrokerChannel {}
 class ChannelPipeline {
@@ -65,11 +67,44 @@ class NettyMqttHandler extends ChannelDuplexHandler {
     @Override
     public void channelRead(BrokerContext context, BrokerMqttMessage message) {}
 }
+class MqttNettyUtils {
+    static BrokerMqttMessage validateMessage(Object message) { return (BrokerMqttMessage) message; }
+}
+class MQTTConnection {
+    void processProtocol(BrokerContext context, BrokerMqttMessage message) {
+        Runnable task = () -> new PublishProcessor().processRequest(context, message);
+        new BrokerExecutor().submit(task);
+    }
+    void processPublishMessage(BrokerMqttMessage message) { processQos2(message); }
+    private void processQos2(BrokerMqttMessage message) {
+        new MqttSession().receivedPublishQos2(message.packetId(), new DeviceMessage());
+    }
+}
+class PublishProcessor {
+    void processRequest(BrokerContext context, BrokerMqttMessage message) {
+        new MQTTConnection().processPublishMessage(message);
+    }
+}
+class BrokerExecutor { void submit(Runnable task) {} }
+class DeviceMessage {}
+class MqttSession {
+    private final Map<Integer, DeviceMessage> qos2Receiving = new ConcurrentHashMap<>();
+    void receivedPublishQos2(int originPacketId, DeviceMessage message) {
+        qos2Receiving.put(originPacketId, message);
+    }
+}
+class ConvertedNettyMqttHandler extends ChannelDuplexHandler {
+    public void channelRead(BrokerContext context, Object message) {
+        BrokerMqttMessage mqttMessage = MqttNettyUtils.validateMessage(message);
+        new MQTTConnection().processProtocol(context, mqttMessage);
+    }
+}
 class BrokerBootstrap {
     ChannelInitializer<BrokerChannel> registeredInitializer() {
         return new ChannelInitializer<BrokerChannel>() {
             @Override protected void initChannel(BrokerChannel channel) {
                 pipeline().addLast("nettyMqttHandler", new NettyMqttHandler());
+                pipeline().addLast("convertedNettyMqttHandler", new ConvertedNettyMqttHandler());
             }
         };
     }

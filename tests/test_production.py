@@ -30,6 +30,8 @@ from dosweb.growth import (
     GrowthContract,
     SourceExcerpt,
     SourceLocation,
+    VerificationCheck,
+    VerifiedGrowthResult,
 )
 from dosweb.lifecycle import BoundDecision, DecisionCheck, GuardDecision, ReleaseDecision
 from dosweb.pipeline import STAGES, StageContext, StageFingerprint, StageOutput
@@ -312,6 +314,96 @@ class ProductionFactoryTests(unittest.TestCase):
             self.assertIn('"analysis_mode":"formal"', run_metadata)
             self.assertEqual(pipeline._fingerprint("entries", {}).database_fingerprint, "d" * 64)  # noqa: SLF001
             self.assertRegex(pipeline._fingerprint("entries", {}).query_pack_hash, r"^[0-9a-f]{64}$")  # noqa: SLF001
+
+    def test_entries_recovers_dropwizard_guice_jaxrs_when_codeql_types_are_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "database"
+            source = root / "source"
+            java = source / "service" / "src" / "main" / "java" / "example"
+            database.mkdir()
+            java.mkdir(parents=True)
+            (java / "Paths.java").write_text(
+                'package example; public interface Paths { String ROOT = "/"; String ASSET = "processAsset"; String ANNOTATE = "annotatePDF"; }',
+                encoding="utf-8",
+            )
+            (java / "Resource.java").write_text(
+                """package example;
+import jakarta.ws.rs.*;
+import org.glassfish.jersey.media.multipart.FormDataParam;
+@Path(Paths.ROOT)
+public class Resource implements Paths {
+  @Path(ASSET) @POST
+  public Object asset(@FormDataParam("input") java.io.InputStream input) { return null; }
+  @POST @Path(ANNOTATE)
+  public Object annotate(@FormDataParam("input") java.io.InputStream input) { return null; }
+}
+""",
+                encoding="utf-8",
+            )
+            (java / "ServiceModule.java").write_text(
+                """package example;
+import ru.vyarus.dropwizard.guice.module.support.DropwizardAwareModule;
+public class ServiceModule extends DropwizardAwareModule<Object> {
+  protected void configure() { bind(Resource.class); }
+}
+""",
+                encoding="utf-8",
+            )
+            (java / "ServiceApplication.java").write_text(
+                """package example;
+import io.dropwizard.core.Application;
+import io.dropwizard.core.setup.Bootstrap;
+import io.dropwizard.core.setup.Environment;
+import ru.vyarus.dropwizard.guice.GuiceBundle;
+public class ServiceApplication extends Application<Object> {
+  private static final String RESOURCES = "/api";
+  public void initialize(Bootstrap<Object> bootstrap) {
+    GuiceBundle bundle = GuiceBundle.builder().modules(getModules()).build();
+    bootstrap.addBundle(bundle);
+  }
+  private AbstractModule getModules() { return new ServiceModule(); }
+  public void run(Object configuration, Environment environment) {
+    environment.jersey().setUrlPattern(RESOURCES + "/*");
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            info = DatabaseInfo(database, source, "d" * 64)
+
+            def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
+                columns = INTERPOSITION_COLUMNS if query.name == "EntryInterpositions.ql" else ENTRY_COLUMNS
+                decoded = output_dir / f"{query.stem}.json"
+                decoded.write_text(
+                    json.dumps({"#select": {"columns": list(columns), "tuples": []}}),
+                    encoding="utf-8",
+                )
+                return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+
+            values = self._values(root)
+            values["source_checkout"] = source
+            values["analysis_source_root"] = source
+            pipeline = build_production_pipeline(
+                values,
+                environ={},
+                validate_database_fn=lambda *_args, **_kwargs: info,
+                run_query_fn=fake_run,
+            )
+
+            self.assertEqual(pipeline.run("entries")["status"], "completed")
+            entries = [
+                json.loads(line)
+                for line in (root / "output" / "entry_facts.jsonl").read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+            self.assertEqual(
+                {entry["route_or_event"] for entry in entries},
+                {"POST /api/annotatePDF", "POST /api/processAsset"},
+            )
+            self.assertTrue(all(entry["framework"] == "jax_rs" for entry in entries))
+            self.assertTrue(all(entry["registration"]["callable"] == "example.ServiceModule.bind" for entry in entries))
+            self.assertTrue(all(entry["attacker_inputs"] == [{"kind": "stream", "name": "input", "type": "java.io.InputStream"}] for entry in entries))
 
     def test_formal_entries_query_failure_aborts_without_publication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -675,6 +767,47 @@ class ProductionFactoryTests(unittest.TestCase):
         chosen = production._entry_for_candidate({entry.entry_id: entry, duplicate.entry_id: duplicate}, candidate)  # noqa: SLF001
         self.assertEqual(chosen.entry_id, entry.entry_id)
 
+    def test_flow_screening_reconciles_broad_source_fallback_to_extracted_entries(self) -> None:
+        entry, candidate = self._entry_and_candidate()
+        growth = VerifiedGrowthResult.create(
+            candidate=candidate,
+            slice_id="slice:fixture",
+            status="unresolved",
+            reason_codes=("GROWTH_ASSOCIATION_INCOMPLETE",),
+            checks=(
+                VerificationCheck(
+                    "candidate_entry_association",
+                    False,
+                    "GROWTH_ASSOCIATION_INCOMPLETE",
+                ),
+            ),
+        )
+        valid = {
+            "source_file": entry.handler.file,
+            "source_start_line": entry.handler.start_line,
+            "sink_file": candidate.site.file,
+            "sink_start_line": candidate.site.start_line,
+        }
+        broad_non_entry = {
+            **valid,
+            "source_file": "src/UnregisteredService.java",
+            "source_start_line": 61,
+        }
+
+        reconciled = production._reconcile_flow_rows(  # noqa: SLF001
+            (valid, broad_non_entry),
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+
+        self.assertEqual(reconciled, [valid])
+
+    def test_flow_reconciliation_invalidates_pre_fix_resume_artifacts(self) -> None:
+        self.assertEqual(
+            production._IMPLEMENTATION_VERSIONS["flows"],  # noqa: SLF001
+            "production-v2.5-poc33-recall-flow-source-reconciliation-v1",
+        )
+
     def test_candidate_entry_association_falls_back_to_single_semantic_target_entry(self) -> None:
         entry, _candidate = self._entry_and_candidate()
         duplicate = EntryFact.create(
@@ -773,6 +906,13 @@ class ProductionFactoryTests(unittest.TestCase):
                 source_excerpt_fn=fake_excerpt,
             )
             self.assertEqual(pipeline.run("analyze")["status"], "completed")
+            verified = [
+                json.loads(line)
+                for line in (root / "output" / "verified_growth.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(len(verified), 1)
+            self.assertEqual(verified[0]["status"], "unresolved")
+            self.assertEqual(verified[0]["reason_codes"], ["GROWTH_ASSOCIATION_INCOMPLETE"])
 
     def test_injected_query_llm_and_source_seams_exercise_the_full_default_graph(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

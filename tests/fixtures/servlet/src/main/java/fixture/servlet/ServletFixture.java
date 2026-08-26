@@ -8,6 +8,9 @@ import javax.servlet.annotation.WebServlet;
 import javax.annotation.security.PermitAll;
 import javax.servlet.http.*;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.stereotype.Component;
+import org.eclipse.jetty.ee8.servlet.ServletContextHandler;
+import org.eclipse.jetty.ee8.servlet.ServletHolder;
 import java.io.*;
 import java.util.*;
 
@@ -38,6 +41,23 @@ public class ServletFixture extends HttpServlet {
 class RegisteredStreamFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+        chain.doFilter(request, response);
+    }
+}
+
+@Component
+class ComponentCachingFilter implements Filter {
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+        if (request instanceof HttpServletRequest) {
+            try {
+                BodyCachingWrapper wrapped = new BodyCachingWrapper((HttpServletRequest) request);
+                chain.doFilter(wrapped, response);
+                return;
+            } catch (IOException failure) {
+                throw new IllegalStateException(failure);
+            }
+        }
         chain.doFilter(request, response);
     }
 }
@@ -90,5 +110,39 @@ class DynamicServletRegistration {
 
     void unresolvedStaticRegistration(ServletContext context, String className) {
         context.addServlet("dynamic", className);
+    }
+}
+
+class ForwardingServlet extends HttpServlet {
+    @Override
+    protected void service(HttpServletRequest request, HttpServletResponse response) {
+        request.getInputStream();
+    }
+}
+
+interface IoSupplier {
+    byte[] get() throws IOException;
+}
+
+@WebServlet("/lambda")
+class LambdaMaterializationServlet extends HttpServlet {
+    @Override
+    protected void service(HttpServletRequest request, HttpServletResponse response) {
+        IoSupplier body = () -> request.getInputStream().readAllBytes();
+    }
+}
+
+class RouterInitializer {
+    private final ForwardingServlet forwardingServlet = new ForwardingServlet();
+
+    void initialize() {
+        ServletContextHandler root = new ServletContextHandler();
+        ServletHolder holder = buildServletHolder(forwardingServlet);
+        root.addServlet(holder, "/druid/v2/*");
+    }
+
+    private ServletHolder buildServletHolder(ForwardingServlet servlet) {
+        ServletHolder holder = new ServletHolder(servlet);
+        return holder;
     }
 }

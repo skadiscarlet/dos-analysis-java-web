@@ -209,6 +209,37 @@ class BatchRunnerTests(unittest.TestCase):
             self.assertEqual(state["status"], "completed_with_failures")
             self.assertEqual(calls, [])
 
+    def test_retry_failed_reexecutes_nondeterministic_provider_output_failures(self) -> None:
+        for error_code in (
+            "LLM_NETWORK_FAILED",
+            "LLM_RESPONSE_SCHEMA_INVALID",
+            "LLM_RESPONSE_SENSITIVE_CONTENT",
+        ):
+            with self.subTest(error_code=error_code), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); plan = _plan(count=1); self._tree(root, plan); calls = []
+
+                class ProviderFailure:
+                    def run(self, _command: str) -> dict[str, str]:
+                        raise AnalyzerError(error_code, "provider output rejected")
+
+                run_batch(
+                    plan,
+                    root / "out",
+                    pipeline_factory=lambda values, environ: ProviderFailure(),
+                    repo_root=root,
+                    environ={},
+                )
+                state = run_batch(
+                    plan,
+                    root / "out",
+                    pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                    repo_root=root,
+                    environ={},
+                    retry_failed=True,
+                )
+                self.assertEqual(state["status"], "completed")
+                self.assertEqual(len(calls), 1)
+
     def test_batch_lock_excludes_concurrent_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); plan = _plan(count=1); self._tree(root, plan); output = root / "out"
@@ -351,6 +382,23 @@ class BatchRunnerTests(unittest.TestCase):
     def test_concurrency_is_bounded_to_five(self) -> None:
         with self.assertRaises(AnalyzerError):
             BatchRunner(_plan(count=1), "out", pipeline_factory=lambda values: None, max_workers=6)
+
+    def test_explicit_six_attempt_extension_is_bounded_at_sixteen(self) -> None:
+        runner = BatchRunner(
+            _plan(count=1),
+            "out",
+            pipeline_factory=lambda values: None,
+            max_attempts=16,
+        )
+        self.assertEqual(runner.max_attempts, 16)
+        with self.assertRaises(AnalyzerError) as raised:
+            BatchRunner(
+                _plan(count=1),
+                "out",
+                pipeline_factory=lambda values: None,
+                max_attempts=17,
+            )
+        self.assertEqual(raised.exception.code, "BATCH_RETRY_INVALID")
 
     def test_completed_target_missing_artifacts_becomes_gap_at_attempt_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

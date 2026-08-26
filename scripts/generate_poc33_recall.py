@@ -27,6 +27,13 @@ from dosweb.benchmark.truth import normalize_repo, repo_slug, resolve_asset_dire
 _ORACLE_FORMAT = "dosweb-poc33-recall-oracle-v2"
 
 
+def _symbolic_sink_identity(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    identity = value.split(":", 1)[0].strip()
+    return identity or None
+
+
 def _read_json(path: Path) -> object:
     if path.is_symlink() or not path.is_file():
         return None
@@ -63,14 +70,18 @@ def _markers_for_record(manifest_record: dict[str, object], repo_root: Path) -> 
     output_dir = manifest_record.get("output_dir")
     entry = manifest_record.get("entry")
     markers: list[str] = []
-    if isinstance(output_dir, str) and output_dir and isinstance(entry, str):
-        markers.append(entry)
     if isinstance(output_dir, str) and output_dir:
         attachment_dir = repo_root / output_dir / "attachments"
         for name in ("static_finding.json", "source_record.json", "source_result.json"):
             value = _read_json(attachment_dir / name)
             if isinstance(value, dict):
                 markers.extend(_bounded_sink_markers(value))
+    # Route text is an entry identity, not a Growth identity. Keep it only as
+    # a legacy fallback when the archived case has no sink evidence at all;
+    # otherwise path components such as ``.../trigger/JobTrigger.java`` can
+    # spuriously outrank the actual request-materialization sink.
+    if not markers and isinstance(entry, str) and entry:
+        markers.append(entry)
     return sorted(set(markers))
 
 
@@ -83,14 +94,18 @@ def _sink_locations_for_record(
     attachment_dir = repo_root / output_dir / "attachments"
     sink_text = " ".join(markers).casefold()
     locations: list[dict[str, object]] = []
-    for name in ("static_finding.json", "source_result.json"):
+    for name in ("static_finding.json", "source_result.json", "case_plan.json"):
         value = _read_json(attachment_dir / name)
         if not isinstance(value, dict):
             continue
+        evidence_groups: list[list[object]] = []
         evidence = value.get("evidence")
-        if not isinstance(evidence, list):
-            continue
-        for item in evidence[:128]:
+        if isinstance(evidence, list):
+            evidence_groups.append(evidence)
+        traceability = value.get("static_traceability")
+        if isinstance(traceability, dict) and isinstance(traceability.get("evidence"), list):
+            evidence_groups.append(traceability["evidence"])
+        for item in [item for group in evidence_groups for item in group[:128]][:256]:
             if not isinstance(item, str):
                 continue
             match = re.search(r"(?P<file>[A-Za-z0-9_./$-]+\.java):(?P<start>\d+)(?:-(?P<end>\d+))?", item)
@@ -103,6 +118,93 @@ def _sink_locations_for_record(
             start = int(match.group("start")); end = int(match.group("end") or start)
             if 0 < start <= end <= 2**31 - 1:
                 locations.append({"file": file_name, "start_line": start, "end_line": end})
+    source_result = _read_json(attachment_dir / "source_result.json")
+    if isinstance(source_result, dict):
+        traceability = source_result.get("static_traceability")
+        if isinstance(traceability, dict):
+            static_result_file = traceability.get("static_result_file")
+            sink_id = traceability.get("sink")
+            if isinstance(static_result_file, str) and isinstance(sink_id, str):
+                referenced = Path(static_result_file)
+                if not referenced.is_absolute():
+                    referenced = repo_root / referenced
+                try:
+                    referenced = referenced.resolve()
+                    referenced.relative_to(repo_root.resolve())
+                except (OSError, ValueError):
+                    referenced = Path("/nonexistent")
+                if (
+                    not referenced.is_symlink()
+                    and referenced.is_file()
+                    and referenced.suffix == ".jsonl"
+                    and referenced.stat().st_size <= 4 * 1024 * 1024
+                ):
+                    try:
+                        referenced_rows = referenced.read_text(encoding="utf-8").splitlines()[:4096]
+                    except (OSError, UnicodeDecodeError):
+                        referenced_rows = []
+                    for raw_row in referenced_rows:
+                        try:
+                            row = json.loads(raw_row)
+                        except json.JSONDecodeError:
+                            continue
+                        if (
+                            not isinstance(row, dict)
+                            or _symbolic_sink_identity(row.get("sink"))
+                            != _symbolic_sink_identity(sink_id)
+                        ):
+                            continue
+                        evidence = row.get("evidence")
+                        if not isinstance(evidence, list):
+                            continue
+                        for item in evidence[:128]:
+                            if not isinstance(item, str):
+                                continue
+                            match = re.search(r"(?P<file>[A-Za-z0-9_./$-]+\.java):(?P<start>\d+)(?:-(?P<end>\d+))?", item)
+                            if not match:
+                                continue
+                            file_name = match.group("file")
+                            if Path(file_name).stem.casefold() not in sink_text:
+                                continue
+                            start = int(match.group("start")); end = int(match.group("end") or start)
+                            if 0 < start <= end <= 2**31 - 1:
+                                locations.append({"file": file_name, "start_line": start, "end_line": end})
+                sinks_path = referenced.parent / "sinks.jsonl"
+                if (
+                    not sinks_path.is_symlink()
+                    and sinks_path.is_file()
+                    and sinks_path.stat().st_size <= 4 * 1024 * 1024
+                ):
+                    try:
+                        sink_rows = sinks_path.read_text(encoding="utf-8").splitlines()[:4096]
+                    except (OSError, UnicodeDecodeError):
+                        sink_rows = []
+                    for raw_row in sink_rows:
+                        try:
+                            row = json.loads(raw_row)
+                        except json.JSONDecodeError:
+                            continue
+                        if (
+                            not isinstance(row, dict)
+                            or _symbolic_sink_identity(row.get("sink_id"))
+                            != _symbolic_sink_identity(sink_id)
+                        ):
+                            continue
+                        file_name = row.get("file")
+                        start = row.get("start_line", row.get("line"))
+                        end = row.get("end_line", start)
+                        if isinstance(start, str):
+                            span = re.fullmatch(r"(?P<start>[0-9]{1,10})(?:-(?P<end>[0-9]{1,10}))?", start.strip())
+                            if span is not None:
+                                start = int(span.group("start"))
+                                end = int(span.group("end") or span.group("start"))
+                        if (
+                            isinstance(file_name, str)
+                            and type(start) is int
+                            and type(end) is int
+                            and 0 < start <= end <= 2**31 - 1
+                        ):
+                            locations.append({"file": file_name, "start_line": start, "end_line": end})
     return sorted(
         {json.dumps(item, sort_keys=True): item for item in locations}.values(),
         key=lambda item: (str(item["file"]), int(item["start_line"]), int(item["end_line"])),
@@ -170,7 +272,25 @@ def _resolve_results_dir(results_root: Path, slug: str) -> Path | None:
     for entry in results_root.iterdir():
         if entry.is_dir() and entry.name.casefold() == target:
             return entry
-    return None
+    # Canonical v2 P0 batches keep outputs under targets/<index>-<slug>.
+    # Resolve their digest-bound target identity instead of guessing from the
+    # numeric directory name; ambiguous or malformed bindings fail closed.
+    targets_root = results_root / "targets"
+    if targets_root.is_symlink() or not targets_root.is_dir():
+        return None
+    matches: list[Path] = []
+    for entry in targets_root.iterdir():
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        binding = _read_json(entry / "batch_target.json")
+        if not isinstance(binding, dict):
+            continue
+        planned_target = binding.get("target")
+        identity = planned_target.get("identity") if isinstance(planned_target, dict) else None
+        bound_slug = identity.get("slug") if isinstance(identity, dict) else None
+        if isinstance(bound_slug, str) and bound_slug.casefold() == target:
+            matches.append(entry)
+    return matches[0] if len(matches) == 1 else None
 
 
 def _load_manifest(manifest_path: Path) -> list[dict[str, object]]:

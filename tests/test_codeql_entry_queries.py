@@ -94,6 +94,12 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
             self.assertIn(f'"{column}"', interposition)
         self.assertIn("cfg_action_before_chain_unproven", interposition)
 
+    def test_servlet_query_models_one_helper_jetty_holder_binding(self):
+        root = Path(__file__).parents[1]
+        content = (root / "codeql/dosweb/Entries/ServletEntries.ql").read_text(encoding="utf-8")
+        self.assertIn("org.eclipse.jetty.ee8.servlet", content)
+        self.assertIn("helperHolderBinds", content)
+
 
 
 @unittest.skipUnless(
@@ -101,6 +107,198 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class CodeqlEntryQueryFixtureTests(unittest.TestCase):
+    def test_spel_source_defaults_publish_modeled_entries_and_keep_runtime_gaps(self):
+        root = Path(__file__).parents[1]
+        source_root = root / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database_path = temporary / "spring-spel-database"
+            classes = temporary / "spring-spel-classes"
+            classes.mkdir()
+            java_files = sorted(path.relative_to(source_root) for path in source_root.rglob("*.java"))
+            completed = subprocess.run(
+                [
+                    _CODEQL,
+                    "database",
+                    "create",
+                    str(database_path),
+                    "--language=java",
+                    f"--source-root={source_root}",
+                    f"--command={_JAVAC} -d {classes} "
+                    + " ".join(str(path) for path in java_files),
+                    "--overwrite",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+            database = validate_database(database_path)
+            query = root / "codeql" / "dosweb" / "Entries" / "SpringMvcEntries.ql"
+            result = run_query(
+                query,
+                database,
+                temporary / "spring-spel-results",
+                codeql_binary=str(_codeql_wrapper(temporary)),
+            )
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+            rows = decode_bqrs_json(
+                "entries",
+                payload,
+                DecodeSource(database.source_root, result.query_sha256),
+            )
+
+        entries = normalize_entry_rows(rows)
+        gaps = normalize_gap_entry_rows(rows)
+        self.assertTrue(
+            any(
+                entry["handler"]["callable"].endswith("SpelController.authenticate")
+                and entry["route_or_event"] == "POST /rest/authenticate"
+                and entry["registration"]["kind"] == "annotation_mapping"
+                for entry in entries
+            ),
+            entries,
+        )
+        self.assertTrue(
+            any(
+                entry["handler"]["callable"].endswith("SpelClassController.image")
+                and entry["route_or_event"] == "GET /rest/verify/{type}"
+                and entry["registration"]["kind"] == "annotation_mapping"
+                for entry in entries
+            ),
+            entries,
+        )
+        self.assertTrue(
+            any(
+                gap["route_or_event"] == "POST /rest/authenticate"
+                and gap["coverage_note"]
+                == "spring_spel_route_default_requires_runtime_binding"
+                for gap in gaps
+            ),
+            gaps,
+        )
+        self.assertTrue(
+            any(
+                gap["route_or_event"] == "GET /rest/verify/{type}"
+                and gap["coverage_note"]
+                == "spring_spel_class_route_default_requires_runtime_binding"
+                for gap in gaps
+            ),
+            gaps,
+        )
+
+    def test_component_filter_with_dependency_framework_types_is_a_default_entry(self):
+        root = Path(__file__).parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            dependency_sources = temporary / "dependency-sources"
+            application_sources = temporary / "application-sources"
+            dependency_classes = temporary / "dependency-classes"
+            application_classes = temporary / "application-classes"
+            for directory in (
+                dependency_sources,
+                application_sources,
+                dependency_classes,
+                application_classes,
+            ):
+                directory.mkdir()
+
+            dependencies = {
+                "javax/servlet/ServletRequest.java": (
+                    "package javax.servlet; public interface ServletRequest {}\n"
+                ),
+                "javax/servlet/ServletResponse.java": (
+                    "package javax.servlet; public interface ServletResponse {}\n"
+                ),
+                "javax/servlet/FilterChain.java": (
+                    "package javax.servlet; public interface FilterChain { "
+                    "void doFilter(ServletRequest request, ServletResponse response); }\n"
+                ),
+                "javax/servlet/Filter.java": (
+                    "package javax.servlet; public interface Filter { "
+                    "void doFilter(ServletRequest request, ServletResponse response, FilterChain chain); }\n"
+                ),
+                "org/springframework/stereotype/Component.java": (
+                    "package org.springframework.stereotype; "
+                    "import java.lang.annotation.*; "
+                    "@Retention(RetentionPolicy.RUNTIME) @Target(ElementType.TYPE) "
+                    "public @interface Component {}\n"
+                ),
+            }
+            dependency_files = []
+            for relative, content in dependencies.items():
+                path = dependency_sources / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+                dependency_files.append(path)
+            completed = subprocess.run(
+                [_JAVAC, "-d", str(dependency_classes), *(str(path) for path in dependency_files)],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+            component_filter = application_sources / "app" / "ComponentFilter.java"
+            component_filter.parent.mkdir(parents=True)
+            component_filter.write_text(
+                "package app;\n"
+                "import javax.servlet.*;\n"
+                "import org.springframework.stereotype.Component;\n"
+                "@Component public class ComponentFilter implements Filter {\n"
+                "  public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {\n"
+                "    chain.doFilter(request, response);\n"
+                "  }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            database_path = temporary / "database"
+            completed = subprocess.run(
+                [
+                    _CODEQL,
+                    "database",
+                    "create",
+                    str(database_path),
+                    "--language=java",
+                    f"--source-root={application_sources}",
+                    "--command="
+                    f"{_JAVAC} -cp {dependency_classes} -d {application_classes} "
+                    "app/ComponentFilter.java",
+                    "--overwrite",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+            database = validate_database(database_path)
+            query = root / "codeql" / "dosweb" / "Entries" / "ServletEntries.ql"
+            result = run_query(
+                query,
+                database,
+                temporary / "results",
+                codeql_binary=str(_codeql_wrapper(temporary)),
+            )
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+            rows = decode_bqrs_json(
+                "entries",
+                payload,
+                DecodeSource(database.source_root, result.query_sha256),
+            )
+            entries = normalize_entry_rows(rows)
+            self.assertTrue(
+                any(
+                    entry["handler"]["callable"].endswith("ComponentFilter.doFilter")
+                    and entry["route_or_event"] == "/*"
+                    and entry["registration"]["kind"] == "annotation_mapping"
+                    for entry in entries
+                ),
+                entries,
+            )
+
     def test_registered_entries_and_dynamic_gaps_against_temporary_databases(self):
         root = Path(__file__).parents[1]
         fixtures = {
@@ -249,11 +447,53 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                             any(name.endswith("NettyMqttHandler.channelRead") for name in broker_handlers),
                             entries,
                         )
+                        self.assertTrue(
+                            any(name.endswith("ConvertedNettyMqttHandler.channelRead") for name in broker_handlers),
+                            entries,
+                        )
+                    if fixture == "netty":
+                        full_request_routes = {
+                            entry["route_or_event"]
+                            for entry in entries
+                            if entry["handler"]["callable"].endswith(
+                                "FullRequestHandler.channelRead0"
+                            )
+                        }
+                        self.assertEqual(
+                            full_request_routes,
+                            {"channelRead", "/trigger", "/beat"},
+                            entries,
+                        )
+                        self.assertFalse(
+                            any(
+                                "LookalikeRequestHandler" in entry["handler"]["callable"]
+                                for entry in entries
+                            ),
+                            entries,
+                        )
                     if fixture == "servlet":
                         self.assertTrue(
                             any(
                                 entry["handler"]["callable"].endswith("RegisteredStreamFilter.doFilter")
                                 and entry["route_or_event"] == "/api/push/*"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("ComponentCachingFilter.doFilter")
+                                and entry["route_or_event"] == "/*"
+                                and entry["registration"]["kind"] == "annotation_mapping"
+                                for entry in entries
+                            ),
+                            entries,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith("ForwardingServlet.service")
+                                and entry["route_or_event"] == "/druid/v2/*"
+                                and entry["registration"]["kind"] == "static_registration"
                                 for entry in entries
                             ),
                             entries,
@@ -438,11 +678,23 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                         self.assertFalse(any("UnsupportedLeafService" in entry["handler"]["callable"] for entry in entries), entries)
                         self.assertFalse(any("NoIdentityService" in entry["handler"]["callable"] for entry in entries), entries)
                         self.assertFalse(any("LookalikeService.helper" in entry["handler_fqn"] for entry in rows), rows)
+                    rejected_markers = (
+                        ("Unregistered", "Fake", "Dynamic")
+                        if fixture == "spring"
+                        else ("Unregistered", "Lookalike", "Fake", "Dynamic")
+                    )
                     self.assertFalse(
                         any(
-                            any(
-                                marker in entry["handler"]["callable"]
-                                for marker in ("Unregistered", "Lookalike", "Fake", "Dynamic")
+                            any(marker in entry["handler"]["callable"] for marker in rejected_markers)
+                            or (
+                                fixture == "spring"
+                                and entry["handler"]["callable"].endswith(
+                                    "SpringFixture.unregisteredLookalike"
+                                )
+                            )
+                            or (
+                                fixture == "spring"
+                                and ".SpringLookalike." in entry["handler"]["callable"]
                             )
                             for entry in entries
                         ),
