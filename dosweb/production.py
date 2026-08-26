@@ -37,9 +37,11 @@ from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_de
 from dosweb.flows.models import FlowProof, normalize_flow_rows
 from dosweb.flows.verify import VerifiedFlow, verify_flow
 from dosweb.growth.contracts import validate_contract_static_evidence
+from dosweb.growth.completeness import CandidateDisposition
 from dosweb.growth.evidence import adapt_growth_static_evidence
 from dosweb.growth.excerpts import extract_source_excerpt
 from dosweb.growth.models import BoundedSlice, BoundedSlicePayload, GrowthContract
+from dosweb.growth.relevance import evaluate_candidate_relevance
 from dosweb.growth.slices import DemandInput, GrowthCandidate, SourceLocation, normalize_growth_rows
 from dosweb.growth.source_fallback import source_backed_same_handler_growth
 from dosweb.growth.verify import VerificationCheck, VerifiedGrowthResult, verify_growth_contract
@@ -846,22 +848,78 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             candidate = _candidate_from_record(record)
             candidate_links, disposition = _candidate_association(entries, candidate, association_rows)
             links.extend(link.to_dict() for link in candidate_links)
-            dispositions.append(disposition.to_dict())
-            # A source-order link is only triage evidence, but can still produce a
-            # conservative unresolved chain.  Never classify no-entry candidates.
-            if disposition.status != "verified_relevant" or len(candidate_links) != 1:
-                # A single partial association is still candidate-relevant. Publish
-                # an unresolved Growth result so flows/lifecycle/conclude emit a
-                # certificate-backed static_unknown rather than silently ending at
-                # an internal disposition. Ambiguous multi-entry links remain only
-                # auditable until they can be canonicalized.
-                if candidate_links:
+            relevance_entry = (
+                entries[candidate_links[0].entry_id]
+                if len(candidate_links) == 1
+                else None
+            )
+            relevance = evaluate_candidate_relevance(
+                relevance_entry,
+                candidate,
+                tuple(candidate_links),
+            )
+            relevance_reasons = tuple(
+                sorted(
+                    set(disposition.reason_codes)
+                    | set(relevance.reason_codes)
+                    | {
+                        "RELEVANCE_AMPLIFICATION_"
+                        + relevance.amplification_class.upper()
+                    }
+                )
+            )
+            if relevance.status == "rejected":
+                disposition = CandidateDisposition.create(
+                    candidate.growth_id,
+                    "rejected",
+                    tuple(link.link_id for link in candidate_links),
+                    relevance_reasons,
+                )
+                dispositions.append(disposition.to_dict())
+                continue
+            if relevance.status == "unresolved":
+                disposition = CandidateDisposition.create(
+                    candidate.growth_id,
+                    "unresolved",
+                    tuple(link.link_id for link in candidate_links),
+                    relevance_reasons,
+                )
+                dispositions.append(disposition.to_dict())
+                continue
+            if (
+                relevance.status == "dos_relevant_partial"
+                or disposition.status != "verified_relevant"
+                or len(candidate_links) != 1
+            ):
+                disposition = CandidateDisposition.create(
+                    candidate.growth_id,
+                    "unresolved",
+                    tuple(link.link_id for link in candidate_links),
+                    relevance_reasons,
+                )
+                dispositions.append(disposition.to_dict())
+                # Only one canonical high-value partial family is eligible for a
+                # downstream static_unknown gap. Multi-entry ambiguity remains
+                # disposition inventory and never creates a cross product.
+                if len(candidate_links) == 1:
                     unresolved = VerifiedGrowthResult.create(
                         candidate=candidate,
-                        slice_id=stable_identifier("slice", {"growth_id": candidate.growth_id, "reason": "association_incomplete"}),
+                        slice_id=stable_identifier(
+                            "slice",
+                            {
+                                "growth_id": candidate.growth_id,
+                                "reason": "candidate_relevance_or_association_partial",
+                            },
+                        ),
                         status="unresolved",
-                        reason_codes=("GROWTH_ASSOCIATION_INCOMPLETE",),
-                        checks=(VerificationCheck("candidate_entry_association", False, "GROWTH_ASSOCIATION_INCOMPLETE"),),
+                        reason_codes=("GROWTH_DOS_RELEVANT_PARTIAL",),
+                        checks=(
+                            VerificationCheck(
+                                "candidate_relevance_and_entry_association",
+                                False,
+                                "GROWTH_DOS_RELEVANT_PARTIAL",
+                            ),
+                        ),
                     )
                     verified.append(unresolved.to_dict())
                 continue
@@ -916,6 +974,24 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                     audit = last_audit()
                     if audit is not None:
                         audits.append(audit.to_dict())
+            else:
+                auth, decision = cached_auth
+            if decision.status == "not_entry_reachable":
+                disposition = CandidateDisposition.create(
+                    candidate.growth_id,
+                    "not_entry_reachable",
+                    tuple(link.link_id for link in candidate_links),
+                    tuple(sorted(set(relevance_reasons) | set(decision.reason_codes))),
+                )
+                dispositions.append(disposition.to_dict())
+                continue
+            disposition = CandidateDisposition.create(
+                candidate.growth_id,
+                "verified_relevant",
+                tuple(link.link_id for link in candidate_links),
+                relevance_reasons,
+            )
+            dispositions.append(disposition.to_dict())
             bounded = _slice_for(
                 config,
                 entry,

@@ -60,6 +60,18 @@ predicate attackerControlsLoop(LoopStmt loop) {
   )
 }
 
+/** Gets the concrete attacker-derived value that controls this loop. */
+string attackerLoopDemand(LoopStmt loop) {
+  exists(DataFlow::Node source, DataFlow::Node sink, Expr expression |
+    loopConditionExpr(loop, expression) and sink.asExpr() = expression and
+    P0LoopFlow::flow(source, sink) and
+    (
+      exists(Parameter input | source.asParameter() = input and result = input.getName())
+      or exists(MethodCall derived | source.asExpr() = derived and result = derived.toString())
+    )
+  )
+}
+
 /** The call is syntactically contained by the selected loop; its condition is
  * separately required to have a real global-flow witness. Growth operations
  * are restricted by the caller query, so a condition-side helper is not a G.

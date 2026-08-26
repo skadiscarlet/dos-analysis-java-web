@@ -22,6 +22,7 @@ from dosweb.growth.models import (
     SourceExcerpt,
     StaticFact,
 )
+from dosweb.growth.relevance import RelevanceDecision, evaluate_candidate_relevance
 from dosweb.growth.slices import (
     CoverageStatus,
     DemandInput,
@@ -60,6 +61,7 @@ __all__ = [
     "GrowthKind",
     "GrowthStaticEvidence",
     "RegistrationFact",
+    "RelevanceDecision",
     "RepeatabilityDecision",
     "ResourceDimension",
     "SourceExcerpt",
@@ -70,6 +72,7 @@ __all__ = [
     "adapt_growth_static_evidence",
     "build_bounded_slice",
     "extract_source_excerpt",
+    "evaluate_candidate_relevance",
     "normalize_growth_rows",
     "load_growth_candidates",
     "verify_growth_contract",

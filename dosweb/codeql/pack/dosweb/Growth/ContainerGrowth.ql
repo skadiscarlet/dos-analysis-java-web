@@ -26,12 +26,23 @@ predicate httpSessionAttributeWrite(MethodCall call) {
   )
 }
 
+predicate demandUsesAttackerParameter(MethodCall call, Expr demand) {
+  exists(Method method, Parameter input, VarAccess access |
+    method = call.getEnclosingCallable() and p0AttackerParameter(method, input) and
+    access.getVariable() = input and (access = demand or access.getParent+() = demand)
+  )
+}
+
+predicate fixedDemand(Expr demand) {
+  demand instanceof CompileTimeConstantExpr
+}
+
 predicate containerGrowthRow(
   MethodCall call, string operation, string resourceDimension, string receiver,
   string fieldPath, Expr demand, string demandRole, string escapeScope,
   string evidence, string coverageStatus, string coverageNote
 ) {
-  exists(FieldAccess fieldReceiver |
+  exists(FieldAccess fieldReceiver, string multiplicityNote |
     containerWrite(call) and fieldReceiver = call.getQualifier() and
     demand = call.getArgument(0) and
     (
@@ -45,18 +56,35 @@ predicate containerGrowthRow(
     ) and
     (
       not exists(LoopStmt loop | growthInLoopBody(call, loop)) and
-      coverageNote = "persistent_field_container_write:single_operation_no_enclosing_loop"
+      multiplicityNote = "single_operation_no_enclosing_loop"
       or exists(LoopStmt loop | growthInLoopBody(call, loop) and attackerControlsLoop(loop)) and
-      coverageNote = "persistent_field_container_write:attacker_controlled_loop_multiplicity_proven"
+      multiplicityNote = "attacker_controlled_loop_multiplicity_proven"
       or exists(LoopStmt loop | growthInLoopBody(call, loop) and not attackerControlsLoop(loop)) and
-      coverageNote = "persistent_field_container_write:loop_bound_not_attacker_proven"
+      multiplicityNote = "loop_bound_not_attacker_proven"
     ) and
     operation = call.getMethod().getDeclaringType().getQualifiedName() + "." + call.getMethod().getName() and
     resourceDimension = "entries" and
     receiver = fieldReceiver.getField().getDeclaringType().getQualifiedName() + "." +
       fieldReceiver.getField().getName() and
     fieldPath = fieldReceiver.getField().getName() and evidence = "field_backed_container_write" and
-    coverageStatus = "complete"
+    (
+      demandRole = "key" and fixedDemand(demand) and
+      coverageStatus = "complete" and
+      coverageNote = "persistent_field_container_write:fixed_key:" + multiplicityNote
+      or demandRole = "key" and demandUsesAttackerParameter(call, demand) and
+         coverageStatus = "complete" and
+         coverageNote = "persistent_field_container_write:attacker_key_driver:" + multiplicityNote
+      or demandRole = "value" and demandUsesAttackerParameter(call, demand) and
+         coverageStatus = "complete" and
+         coverageNote = "persistent_field_container_write:attacker_value_driver:" + multiplicityNote
+      or demandRole = "key" and not fixedDemand(demand) and
+         not demandUsesAttackerParameter(call, demand) and
+         coverageStatus = "partial" and
+         coverageNote = "persistent_field_container_write:key_driver_unclassified:" + multiplicityNote
+      or demandRole = "value" and not demandUsesAttackerParameter(call, demand) and
+         coverageStatus = "partial" and
+         coverageNote = "persistent_field_container_write:value_driver_unclassified:" + multiplicityNote
+    )
   )
   or
   httpSessionAttributeWrite(call) and demand = call.getArgument(1) and demandRole = "value" and
@@ -65,7 +93,7 @@ predicate containerGrowthRow(
   receiver = call.getMethod().getDeclaringType().getQualifiedName() and
   fieldPath = call.getArgument(0).toString() and escapeScope = "session" and
   evidence = "http_session_attribute_write" and coverageStatus = "partial" and
-  coverageNote = "http_session_attribute_write:fresh_session_cardinality_requires_entry_path"
+  coverageNote = "http_session_attribute_write:fixed_attribute_fresh_session_unproven"
 }
 
 from MethodCall call, Expr demand, string operationText, string resourceDimension,

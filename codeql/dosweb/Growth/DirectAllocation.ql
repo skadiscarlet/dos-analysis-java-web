@@ -6,6 +6,7 @@
  */
 
 import java
+import LoopAmplification
 
 // Exact Task 3 contract:
 // "site_file", "site_start_line", "growth_kind", "operation",
@@ -17,12 +18,19 @@ predicate allocationCall(MethodCall call) {
   call.getMethod().getName() = ["allocate", "allocateDirect"] and
   (
     call.getMethod().getDeclaringType().hasQualifiedName("java.nio", "ByteBuffer")
-    or
-    call.getMethod().getDeclaringType().hasQualifiedName("fixture.spring", "ByteBuffer")
   )
 }
 
-from Expr allocation, Expr size, string operation, string receiver, string evidence, string note
+predicate sizeUsesAttackerParameter(Expr allocation, Expr size) {
+  exists(Method method, Parameter input, VarAccess access |
+    method = allocation.getEnclosingCallable() and
+    p0AttackerParameter(method, input) and access.getVariable() = input and
+    (access = size or access.getParent+() = size)
+  )
+}
+
+from Expr allocation, Expr size, string operation, string receiver, string evidence,
+     string coverageStatus, string note
 where
   (
     allocation instanceof MethodCall and
@@ -30,12 +38,12 @@ where
     size = allocation.(MethodCall).getArgument(0) and
     operation = allocation.(MethodCall).getMethod().getDeclaringType().getQualifiedName() + "." + allocation.(MethodCall).getMethod().getName() and
     receiver = allocation.(MethodCall).getMethod().getDeclaringType().getQualifiedName() and
-    evidence = "allocation_size_argument" and note = "recognized_buffer_allocation"
+    evidence = "allocation_size_argument"
     or
     allocation instanceof ArrayCreationExpr and
     size = allocation.(ArrayCreationExpr).getDimension(0) and
     operation = "array_creation" and receiver = allocation.getType().toString() and
-    evidence = "array_dimension_size" and note = "recognized_array_allocation"
+    evidence = "array_dimension_size"
     or
     allocation instanceof ClassInstanceExpr and
     (
@@ -45,7 +53,15 @@ where
     size = [allocation.(ClassInstanceExpr).getArgument(0), allocation.(ClassInstanceExpr).getArgument(1)] and
     operation = allocation.(ClassInstanceExpr).getConstructedType().getQualifiedName() + ".<init>" and
     receiver = allocation.(ClassInstanceExpr).getConstructedType().getQualifiedName() and
-    evidence = "image_dimension_size" and note = "recognized_image_or_captcha_allocation"
+    evidence = "image_dimension_size"
+  ) and
+  (
+    sizeUsesAttackerParameter(allocation, size) and
+    coverageStatus = "complete" and
+    note = "direct_allocation:handler_parameter_size"
+    or not sizeUsesAttackerParameter(allocation, size) and
+       coverageStatus = "partial" and
+       note = "direct_allocation:size_origin_unclassified"
   )
 select
   allocation.getLocation().getFile().getRelativePath() as site_file,
@@ -59,5 +75,5 @@ select
   "size" as demand_input_role,
   "request" as escape_scope,
   evidence as candidate_evidence,
-  "complete" as coverage_status,
+  coverageStatus as coverage_status,
   note as coverage_note

@@ -88,7 +88,7 @@ class CodeqlGrowthQueryTests(unittest.TestCase):
         self.assertEqual(matching[0]["coverage_status"], "partial")
         self.assertEqual(
             matching[0]["coverage_note"],
-            "http_session_attribute_write:fresh_session_cardinality_requires_entry_path",
+            "http_session_attribute_write:fixed_attribute_fresh_session_unproven",
         )
 
     def test_growth_queries_use_the_exact_shared_table_contract(self) -> None:
@@ -110,6 +110,35 @@ class CodeqlGrowthQueryTests(unittest.TestCase):
                     self.assertIn(f'"{column}"', source)
                 for forbidden in ("static_vulnerable", "bounded_under_modeled_assumptions", "lifecycle_result"):
                     self.assertNotIn(forbidden, source)
+
+        expected_markers = {
+            "DirectAllocation.ql": (
+                "p0AttackerParameter",
+                "direct_allocation:handler_parameter_size",
+                "direct_allocation:size_origin_unclassified",
+            ),
+            "ContainerGrowth.ql": (
+                "persistent_field_container_write:fixed_key",
+                "persistent_field_container_write:attacker_key_driver",
+                "persistent_field_container_write:attacker_value_driver",
+                "persistent_field_container_write:key_driver_unclassified",
+            ),
+            "AsyncWorkGrowth.ql": (
+                '"submission_count"',
+                "single_submission_no_enclosing_loop",
+                "attacker_controlled_loop_multiplicity_proven",
+            ),
+            "InputMaterialization.ql": (
+                "request_stream_origin_proven",
+                "stream_origin_unclassified",
+                "server_side_file_materialization",
+            ),
+        }
+        for query_name, markers in expected_markers.items():
+            source = (query_root / query_name).read_text(encoding="utf-8")
+            for marker in markers:
+                with self.subTest(query=query_name, marker=marker):
+                    self.assertIn(marker, source)
 
     def test_g1_through_g4_against_temporary_databases(self) -> None:
         root = Path(__file__).parents[1]
@@ -274,8 +303,18 @@ class CodeqlGrowthQueryTests(unittest.TestCase):
                         self.assertFalse(any("requestLocal" in item["resource_point"]["receiver"] for item in matching))
                         if fixture == "spring":
                             notes = {note for item in matching for note in item["coverage_notes"]}
-                            self.assertIn("persistent_field_container_write:attacker_controlled_loop_multiplicity_proven", notes)
-                            self.assertIn("persistent_field_container_write:loop_bound_not_attacker_proven", notes)
+                            self.assertTrue(
+                                any(
+                                    "persistent_field_container_write:attacker_key_driver:"
+                                    "attacker_controlled_loop_multiplicity_proven" == note
+                                    for note in notes
+                                ),
+                                notes,
+                            )
+                            self.assertTrue(
+                                any(note.endswith(":loop_bound_not_attacker_proven") for note in notes),
+                                notes,
+                            )
                         if fixture == "servlet":
                             self.assertTrue(
                                 any(

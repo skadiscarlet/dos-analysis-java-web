@@ -846,7 +846,7 @@ public class ServiceApplication extends Application<Object> {
     def _bqrs_payload(self, columns: tuple[str, ...], rows: list[list[object]]) -> dict[str, object]:
         return {"#select": {"columns": [{"name": name, "kind": "String"} for name in columns], "tuples": rows}}
 
-    def test_duplicate_registrations_do_not_block_growth_or_flow_resolution(self) -> None:
+    def test_ambiguous_duplicate_registrations_stay_disposition_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             database = root / "database"; database.mkdir()
@@ -867,9 +867,9 @@ public class ServiceApplication extends Application<Object> {
                     "spring_annotation_mapping",
                 ]]),
                 "InputMaterialization": (GROWTH_COLUMNS, [[
-                    "src/Handler.java", 24, "input_materialization", "request.readAllBytes",
+                    "src/Handler.java", 24, "input_materialization", "spring_request_body_materialization",
                     "bytes", "fixture.Handler.body", "this.body", "body", "size", "request",
-                    "fact:growth", "complete", "input_materialization",
+                    "fact:growth", "complete", "recognized_spring_request_body_bytes",
                 ]]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
@@ -919,9 +919,17 @@ public class ServiceApplication extends Application<Object> {
                 json.loads(line)
                 for line in (root / "output" / "verified_growth.jsonl").read_text().splitlines()
             ]
-            self.assertEqual(len(verified), 1)
-            self.assertEqual(verified[0]["status"], "unresolved")
-            self.assertEqual(verified[0]["reason_codes"], ["GROWTH_ASSOCIATION_INCOMPLETE"])
+            self.assertEqual(verified, [])
+            dispositions = [
+                json.loads(line)
+                for line in (root / "output" / "candidate_dispositions.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(len(dispositions), 1)
+            self.assertEqual(dispositions[0]["status"], "unresolved")
+            self.assertIn(
+                "RELEVANCE_CANONICAL_ENTRY_UNPROVEN",
+                dispositions[0]["reason_codes"],
+            )
 
     def test_injected_query_llm_and_source_seams_exercise_the_full_default_graph(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -950,16 +958,31 @@ public class ServiceApplication extends Application<Object> {
                 ]),
                 "InputMaterialization": (GROWTH_COLUMNS, [
                     [
-                        "src/Handler.java", 24, "input_materialization", "request.readAllBytes",
+                        "src/Handler.java", 24, "input_materialization", "spring_request_body_materialization",
                         "bytes", "fixture.Handler.body", "this.body", "body", "size", "request",
-                        "fact:growth", "complete", "input_materialization",
+                        "fact:growth", "complete", "recognized_spring_request_body_bytes",
+                    ],
+                    [
+                        "src/Handler.java", 26, "input_materialization", "spring_request_body_string_materialization",
+                        "bytes", "fixture.Handler.bodyString", "this.bodyString", "body", "size", "request",
+                        "fact:growth-string", "complete", "recognized_spring_request_body_string",
                     ],
                     [
                         "src/Detached.java", 9, "input_materialization", "request.readAllBytes",
                         "bytes", "fixture.Detached.body", "this.body", "body", "size", "request",
                         "fact:other-growth", "complete", "input_materialization",
                     ],
+                    [
+                        "src/OtherController.java", 44, "input_materialization", "spring_request_body_materialization",
+                        "bytes", "fixture.Other.body", "body", "body", "size", "request",
+                        "fact:privileged-growth", "complete", "recognized_spring_request_body_bytes",
+                    ],
                 ]),
+                "DirectAllocation": (GROWTH_COLUMNS, [[
+                    "src/Handler.java", 25, "direct_allocation", "array_creation",
+                    "bytes", "byte[]", "allocation", "serverLimit", "size", "request",
+                    "fact:server-sized", "complete", "direct_allocation:server_metadata_size",
+                ]]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
                     "fixture.Handler.handle>request.readAllBytes", "in_handler", "data_flow", "proven",
@@ -969,6 +992,28 @@ public class ServiceApplication extends Application<Object> {
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
                     "fixture.Handler.handle>request.readAllBytes", "entry>callgraph>growth", "data_flow", "proven",
                     "complete", "same_handler_call_graph_association",
+                ], [
+                    "src/Handler.java", 20, "src/Handler.java", 26, "size", "body", "body",
+                    "fixture.Handler.handle>request.bodyString", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
+                ], [
+                    "src/Handler.java", 20, "src/Handler.java", 25, "size", "body", "serverLimit",
+                    "fixture.Handler.handle>array_creation", "entry>callgraph>growth", "data_flow", "proven",
+                    "complete", "same_handler_call_graph_association",
+                ], [
+                    "src/OtherController.java", 40, "src/OtherController.java", 44,
+                    "size", "body", "body", "fixture.Other.handle>materialize",
+                    "entry>callgraph>growth", "data_flow", "proven", "complete",
+                    "same_handler_call_graph_association",
+                ]]),
+                "EntrySecurity": (SECURITY_COLUMNS, [[
+                    "fixture.Handler.handle", "src/Handler.java", 20, "",
+                    "src/Handler.java", 19, "annotation", "unauthenticated_annotation",
+                    "complete", "permit_all",
+                ], [
+                    "fixture.Other.handle", "src/OtherController.java", 40, "",
+                    "src/OtherController.java", 39, "annotation", "privileged_annotation",
+                    "complete", "role_annotation",
                 ]]),
                 "GuardCandidates": (GUARD_COLUMNS, []),
                 "BoundCandidates": (BOUND_COLUMNS, []),
@@ -998,6 +1043,18 @@ public class ServiceApplication extends Application<Object> {
                 )
 
             class FakeLlm:
+                def classify_auth(self, entry_id: str, facts: object, configuration: object):
+                    from dosweb.reachability import AuthContract
+                    auth_fact = next(
+                        fact for fact in tuple(facts) if fact.kind != "deployment_gate"
+                    )
+                    context = (
+                        "privileged"
+                        if auth_fact.value == "privileged_annotation"
+                        else "unauthenticated"
+                    )
+                    return AuthContract(context, (auth_fact.fact_id,), (), "high")
+
                 def classify_growth(self, bounded: object) -> GrowthContract:
                     llm_calls.append(bounded)
                     return GrowthContract("unknown", "input_materialization", "bytes", (), "unknown", (), "high")
@@ -1014,16 +1071,40 @@ public class ServiceApplication extends Application<Object> {
 
             self.assertEqual(result["status"], "completed")
             self.assertTrue(all(result["stages"][stage]["status"] == "completed" for stage in STAGES))
-            self.assertEqual(len(llm_calls), 1)
-            self.assertEqual(len(excerpt_calls), 3)
+            # The second public candidate is deliberately ordered after the
+            # privileged Entry candidate. It must reuse the public Entry's
+            # cached decision, not the previous loop iteration's decision.
+            self.assertEqual(len(llm_calls), 2)
+            self.assertEqual(len(excerpt_calls), 6)
             self.assertEqual({call[1] for call in excerpt_calls}, {None})
             self.assertEqual(
                 {call[2:] for call in excerpt_calls},
-                {("src/Handler.java", 8), ("src/Handler.java", 20), ("src/Handler.java", 24)},
+                {
+                    ("src/Handler.java", 8),
+                    ("src/Handler.java", 20),
+                    ("src/Handler.java", 24),
+                    ("src/Handler.java", 26),
+                },
             )
-            self.assertEqual(result["stages"]["growth"]["metadata"]["candidate_count"], 2)
-            self.assertEqual(result["stages"]["growth"]["metadata"]["mapped_candidate_count"], 1)
-            self.assertEqual(result["stages"]["growth"]["metadata"]["skipped_unmapped_candidate_count"], 0)
+            self.assertEqual(result["stages"]["growth"]["metadata"]["candidate_count"], 5)
+            self.assertEqual(result["stages"]["growth"]["metadata"]["mapped_candidate_count"], 2)
+            self.assertEqual(result["stages"]["growth"]["metadata"]["skipped_unmapped_candidate_count"], 1)
+            dispositions = [
+                json.loads(line)
+                for line in (root / "output" / "candidate_dispositions.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(len(dispositions), 5)
+            self.assertEqual(sum(item["status"] == "rejected" for item in dispositions), 1)
+            self.assertEqual(
+                sum(item["status"] == "not_entry_reachable" for item in dispositions),
+                1,
+            )
+            self.assertTrue(
+                any(
+                    "RELEVANCE_SERVER_SIZED_ALLOCATION" in item["reason_codes"]
+                    for item in dispositions
+                )
+            )
             self.assertEqual(len(query_calls), 20)
             self.assertEqual(
                 {item["path"] for item in result["stages"]["conclude"]["artifacts"]},
