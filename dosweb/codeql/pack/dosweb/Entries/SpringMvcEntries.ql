@@ -200,6 +200,43 @@ predicate springRow(
     framework = "spring_mvc" and protocol = "http" and
     handlerFqn = method.getDeclaringType().getQualifiedName() + "." + method.getName() and
     handlerFile = method.getLocation().getFile().getRelativePath() and handlerLine = method.getLocation().getStartLine() and
+    registrationKind = "annotation_mapping" and registrationFqn = handlerFqn and
+    registrationFile = mapping.getLocation().getFile().getRelativePath() and registrationLine = mapping.getLocation().getStartLine() and
+    (verb = getMappingVerb(mapping) and routeOrEvent = verb + " " + resolvedPath or
+     verb = "" and routeOrEvent = resolvedPath) and
+    authContext = "unknown" and inputName = parameter.getName() and inputType = parameter.getType().toString() and
+    materializationPhase = "before_handler" and coverageStatus = "complete" and
+    coverageNote = "spring_spel_source_default_modeled_entry"
+  )
+  or exists(Method method, Annotation mapping, Parameter parameter, string resolvedClassPath, string methodPath, string joinedPath, string verb |
+    method.getDeclaringType().getAnAnnotation() = any(Annotation controller | isControllerAnnotation(controller)) and
+    mapping = method.getAnAnnotation() and isMappingAnnotation(mapping) and
+    isSourceMethod(method) and isSourceExpr(mapping) and
+    resolvedClassPath = getResolvedSpelClassDefault(method) and methodPath = getMappingPath(mapping) and
+    not methodPath.matches("#{%}") and not methodPath.matches("${%}") and
+    (methodPath = "" and joinedPath = resolvedClassPath or
+     methodPath.matches("/%") and joinedPath = resolvedClassPath + methodPath or
+     methodPath != "" and not methodPath.matches("/%") and joinedPath = resolvedClassPath + "/" + methodPath) and
+    parameter = method.getAParameter() and inputKind = getInputKind(parameter) and
+    framework = "spring_mvc" and protocol = "http" and
+    handlerFqn = method.getDeclaringType().getQualifiedName() + "." + method.getName() and
+    handlerFile = method.getLocation().getFile().getRelativePath() and handlerLine = method.getLocation().getStartLine() and
+    registrationKind = "annotation_mapping" and registrationFqn = handlerFqn and
+    registrationFile = mapping.getLocation().getFile().getRelativePath() and registrationLine = mapping.getLocation().getStartLine() and
+    (verb = getMappingVerb(mapping) and routeOrEvent = verb + " " + joinedPath or
+     verb = "" and routeOrEvent = joinedPath) and
+    authContext = "unknown" and inputName = parameter.getName() and inputType = parameter.getType().toString() and
+    materializationPhase = "before_handler" and coverageStatus = "complete" and
+    coverageNote = "spring_spel_source_default_modeled_entry"
+  )
+  or exists(Method method, Annotation mapping, Parameter parameter, string resolvedPath, string verb |
+    method.getDeclaringType().getAnAnnotation() = any(Annotation controller | isControllerAnnotation(controller)) and
+    mapping = method.getAnAnnotation() and isMappingAnnotation(mapping) and
+    isSourceMethod(method) and isSourceExpr(mapping) and resolvedPath = getResolvedSpelDefault(mapping) and
+    parameter = method.getAParameter() and inputKind = getInputKind(parameter) and
+    framework = "spring_mvc" and protocol = "http" and
+    handlerFqn = method.getDeclaringType().getQualifiedName() + "." + method.getName() and
+    handlerFile = method.getLocation().getFile().getRelativePath() and handlerLine = method.getLocation().getStartLine() and
     registrationKind = "dynamic_unresolved" and registrationFqn = handlerFqn and
     registrationFile = mapping.getLocation().getFile().getRelativePath() and registrationLine = mapping.getLocation().getStartLine() and
     (verb = getMappingVerb(mapping) and routeOrEvent = verb + " " + resolvedPath or

@@ -41,7 +41,7 @@ _MAX_REQUEST_SCAN_DEPTH = 16
 _MAX_REQUEST_SCAN_NODES = 8192
 _MAX_GIT_OUTPUT_BYTES = 65536
 _MAX_GIT_STATUS_BYTES = 4096
-_SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]+")
+_SECRET_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]+")
 # Match exact credential-bearing labels in snake, kebab, camel and conventional header forms.
 _CREDENTIAL_ASSIGNMENT = re.compile(r'''(?ix)(?<![a-z0-9_-])(?!feature[_-]password\b|logging[_-]token\b)(?:authorization|api[_-]?key|private[_-]?key|access[_-]?(?:token|key)|refresh[_-]?token|aws[_-]?(?:secret[_-]?access[_-]?key|access[_-]?key[_-]?id)|client[_-]?secret|db[_-]?password|password|passwd|oauth[_-]?token|token|secret|x[_-]?api[_-]?key|(?:[a-z0-9]+[_-])+(?:api[_-]?key|private[_-]?key|access[_-]?(?:token|key)|refresh[_-]?token|client[_-]?secret|password|passwd|oauth[_-]?token|token|secret))\b(?:\\?["'])?(?:\s*(?:\[\s*\])?)*\s*[:=]\s*(?:\{\s*)?(?:\\?["'])?(?!\[REDACTED\])[^\s"';,}]+''')
 _JAVA_UNICODE_ESCAPE = re.compile(r"(?:\\)+u+([0-9a-fA-F]{4})")

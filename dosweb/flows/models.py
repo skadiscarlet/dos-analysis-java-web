@@ -192,7 +192,7 @@ def _entry_semantic_key(entry: EntryFact) -> tuple[object, ...]:
     )
 
 
-def _canonical_entry_for_growth(matches: Sequence[EntryFact], growth_result: VerifiedGrowthResult) -> EntryFact:
+def _entries_for_growth(matches: Sequence[EntryFact], growth_result: VerifiedGrowthResult) -> tuple[EntryFact, ...]:
     candidate = growth_result.candidate
     if candidate is None:
         raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
@@ -206,11 +206,17 @@ def _canonical_entry_for_growth(matches: Sequence[EntryFact], growth_result: Ver
         if demand_matched:
             narrowed = demand_matched
     if len(narrowed) == 1:
-        return narrowed[0]
+        return narrowed
     if len({_entry_semantic_key(entry) for entry in narrowed}) == 1:
-        return min(narrowed, key=lambda entry: (_entry_registration_identity(entry), entry.entry_id))
+        return (min(narrowed, key=lambda entry: (_entry_registration_identity(entry), entry.entry_id)),)
     if len({_entry_registration_identity(entry) for entry in narrowed}) == 1:
-        return min(narrowed, key=lambda entry: entry.entry_id)
+        return (min(narrowed, key=lambda entry: entry.entry_id),)
+    handler_identities = {
+        (entry.handler.callable, entry.handler.file, entry.handler.start_line)
+        for entry in narrowed
+    }
+    if len(handler_identities) == 1 and len({entry.route_or_event for entry in narrowed}) > 1:
+        return tuple(sorted(narrowed, key=lambda entry: entry.entry_id))
     raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
 
 
@@ -246,21 +252,36 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
         if len(growth_matches) != 1 or not entry_matches:
             raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
         growth_result = growth_matches[0]
-        entry = _canonical_entry_for_growth(tuple(sorted(entry_matches, key=lambda item: item.entry_id)), growth_result)
+        source_matched = tuple(
+            entry for entry in entry_matches
+            if control.source in {item.name for item in entry.attacker_inputs}
+        )
+        resolved_entries = _entries_for_growth(
+            tuple(sorted(source_matched or tuple(entry_matches), key=lambda item: item.entry_id)),
+            growth_result,
+        )
         roles = {item.role for item in growth_result.candidate.demand_inputs}
-        input_names = {item.name for item in entry.attacker_inputs}
         demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == control.target}
         if control.target not in roles:
             raise _invalid("ATTACKER_TARGET_NOT_GROWTH_DEMAND", "attacker_target")
-        if control.source not in input_names:
-            raise _invalid("ATTACKER_SOURCE_NOT_ENTRY_INPUT", "attacker_source")
         if not any(name in control.sink for name in demand_names):
             raise _invalid("ATTACKER_SINK_NOT_GROWTH_DEMAND", "attacker_sink")
-        coverage = _enum(row["coverage_status"], _COVERAGE, "coverage_status")
-        confidence = cast(FlowConfidence, _enum(row["confidence"], _CONFIDENCE, "confidence"))
+        raw_coverage = _enum(row["coverage_status"], _COVERAGE, "coverage_status")
+        raw_confidence = cast(FlowConfidence, _enum(row["confidence"], _CONFIDENCE, "confidence"))
         flow_kind = _string(row["flow_kind"], "flow_kind")
-        if coverage != "complete" or flow_kind not in {"data_flow", "local_data_flow"}:
-            confidence = "partial"
-        proof = FlowProof.create(entry_id=entry.entry_id, growth_id=growth_result.growth_id, attacker_control=control, call_path=_sequence(row["call_path"], "call_path"), phase_sequence=_sequence(row["phase_sequence"], "phase_sequence"), confidence=confidence, flow_kind=flow_kind, coverage_status=coverage, coverage_note=_string(row["coverage_note"], "coverage_note"))
-        proofs[proof.path_id] = proof
+        raw_note = _string(row["coverage_note"], "coverage_note")
+        for entry in resolved_entries:
+            if control.source not in {item.name for item in entry.attacker_inputs}:
+                raise _invalid("ATTACKER_SOURCE_NOT_ENTRY_INPUT", "attacker_source")
+            coverage = raw_coverage
+            confidence = raw_confidence
+            note = raw_note
+            if len(resolved_entries) > 1:
+                coverage = "partial"
+                confidence = "partial"
+                note = "multiple_route_registrations_require_path_coverage"
+            elif coverage != "complete" or flow_kind not in {"data_flow", "local_data_flow"}:
+                confidence = "partial"
+            proof = FlowProof.create(entry_id=entry.entry_id, growth_id=growth_result.growth_id, attacker_control=control, call_path=_sequence(row["call_path"], "call_path"), phase_sequence=_sequence(row["phase_sequence"], "phase_sequence"), confidence=confidence, flow_kind=flow_kind, coverage_status=coverage, coverage_note=note)
+            proofs[proof.path_id] = proof
     return [proofs[key].to_dict() for key in sorted(proofs, key=lambda item: canonical_json(proofs[item].semantic_identity))]

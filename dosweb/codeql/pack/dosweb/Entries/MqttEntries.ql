@@ -81,6 +81,43 @@ predicate jmqttObjectCallback(Method callback, Method register, MethodCall addLa
   )
 }
 
+/** JMQTT decodes the Object callback with its exact MqttNettyUtils helper
+ * before dispatching the typed message to MQTTConnection.processProtocol. */
+predicate jmqttValidatedObjectCallback(
+  Method callback, Method register, MethodCall addLast, Parameter message
+) {
+  callback.getName() = "channelRead" and
+  isNettyBrokerType(callback.getDeclaringType(), "ChannelDuplexHandler") and
+  message = callback.getParameter(1) and
+  message.getType().(RefType).hasQualifiedName("java.lang", "Object") and
+  register.getName() = "initChannel" and
+  register.getDeclaringType() instanceof AnonymousClass and
+  isNettyBrokerType(register.getDeclaringType(), "ChannelInitializer") and
+  addLast.getEnclosingCallable() = register and
+  addLast.getMethod().getName() = "addLast" and
+  isNettyBrokerType(addLast.getMethod().getDeclaringType(), "ChannelPipeline") and
+  addLast.getNumArgument() = 2 and
+  addLast.getArgument(0) instanceof CompileTimeConstantExpr and
+  addLast.getArgument(1).(ClassInstanceExpr).getConstructedType().getSourceDeclaration() =
+    callback.getDeclaringType() and
+  exists(MethodCall validate, LocalVariableDecl typedMessage, MethodCall processor, int messageIndex |
+    validate.getEnclosingCallable() = callback and
+    validate.getMethod().hasQualifiedName(
+      ["fixture.mqtt", "org.jmqtt.mqtt.netty"], "MqttNettyUtils", "validateMessage"
+    ) and
+    validate.getNumArgument() = 1 and
+    validate.getArgument(0).(VarAccess).getVariable() = message and
+    typedMessage.getInitializer() = validate and
+    isMqttMessageType(typedMessage.getType()) and
+    processor.getEnclosingCallable() = callback and
+    processor.getMethod().hasQualifiedName(
+      ["fixture.mqtt", "org.jmqtt.mqtt"], ["MqttConnection", "MQTTConnection"],
+      "processProtocol"
+    ) and
+    processor.getArgument(messageIndex).(VarAccess).getVariable() = typedMessage
+  )
+}
+
 predicate mqttRow(
   string framework, string protocol, string handlerFqn, string handlerFile,
   int handlerLine, string registrationKind, string registrationFqn,
@@ -142,6 +179,19 @@ predicate mqttRow(
     routeOrEvent = "mqtt_protocol" and authContext = "unknown" and inputName = message.getName() and
     inputType = message.getType().toString() and inputKind = "message_payload" and materializationPhase = "streaming" and
     coverageStatus = "complete" and coverageNote = "jmqtt_object_callback_mqtt_conversion"
+  )
+  or
+  exists(Method callback, Method register, MethodCall registration, Parameter message |
+    jmqttValidatedObjectCallback(callback, register, registration, message) and
+    isSourceMethod(callback) and isSourceExpr(registration) and
+    framework = "mqtt" and protocol = "mqtt" and
+    handlerFqn = callback.getDeclaringType().getQualifiedName() + "." + callback.getName() and
+    handlerFile = callback.getLocation().getFile().getRelativePath() and handlerLine = callback.getLocation().getStartLine() and
+    registrationKind = "broker_registration" and registrationFqn = register.getDeclaringType().getQualifiedName() + "." + register.getName() and
+    registrationFile = registration.getLocation().getFile().getRelativePath() and registrationLine = registration.getLocation().getStartLine() and
+    routeOrEvent = "mqtt_protocol" and authContext = "unknown" and inputName = message.getName() and
+    inputType = message.getType().toString() and inputKind = "message_payload" and materializationPhase = "streaming" and
+    coverageStatus = "complete" and coverageNote = "jmqtt_validate_message_process_protocol"
   )
   or
   exists(Method register, MethodCall doOnConnection |

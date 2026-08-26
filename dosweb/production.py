@@ -25,6 +25,7 @@ from dosweb.reachability.models import EntrySecurityFact
 from dosweb.conclude.assertions import evaluate_assertion_1, evaluate_assertion_2
 from dosweb.conclude.verdicts import CandidateCoverage, derive_verdict
 from dosweb.entries import EntryFact, FrameworkCoverage
+from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
 from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
 from dosweb.errors import AnalyzerError
 from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_descriptor_coverage
@@ -35,6 +36,7 @@ from dosweb.growth.evidence import adapt_growth_static_evidence
 from dosweb.growth.excerpts import extract_source_excerpt
 from dosweb.growth.models import BoundedSlice, BoundedSlicePayload, GrowthContract
 from dosweb.growth.slices import DemandInput, GrowthCandidate, SourceLocation, normalize_growth_rows
+from dosweb.growth.source_fallback import source_backed_same_handler_growth
 from dosweb.growth.verify import VerificationCheck, VerifiedGrowthResult, verify_growth_contract
 from dosweb.lifecycle.bounds import BoundCandidate, BoundDecision, evaluate_bound
 from dosweb.lifecycle.certificates import LifecycleCertificate, StaticFinding, build_lifecycle_certificate
@@ -46,7 +48,18 @@ from dosweb.pipeline import Executor, Pipeline, STAGES, StageContext, StageOutpu
 from dosweb.report.markdown import render_report
 from dosweb.report.summary import build_summary
 
-_IMPLEMENTATION_VERSIONS: Final = {stage: "production-v2.5-poc33-recall" for stage in STAGES}
+_IMPLEMENTATION_VERSIONS: Final = {
+    stage: (
+        "production-v2.5-poc33-recall-growth-config-source-jaxrs-v1"
+        if stage == "growth"
+        else "production-v2.5-poc33-recall-source-jaxrs-v1"
+        if stage == "entries"
+        else "production-v2.5-poc33-recall-flow-source-reconciliation-v1"
+        if stage == "flows"
+        else "production-v2.5-poc33-recall"
+    )
+    for stage in STAGES
+}
 _QUERY_PACK_DIR: Final = Path(__file__).resolve().parent / "codeql" / "pack"
 _ENTRY_QUERY_DIR: Final = _QUERY_PACK_DIR / "dosweb" / "Entries"
 _INTERPOSITION_QUERY: Final = "EntryInterpositions.ql"
@@ -549,6 +562,7 @@ def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Calla
                 interposition_rows = decode_bqrs_json("entry_interposition", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256))
         rows, descriptor_coverage = resolve_webxml_servlet_candidates(rows, database.source_root)
         validate_descriptor_coverage(descriptor_coverage)
+        rows = augment_source_backed_jaxrs_entries(rows, database.source_root)
         entries = normalize_entry_rows(rows); coverage = normalize_framework_coverage(rows)
         entry_gaps = normalize_gap_entry_rows(rows)
         interpositions = _normalize_interposition_rows(interposition_rows, entries)
@@ -860,8 +874,14 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             rows = _run_codeql_family(config, database, "growth", pack, runner)
             association_rows = _run_codeql_family(config, database, "associations", pack, runner)
             preliminary_flow_rows = _run_codeql_family(config, database, "flows", pack, runner)
+        entries = _load_entries(context)
+        source_growth_rows, source_association_rows = source_backed_same_handler_growth(
+            tuple(entries.values()), database.source_root,
+        )
+        rows.extend(source_growth_rows)
+        association_rows.extend(source_association_rows)
         candidate_records = normalize_growth_rows(rows); validate_records("growth_candidates", candidate_records)
-        entries = _load_entries(context); classifier = deepseek_client or deepseek_client_factory(config.llm)
+        classifier = deepseek_client or deepseek_client_factory(config.llm)
         security_by_entry = _load_security_facts(context)
         configuration_facts = _load_configuration_facts(context)
         configuration_models = tuple(ModeledConfigurationFact.from_dict(item) for item in configuration_facts)
@@ -883,7 +903,7 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                 # certificate-backed static_unknown rather than silently ending at
                 # an internal disposition. Ambiguous multi-entry links remain only
                 # auditable until they can be canonicalized.
-                if len(candidate_links) == 1:
+                if candidate_links:
                     unresolved = VerifiedGrowthResult.create(
                         candidate=candidate,
                         slice_id=stable_identifier("slice", {"growth_id": candidate.growth_id, "reason": "association_incomplete"}),
@@ -976,6 +996,37 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
     return execute
 
 
+def _reconcile_flow_rows(
+    rows: Sequence[Mapping[str, object]],
+    entries: Mapping[str, EntryFact],
+    candidates: Mapping[str, VerifiedGrowthResult],
+) -> list[Mapping[str, object]]:
+    """Keep raw screening rows anchored to one extracted E and retained G domain.
+
+    Source-backed fallbacks deliberately screen broader method shapes than the
+    authoritative Entry extractor can register.  Exact file/line
+    reconciliation therefore happens here, before strict flow normalization;
+    a decoded row from an unregistered source method is screening noise, not a
+    malformed formal artifact.
+    """
+    entry_sites = {
+        (entry.handler.file, entry.handler.start_line)
+        for entry in entries.values()
+        if isinstance(entry, EntryFact)
+    }
+    candidate_sites = {
+        (result.candidate.site.file, result.candidate.site.start_line)
+        for result in candidates.values()
+        if isinstance(result, VerifiedGrowthResult) and result.candidate is not None
+    }
+    return [
+        row
+        for row in rows
+        if (row.get("source_file"), row.get("source_start_line")) in entry_sites
+        and (row.get("sink_file"), row.get("sink_start_line")) in candidate_sites
+    ]
+
+
 def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None) -> Executor:
     runner = run_query_fn or globals()["run_query"]
     def execute(context: StageContext) -> StageOutput:
@@ -984,11 +1035,11 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
         with tempfile.TemporaryDirectory(prefix="dosweb-pack-") as temporary:
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
             rows = _run_codeql_family(config, database_info_fn(), "flows", pack, runner)
-        # Raw flow screening may include candidates the Growth contract rejected.
-        # They are not candidate-relevant formal paths and must not make the
-        # decoder resolve an absent verified-growth reference.
-        candidate_sites = {(item.candidate.site.file, item.candidate.site.start_line) for item in candidates.values() if item.candidate is not None}
-        rows = [row for row in rows if (row.get("sink_file"), row.get("sink_start_line")) in candidate_sites]
+        # Raw screening may include a broad source-backed method shape or a
+        # candidate the Growth stage did not retain.  Formal E/G artifacts are
+        # authoritative at this boundary; strict normalization still applies
+        # to every reconciled row.
+        rows = _reconcile_flow_rows(rows, entries, candidates)
         proofs = normalize_flow_rows(rows, entries, candidates)
         # Every Growth that was even partially associated to an Entry gets a flow
         # record.  Missing CodeQL evidence is a partial path, never an omission.
@@ -1311,6 +1362,9 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
                 "release": _decision_record(release),
             }
             lifecycle_records.append({"lifecycle_result_id": stable_identifier("lifecycle", semantic), **semantic})
+        validate_records("guard_candidates", guard_records)
+        validate_records("bound_candidates", bound_records)
+        validate_records("release_candidates", release_records)
         validate_records("lifecycle_evidence", lifecycle_evidence)
         validate_records("lifecycle_summaries", lifecycle_summaries)
         validate_records("lifecycle_coverage", lifecycle_coverage)

@@ -256,51 +256,80 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
     "guard_candidates": ArtifactSchema(
         id_field="guard_id",
         required_fields=frozenset(
-            {"guard_id", "site", "kind", "resource_dimension", "scope", "behavior", "evidence"}
+            {
+                "guard_id", "site", "kind", "resource_dimension", "scope", "behavior",
+                "dominates_growth", "reject_path_reaches_growth", "configuration_key",
+                "configuration_value", "representation", "phase", "covers_materialization",
+                "authorization_only", "evidence", "coverage_status",
+            }
         ),
         enum_fields={
             "kind": frozenset({"request_limit", "input_validation", "rate_limit", "configuration"}),
             "resource_dimension": _RESOURCE_DIMENSIONS,
             "scope": _RESOURCE_SCOPES,
             "behavior": frozenset({"reject", "block", "unknown"}),
+            "coverage_status": frozenset({"complete", "partial"}),
         },
         reference_fields={},
         field_kinds=_field_kinds(
             guard_id="string", site="object", kind="string", resource_dimension="string",
-            scope="string", behavior="string", evidence="list",
+            scope="string", behavior="string", dominates_growth="bool",
+            reject_path_reaches_growth="bool", configuration_key="string",
+            configuration_value="string", representation="string", phase="string",
+            covers_materialization="bool", authorization_only="bool", evidence="list",
+            coverage_status="string",
         ),
     ),
     "bound_candidates": ArtifactSchema(
         id_field="bound_id",
         required_fields=frozenset(
-            {"bound_id", "site", "kind", "resource_dimension", "scope", "behavior", "evidence"}
+            {
+                "bound_id", "site", "kind", "resource_dimension", "scope", "behavior",
+                "receiver", "field_path", "result_checked", "configuration_key",
+                "configuration_value", "phase", "covers_flow", "request_encoding",
+                "queue_resource", "product_bound", "evidence", "coverage_status",
+            }
         ),
         enum_fields={
             "kind": frozenset({"limit", "quota", "capacity", "backpressure", "rate"}),
             "resource_dimension": _RESOURCE_DIMENSIONS,
             "scope": _RESOURCE_SCOPES,
             "behavior": frozenset({"reject", "block", "evict", "unknown"}),
+            "coverage_status": frozenset({"complete", "partial"}),
         },
         reference_fields={},
         field_kinds=_field_kinds(
             bound_id="string", site="object", kind="string", resource_dimension="string",
-            scope="string", behavior="string", evidence="list",
+            scope="string", behavior="string", receiver="string", field_path="string",
+            result_checked="bool", configuration_key="string", configuration_value="string",
+            phase="string", covers_flow="bool", request_encoding="string",
+            queue_resource="string", product_bound="bool", evidence="list",
+            coverage_status="string",
         ),
     ),
     "release_candidates": ArtifactSchema(
         id_field="release_id",
         required_fields=frozenset(
-            {"release_id", "site", "kind", "resource_dimension", "scope", "synchronous", "evidence"}
+            {
+                "release_id", "site", "kind", "resource_dimension", "scope", "receiver",
+                "key_identity", "synchronous", "normal_path", "exceptional_path",
+                "actual_reduction", "after_growth", "transfer_only", "async_kind",
+                "evidence", "coverage_status",
+            }
         ),
         enum_fields={
             "kind": frozenset({"remove", "clear", "evict", "close", "unknown"}),
             "resource_dimension": _RESOURCE_DIMENSIONS,
             "scope": _RESOURCE_SCOPES,
+            "coverage_status": frozenset({"complete", "partial"}),
         },
         reference_fields={},
         field_kinds=_field_kinds(
             release_id="string", site="object", kind="string", resource_dimension="string",
-            scope="string", synchronous="bool", evidence="list",
+            scope="string", receiver="string", key_identity="string", synchronous="bool",
+            normal_path="bool", exceptional_path="bool", actual_reduction="bool",
+            after_growth="bool", transfer_only="bool", async_kind="string", evidence="list",
+            coverage_status="string",
         ),
     ),
     "lifecycle_summaries": ArtifactSchema(

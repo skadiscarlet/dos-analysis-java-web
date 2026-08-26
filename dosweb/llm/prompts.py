@@ -28,7 +28,18 @@ def build_provider_payload(slice_: BoundedSlice) -> ProviderPayload:
         "static_facts": [{**item, "fact_id": fact_aliases[item["fact_id"]], "location_ref": excerpt_aliases[item["location_ref"]], "value_ref": fact_aliases.get(item["value_ref"]) if item["value_ref"] is not None else None} for item in payload["static_facts"]],
         "cfg_summary": {"path_ids": [path_aliases[item] for item in payload["cfg_summary"]["path_ids"]], "phases": payload["cfg_summary"]["phases"], "branch_facts": [fact_aliases[item] for item in payload["cfg_summary"]["branch_facts"]]},
         "registration_facts": [{**item, "location_ref": excerpt_aliases[item["location_ref"]]} for item in payload["registration_facts"]],
-        "config_facts": [{**item, "config_id": config_aliases.get(item["config_id"]), "source_location_ref": excerpt_aliases[item["source_location_ref"]]} for item in payload["config_facts"]],
+        "config_facts": [
+            {
+                **item,
+                "config_id": config_aliases.get(item["config_id"]),
+                "source_location_ref": (
+                    excerpt_aliases[item["source_location_ref"]]
+                    if item["source_location_ref"].startswith("excerpt:")
+                    else config_aliases[item["source_location_ref"]]
+                ),
+            }
+            for item in payload["config_facts"]
+        ],
     }
     user = {"response_schema_version": RESPONSE_SCHEMA_VERSION, "response_schema": GROWTH_CONTRACT_RESPONSE_SCHEMA, "bounded_slice": aliased}
     messages = [{"role": "system", "content": _SYSTEM_MESSAGE}, {"role": "user", "content": json.dumps(user, sort_keys=True, separators=(",", ":"), ensure_ascii=False)}]

@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
-from dosweb.artifacts.schemas import validate_records, validate_references
+from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, SCHEMA_VERSION, validate_records, validate_references
 from dosweb.batch.plan import load_batch_plan
 from dosweb.batch.state import BatchState, batch_lock
 
@@ -29,31 +29,41 @@ STATIC_VERDICTS = frozenset({
 FORMATS = frozenset({"historical", "p0"})
 STAGES = ("entries", "growth", "flows", "lifecycle", "conclude", "report")
 P0_ARTIFACTS = (
-    "coverage.json",
-    "entry_facts.jsonl",
-    "growth_candidates.jsonl",
-    "growth_contracts.jsonl",
-    "verified_growth.jsonl",
-    "flow_proofs.jsonl",
-    "guard_candidates.jsonl",
-    "bound_candidates.jsonl",
-    "release_candidates.jsonl",
-    "lifecycle_results.jsonl",
-    "static_findings.jsonl",
-    "lifecycle_certificates.jsonl",
-    "summary.json",
-    "report.md",
+    "configuration_coverage.json", "coverage.json", "descriptor_coverage.json",
+    "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl",
+    "entry_security_facts.jsonl", "modeled_configuration.jsonl",
+    "amplification_decisions.jsonl", "auth_contracts.jsonl",
+    "candidate_dispositions.jsonl", "candidate_entry_links.jsonl",
+    "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl",
+    "reachability_decisions.jsonl", "repeatability_decisions.jsonl",
+    "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
+    "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
+    "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl",
+    "lifecycle_certificates.jsonl", "static_findings.jsonl", "report.md", "summary.json",
 )
 P0_JSONL_OUTPUTS = {
     "entry_facts.jsonl": "aggregate_entries.jsonl",
+    "entry_gap_facts.jsonl": "aggregate_entry_gaps.jsonl",
+    "entry_interposition_facts.jsonl": "aggregate_entry_interpositions.jsonl",
+    "entry_security_facts.jsonl": "aggregate_entry_security_facts.jsonl",
+    "modeled_configuration.jsonl": "aggregate_modeled_configuration.jsonl",
     "growth_candidates.jsonl": "aggregate_growth_candidates.jsonl",
+    "candidate_entry_links.jsonl": "aggregate_candidate_entry_links.jsonl",
+    "candidate_dispositions.jsonl": "aggregate_candidate_dispositions.jsonl",
+    "repeatability_decisions.jsonl": "aggregate_repeatability_decisions.jsonl",
+    "amplification_decisions.jsonl": "aggregate_amplification_decisions.jsonl",
     "growth_contracts.jsonl": "aggregate_growth_contracts.jsonl",
     "verified_growth.jsonl": "aggregate_verified_growth.jsonl",
+    "auth_contracts.jsonl": "aggregate_auth_contracts.jsonl",
+    "reachability_decisions.jsonl": "aggregate_reachability_decisions.jsonl",
     "flow_proofs.jsonl": "aggregate_flows.jsonl",
     "guard_candidates.jsonl": "aggregate_guard_candidates.jsonl",
     "bound_candidates.jsonl": "aggregate_bounds.jsonl",
     "release_candidates.jsonl": "aggregate_releases.jsonl",
-    "lifecycle_results.jsonl": "aggregate_lifecycle_evidence.jsonl",
+    "lifecycle_evidence.jsonl": "aggregate_lifecycle_evidence.jsonl",
+    "lifecycle_coverage.jsonl": "aggregate_lifecycle_coverage.jsonl",
+    "lifecycle_summaries.jsonl": "aggregate_lifecycle_summaries.jsonl",
+    "lifecycle_results.jsonl": "aggregate_lifecycle_results.jsonl",
     "static_findings.jsonl": "aggregate_findings.jsonl",
     "lifecycle_certificates.jsonl": "aggregate_lifecycle_certificates.jsonl",
 }
@@ -301,8 +311,8 @@ def _validate_artifact_metadata(root: Path, artifact: Any, *, stage: str) -> tup
     if not isinstance(raw_path, str) or not raw_path or Path(raw_path).is_absolute() or ".." in Path(raw_path).parts:
         return None, f"{stage}: artifact path is invalid: {raw_path!r}"
     schema_version = artifact.get("schema_version")
-    if schema_version != "2.0":
-        return None, f"{stage}:{raw_path}: schema_version must be '2.0'"
+    if schema_version != SCHEMA_VERSION:
+        return None, f"{stage}:{raw_path}: schema_version must be {SCHEMA_VERSION!r}"
     digest = artifact.get("sha256")
     if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
         return None, f"{stage}:{raw_path}: sha256 is invalid"
@@ -369,6 +379,9 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
     except ValueError as exc:
         return _target_meta(item, output_dir=str(output_dir), plan=plan), {}, [], [str(exc)], Counter()
     expected_binding = {"plan_id": plan.get("plan_id"), "plan_digest": plan.get("plan_digest"), "run_id": plan.get("run_id"), "mode": plan.get("mode"), "target": item}
+    if "analysis_mode" in plan or "query_failure_policy" in plan:
+        expected_binding["analysis_mode"] = plan.get("analysis_mode")
+        expected_binding["query_failure_policy"] = plan.get("query_failure_policy")
     legacy_binding = {"run_id": plan.get("run_id"), "target": item}
     binding_ok = binding == expected_binding if plan.get("plan_digest") else binding == legacy_binding
     if not isinstance(binding, dict) or not binding_ok:
@@ -478,9 +491,10 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
             rows, errors = _read_jsonl_accounted(path)
             if errors:
                 malformed.extend(errors)
-            parsed_rows[name.removesuffix(".jsonl")] = rows
+            schema_name = "llm_audit" if name == "llm_audit.private.jsonl" else name.removesuffix(".jsonl")
+            parsed_rows[schema_name] = rows
             try:
-                validate_records(name.removesuffix(".jsonl"), rows)
+                validate_records(schema_name, rows)
             except Exception as exc:
                 malformed.append(f"{name}: artifact schema validation failed: {exc}")
             counts[name] = len(rows)
@@ -511,9 +525,13 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
         for rows in parsed_rows.values():
             collect_fact_ids(rows)
         for schema_name, rows in parsed_rows.items():
-            if schema_name in {"entry_facts", "growth_candidates", "growth_contracts", "verified_growth", "flow_proofs", "guard_candidates", "bound_candidates", "release_candidates", "lifecycle_results", "static_findings", "lifecycle_certificates"}:
-                id_field = {"entry_facts": "entry_id", "growth_candidates": "growth_id", "growth_contracts": "growth_contract_id", "verified_growth": "verified_growth_id", "flow_proofs": "path_id", "guard_candidates": "guard_id", "bound_candidates": "bound_id", "release_candidates": "release_id", "lifecycle_results": "lifecycle_result_id", "static_findings": "finding_id", "lifecycle_certificates": "certificate_id"}[schema_name]
-                known.setdefault(id_field, set()).update(row.get(id_field) for row in rows if isinstance(row.get(id_field), str))
+            schema = ARTIFACT_SCHEMAS.get(schema_name)
+            if schema is not None:
+                id_field = schema.id_field
+                known.setdefault(id_field, set()).update(
+                    row.get(id_field) for row in rows
+                    if isinstance(row.get(id_field), str)
+                )
         growth_fact_ids: dict[str, set[str]] = {}
         for row in parsed_rows.get("growth_candidates", []):
             if isinstance(row.get("growth_id"), str):

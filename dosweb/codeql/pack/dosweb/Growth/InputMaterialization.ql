@@ -27,6 +27,21 @@ predicate isServletRequestWrapper(RefType type) {
   type.getASupertype*().hasQualifiedName("jakarta.servlet.http", "HttpServletRequestWrapper")
 }
 
+predicate isNettyFullHttpRequestType(Type type) {
+  type.(RefType).getASupertype*().hasQualifiedName("io.netty.handler.codec.http", "FullHttpRequest")
+}
+
+predicate nettyFullRequestStringMaterialization(
+  MethodCall stringify, MethodCall content, Expr request
+) {
+  stringify.getMethod().getName() = "toString" and
+  stringify.getNumArgument() = 1 and
+  stringify.getArgument(0).getType().(RefType).getASupertype*().hasQualifiedName("java.nio.charset", "Charset") and
+  stringify.getQualifier() = content and
+  content.getMethod().getName() = "content" and content.getNumArgument() = 0 and
+  request = content.getQualifier() and isNettyFullHttpRequestType(request.getType())
+}
+
 predicate materializationRow(
   Element site, string operation, string receiver, string fieldPath,
   string demandName, string evidence, string coverage, string note
@@ -51,17 +66,35 @@ predicate materializationRow(
     note = "recognized_armeria_request_aggregation"
   )
   or
+  exists(MethodCall stringify, MethodCall content, Expr request |
+    site = stringify and
+    nettyFullRequestStringMaterialization(stringify, content, request) and
+    operation = "netty_full_http_request_string_materialization" and
+    receiver = content.toString() and fieldPath = request.toString() and
+    demandName = request.toString() and
+    evidence = "netty_full_http_request_body_string" and coverage = "complete" and
+    note = "recognized_netty_full_http_request_string_materialization"
+  )
+  or
   exists(Parameter parameter, Annotation annotation |
     site = parameter and
     annotation = parameter.getAnAnnotation() and
     isRequestBodyAnnotation(annotation) and
-    parameter.getType() instanceof Array and
-    parameter.getType().(Array).getElementType().hasName("byte") and
-    operation = "spring_request_body_materialization" and
     receiver = parameter.getCallable().getDeclaringType().getQualifiedName() + "." + parameter.getCallable().getName() and
     fieldPath = parameter.getName() and demandName = parameter.getName() and
-    evidence = "spring_request_body_parameter" and coverage = "complete" and
-    note = "recognized_spring_request_body_bytes"
+    coverage = "complete" and
+    (
+      parameter.getType() instanceof Array and
+      parameter.getType().(Array).getElementType().hasName("byte") and
+      operation = "spring_request_body_materialization" and
+      evidence = "spring_request_body_parameter" and
+      note = "recognized_spring_request_body_bytes"
+      or
+      parameter.getType().(RefType).hasQualifiedName("java.lang", "String") and
+      operation = "spring_request_body_string_materialization" and
+      evidence = "spring_request_body_string_parameter" and
+      note = "recognized_spring_request_body_string"
+    )
   )
   or
   exists(MethodCall call, Expr input |
@@ -70,6 +103,8 @@ predicate materializationRow(
       call.getMethod().hasQualifiedName("cn.hutool.core.io", "IoUtil", "readBytes")
       or call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray")
       or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray")
+      or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToString")
+      or call.getMethod().hasQualifiedName("cn.devezhao.commons.web", "ServletUtils", "getRequestString")
     ) and
     operation = call.getMethod().getDeclaringType().getQualifiedName() + "." + call.getMethod().getName() and
     receiver = input.toString() and fieldPath = receiver and demandName = receiver and
@@ -84,6 +119,15 @@ predicate materializationRow(
     receiver = call.getQualifier().toString() and fieldPath = receiver and demandName = receiver and
     evidence = "request_stream_read_all" and coverage = "complete" and
     note = "recognized_read_all_materialization_api"
+  )
+  or
+  exists(MethodCall call |
+    site = call and
+    call.getMethod().hasQualifiedName("java.io", "ByteArrayOutputStream", "toByteArray") and
+    operation = "java.io.ByteArrayOutputStream.toByteArray" and
+    receiver = call.getQualifier().toString() and fieldPath = receiver and demandName = receiver and
+    evidence = "byte_array_output_stream_full_copy" and coverage = "complete" and
+    note = "recognized_byte_array_output_stream_materialization"
   )
   or
   exists(Constructor constructor, Parameter request, MethodCall inputStream, MethodCall read, MethodCall append, WhileStmt loop |

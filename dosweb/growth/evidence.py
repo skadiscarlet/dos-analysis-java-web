@@ -195,7 +195,7 @@ def adapt_growth_static_evidence(
         )
         for fact in configuration_facts
     )
-    path_ids = tuple(
+    path_ids = tuple(dict.fromkeys(
         stable_identifier("path", {
             "entry_id": entry.entry_id,
             "growth_id": candidate.growth_id,
@@ -203,7 +203,7 @@ def adapt_growth_static_evidence(
             "phase_sequence": row["phase_sequence"],
         })
         for row in matched_flows
-    )
+    ))
     phases = (
         (entry.materialization_phase,)
         if entry.materialization_phase in {"before_handler", "in_handler", "streaming", "after_handler"}

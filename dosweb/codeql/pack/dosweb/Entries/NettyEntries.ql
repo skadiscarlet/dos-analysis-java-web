@@ -35,6 +35,45 @@ predicate isInboundCallback(Method callback, Parameter message) {
   (callback.getName() = "channelRead0" and message = callback.getParameter(1))
 }
 
+predicate isNettyFullHttpRequestType(Type type) {
+  type.(RefType).getASupertype*().hasQualifiedName("io.netty.handler.codec.http", "FullHttpRequest")
+}
+
+/**
+ * Recover a concrete HTTP route only when the registered FullHttpRequest
+ * callback reads request.uri() into one local, forwards that exact captured
+ * local to a private source helper, and the corresponding helper parameter is
+ * the selector of a compile-time string switch.  Direct callback calls and one
+ * lexically nested anonymous callback are supported; arbitrary field/virtual
+ * dispatch remains unresolved.
+ */
+predicate sourceBackedSwitchRoute(Method callback, Parameter message, string route) {
+  isNettyFullHttpRequestType(message.getType()) and
+  exists(
+    MethodCall uriCall, LocalVariableDecl uriLocal, MethodCall dispatchCall,
+    Callable dispatchOwner, Method helper, int argumentIndex, Parameter routeParameter,
+    SwitchStmt routeSwitch, ConstCase routeCase, CompileTimeConstantExpr routeValue |
+    uriCall.getEnclosingCallable() = callback and uriCall.getMethod().getName() = "uri" and
+    uriCall.getNumArgument() = 0 and
+    uriCall.getQualifier().(VarAccess).getVariable() = message and
+    uriLocal.getInitializer() = uriCall and
+    dispatchOwner = dispatchCall.getEnclosingCallable() and
+    (
+      dispatchOwner = callback
+      or dispatchOwner.getDeclaringType() instanceof AnonymousClass and
+        dispatchOwner.getDeclaringType().(AnonymousClass).getClassInstanceExpr().getEnclosingCallable() = callback
+    ) and
+    dispatchCall.getMethod() = helper and helper.fromSource() and helper.isPrivate() and
+    helper.getDeclaringType() = callback.getDeclaringType() and
+    dispatchCall.getArgument(argumentIndex).(VarAccess).getVariable() = uriLocal and
+    routeParameter = helper.getParameter(argumentIndex) and
+    routeSwitch.getEnclosingCallable() = helper and
+    routeSwitch.getExpr().(VarAccess).getVariable() = routeParameter and
+    routeCase = routeSwitch.getAConstCase() and routeValue = routeCase.getValue() and
+    route = routeValue.getStringValue() and route.matches("/%")
+  )
+}
+
 /** A pipeline initializer is externally reachable only after a ServerBootstrap installs it. */
 predicate bootstrapInstalls(Method init, MethodCall bootstrap) {
   bootstrap.getMethod().getName() = ["childHandler", "handler"] and
@@ -67,9 +106,14 @@ predicate nettyRow(
     handlerFile = callback.getLocation().getFile().getRelativePath() and handlerLine = callback.getLocation().getStartLine() and
     registrationKind = "pipeline_registration" and registrationFqn = init.getDeclaringType().getQualifiedName() + "." + init.getName() and
     registrationFile = addLast.getLocation().getFile().getRelativePath() and registrationLine = addLast.getLocation().getStartLine() and
-    routeOrEvent = "channelRead" and authContext = "unknown" and inputName = message.getName() and
+    authContext = "unknown" and inputName = message.getName() and
     inputType = message.getType().toString() and inputKind = "message_payload" and materializationPhase = "streaming" and
-    coverageStatus = "complete" and coverageNote = "netty_pipeline_registration"
+    coverageStatus = "complete" and
+    (
+      routeOrEvent = "channelRead" and coverageNote = "netty_pipeline_registration"
+      or sourceBackedSwitchRoute(callback, message, routeOrEvent) and
+        coverageNote = "netty_source_switch_route_alias"
+    )
   )
   or exists(Method callback, Method init, MethodCall addLast, ClassInstanceExpr handler, Parameter message |
     isInboundCallback(callback, message) and isSourceMethod(callback) and isSourceCall(addLast) and

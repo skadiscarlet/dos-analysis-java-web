@@ -31,6 +31,9 @@ DISPOSITION_STATUSES = (
 )
 
 _SUPPORTED_FRAMEWORKS = frozenset({"spring_mvc", "servlet", "netty", "mqtt", "jax_rs", "grpc"})
+_GENERIC_TCP_SERVICE_ENTRY = re.compile(
+    r"^protocol service on port [0-9]+$", re.IGNORECASE
+)
 
 _ENTRY_ARTIFACT = "entry_facts.jsonl"
 _GAP_ARTIFACT = "entry_gap_facts.jsonl"
@@ -183,30 +186,75 @@ def _routes_match(a: str, b: str) -> bool:
     pattern = left if ("**" in left or "{}" in left) else right
     value = right if ("**" in left or "{}" in left) else left
     if "**" not in pattern and "{}" not in pattern:
-        return False
+        left_parts = [part for part in left.split("/") if part]
+        right_parts = [part for part in right.split("/") if part]
+        shorter, longer = (
+            (left_parts, right_parts)
+            if len(left_parts) <= len(right_parts)
+            else (right_parts, left_parts)
+        )
+        # Spring's deployment context path is not part of annotation mappings.
+        # Permit only a proper suffix with at least two application-route
+        # segments; downstream Growth identity/link evidence still has to match.
+        return (
+            len(shorter) >= 2
+            and len(longer) > len(shorter)
+            and longer[-len(shorter):] == shorter
+        )
     regex = re.escape(pattern).replace(r"\*\*", ".*").replace(r"\{\}", "[^/]+")
     return re.fullmatch(regex, value) is not None
 
 
-def _match_entries(truth: Mapping[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _match_entries(
+    truth: Mapping[str, Any],
+    entries: list[dict[str, Any]],
+    preferred_entry_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
     truth_route = normalize_route(truth.get("entry"))
     truth_method = _method(truth.get("entry"))
     configured_protocol = truth.get("protocol")
     truth_protocol = str(configured_protocol) if configured_protocol in {"http", "tcp", "mqtt", "grpc"} else _protocol(truth.get("entry"))
-    if not truth_route and not truth_protocol:
+    generic_tcp_service = bool(
+        _GENERIC_TCP_SERVICE_ENTRY.fullmatch(str(truth.get("entry", "")).strip())
+    )
+    if not truth_route and not truth_protocol and not generic_tcp_service:
         return []
     matches = []
     for entry in entries:
         candidate_route = _entry_route(entry)
         candidate_protocol = _entry_protocol(entry)
         candidate_method = _method(entry.get("route_or_event"))
+        if generic_tcp_service:
+            accepted_protocols = (
+                {"mqtt"} if truth_protocol == "mqtt" else {"tcp"}
+            )
+            if candidate_protocol not in accepted_protocols:
+                continue
         if truth_route and candidate_route and not _routes_match(candidate_route, truth_route):
             continue
         if truth_method and candidate_method and truth_method != candidate_method:
             continue
-        if truth_protocol and candidate_protocol != truth_protocol:
+        netty_http_route_over_tcp = (
+            truth_protocol == "http"
+            and candidate_protocol == "tcp"
+            and entry.get("framework") == "netty"
+            and bool(truth_route and candidate_route)
+        )
+        if (
+            truth_protocol
+            and candidate_protocol != truth_protocol
+            and not netty_http_route_over_tcp
+        ):
             continue
         matches.append(entry)
+    if truth_route:
+        exact_matches = [entry for entry in matches if _entry_route(entry) == truth_route]
+        if exact_matches:
+            linked_matches = [
+                entry for entry in matches
+                if str(entry.get("entry_id")) in (preferred_entry_ids or set())
+            ]
+            matches = linked_matches or exact_matches
     matches.sort(key=lambda row: str(row.get("entry_id")))
     return matches
 
@@ -221,16 +269,32 @@ def _registration_identity(entry: Mapping[str, Any]) -> tuple[object, ...]:
     )
 
 
-def _canonical_matched_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _route_alias_identity(entry: Mapping[str, Any]) -> tuple[object, ...]:
+    handler = entry.get("handler")
+    handler_identity = (
+        handler.get("callable"), handler.get("file"), handler.get("start_line")
+    ) if isinstance(handler, Mapping) else ()
+    return (*_registration_identity(entry), *handler_identity)
+
+
+def _canonical_matched_entries(
+    entries: list[dict[str, Any]], truth_method: str,
+    preferred_entry_ids: set[str],
+) -> list[dict[str, Any]]:
     groups: dict[tuple[object, ...], list[dict[str, Any]]] = {}
     for entry in entries:
-        groups.setdefault(_registration_identity(entry), []).append(entry)
+        groups.setdefault(_route_alias_identity(entry), []).append(entry)
     canonical: list[dict[str, Any]] = []
     for group in groups.values():
         canonical.append(min(
             group,
             key=lambda entry: (
-                0 if _method(entry.get("route_or_event")) else 1,
+                0 if str(entry.get("entry_id")) in preferred_entry_ids else 1,
+                0 if (
+                    _method(entry.get("route_or_event")) == truth_method
+                    if truth_method
+                    else not _method(entry.get("route_or_event"))
+                ) else 1,
                 str(entry.get("entry_id", "")),
             ),
         ))
@@ -295,9 +359,38 @@ def _match_growth(truth: Mapping[str, Any], growth: list[dict[str, Any]]) -> lis
         blob = json.dumps(candidate, sort_keys=True, default=str).lower()
         site = candidate.get("site")
         location_match = False
+        receiver_owner_match = False
+        resource_point = candidate.get("resource_point")
+        receiver = resource_point.get("receiver") if isinstance(resource_point, Mapping) else None
+        receiver_parts = set(re.split(r"[.$]", receiver.casefold())) if isinstance(receiver, str) else set()
+        receiver_type = (
+            receiver.rsplit(".", 1)[-1].split("<", 1)[0].casefold()
+            if isinstance(receiver, str)
+            else ""
+        )
+        receiver_type_named = (
+            len(receiver_type) >= 6
+            and any(receiver_type in marker for marker in lowered_markers)
+        )
+        receiver_type_match = False
+        operation = candidate.get("operation")
+        semantic_marker_match = (
+            operation == "netty_full_http_request_string_materialization"
+            and any(
+                "fullhttprequest" in re.sub(r"[^a-z0-9]", "", marker)
+                and "string" in marker
+                for marker in lowered_markers
+            )
+        )
         if isinstance(site, Mapping):
             site_file, site_line = site.get("file"), site.get("start_line")
             if isinstance(site_file, str) and isinstance(site_line, int):
+                receiver_type_match = receiver_type_named and any(
+                    isinstance(location, Mapping)
+                    and isinstance(location.get("file"), str)
+                    and Path(site_file).name == Path(str(location["file"])).name
+                    for location in locations
+                )
                 for location in locations:
                     if not isinstance(location, Mapping):
                         continue
@@ -310,8 +403,18 @@ def _match_growth(truth: Mapping[str, Any], growth: list[dict[str, Any]]) -> lis
                     ):
                         location_match = True
                         break
+        if receiver_parts:
+            receiver_owner_match = any(
+                isinstance(location, Mapping)
+                and isinstance(location.get("file"), str)
+                and Path(str(location["file"])).stem.casefold() in receiver_parts
+                for location in locations
+            )
         if (
             location_match
+            or receiver_owner_match
+            or receiver_type_match
+            or semantic_marker_match
             or any(marker in blob for marker in lowered_markers)
             or any(receiver in blob and operation in blob for receiver, operation in call_identities)
         ):
@@ -347,12 +450,35 @@ def compute_disposition(
     if not entries and not artifacts.entry_gaps:
         return {**base, "status": "entry_only", "reason_codes": ["NO_ENTRY_FACTS"]}
 
-    matched_entries = _canonical_matched_entries(_match_entries(truth, entries))
+    growth_matches = _match_growth(truth, artifacts.growth_candidates)
+    growth_marker_ids = {
+        str(item.get("growth_id")) for item in growth_matches if isinstance(item.get("growth_id"), str)
+    }
+    preferred_entry_ids = {
+        str(link.get("entry_id"))
+        for link in artifacts.links
+        if link.get("growth_id") in growth_marker_ids and isinstance(link.get("entry_id"), str)
+    }
+    matched_entries = _canonical_matched_entries(
+        _match_entries(truth, entries, preferred_entry_ids),
+        _method(truth.get("entry")),
+        preferred_entry_ids,
+    )
+    if (
+        len(matched_entries) > 1
+        and len({_entry_route(entry) for entry in matched_entries}) > 1
+        and not _interposition_connects(matched_entries, artifacts.entry_interpositions)
+    ):
+        growth_linked_matches = [
+            entry for entry in matched_entries
+            if str(entry.get("entry_id")) in preferred_entry_ids
+        ]
+        if len(growth_linked_matches) == 1:
+            matched_entries = growth_linked_matches
     entry_ids = [str(entry.get("entry_id")) for entry in matched_entries]
     if not matched_entries:
         gap_matches = _match_gap_entries(truth, artifacts.entry_gaps)
         if gap_matches:
-            growth_matches = _match_growth(truth, artifacts.growth_candidates)
             result = {
                 **base,
                 "status": "growth_only" if growth_matches else "entry_only",
@@ -363,7 +489,6 @@ def compute_disposition(
                 result["reason_codes"].append("GROWTH_SINK_MATCHED")
                 result["matched_growth_ids"] = [str(item.get("growth_id")) for item in growth_matches]
             return result
-        growth_matches = _match_growth(truth, artifacts.growth_candidates)
         if growth_matches:
             return {
                 **base,
@@ -393,10 +518,15 @@ def compute_disposition(
             "matched_entry_ids": entry_ids,
         }
 
-    entry_id_set = set(entry_ids)
-    growth_matches = _match_growth(truth, artifacts.growth_candidates)
-    growth_marker_ids = {
-        str(item.get("growth_id")) for item in growth_matches if isinstance(item.get("growth_id"), str)
+    matched_alias_ids = {_route_alias_identity(entry) for entry in matched_entries}
+    # Production compresses method-level alias mappings to one candidate link.
+    # Treat sibling routes declared by that exact registration as the same
+    # E->G chain identity while retaining the truth-matched route IDs above.
+    entry_id_set = {
+        str(entry.get("entry_id"))
+        for entry in entries
+        if _route_alias_identity(entry) in matched_alias_ids
+        and isinstance(entry.get("entry_id"), str)
     }
     if not growth_marker_ids:
         return {

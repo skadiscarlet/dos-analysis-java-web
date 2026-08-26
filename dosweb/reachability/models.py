@@ -87,7 +87,7 @@ class LlmAuditRecord:
         # Authorization headers are rejected structurally above; semantic text
         # may legitimately discuss bearer authentication. Only key-shaped
         # credential material is rejected in free-form prompt/response text.
-        secret_pattern = re.compile(r"(?i)(?:sk-[a-z0-9_-]{8,}|\bbearer\s+[\"']?[a-z0-9._~-]{8,})")
+        secret_pattern = re.compile(r"(?i)(?:(?<![a-z0-9_-])sk-[a-z0-9_-]{8,}|\bbearer\s+[\"']?[a-z0-9._~-]{8,})")
         if has_secret_key(structured) or secret_pattern.search(self.normalized_prompt) or secret_pattern.search(self.raw_response): _bad()
         raw=json.dumps({"contract_kind":self.contract_kind,"request_id":self.request_id,"normalized_prompt":self.normalized_prompt,"response_schema":self.response_schema,"raw_response":self.raw_response,"parsed_response":self.parsed_response,"settings":self.settings,"attestation":self.attestation,"cache_hit":self.cache_hit},sort_keys=True,separators=(",",":"),ensure_ascii=False)
         expected=stable_identifier("llm_audit",{"payload_sha256":hashlib.sha256(raw.encode()).hexdigest()})

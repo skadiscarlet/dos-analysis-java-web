@@ -33,6 +33,13 @@ _RETRYABLE_ERROR_CODES = frozenset({
     "LLM_RETRYABLE_HTTP",
     "LLM_NETWORK_RETRYABLE",
     "LLM_RETRIES_EXHAUSTED",
+    # These failures are terminal for one provider call, but not deterministic
+    # across a fresh target attempt.  Permit only the runner's already-bounded
+    # retry so a malformed/sensitive model response or a one-off permanent
+    # network classification cannot strand an otherwise reusable formal run.
+    "LLM_NETWORK_FAILED",
+    "LLM_RESPONSE_SCHEMA_INVALID",
+    "LLM_RESPONSE_SENSITIVE_CONTENT",
     "BATCH_TARGET_FAILED",
 })
 
@@ -159,8 +166,8 @@ class BatchRunner:
             raise AnalyzerError("BATCH_MODE_INVALID", "Only entries and full plans can be executed.")
         if isinstance(max_workers, bool) or not isinstance(max_workers, int) or not 1 <= max_workers <= 5:
             raise AnalyzerError("BATCH_CONCURRENCY_INVALID", "Batch concurrency must be between 1 and 5.")
-        if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or not 1 <= max_attempts <= 10:
-            raise AnalyzerError("BATCH_RETRY_INVALID", "Batch max attempts must be between 1 and 10.")
+        if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or not 1 <= max_attempts <= 16:
+            raise AnalyzerError("BATCH_RETRY_INVALID", "Batch max attempts must be between 1 and 16.")
         self.plan = plan
         self.output_directory = Path(output_directory)
         self.pipeline_factory = pipeline_factory

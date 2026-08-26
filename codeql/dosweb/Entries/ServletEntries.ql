@@ -44,11 +44,37 @@ predicate isWebServletAnnotation(Annotation annotation) {
 predicate isHolderType(RefType type) {
   type.hasQualifiedName("fixture.servlet", "ServletHolder")
   or type.hasQualifiedName("org.eclipse.jetty.servlet", "ServletHolder")
+  or type.hasQualifiedName("org.eclipse.jetty.ee8.servlet", "ServletHolder")
 }
 
 predicate isContextHandlerType(RefType type) {
   type.hasQualifiedName("fixture.servlet", "ServletContextHandler")
   or type.hasQualifiedName("org.eclipse.jetty.servlet", "ServletContextHandler")
+  or type.hasQualifiedName("org.eclipse.jetty.ee8.servlet", "ServletContextHandler")
+}
+
+predicate helperReturnsHolderBoundToFirstParameter(Method builder) {
+  exists(Parameter bound, ClassInstanceExpr holder, LocalVariableDecl local, ReturnStmt returned |
+    bound = builder.getParameter(0) and holder.getEnclosingCallable() = builder and
+    isHolderType(holder.getConstructedType()) and
+    holder.getArgument(0).(VarAccess).getVariable() = bound and
+    local.getInitializer() = holder and returned.getEnclosingCallable() = builder and
+    returned.getExpr().(VarAccess).getVariable() = local
+  )
+  or exists(Parameter bound, ClassInstanceExpr holder, ReturnStmt returned |
+    bound = builder.getParameter(0) and holder.getEnclosingCallable() = builder and
+    isHolderType(holder.getConstructedType()) and
+    holder.getArgument(0).(VarAccess).getVariable() = bound and
+    returned.getEnclosingCallable() = builder and returned.getExpr() = holder
+  )
+}
+
+predicate helperHolderBinds(MethodCall addServlet, Type handlerType) {
+  exists(VarAccess holderAccess, LocalVariableDecl holderVariable, MethodCall build, Method builder |
+    holderAccess = addServlet.getArgument(0) and holderAccess.getVariable() = holderVariable and
+    build = holderVariable.getInitializer() and builder = build.getMethod() and builder.fromSource() and
+    helperReturnsHolderBoundToFirstParameter(builder) and build.getArgument(0).getType() = handlerType
+  )
 }
 
 predicate holderBinds(MethodCall addServlet, Type handlerType) {
@@ -58,12 +84,17 @@ predicate holderBinds(MethodCall addServlet, Type handlerType) {
     ((bound instanceof TypeLiteral and bound.(TypeLiteral).getReferencedType() = handlerType) or
      (bound instanceof ClassInstanceExpr and bound.(ClassInstanceExpr).getConstructedType() = handlerType))
   )
+  or helperHolderBinds(addServlet, handlerType)
 }
 
 predicate isFilterType(RefType type) {
   type.getASourceSupertype*().hasQualifiedName("fixture.servlet", "Filter")
   or type.getASourceSupertype*().hasQualifiedName("javax.servlet", "Filter")
   or type.getASourceSupertype*().hasQualifiedName("jakarta.servlet", "Filter")
+}
+
+predicate isSpringComponentAnnotation(Annotation annotation) {
+  annotation.getType().hasQualifiedName("org.springframework.stereotype", "Component")
 }
 
 predicate isFilterRegistrationBean(RefType type) {
@@ -139,6 +170,24 @@ predicate servletRow(
     registrationFile = setFilter.getLocation().getFile().getRelativePath() and registrationLine = setFilter.getLocation().getStartLine() and
     authContext = "unknown" and inputName = request.getName() and inputType = request.getType().toString() and inputKind = "stream" and
     materializationPhase = "in_handler" and coverageStatus = "complete" and coverageNote = "filter_registration_bean"
+  )
+  or exists(Method callback, Annotation registration, Parameter request |
+    callback.getName() = "doFilter" and isFilterType(callback.getDeclaringType()) and
+    request = callback.getParameter(0) and isSourceMethod(callback) and
+    registration = callback.getDeclaringType().getAnAnnotation() and
+    isSpringComponentAnnotation(registration) and isSourceExpr(registration) and
+    isServletType(request.getType().(RefType), "ServletRequest") and
+    framework = "servlet" and protocol = "http" and
+    handlerFqn = callback.getDeclaringType().getQualifiedName() + "." + callback.getName() and
+    handlerFile = callback.getLocation().getFile().getRelativePath() and
+    handlerLine = callback.getLocation().getStartLine() and registrationKind = "annotation_mapping" and
+    registrationFqn = callback.getDeclaringType().getQualifiedName() and
+    registrationFile = registration.getLocation().getFile().getRelativePath() and
+    registrationLine = registration.getLocation().getStartLine() and
+    routeOrEvent = "/*" and authContext = "unknown" and inputName = request.getName() and
+    inputType = request.getType().toString() and inputKind = "stream" and
+    materializationPhase = "in_handler" and coverageStatus = "complete" and
+    coverageNote = "spring_component_filter_default_registration"
   )
   or exists(Method method, Parameter request, Parameter response |
     // Deployment descriptors are not in the Java AST. This is deliberately a
