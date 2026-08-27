@@ -90,13 +90,31 @@ def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
     assert isinstance(bounded, dict)
     facts = bounded.get("static_facts")
     assert isinstance(facts, list)
-    flows = [item for item in facts if isinstance(item, dict) and item.get("relation") == "flows_to"]
-    sinks = [item for item in facts if isinstance(item, dict) and item.get("relation") == "sink"]
-    if not flows or not sinks:
+    flows = [item for item in facts if isinstance(item, dict) and item.get("kind") == "flow" and item.get("relation") == "flows_to"]
+    sinks = [item for item in facts if isinstance(item, dict) and item.get("kind") in {"input_materialization", "allocation", "container_write", "async_submission"} and item.get("relation") == "sink"]
+    semantic = {
+        item.get("kind"): item
+        for item in facts
+        if isinstance(item, dict)
+        and item.get("kind") in {"value_space", "retention", "amplification"}
+    }
+
+    def unknown() -> dict[str, object]:
         return {
-            "is_resource_growth": "unknown", "growth_kind": "unknown", "resource_dimension": "unknown",
-            "attacker_influence": [], "resource_effect": "unknown", "required_static_evidence": [], "confidence": "low",
+            "is_resource_growth": "unknown", "growth_kind": "unknown",
+            "resource_dimension": "unknown", "attacker_influence": [],
+            "resource_effect": "unknown", "attacker_variable": "unknown",
+            "attacker_value_space": "unknown", "growth_unit": "unknown",
+            "growth_function": "unknown", "amplification_class": "unknown",
+            "requests_to_pressure": "unknown", "concurrency_model": "unknown",
+            "retention_window": "unknown", "failure_mechanism": "unknown",
+            "failure_signal": "unknown", "required_static_evidence": [],
+            "contract_status": "unknown", "rejection_reason": "unknown",
+            "confidence": "low",
         }
+
+    if not flows or not sinks:
+        return unknown()
     sink = sinks[0]
     mapping: dict[str, tuple[str, str, str, str]] = {
         "input_materialization": ("input_materialization", "bytes", "size", "materializes_bytes"),
@@ -105,18 +123,43 @@ def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
         "async_submission": ("async_work_growth", "tasks", "value", "enqueues_tasks"),
     }
     kind, dimension, target, effect = mapping.get(str(sink.get("kind")), ("unknown", "unknown", "unknown", "unknown"))
-    if kind == "unknown":
-        return {
-            "is_resource_growth": "unknown", "growth_kind": "unknown", "resource_dimension": "unknown",
-            "attacker_influence": [], "resource_effect": "unknown", "required_static_evidence": [], "confidence": "low",
-        }
+    if kind == "unknown" or set(semantic) != {"value_space", "retention", "amplification"}:
+        return unknown()
+    amplification = str(semantic["amplification"].get("normalized_value"))
+    value_space = str(semantic["value_space"].get("normalized_value"))
+    retention = str(semantic["retention"].get("normalized_value"))
+    pressure = {
+        "large_single_request": "one",
+        "queue_instability": "few",
+        "high_cardinality_retention": "many",
+        "concurrent_retention": "many",
+    }.get(amplification, "implausible")
+    if amplification in {"unknown", "low_amplification"} or value_space == "unknown":
+        return unknown()
     return {
         "is_resource_growth": "yes",
         "growth_kind": kind,
         "resource_dimension": dimension,
         "attacker_influence": [{"target": target, "evidence_id": flows[0]["fact_id"]}],
         "resource_effect": effect,
-        "required_static_evidence": [sink["fact_id"]],
+        "attacker_variable": "attacker input",
+        "attacker_value_space": value_space,
+        "growth_unit": "one resource growth unit",
+        "growth_function": "attacker input increases resource use",
+        "amplification_class": amplification,
+        "requests_to_pressure": pressure,
+        "concurrency_model": "repeatable requests",
+        "retention_window": retention,
+        "failure_mechanism": "queue_latency_collapse" if kind == "async_work_growth" else "heap_exhaustion",
+        "failure_signal": "resource pressure reaches failure",
+        "required_static_evidence": [
+            sink["fact_id"],
+            semantic["value_space"]["fact_id"],
+            semantic["retention"]["fact_id"],
+            semantic["amplification"]["fact_id"],
+        ],
+        "contract_status": "dos_relevant",
+        "rejection_reason": "none",
         "confidence": "high",
     }
 

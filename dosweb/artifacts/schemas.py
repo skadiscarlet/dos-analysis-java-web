@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+import re
 from typing import Final
 
 from dosweb.artifacts.identifiers import stable_identifier
@@ -195,7 +196,11 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
             {
                 "growth_contract_id", "growth_id", "is_resource_growth", "growth_kind",
                 "resource_dimension", "attacker_influence", "resource_effect",
-                "required_static_evidence", "confidence",
+                "attacker_variable", "attacker_value_space", "growth_unit",
+                "growth_function", "amplification_class", "requests_to_pressure",
+                "concurrency_model", "retention_window", "failure_mechanism",
+                "failure_signal", "required_static_evidence", "contract_status",
+                "rejection_reason", "confidence",
             }
         ),
         enum_fields={
@@ -203,13 +208,26 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
             "growth_kind": _GROWTH_KINDS | frozenset({"unknown"}),
             "resource_dimension": _RESOURCE_DIMENSIONS,
             "resource_effect": frozenset({"materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"}),
+            "attacker_value_space": frozenset({"stream", "unlimited", "large", "limited", "server_controlled", "unknown"}),
+            "amplification_class": frozenset({"superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"}),
+            "requests_to_pressure": frozenset({"one", "few", "many", "implausible", "unknown"}),
+            "retention_window": frozenset({"request", "session", "process", "until_release", "unknown"}),
+            "failure_mechanism": frozenset({"heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"}),
+            "contract_status": frozenset({"dos_relevant", "growth_not_dos_relevant", "unknown"}),
+            "rejection_reason": frozenset({"none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"}),
             "confidence": frozenset({"high", "medium", "low"}),
         },
         reference_fields={"growth_id": ReferenceSpec("growth_id")},
         field_kinds=_field_kinds(
             growth_contract_id="string", growth_id="string", is_resource_growth="string",
             growth_kind="string", resource_dimension="string", attacker_influence="list",
-            resource_effect="string", required_static_evidence="list", confidence="string",
+            resource_effect="string", attacker_variable="string",
+            attacker_value_space="string", growth_unit="string",
+            growth_function="string", amplification_class="string",
+            requests_to_pressure="string", concurrency_model="string",
+            retention_window="string", failure_mechanism="string",
+            failure_signal="string", required_static_evidence="list",
+            contract_status="string", rejection_reason="string", confidence="string",
         ),
         record_validator=lambda record, artifact_name, line: _validate_growth_contract(record, artifact_name, line),
     ),
@@ -812,6 +830,52 @@ def _validate_growth_contract(record: Mapping[str, object], artifact_name: str, 
             raise _error("ARTIFACT_INVALID_RECORD", "Growth Contract attacker influence is malformed.", artifact_name, line, "attacker_influence")
     if not all(_valid_fact_id(item) for item in required):
         raise _error("ARTIFACT_INVALID_RECORD", "Growth Contract evidence references are malformed.", artifact_name, line, "required_static_evidence")
+    free_text = (
+        record["attacker_variable"], record["growth_unit"],
+        record["growth_function"], record["concurrency_model"],
+        record["failure_signal"],
+    )
+    unsafe = re.compile(
+        r"(?i)(?:authorization\s*[:=]|bearer\s+[A-Za-z0-9._-]{4,}|"
+        r"(?:api[_-]?key|password|passwd|secret|token)\s*[:=]|"
+        r"\b(?:public|private|protected|class|interface|void|new)\s+[A-Za-z_$]|"
+        r"\b[A-Za-z_$][\w$]*\s*\.\s*[A-Za-z_$][\w$]*\s*\(|[{};])"
+    )
+    if any(
+        not isinstance(value, str)
+        or not value
+        or len(value.encode("utf-8")) > 4096
+        or "\x00" in value
+        or "\n" in value
+        or "\r" in value
+        or unsafe.search(value)
+        for value in free_text
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Growth Contract free text is unsafe or exceeds its bound.",
+            artifact_name,
+            line,
+        )
+    if (
+        record["contract_status"] == "growth_not_dos_relevant"
+        and record["rejection_reason"] in {"none", "unknown"}
+    ) or (
+        record["contract_status"] == "dos_relevant"
+        and record["rejection_reason"] != "none"
+    ) or (
+        record["contract_status"] == "unknown"
+        and not (
+            record["rejection_reason"] == "unknown"
+            and record["is_resource_growth"] == "unknown"
+        )
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Growth Contract status and rejection reason are inconsistent.",
+            artifact_name,
+            line,
+        )
 
 
 def _valid_fact_id(value: object) -> bool:

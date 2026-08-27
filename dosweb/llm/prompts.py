@@ -6,7 +6,18 @@ from dataclasses import dataclass
 from dosweb.growth.models import BoundedSlice
 from dosweb.llm.schemas import AUTH_CONTRACT_RESPONSE_SCHEMA, AUTH_RESPONSE_SCHEMA_VERSION, GROWTH_CONTRACT_RESPONSE_SCHEMA, RESPONSE_SCHEMA_VERSION
 
-_SYSTEM_MESSAGE = "You classify one bounded public-source static-analysis slice. Use only supplied facts. Return exactly one JSON object with exactly the seven schema keys and no Markdown, extra fields, or prose values. Claims needing proof must cite supplied fact aliases; otherwise answer unknown. Each attacker_influence item has target as exactly one scalar enum string, never an array. growth_kind and resource_dimension must match the cited sink fact; do not infer a different growth kind. Schema: " + json.dumps(GROWTH_CONTRACT_RESPONSE_SCHEMA, sort_keys=True, separators=(",", ":"))
+_SYSTEM_MESSAGE = (
+    "You classify one bounded public-source static-analysis slice as a DoS Growth Contract. "
+    "Use only supplied typed facts and return exactly one JSON object with exactly the nineteen "
+    "schema keys, no Markdown, no extra fields, and no source code or secrets in free-text fields. "
+    "In particular, collection mutation alone is not DoS. A dos_relevant result requires mapped driver, value-space, "
+    "retention, amplification, pressure, and failure-mechanism evidence. Each attacker_influence target "
+    "is one scalar enum string, never an array. growth_kind and resource_dimension must match the cited "
+    "sink fact. growth_not_dos_relevant requires a concrete rejection_reason other than none or unknown. "
+    "When evidence is insufficient use contract_status unknown and is_resource_growth unknown; unknown "
+    "must never masquerade as no. Claims needing proof must cite supplied fact aliases. Schema: "
+    + json.dumps(GROWTH_CONTRACT_RESPONSE_SCHEMA, sort_keys=True, separators=(",", ":"))
+)
 
 
 @dataclass(frozen=True)

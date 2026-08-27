@@ -15,7 +15,7 @@ import time
 import threading
 import selectors
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -964,7 +964,11 @@ def _restore_contract_aliases(contract: GrowthContract, aliases: dict[str, str])
         required = tuple(aliases[item] for item in contract.required_static_evidence)
     except KeyError as exc:
         raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Growth Contract cites an unknown provider alias.") from exc
-    return GrowthContract(contract.is_resource_growth, contract.growth_kind, contract.resource_dimension, influences, contract.resource_effect, required, contract.confidence)
+    return replace(
+        contract,
+        attacker_influence=influences,
+        required_static_evidence=required,
+    )
 
 
 def _reject_sensitive_response(content: object, slice_: BoundedSlice | None, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> None:

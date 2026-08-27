@@ -48,7 +48,19 @@ VALID_CONTRACT = {
     "resource_dimension": "entries",
     "attacker_influence": [{"target": "key", "evidence_id": "fact:key"}],
     "resource_effect": "adds_entries",
+    "attacker_variable": "request key",
+    "attacker_value_space": "unlimited",
+    "growth_unit": "one retained map entry",
+    "growth_function": "distinct keys add retained entries",
+    "amplification_class": "high_cardinality_retention",
+    "requests_to_pressure": "many",
+    "concurrency_model": "repeatable requests",
+    "retention_window": "process",
+    "failure_mechanism": "heap_exhaustion",
+    "failure_signal": "retained entries exhaust heap",
     "required_static_evidence": ["fact:key", "fact:put"],
+    "contract_status": "dos_relevant",
+    "rejection_reason": "none",
     "confidence": "high",
 }
 
@@ -63,6 +75,19 @@ UNKNOWN_CONTRACT = {
     "is_resource_growth": "unknown",
     "growth_kind": "unknown",
     "resource_dimension": "unknown",
+    "resource_effect": "unknown",
+    "attacker_variable": "unknown",
+    "attacker_value_space": "unknown",
+    "growth_unit": "unknown",
+    "growth_function": "unknown",
+    "amplification_class": "unknown",
+    "requests_to_pressure": "unknown",
+    "concurrency_model": "unknown",
+    "retention_window": "unknown",
+    "failure_mechanism": "unknown",
+    "failure_signal": "unknown",
+    "contract_status": "unknown",
+    "rejection_reason": "unknown",
     "confidence": "low",
 }
 
@@ -479,6 +504,38 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(_ScriptedHandler.requests), 1)
         self.assertEqual(len(list(self.cache_dir.glob("*.json"))), 1)
+
+    def test_v7_cache_entry_is_a_miss_even_with_a_valid_old_domain_hmac(self) -> None:
+        _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
+        self._client(api_key="cache-auth-key").classify_growth(self.slice)
+        key, identity = cache_identity(self.config, self.slice)
+        cache_file = self.cache_dir / f"{key}.json"
+        entry = json.loads(cache_file.read_text(encoding="utf-8"))
+        entry["cache_format"] = "growth-contract-cache-v7"
+        stable = {
+            name: value
+            for name, value in entry.items()
+            if name not in {"entry_hash", "entry_hmac"}
+        }
+        entry["entry_hash"] = hashlib.sha256(
+            json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        unsigned = {name: value for name, value in entry.items() if name != "entry_hmac"}
+        entry["entry_hmac"] = hmac.new(
+            b"cache-auth-key",
+            b"growth-contract-cache-entry-v7\0"
+            + json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        cache_file.write_text(json.dumps(entry), encoding="utf-8")
+
+        self.assertIsNone(
+            ContractCache(self.cache_dir, "cache-auth-key").get(
+                key,
+                identity,
+                frozenset({"fact:key", "fact:put"}),
+            )
+        )
 
     def test_fresh_client_reuses_cache_when_only_caller_slice_id_changes(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
@@ -1008,6 +1065,7 @@ class DeepSeekClientTests(unittest.TestCase):
         serialized = next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8")
         entry = json.loads(serialized)
         identity = entry["identity"]
+        self.assertEqual(identity["prompt_version"], "growth-contract-v4")
         self.assertIn("slice_content_hash", identity)
         self.assertNotIn("normalized_slice", identity)
         identity_serialized = json.dumps(identity, sort_keys=True)
@@ -1503,10 +1561,23 @@ class DeepSeekClientTests(unittest.TestCase):
         user = json.loads(messages[1]["content"])
         self.assertEqual(user["response_schema_version"], RESPONSE_SCHEMA_VERSION)
         self.assertEqual(user["response_schema"], GROWTH_CONTRACT_RESPONSE_SCHEMA)
-        self.assertEqual(set(user["response_schema"]), {"is_resource_growth", "growth_kind", "resource_dimension", "attacker_influence", "resource_effect", "required_static_evidence", "confidence"})
+        self.assertEqual(
+            set(user["response_schema"]),
+            {
+                "is_resource_growth", "growth_kind", "resource_dimension",
+                "attacker_influence", "resource_effect", "attacker_variable",
+                "attacker_value_space", "growth_unit", "growth_function",
+                "amplification_class", "requests_to_pressure",
+                "concurrency_model", "retention_window", "failure_mechanism",
+                "failure_signal", "required_static_evidence", "contract_status",
+                "rejection_reason", "confidence",
+            },
+        )
         self.assertEqual(set(user["response_schema"]["attacker_influence"][0]), {"target", "evidence_id"})
         canonical = json.dumps(GROWTH_CONTRACT_RESPONSE_SCHEMA, sort_keys=True, separators=(",", ":"))
         self.assertIn(canonical, messages[0]["content"])
+        self.assertIn("collection mutation alone is not DoS", messages[0]["content"])
+        self.assertIn("growth_not_dos_relevant", messages[0]["content"])
 
     def test_request_id_credentials_are_rejected_without_cache_persistence(self) -> None:
         api_key = "exact-provider-key"

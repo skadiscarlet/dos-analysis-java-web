@@ -22,6 +22,33 @@ from dosweb.lifecycle import BoundCandidate, GuardCandidate, ReleaseCandidate
 
 
 class ArtifactContractTests(unittest.TestCase):
+    def _growth_contract(self, **changes: object) -> dict[str, object]:
+        record: dict[str, object] = {
+            "growth_contract_id": "contract:1",
+            "growth_id": "growth:1",
+            "is_resource_growth": "yes",
+            "growth_kind": "container_growth",
+            "resource_dimension": "entries",
+            "attacker_influence": [{"target": "key", "evidence_id": "fact:key"}],
+            "resource_effect": "adds_entries",
+            "attacker_variable": "request key",
+            "attacker_value_space": "unlimited",
+            "growth_unit": "one retained map entry",
+            "growth_function": "distinct keys add retained entries",
+            "amplification_class": "high_cardinality_retention",
+            "requests_to_pressure": "many",
+            "concurrency_model": "repeatable requests",
+            "retention_window": "process",
+            "failure_mechanism": "heap_exhaustion",
+            "failure_signal": "retained entries exhaust heap",
+            "required_static_evidence": ["fact:key"],
+            "contract_status": "dos_relevant",
+            "rejection_reason": "none",
+            "confidence": "high",
+        }
+        record.update(changes)
+        return record
+
     def _fingerprint(self):
         return StageFingerprint(
             schema_version=SCHEMA_VERSION,
@@ -463,17 +490,27 @@ class ArtifactContractTests(unittest.TestCase):
             validate_references("growth_candidates", [growth], {})
         self.assertEqual(raised.exception.code, "ARTIFACT_INVALID_ENUM")
 
-        contract = {
-            "growth_contract_id": "contract:1",
-            "growth_id": "growth:1",
-            "is_resource_growth": "unknown",
-            "growth_kind": "unknown",
-            "resource_dimension": "unknown",
-            "attacker_influence": [],
-            "resource_effect": "unknown",
-            "required_static_evidence": [],
-            "confidence": "low",
-        }
+        contract = self._growth_contract(
+            is_resource_growth="unknown",
+            growth_kind="unknown",
+            resource_dimension="unknown",
+            attacker_influence=[],
+            resource_effect="unknown",
+            attacker_variable="unknown",
+            attacker_value_space="unknown",
+            growth_unit="unknown",
+            growth_function="unknown",
+            amplification_class="unknown",
+            requests_to_pressure="unknown",
+            concurrency_model="unknown",
+            retention_window="unknown",
+            failure_mechanism="unknown",
+            failure_signal="unknown",
+            required_static_evidence=[],
+            contract_status="unknown",
+            rejection_reason="unknown",
+            confidence="low",
+        )
         validate_references("growth_contracts", [contract], {"growth_id": {"growth:1"}, "fact_id": set(), "growth_fact_ids": {"growth:1": set()}})
 
     def test_artifact_ids_are_unique_prefixed_and_growth_evidence_is_fact_syntax(self):
@@ -488,23 +525,20 @@ class ArtifactContractTests(unittest.TestCase):
                 validate_references("entry_facts", records, {})
             self.assertTrue(raised.exception.code.startswith("ARTIFACT_"))
 
-        contract = {
-            "growth_contract_id": "contract:1", "growth_id": "growth:1",
-            "is_resource_growth": "yes", "growth_kind": "container_growth",
-            "resource_dimension": "entries", "attacker_influence": [{"target": "key", "evidence_id": "not-a-fact"}],
-            "resource_effect": "adds_entries", "required_static_evidence": ["fact:" + "x" * 257], "confidence": "high",
-        }
+        contract = self._growth_contract(
+            attacker_influence=[{"target": "key", "evidence_id": "not-a-fact"}],
+            required_static_evidence=["fact:" + "x" * 257],
+        )
         with self.assertRaises(AnalyzerError) as raised:
             validate_references("growth_contracts", [contract], {"growth_id": {"growth:1"}, "fact_id": set(), "growth_fact_ids": {"growth:1": set()}})
         self.assertTrue(raised.exception.code.startswith("ARTIFACT_"))
 
     def test_growth_contract_evidence_is_bound_to_its_growth(self):
-        contract = {
-            "growth_contract_id": "contract:1", "growth_id": "growth:a",
-            "is_resource_growth": "yes", "growth_kind": "container_growth",
-            "resource_dimension": "entries", "attacker_influence": [{"target": "key", "evidence_id": "fact:b"}],
-            "resource_effect": "adds_entries", "required_static_evidence": ["fact:b"], "confidence": "high",
-        }
+        contract = self._growth_contract(
+            growth_id="growth:a",
+            attacker_influence=[{"target": "key", "evidence_id": "fact:b"}],
+            required_static_evidence=["fact:b"],
+        )
         known = {
             "growth_id": {"growth:a", "growth:b"},
             "fact_id": {"fact:a", "fact:b"},
@@ -518,14 +552,7 @@ class ArtifactContractTests(unittest.TestCase):
             validate_references("growth_contracts", [{**contract, "attacker_influence": [], "required_static_evidence": []}], missing)
 
     def test_growth_contract_artifact_rejects_free_text_fabricated_evidence_and_extra_provider_fields(self):
-        contract = {
-            "growth_contract_id": "contract:1", "growth_id": "growth:1",
-            "is_resource_growth": "yes", "growth_kind": "container_growth",
-            "resource_dimension": "entries",
-            "attacker_influence": [{"target": "key", "evidence_id": "fact:key"}],
-            "resource_effect": "adds_entries",
-            "required_static_evidence": ["fact:key"], "confidence": "high",
-        }
+        contract = self._growth_contract()
         known = {"growth_id": {"growth:1"}, "fact_id": {"fact:key"}, "growth_fact_ids": {"growth:1": {"fact:key"}}}
         validate_references("growth_contracts", [contract], known)
         invalid = (

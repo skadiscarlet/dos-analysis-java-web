@@ -41,6 +41,30 @@ from dosweb.production import build_production_pipeline
 import dosweb.production as production
 
 
+def _unknown_growth_contract() -> GrowthContract:
+    return GrowthContract(
+        is_resource_growth="unknown",
+        growth_kind="input_materialization",
+        resource_dimension="bytes",
+        attacker_influence=(),
+        resource_effect="unknown",
+        attacker_variable="unknown",
+        attacker_value_space="unknown",
+        growth_unit="unknown",
+        growth_function="unknown",
+        amplification_class="unknown",
+        requests_to_pressure="unknown",
+        concurrency_model="unknown",
+        retention_window="unknown",
+        failure_mechanism="unknown",
+        failure_signal="unknown",
+        required_static_evidence=(),
+        contract_status="unknown",
+        rejection_reason="unknown",
+        confidence="low",
+    )
+
+
 class ProductionFactoryTests(unittest.TestCase):
     """Network-free RED contract for the first production factory slice."""
 
@@ -1119,7 +1143,7 @@ public class ServiceApplication extends Application<Object> {
 
             class FakeLlm:
                 def classify_growth(self, bounded: object) -> GrowthContract:
-                    return GrowthContract("unknown", "input_materialization", "bytes", (), "unknown", (), "high")
+                    return _unknown_growth_contract()
 
             pipeline = build_production_pipeline(
                 self._values(root, allow_remote_llm=True),
@@ -1285,7 +1309,7 @@ public class ServiceApplication extends Application<Object> {
 
                 def classify_growth(self, bounded: object) -> GrowthContract:
                     llm_calls.append(bounded)
-                    return GrowthContract("unknown", "input_materialization", "bytes", (), "unknown", (), "high")
+                    return _unknown_growth_contract()
 
             pipeline = build_production_pipeline(
                 self._values(root, allow_remote_llm=True),
@@ -1410,12 +1434,51 @@ public class ServiceApplication extends Application<Object> {
                     return AuthContract("unauthenticated", (fact.fact_id,), (), "high")
 
                 def classify_growth(self, bounded: object) -> GrowthContract:
-                    flow = next(fact for fact in bounded.payload.static_facts if fact.relation == "flows_to")
-                    sink = next(fact for fact in bounded.payload.static_facts if fact.relation == "sink")
+                    flow = next(
+                        fact for fact in bounded.payload.static_facts
+                        if fact.kind == "flow" and fact.relation == "flows_to"
+                    )
+                    sink = next(
+                        fact for fact in bounded.payload.static_facts
+                        if fact.kind == "input_materialization" and fact.relation == "sink"
+                    )
+                    value_space = next(
+                        fact for fact in bounded.payload.static_facts
+                        if fact.kind == "value_space"
+                    )
+                    retention = next(
+                        fact for fact in bounded.payload.static_facts
+                        if fact.kind == "retention"
+                    )
+                    amplification = next(
+                        fact for fact in bounded.payload.static_facts
+                        if fact.kind == "amplification"
+                    )
                     return GrowthContract(
-                        "yes", "input_materialization", "bytes",
-                        (AttackerInfluence("size", flow.fact_id),),
-                        "materializes_bytes", (flow.fact_id, sink.fact_id), "high",
+                        is_resource_growth="yes",
+                        growth_kind="input_materialization",
+                        resource_dimension="bytes",
+                        attacker_influence=(AttackerInfluence("size", flow.fact_id),),
+                        resource_effect="materializes_bytes",
+                        attacker_variable="request body",
+                        attacker_value_space="stream",
+                        growth_unit="request bytes",
+                        growth_function="request bytes are materialized",
+                        amplification_class="large_single_request",
+                        requests_to_pressure="one",
+                        concurrency_model="one request",
+                        retention_window="request",
+                        failure_mechanism="heap_exhaustion",
+                        failure_signal="request materialization exhausts heap",
+                        required_static_evidence=(
+                            sink.fact_id,
+                            value_space.fact_id,
+                            retention.fact_id,
+                            amplification.fact_id,
+                        ),
+                        contract_status="dos_relevant",
+                        rejection_reason="none",
+                        confidence="high",
                     )
 
             pipeline = build_production_pipeline(

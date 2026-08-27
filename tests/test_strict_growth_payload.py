@@ -4,6 +4,7 @@ import hashlib
 import unittest
 
 from dosweb.errors import AnalyzerError
+from dosweb.growth.contracts import validate_growth_contract
 from dosweb.growth.models import (
     BoundedSlicePayload,
     CfgSummary,
@@ -14,6 +15,31 @@ from dosweb.growth.models import (
 
 
 class StrictGrowthPayloadTests(unittest.TestCase):
+    def _contract_payload(self, **changes: object) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "is_resource_growth": "yes",
+            "growth_kind": "container_growth",
+            "resource_dimension": "entries",
+            "attacker_influence": [{"target": "key", "evidence_id": "fact:driver"}],
+            "resource_effect": "adds_entries",
+            "attacker_variable": "request key",
+            "attacker_value_space": "unlimited",
+            "growth_unit": "one retained map entry",
+            "growth_function": "distinct keys add distinct retained entries",
+            "amplification_class": "high_cardinality_retention",
+            "requests_to_pressure": "many",
+            "concurrency_model": "repeatable requests",
+            "retention_window": "process",
+            "failure_mechanism": "heap_exhaustion",
+            "failure_signal": "retained entries exhaust heap",
+            "required_static_evidence": ["fact:retention", "fact:amplification"],
+            "contract_status": "dos_relevant",
+            "rejection_reason": "none",
+            "confidence": "high",
+        }
+        payload.update(changes)
+        return payload
+
     def _excerpt(self) -> SourceExcerpt:
         content = "map.put(key, value);\n"
         return SourceExcerpt(
@@ -125,9 +151,73 @@ class StrictGrowthPayloadTests(unittest.TestCase):
                 yield AttackerInfluence("key", f"fact:{consumed}")
 
         with self.assertRaises(AnalyzerError) as raised:
-            GrowthContract("yes", "container_growth", "entries", influences(), "adds_entries", (), "high")
+            GrowthContract(
+                is_resource_growth="yes",
+                growth_kind="container_growth",
+                resource_dimension="entries",
+                attacker_influence=influences(),
+                resource_effect="adds_entries",
+                attacker_variable="key",
+                attacker_value_space="unlimited",
+                growth_unit="one entry",
+                growth_function="distinct keys add entries",
+                amplification_class="high_cardinality_retention",
+                requests_to_pressure="many",
+                concurrency_model="repeatable requests",
+                retention_window="process",
+                failure_mechanism="heap_exhaustion",
+                failure_signal="retained entries exhaust heap",
+                required_static_evidence=(),
+                contract_status="dos_relevant",
+                rejection_reason="none",
+                confidence="high",
+            )
         self.assertEqual(raised.exception.code, "LLM_RESPONSE_SCHEMA_INVALID")
         self.assertEqual(consumed, 17)
+
+    def test_dos_growth_contract_requires_exact_schema_and_bounded_safe_text(self) -> None:
+        contract = validate_growth_contract(self._contract_payload())
+        self.assertEqual(contract.contract_status, "dos_relevant")
+        self.assertEqual(contract.failure_mechanism, "heap_exhaustion")
+
+        for mutation in (
+            {key: value for key, value in self._contract_payload().items() if key != "retention_window"},
+            {**self._contract_payload(), "unexpected": "field"},
+        ):
+            with self.subTest(fields=set(mutation)):
+                with self.assertRaises(AnalyzerError) as raised:
+                    validate_growth_contract(mutation)
+                self.assertEqual(raised.exception.code, "LLM_RESPONSE_SCHEMA_INVALID")
+
+        for unsafe in (
+            "x" * 4097,
+            "Authorization: Bearer private-token",
+            "public class Leaked { void run(); }",
+            "registry.put(key, value)",
+        ):
+            with self.subTest(unsafe=unsafe[:32]):
+                with self.assertRaises(AnalyzerError) as raised:
+                    validate_growth_contract(
+                        self._contract_payload(failure_signal=unsafe)
+                    )
+                self.assertEqual(raised.exception.code, "LLM_RESPONSE_SCHEMA_INVALID")
+
+    def test_growth_not_dos_relevant_requires_reason_and_unknown_cannot_masquerade_as_no(self) -> None:
+        with self.assertRaises(AnalyzerError):
+            validate_growth_contract(
+                self._contract_payload(
+                    contract_status="growth_not_dos_relevant",
+                    rejection_reason="none",
+                )
+            )
+        with self.assertRaises(AnalyzerError):
+            validate_growth_contract(
+                self._contract_payload(
+                    is_resource_growth="no",
+                    contract_status="unknown",
+                    rejection_reason="unknown",
+                )
+            )
 
     def test_duplicate_semantic_identifiers_are_rejected(self) -> None:
         duplicate = StaticFact("fact:1", "flow", "excerpt:1", "source")

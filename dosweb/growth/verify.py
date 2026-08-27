@@ -162,6 +162,38 @@ def verify_growth_contract(
         )
     checks.append(VerificationCheck("growth_coverage", True))
 
+    if contract.contract_status == "growth_not_dos_relevant":
+        checks.append(
+            VerificationCheck(
+                "dos_relevance",
+                False,
+                "GROWTH_NOT_DOS_RELEVANT",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "rejected",
+            ("GROWTH_NOT_DOS_RELEVANT",),
+            checks,
+        )
+    if contract.contract_status == "unknown":
+        checks.append(
+            VerificationCheck(
+                "dos_relevance",
+                False,
+                "GROWTH_DOS_RELEVANCE_UNKNOWN",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_DOS_RELEVANCE_UNKNOWN",),
+            checks,
+        )
+    checks.append(VerificationCheck("dos_relevance", True))
+
     if contract.is_resource_growth == "no":
         checks.append(VerificationCheck("resource_growth", False, "GROWTH_CONTRACT_NEGATED"))
         return _result(candidate, bounded_slice, "rejected", ("GROWTH_CONTRACT_NEGATED",), checks)
@@ -179,6 +211,74 @@ def verify_growth_contract(
         checks.append(VerificationCheck("resource_dimension", False, "GROWTH_DIMENSION_MISMATCH"))
         return _result(candidate, bounded_slice, "unresolved", ("GROWTH_DIMENSION_MISMATCH",), checks)
     checks.append(VerificationCheck("resource_dimension", True))
+
+    if contract.failure_mechanism in {"none", "unknown"}:
+        checks.append(
+            VerificationCheck(
+                "failure_mechanism",
+                False,
+                "GROWTH_FAILURE_MECHANISM_UNPROVEN",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_FAILURE_MECHANISM_UNPROVEN",),
+            checks,
+        )
+    checks.append(VerificationCheck("failure_mechanism", True))
+
+    if contract.requests_to_pressure == "implausible":
+        checks.append(
+            VerificationCheck(
+                "requests_to_pressure",
+                False,
+                "GROWTH_PRESSURE_IMPLAUSIBLE",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_PRESSURE_IMPLAUSIBLE",),
+            checks,
+        )
+    checks.append(VerificationCheck("requests_to_pressure", True))
+
+    if contract.attacker_value_space not in {"stream", "unlimited", "large"}:
+        checks.append(
+            VerificationCheck(
+                "attacker_value_space",
+                False,
+                "GROWTH_ATTACKER_VALUE_SPACE_UNPROVEN",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_ATTACKER_VALUE_SPACE_UNPROVEN",),
+            checks,
+        )
+    checks.append(VerificationCheck("attacker_value_space", True))
+
+    if contract.amplification_class in {"low_amplification", "unknown"}:
+        checks.append(
+            VerificationCheck(
+                "amplification_class",
+                False,
+                "GROWTH_AMPLIFICATION_NOT_DOS_RELEVANT",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_AMPLIFICATION_NOT_DOS_RELEVANT",),
+            checks,
+        )
+    checks.append(VerificationCheck("amplification_class", True))
 
     slice_facts = {fact.fact_id: fact for fact in bounded_slice.payload.static_facts}
     required = tuple(contract.required_static_evidence)
@@ -231,6 +331,102 @@ def verify_growth_contract(
             candidate, bounded_slice, "unresolved", ("GROWTH_UNMAPPED_ATTACKER_INFLUENCE",), checks
         )
     checks.append(VerificationCheck("attacker_influence", True))
+
+    driver_ok = all(
+        static_fact_index[item.evidence_id].kind in {"flow", "driver_origin"}
+        and static_fact_index[item.evidence_id].normalized_value
+        in {
+            "request_body", "request_parameter", "request_path", "request_header",
+            "request_stream", "network_message",
+        }
+        for item in contract.attacker_influence
+    )
+    if not driver_ok:
+        checks.append(
+            VerificationCheck(
+                "driver_origin",
+                False,
+                "GROWTH_DRIVER_EVIDENCE_UNMAPPED",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_DRIVER_EVIDENCE_UNMAPPED",),
+            checks,
+        )
+    checks.append(VerificationCheck("driver_origin", True))
+
+    required_facts = tuple(static_fact_index[fact_id] for fact_id in required)
+    value_space_ok = any(
+        fact.kind == "value_space"
+        and fact.normalized_value == contract.attacker_value_space
+        and fact.relation in {"source", "flows_to"}
+        for fact in required_facts
+    )
+    if not value_space_ok:
+        checks.append(
+            VerificationCheck(
+                "value_space_evidence",
+                False,
+                "GROWTH_VALUE_SPACE_EVIDENCE_UNMAPPED",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_VALUE_SPACE_EVIDENCE_UNMAPPED",),
+            checks,
+        )
+    checks.append(VerificationCheck("value_space_evidence", True))
+
+    retention_ok = any(
+        fact.kind == "retention"
+        and fact.normalized_value == contract.retention_window
+        and fact.relation == "sink"
+        for fact in required_facts
+    )
+    if not retention_ok:
+        checks.append(
+            VerificationCheck(
+                "retention_evidence",
+                False,
+                "GROWTH_RETENTION_EVIDENCE_UNMAPPED",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_RETENTION_EVIDENCE_UNMAPPED",),
+            checks,
+        )
+    checks.append(VerificationCheck("retention_evidence", True))
+
+    amplification_ok = any(
+        fact.kind == "amplification"
+        and fact.normalized_value == contract.amplification_class
+        and fact.relation == "sink"
+        for fact in required_facts
+    )
+    if not amplification_ok:
+        checks.append(
+            VerificationCheck(
+                "amplification_evidence",
+                False,
+                "GROWTH_AMPLIFICATION_EVIDENCE_UNMAPPED",
+            )
+        )
+        return _result(
+            candidate,
+            bounded_slice,
+            "unresolved",
+            ("GROWTH_AMPLIFICATION_EVIDENCE_UNMAPPED",),
+            checks,
+        )
+    checks.append(VerificationCheck("amplification_evidence", True))
     return _result(candidate, bounded_slice, "verified", (), checks)
 
 

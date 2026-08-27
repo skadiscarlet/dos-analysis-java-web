@@ -21,7 +21,7 @@ from dosweb.growth.contracts import validate_contract_static_evidence, validate_
 from dosweb.growth.models import BoundedSlice, GrowthContract
 from dosweb.llm.schemas import PROMPT_VERSION, RESPONSE_SCHEMA_VERSION
 
-_CACHE_FORMAT = "growth-contract-cache-v7"
+_CACHE_FORMAT = "growth-contract-cache-v8"
 _LOCK_STRIPES = 64
 _LOCKS_GUARD = threading.Lock()
 _LOCKS: tuple[threading.Lock, ...] = tuple(threading.Lock() for _ in range(_LOCK_STRIPES))
@@ -439,7 +439,7 @@ class ContractCache:
         return hmac.new(self._authentication_key, b"provider-request-id-v1\0" + value.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def _entry_hmac(self, entry: Mapping[str, object]) -> str:
-        return hmac.new(self._authentication_key, b"growth-contract-cache-entry-v7\0" + canonical_json(entry), hashlib.sha256).hexdigest()
+        return hmac.new(self._authentication_key, b"growth-contract-cache-entry-v8\0" + canonical_json(entry), hashlib.sha256).hexdigest()
 
     def _open_cache_dir(self, *, create: bool) -> int | None:
         try:

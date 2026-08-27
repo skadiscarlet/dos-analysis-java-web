@@ -15,7 +15,19 @@ _CONTRACT_KEYS = frozenset(
         "resource_dimension",
         "attacker_influence",
         "resource_effect",
+        "attacker_variable",
+        "attacker_value_space",
+        "growth_unit",
+        "growth_function",
+        "amplification_class",
+        "requests_to_pressure",
+        "concurrency_model",
+        "retention_window",
+        "failure_mechanism",
+        "failure_signal",
         "required_static_evidence",
+        "contract_status",
+        "rejection_reason",
         "confidence",
     }
 )
@@ -34,6 +46,13 @@ _RESOURCE_DIMENSION_VALUES = frozenset(
 )
 _CONFIDENCE_VALUES = frozenset({"high", "medium", "low"})
 _RESOURCE_EFFECT_VALUES = frozenset({"materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"})
+_VALUE_SPACE_VALUES = frozenset({"stream", "unlimited", "large", "limited", "server_controlled", "unknown"})
+_AMPLIFICATION_VALUES = frozenset({"superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"})
+_REQUEST_PRESSURE_VALUES = frozenset({"one", "few", "many", "implausible", "unknown"})
+_RETENTION_VALUES = frozenset({"request", "session", "process", "until_release", "unknown"})
+_FAILURE_VALUES = frozenset({"heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"})
+_CONTRACT_STATUS_VALUES = frozenset({"dos_relevant", "growth_not_dos_relevant", "unknown"})
+_REJECTION_VALUES = frozenset({"none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"})
 _INFLUENCE_TARGETS = frozenset({"size", "key", "value", "iteration_count", "submission_count", "unknown"})
 _MAX_CONTRACT_BYTES = 131072
 _MAX_JSON_DEPTH = 16
@@ -50,6 +69,18 @@ def validate_growth_contract(payload: object) -> GrowthContract:
     resource_dimension = _enum(payload, "resource_dimension", _RESOURCE_DIMENSION_VALUES)
     confidence = _enum(payload, "confidence", _CONFIDENCE_VALUES)
     resource_effect = _enum(payload, "resource_effect", _RESOURCE_EFFECT_VALUES)
+    attacker_value_space = _enum(payload, "attacker_value_space", _VALUE_SPACE_VALUES)
+    amplification_class = _enum(payload, "amplification_class", _AMPLIFICATION_VALUES)
+    requests_to_pressure = _enum(payload, "requests_to_pressure", _REQUEST_PRESSURE_VALUES)
+    retention_window = _enum(payload, "retention_window", _RETENTION_VALUES)
+    failure_mechanism = _enum(payload, "failure_mechanism", _FAILURE_VALUES)
+    contract_status = _enum(payload, "contract_status", _CONTRACT_STATUS_VALUES)
+    rejection_reason = _enum(payload, "rejection_reason", _REJECTION_VALUES)
+    attacker_variable = _text(payload, "attacker_variable")
+    growth_unit = _text(payload, "growth_unit")
+    growth_function = _text(payload, "growth_function")
+    concurrency_model = _text(payload, "concurrency_model")
+    failure_signal = _text(payload, "failure_signal")
     influence = payload["attacker_influence"]
     if not isinstance(influence, list) or len(influence) > 16:
         _schema_error()
@@ -85,7 +116,19 @@ def validate_growth_contract(payload: object) -> GrowthContract:
         ),
         attacker_influence=tuple(typed_influence),
         resource_effect=resource_effect,
+        attacker_variable=attacker_variable,
+        attacker_value_space=attacker_value_space,
+        growth_unit=growth_unit,
+        growth_function=growth_function,
+        amplification_class=amplification_class,
+        requests_to_pressure=requests_to_pressure,
+        concurrency_model=concurrency_model,
+        retention_window=retention_window,
+        failure_mechanism=failure_mechanism,
+        failure_signal=failure_signal,
         required_static_evidence=tuple(required_evidence),
+        contract_status=contract_status,
+        rejection_reason=rejection_reason,
         confidence=cast(Literal["high", "medium", "low"], confidence),
     )
 
@@ -142,6 +185,13 @@ def validate_contract_static_evidence(contract: GrowthContract, static_fact_ids:
 def _enum(payload: Mapping[str, object], name: str, values: frozenset[str]) -> str:
     value = payload[name]
     if not isinstance(value, str) or value not in values:
+        _schema_error()
+    return value
+
+
+def _text(payload: Mapping[str, object], name: str) -> str:
+    value = payload[name]
+    if not isinstance(value, str) or not value or len(value.encode("utf-8")) > 4096:
         _schema_error()
     return value
 

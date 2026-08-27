@@ -122,8 +122,16 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
                     excerpts,
                     (self._flow(candidate),),
                 )
-                sink_facts = tuple(fact for fact in evidence.static_facts if fact.relation == "sink")
-                source_facts = tuple(fact for fact in evidence.static_facts if fact.relation == "flows_to")
+                sink_facts = tuple(
+                    fact
+                    for fact in evidence.static_facts
+                    if fact.kind == static_kind and fact.relation == "sink"
+                )
+                source_facts = tuple(
+                    fact
+                    for fact in evidence.static_facts
+                    if fact.kind == "flow" and fact.relation == "flows_to"
+                )
                 self.assertEqual(
                     tuple(fact.fact_id for fact in sink_facts),
                     tuple(sorted(candidate.evidence_ids)),
@@ -141,7 +149,19 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
                 self.assertEqual({fact.relation for fact in source_facts}, {"flows_to"})
                 self.assertTrue(evidence.cfg_summary.path_ids)
                 self.assertEqual(evidence.cfg_summary.phases, ("in_handler",))
-                self.assertEqual(evidence.cfg_summary.branch_facts, ())
+                self.assertEqual(
+                    set(evidence.cfg_summary.branch_facts),
+                    {
+                        fact.fact_id
+                        for fact in evidence.static_facts
+                        if fact.kind
+                        in {
+                            "driver_origin", "value_space", "escape_scope", "retention",
+                            "amplification", "loop_multiplicity", "field_identity",
+                            "materialization_phase", "known_limit_location",
+                        }
+                    },
+                )
                 self.assertEqual(evidence.config_facts, ())
                 self.assertEqual(
                     [fact.to_dict() for fact in evidence.registration_facts],
@@ -169,7 +189,11 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
         right = adapt_growth_static_evidence(self._entry(), second, (registration, handler, growth), (flow,))
         self.assertEqual(left, right)
         self.assertEqual(
-            tuple(fact.fact_id for fact in left.static_facts if fact.relation == "sink"),
+            tuple(
+                fact.fact_id
+                for fact in left.static_facts
+                if fact.kind == "container_write" and fact.relation == "sink"
+            ),
             ("fact:a", "fact:z"),
         )
 
@@ -190,10 +214,63 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            len([fact for fact in evidence.static_facts if fact.relation == "flows_to"]),
+            len([
+                fact
+                for fact in evidence.static_facts
+                if fact.kind == "flow" and fact.relation == "flows_to"
+            ]),
             2,
         )
         self.assertEqual(len(evidence.cfg_summary.path_ids), 1)
+
+    def test_publishes_bounded_driver_retention_amplification_and_limit_facts(self) -> None:
+        candidate = self._candidate("container_growth")
+        evidence = adapt_growth_static_evidence(
+            self._entry(),
+            candidate,
+            (
+                self._excerpt("excerpt:registration", 1, 10),
+                self._excerpt("excerpt:handler", 15, 22),
+                self._excerpt("excerpt:growth", 23, 30),
+            ),
+            (self._flow(candidate),),
+        )
+        semantic = {
+            fact.kind: fact.normalized_value
+            for fact in evidence.static_facts
+            if fact.kind
+            in {
+                "driver_origin",
+                "value_space",
+                "escape_scope",
+                "retention",
+                "amplification",
+                "loop_multiplicity",
+                "field_identity",
+                "materialization_phase",
+                "known_limit_location",
+            }
+        }
+        self.assertEqual(
+            semantic,
+            {
+                "driver_origin": "request_body",
+                "value_space": "unlimited",
+                "escape_scope": "instance",
+                "retention": "process",
+                "amplification": "high_cardinality_retention",
+                "loop_multiplicity": "repeated_requests",
+                "field_identity": "attacker_key",
+                "materialization_phase": "in_handler",
+                "known_limit_location": "none",
+            },
+        )
+        semantic_ids = {
+            fact.fact_id
+            for fact in evidence.static_facts
+            if fact.kind in semantic
+        }
+        self.assertTrue(semantic_ids.issubset(set(evidence.cfg_summary.branch_facts)))
 
     def test_preserves_partial_coverage_without_fabricating_cfg_or_config(self) -> None:
         candidate = self._candidate(
@@ -238,6 +315,30 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
         self.assertEqual(1, len(evidence.config_facts))
         self.assertEqual(configured.config_id, evidence.config_facts[0].source_location_ref)
         self.assertEqual(1024, evidence.config_facts[0].normalized_value)
+
+    def test_feature_state_configuration_does_not_claim_a_known_limit_location(self) -> None:
+        candidate = self._candidate("direct_allocation")
+        feature = ModeledConfigurationFact(
+            "feature.upload.enabled", True, "", 0, "default", "config_file", True, "known",
+        )
+
+        evidence = adapt_growth_static_evidence(
+            self._entry(),
+            candidate,
+            (
+                self._excerpt("excerpt:registration", 1, 10),
+                self._excerpt("excerpt:handler", 15, 22),
+                self._excerpt("excerpt:growth", 23, 30),
+            ),
+            (self._flow(candidate),),
+            (feature,),
+        )
+
+        limit_fact = next(
+            fact for fact in evidence.static_facts
+            if fact.kind == "known_limit_location"
+        )
+        self.assertEqual(limit_fact.normalized_value, "none")
 
     def test_does_not_fabricate_attacker_flow_when_codeql_has_no_matching_row(self) -> None:
         candidate = self._candidate("direct_allocation")
