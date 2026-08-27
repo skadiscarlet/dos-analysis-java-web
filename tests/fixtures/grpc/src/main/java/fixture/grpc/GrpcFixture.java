@@ -137,6 +137,25 @@ class TernaryStreamingService extends SampleGrpc.SampleImplBase {
     }
 }
 
+class LocalCoverageGrpc {
+    static final String SERVICE_NAME = "example.LocalCoverage";
+    abstract static class LocalCoverageImplBase implements BindableService {
+        StreamObserver<Request> collect(StreamObserver<Reply> observer) { return null; }
+    }
+}
+class LocalMemoryCollector implements StreamObserver<Request> {
+    @Override public void onNext(Request request) {}
+}
+class LocalFileCollector implements StreamObserver<Request> {
+    @Override public void onNext(Request request) {}
+}
+class LocalTernaryStreamingService extends LocalCoverageGrpc.LocalCoverageImplBase {
+    @Override
+    StreamObserver<Request> collect(StreamObserver<Reply> responseObserver) {
+        return System.currentTimeMillis() == 0 ? new LocalMemoryCollector() : new LocalFileCollector();
+    }
+}
+
 // Same-shaped helpers are deliberately registered but are not generated-RPC
 // overrides, so neither may become an entry.
 class RegisteredHelper implements BindableService {
@@ -264,6 +283,11 @@ class GrpcBootstrap {
     void startNetty() {
         ServiceRegister register = new RegisterImpl(new GrpcServer(new io.grpc.netty.NettyServerBuilder()));
         register.addHandler(new TernaryStreamingService()); // two supported ternary leaves
+    }
+    void startLocalVariable() {
+        ServiceRegister register = new RegisterImpl(new GrpcServer(new io.grpc.netty.NettyServerBuilder()));
+        LocalTernaryStreamingService service = new LocalTernaryStreamingService();
+        register.addHandler(service);
     }
     void negatives(NoForwardingRegister noForward, ReflectiveRegister reflective, AmbiguousForwardingRegister ambiguous,
                    MultiRegister multi, ServerBuilder server) {

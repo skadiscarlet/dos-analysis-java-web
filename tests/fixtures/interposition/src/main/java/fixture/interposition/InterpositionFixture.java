@@ -1,6 +1,8 @@
 package fixture.interposition;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.servlet.*;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.web.bind.annotation.*;
@@ -33,3 +35,32 @@ class AmbiguousFilter implements Filter {
 class AmbiguousConfig { void configure() { FilterRegistrationBean<AmbiguousFilter> bean = new FilterRegistrationBean<>(); bean.setFilter(new AmbiguousFilter()); bean.addUrlPatterns("/api/ambiguous"); bean.setOrder(2); } }
 @RestController class NoOrderController { @PostMapping("/api/no-order") public void push(Object body) {} }
 class NoOrderConfig { void configure() { FilterRegistrationBean<RegisteredFilter> bean = new FilterRegistrationBean<>(); bean.setFilter(new RegisteredFilter()); bean.addUrlPatterns("/api/no-order"); } }
+
+interface PathService { void accept(String first, String second); }
+class UniquePathService implements PathService {
+    private final Map<Object, Object> retainedPaths = new ConcurrentHashMap<>();
+    public void accept(String first, String second) {
+        retainedPaths.computeIfAbsent(first + "_" + second, key -> new Object());
+    }
+}
+class ConstructorInjectedFilter implements Filter {
+    private static final Pattern PATH = Pattern.compile("/api/constructor/([^/]+)/([^/]+)");
+    private final PathService service;
+    ConstructorInjectedFilter(PathService service) { this.service = service; }
+    public void doFilter(ServletRequest r, ServletResponse s, FilterChain c) {
+        Matcher matcher = PATH.matcher(r.getRequestURI());
+        if (matcher.matches()) {
+            service.accept(matcher.group(1), matcher.group(2));
+        }
+        c.doFilter(r, s);
+    }
+}
+@RestController class ConstructorController { @PostMapping("/api/constructor") public void push(Object body) {} }
+class ConstructorConfig {
+    void configure() {
+        FilterRegistrationBean<ConstructorInjectedFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new ConstructorInjectedFilter(new UniquePathService()));
+        bean.addUrlPatterns("/api/constructor");
+        bean.setOrder(3);
+    }
+}

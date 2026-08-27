@@ -349,6 +349,23 @@ module EntryGrowthPathDomain {
         other.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType()
       )
     )
+    or exists(Method filter, FieldAccess receiver, Field field |
+      filter = edge.getEnclosingCallable() and filter.getName() = "doFilter" and
+      (
+        filter.getDeclaringType().getASourceSupertype*().hasQualifiedName("javax.servlet", "Filter")
+        or filter.getDeclaringType().getASourceSupertype*().hasQualifiedName("jakarta.servlet", "Filter")
+      ) and
+      edge.getQualifier() = receiver and receiver.getField() = field and field.isFinal() and
+      edge.getMethod().isAbstract() and
+      target.fromSource() and not target.isAbstract() and
+      target.getSignature() = edge.getMethod().getSignature() and
+      target.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType() and
+      not exists(Method other |
+        other != target and other.fromSource() and not other.isAbstract() and
+        other.getSignature() = edge.getMethod().getSignature() and
+        other.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType()
+      )
+    )
   }
 
   predicate constructorCall(ClassInstanceExpr edge, Constructor target) {
@@ -444,6 +461,20 @@ module EntryGrowthPathDomain {
         or source != append.getEnclosingCallable() and
         note = "unique_bounded_call_path_global_dataflow"
       )
+    )
+    or exists(MethodCall copy, int depth |
+      sourceInputStreamHandler(source) and attackerInput(source, input) and
+      isInputStreamType(input.getType()) and byteArrayOutputCopy(copy) and
+      depth > 0 and boundedCallPath(source, copy.getEnclosingCallable(), depth, path) and
+      not exists(DataFlow::Node sourceNode, DataFlow::Node sinkNode, Expr demand |
+        EntryToGrowthFlow::flow(sourceNode, sinkNode) and
+        attackerSourceNode(source, input, sourceNode) and
+        growthDemand(copy, "size", demand) and sinkNode.asExpr() = demand
+      ) and
+      sinkSite = copy and target = "size" and sinkText = copy.getQualifier().toString() and
+      phase = "entry>bounded_call_path>output_copy" and
+      confidence = "partial" and coverage = "partial" and
+      note = "source_input_stream_to_output_copy_requires_dataflow_witness"
     )
     or exists(Expr sink, Expr demand, Method serviceTarget, string route,
               string servicePath, int depth |

@@ -25,4 +25,23 @@ class SourceStreamResource {
         deepOutput.writeBytes(input.readAllBytes());
         return deepOutput.toByteArray();
     }
+
+    public byte[] processParserOutput(InputStream input) throws IOException {
+        return parserHelper(input);
+    }
+
+    private byte[] parserHelper(InputStream input) throws IOException {
+        return renderParserOutput(input);
+    }
+
+    private byte[] renderParserOutput(InputStream input) throws IOException {
+        input.available();
+        ByteArrayOutputStream parserOutput = new ByteArrayOutputStream();
+        parserOutput.writeBytes(serverGeneratedBytes());
+        return parserOutput.toByteArray();
+    }
+
+    private byte[] serverGeneratedBytes() {
+        return new byte[] {1, 2, 3};
+    }
 }

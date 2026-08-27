@@ -71,6 +71,44 @@ string getVerb(Method method) {
   )
 }
 
+string canonicalClassPath(Method method) {
+  exists(string path, string withoutLeading |
+    path = getClassPath(method) and
+    (if path.matches("/%")
+     then withoutLeading = path.substring(1, path.length())
+     else withoutLeading = path) and
+    (if withoutLeading.matches("%/")
+     then result = withoutLeading.substring(0, withoutLeading.length() - 1)
+     else result = withoutLeading)
+  )
+}
+
+string canonicalMethodPath(Method method) {
+  exists(string path, string withoutLeading |
+    path = getMethodPath(method) and
+    (if path.matches("/%")
+     then withoutLeading = path.substring(1, path.length())
+     else withoutLeading = path) and
+    (if withoutLeading.matches("%/")
+     then result = withoutLeading.substring(0, withoutLeading.length() - 1)
+     else result = withoutLeading)
+  )
+}
+
+string joinJaxRsPath(Method method) {
+  exists(string canonicalClass, string canonicalMethod |
+    canonicalClass = canonicalClassPath(method) and
+    canonicalMethod = canonicalMethodPath(method) and
+    (
+      canonicalClass = "" and canonicalMethod = "" and result = "/"
+      or canonicalClass = "" and canonicalMethod != "" and result = "/" + canonicalMethod
+      or canonicalClass != "" and canonicalMethod = "" and result = "/" + canonicalClass
+      or canonicalClass != "" and canonicalMethod != "" and
+        result = "/" + canonicalClass + "/" + canonicalMethod
+    )
+  )
+}
+
 predicate isResourceClass(RefType type) {
   exists(Annotation annotation |
     annotation = type.getAnAnnotation() and isPathAnnotation(annotation)
@@ -84,12 +122,83 @@ predicate isRegistrationCall(MethodCall call) {
   or call.getMethod().hasQualifiedName("org.apache.druid.guice", "Jerseys", "addResource")
 }
 
+predicate isGuiceBinderType(Type type) {
+  type.(RefType).getASupertype*().hasQualifiedName("com.google.inject", "Binder")
+}
+
+predicate isClassType(Type type) {
+  type.(ParameterizedType).getGenericType().hasQualifiedName("java.lang", "Class")
+}
+
+predicate helperDirectClassBinding(
+  Method helper, Parameter binder, Parameter resource, MethodCall bind
+) {
+  bind.getEnclosingCallable() = helper and bind.getMethod().getName() = "bind" and
+  bind.getQualifier().(VarAccess).getVariable() = binder and
+  bind.getArgument(0).(VarAccess).getVariable() = resource and
+  exists(MethodCall scoped, Field singleton |
+    scoped.getEnclosingCallable() = helper and scoped.getMethod().getName() = "in" and
+    scoped.getQualifier() = bind and
+    scoped.getArgument(0).(VarAccess).getVariable() = singleton and
+    singleton.getDeclaringType().hasQualifiedName("com.google.inject", "Scopes") and
+    singleton.getName() = "SINGLETON"
+  )
+}
+
+predicate helperComponentClassBinding(
+  Method helper, Parameter binder, Parameter resource, MethodCall terminal
+) {
+  exists(MethodCall setBinder, MethodCall addBinding |
+    setBinder.getEnclosingCallable() = helper and
+    setBinder.getMethod().hasQualifiedName(
+      "com.google.inject.multibindings", "Multibinder", "newSetBinder"
+    ) and
+    setBinder.getArgument(0).(VarAccess).getVariable() = binder and
+    setBinder.getArgument(1) instanceof TypeLiteral and
+    addBinding.getEnclosingCallable() = helper and
+    addBinding.getMethod().getName() = "addBinding" and
+    addBinding.getQualifier() = setBinder and
+    terminal.getEnclosingCallable() = helper and terminal.getMethod().getName() = "to" and
+    terminal.getQualifier() = addBinding and
+    terminal.getArgument(0).(VarAccess).getVariable() = resource
+  )
+}
+
+/** A source-defined helper is a registration primitive only when its two
+ * parameters are a Guice Binder and Class, and it performs exactly one
+ * singleton bind plus one Component multibinding of that Class parameter. */
+predicate sourceHelperRegistrationBinds(MethodCall call, Type resourceType) {
+  exists(Method helper, Parameter binder, Parameter resource,
+         MethodCall directBind, MethodCall componentBind |
+    helper = call.getMethod() and helper.fromSource() and helper.isStatic() and
+    binder = helper.getParameter(0) and resource = helper.getParameter(1) and
+    not exists(Parameter extra |
+      extra = helper.getAParameter() and extra != binder and extra != resource
+    ) and
+    isGuiceBinderType(binder.getType()) and isClassType(resource.getType()) and
+    call.getNumArgument() = 2 and
+    call.getArgument(0).getType().(RefType).getASupertype*().hasQualifiedName(
+      "com.google.inject", "Binder"
+    ) and
+    call.getArgument(1).(TypeLiteral).getReferencedType() = resourceType and
+    helperDirectClassBinding(helper, binder, resource, directBind) and
+    helperComponentClassBinding(helper, binder, resource, componentBind) and
+    not exists(MethodCall other |
+      other != directBind and helperDirectClassBinding(helper, binder, resource, other)
+    ) and
+    not exists(MethodCall other |
+      other != componentBind and helperComponentClassBinding(helper, binder, resource, other)
+    )
+  )
+}
+
 predicate registrationBinds(MethodCall call, Type resource) {
   isRegistrationCall(call) and exists(Expr argument |
     argument = call.getAnArgument() and
     ((argument instanceof TypeLiteral and argument.(TypeLiteral).getReferencedType() = resource) or
      (argument instanceof ClassInstanceExpr and argument.(ClassInstanceExpr).getConstructedType() = resource))
   )
+  or sourceHelperRegistrationBinds(call, resource)
 }
 
 predicate packageRegistrationBinds(MethodCall call, Type resource) {
@@ -118,7 +227,12 @@ string getInputKind(Parameter parameter) {
   or parameter.getAnAnnotation().getType().hasQualifiedName(["javax.ws.rs", "jakarta.ws.rs"], "QueryParam") and result = "request_parameter"
   or parameter.getAnAnnotation().getType().hasQualifiedName(["javax.ws.rs", "jakarta.ws.rs"], ["HeaderParam", "CookieParam", "MatrixParam", "FormParam"]) and result = "request_parameter"
   or parameter.getAnAnnotation().getType().hasQualifiedName(["javax.ws.rs", "jakarta.ws.rs"], "BeanParam") and result = "model_attribute"
-  or not hasJaxRsParameterAnnotation(parameter) and result = "request_body"
+  or not hasJaxRsParameterAnnotation(parameter) and
+    parameter.getType().(RefType).getASupertype*().hasQualifiedName("java.io", "InputStream") and
+    result = "stream"
+  or not hasJaxRsParameterAnnotation(parameter) and
+    not parameter.getType().(RefType).getASupertype*().hasQualifiedName("java.io", "InputStream") and
+    result = "request_body"
 }
 
 predicate jaxRsRow(
@@ -140,7 +254,7 @@ predicate jaxRsRow(
     handlerFile = method.getLocation().getFile().getRelativePath() and handlerLine = method.getLocation().getStartLine() and
     registrationKind = "static_registration" and registrationFqn = registration.getMethod().getDeclaringType().getQualifiedName() + "." + registration.getMethod().getName() and
     registrationFile = registration.getLocation().getFile().getRelativePath() and registrationLine = registration.getLocation().getStartLine() and
-    routeOrEvent = verb + " /" + classPath + "/" + methodPath and authContext = "unknown" and
+    routeOrEvent = verb + " " + joinJaxRsPath(method) and authContext = "unknown" and
     inputName = parameter.getName() and inputType = parameter.getType().toString() and
     materializationPhase = "before_handler" and coverageStatus = "complete" and coverageNote = "jax_rs_static_registration"
   )
@@ -154,7 +268,7 @@ predicate jaxRsRow(
     framework = "jax_rs" and protocol = "http" and handlerFqn = method.getDeclaringType().getQualifiedName() + "." + method.getName() and
     handlerFile = method.getLocation().getFile().getRelativePath() and handlerLine = method.getLocation().getStartLine() and
     registrationKind = "dynamic_unresolved" and registrationFqn = handlerFqn and registrationFile = mapping.getLocation().getFile().getRelativePath() and
-    registrationLine = mapping.getLocation().getStartLine() and routeOrEvent = verb + " /" + classPath + "/" + methodPath and authContext = "unknown" and
+    registrationLine = mapping.getLocation().getStartLine() and routeOrEvent = verb + " " + joinJaxRsPath(method) and authContext = "unknown" and
     inputName = parameter.getName() and inputType = parameter.getType().toString() and inputKind = inputKind and
     materializationPhase = "unknown" and coverageStatus = "partial" and coverageNote = "annotation_only_jax_rs_resource"
   )

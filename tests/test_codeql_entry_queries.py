@@ -150,6 +150,115 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class CodeqlEntryQueryFixtureTests(unittest.TestCase):
+    def _entry_fixture_rows(
+        self, fixture: str, query_name: str, temporary: Path
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        root = Path(__file__).parents[1]
+        source_root = root / "tests" / "fixtures" / fixture / "src" / "main" / "java"
+        database_path = temporary / f"{fixture}-focused-database"
+        classes = temporary / f"{fixture}-focused-classes"
+        classes.mkdir()
+        java_files = sorted(path.relative_to(source_root) for path in source_root.rglob("*.java"))
+        completed = subprocess.run(
+            [
+                _CODEQL,
+                "database",
+                "create",
+                str(database_path),
+                "--language=java",
+                f"--source-root={source_root}",
+                f"--command={_JAVAC} -d {classes} "
+                + " ".join(str(path) for path in java_files),
+                "--overwrite",
+            ],
+            cwd=source_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+        database = validate_database(database_path)
+        query = root / "codeql" / "dosweb" / "Entries" / query_name
+        result = run_query(
+            query,
+            database,
+            temporary / f"{fixture}-focused-results",
+            codeql_binary=str(_codeql_wrapper(temporary)),
+        )
+        rows = decode_bqrs_json(
+            "entries",
+            json.loads(result.decoded_path.read_text(encoding="utf-8")),
+            DecodeSource(database.source_root, result.query_sha256),
+        )
+        return rows, normalize_entry_rows(rows)
+
+    def test_source_defined_jaxrs_helper_registration_normalizes_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows, entries = self._entry_fixture_rows(
+                "jax_rs", "JaxRsEntries.ql", Path(tmp)
+            )
+
+        matching = [
+            entry for entry in entries
+            if entry["handler"]["callable"].endswith("HelperRegisteredResource.append")
+        ]
+        self.assertEqual(len(matching), 1, rows)
+        self.assertEqual(
+            matching[0]["route_or_event"],
+            "POST /api/v2/tasks/{id}/segments/{segmentId}/data",
+        )
+        self.assertEqual(
+            matching[0]["attacker_inputs"],
+            [{"name": "data", "type": "InputStream", "kind": "stream"}],
+        )
+        self.assertEqual(matching[0]["registration"]["kind"], "static_registration")
+        self.assertFalse(
+            any(
+                entry["handler"]["callable"].endswith("WrongScopeResource.append")
+                for entry in entries
+            ),
+            entries,
+        )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith("WrongScopeResource.append")
+                and row["coverage_status"] == "partial"
+                and row["registration_kind"] == "dynamic_unresolved"
+                for row in rows
+            ),
+            rows,
+        )
+
+    def test_local_generated_grpc_streaming_service_registration_is_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows, entries = self._entry_fixture_rows(
+                "grpc", "GrpcEntries.ql", Path(tmp)
+            )
+
+        matching = [
+            entry for entry in entries
+            if entry["route_or_event"] == "/example.LocalCoverage/collect"
+        ]
+        self.assertEqual(
+            {
+                entry["handler"]["callable"].rsplit(".", 2)[-2]
+                for entry in matching
+            },
+            {"LocalMemoryCollector", "LocalFileCollector"},
+            rows,
+        )
+        self.assertTrue(
+            all(
+                entry["registration"]["kind"] == "static_registration"
+                and entry["materialization_phase"] == "streaming"
+                and entry["attacker_inputs"]
+                == [{"name": "request", "type": "Request", "kind": "stream"}]
+                for entry in matching
+            ),
+            matching,
+        )
+
     def test_entry_security_query_extracts_typed_auth_without_inventing_deployment(self):
         root = Path(__file__).parents[1]
         source_root = root / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
@@ -628,6 +737,25 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                         }
                         self.assertIn("GET /api/items/{id}", routes)
                         self.assertIn("POST /api/items", routes)
+                        self.assertIn(
+                            "POST /api/v2/tasks/{id}/segments/{segmentId}/data",
+                            routes,
+                        )
+                        self.assertTrue(
+                            any(
+                                entry["handler"]["callable"].endswith(
+                                    "HelperRegisteredResource.append"
+                                )
+                                and entry["registration"]["kind"] == "static_registration"
+                                and entry["attacker_inputs"] == [{
+                                    "name": "data",
+                                    "type": "InputStream",
+                                    "kind": "stream",
+                                }]
+                                for entry in entries
+                            ),
+                            entries,
+                        )
                     if fixture == "grpc":
                         self.assertTrue(
                             any(
@@ -676,6 +804,21 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                         }
                         self.assertTrue(any(name.endswith("TernaryFirstCollector.onNext") for name in ternary_handlers), entries)
                         self.assertTrue(any(name.endswith("TernarySecondCollector.onNext") for name in ternary_handlers), entries)
+                        local_ternary_handlers = {
+                            entry["handler"]["callable"]
+                            for entry in entries
+                            if entry["route_or_event"] == "/example.LocalCoverage/collect"
+                            and entry["materialization_phase"] == "streaming"
+                            and entry["registration"]["kind"] == "static_registration"
+                        }
+                        self.assertEqual(
+                            {
+                                name.rsplit(".", 2)[-2]
+                                for name in local_ternary_handlers
+                            },
+                            {"LocalMemoryCollector", "LocalFileCollector"},
+                            entries,
+                        )
                         self.assertTrue(
                             any(
                                 entry["handler"]["callable"].endswith("ModernCollector.onNext")
@@ -696,7 +839,13 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                             ),
                             entries,
                         )
-                        complete_services = ("RegisteredClientStreamingService", "TernaryStreamingService", "ModernAsyncService", "ForwardingModernAsyncService")
+                        complete_services = (
+                            "RegisteredClientStreamingService",
+                            "TernaryStreamingService",
+                            "LocalTernaryStreamingService",
+                            "ModernAsyncService",
+                            "ForwardingModernAsyncService",
+                        )
                         for service_name in complete_services:
                             self.assertFalse(
                                 any(row["handler_fqn"].endswith("." + service_name + ".collect")
@@ -870,17 +1019,64 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                 json.loads(association.decoded_path.read_text(encoding="utf-8")),
                 DecodeSource(database.source_root, association.query_sha256),
             )
+            fixture_lines = (
+                source_root / "fixture" / "interposition" / "InterpositionFixture.java"
+            ).read_text(encoding="utf-8").splitlines()
+            registered_filter_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if "service.accept(r); c.doFilter(r, s);" in line
+            )
+            registered_growth_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if "retained.computeIfAbsent(request" in line
+            )
+            ambiguous_class_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if "class AmbiguousFilter implements Filter" in line
+            )
+            ambiguous_filter_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if number > ambiguous_class_line and "public void doFilter" in line
+            )
+            constructor_class_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if "class ConstructorInjectedFilter implements Filter" in line
+            )
+            constructor_filter_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if number > constructor_class_line and "public void doFilter" in line
+            )
+            constructor_growth_line = next(
+                number for number, line in enumerate(fixture_lines, 1)
+                if "retainedPaths.computeIfAbsent" in line
+            )
             matching = [
                 item for item in association_rows
-                if item["source_start_line"] == 14 and item["sink_start_line"] == 10
+                if item["source_start_line"] == registered_filter_line
+                and item["sink_start_line"] == registered_growth_line
             ]
             self.assertEqual(len(matching), 1, association_rows)
-            self.assertFalse(any(item["source_start_line"] == 30 for item in association_rows), association_rows)
+            self.assertFalse(
+                any(item["source_start_line"] == ambiguous_filter_line for item in association_rows),
+                association_rows,
+            )
             self.assertEqual(matching[0]["attacker_target"], "key")
-            self.assertEqual(matching[0]["coverage_status"], "partial")
+            self.assertEqual(matching[0]["coverage_status"], "complete")
             self.assertEqual(
                 matching[0]["coverage_note"],
-                "transitive_callgraph_association_requires_flow_witness",
+                "unique_bounded_call_path_global_dataflow",
+            )
+            constructor_associations = [
+                item for item in association_rows
+                if item["source_start_line"] == constructor_filter_line
+                and item["sink_start_line"] == constructor_growth_line
+            ]
+            self.assertEqual(len(constructor_associations), 1, association_rows)
+            self.assertEqual(constructor_associations[0]["attacker_target"], "key")
+            self.assertEqual(constructor_associations[0]["coverage_status"], "complete")
+            self.assertEqual(
+                constructor_associations[0]["coverage_note"],
+                "unique_bounded_call_path_global_dataflow",
             )
 
             flow = run_query(
@@ -896,14 +1092,32 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
             )
             matching_flow = [
                 item for item in flow_rows
-                if item["source_start_line"] == 14 and item["sink_start_line"] == 10
+                if item["source_start_line"] == registered_filter_line
+                and item["sink_start_line"] == registered_growth_line
             ]
             self.assertEqual(len(matching_flow), 1, flow_rows)
-            self.assertFalse(any(item["source_start_line"] == 30 for item in flow_rows), flow_rows)
-            self.assertEqual(matching_flow[0]["confidence"], "partial")
+            self.assertFalse(
+                any(item["source_start_line"] == ambiguous_filter_line for item in flow_rows),
+                flow_rows,
+            )
+            self.assertEqual(matching_flow[0]["confidence"], "proven")
             self.assertEqual(
                 matching_flow[0]["coverage_note"],
-                "transitive_callgraph_witness_requires_path_coverage",
+                "unique_bounded_call_path_global_dataflow",
+            )
+            constructor_flows = [
+                item for item in flow_rows
+                if item["source_start_line"] == constructor_filter_line
+                and item["sink_start_line"] == constructor_growth_line
+            ]
+            self.assertEqual(len(constructor_flows), 1, flow_rows)
+            self.assertEqual(constructor_flows[0]["attacker_source"], "r")
+            self.assertEqual(constructor_flows[0]["attacker_target"], "key")
+            self.assertEqual(constructor_flows[0]["confidence"], "proven")
+            self.assertEqual(constructor_flows[0]["coverage_status"], "complete")
+            self.assertEqual(
+                constructor_flows[0]["coverage_note"],
+                "unique_bounded_call_path_global_dataflow",
             )
 
 

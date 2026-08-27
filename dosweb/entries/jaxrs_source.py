@@ -1,11 +1,12 @@
-"""Bounded source fallback for unresolved Dropwizard/Guice JAX-RS entries.
+"""Bounded source fallback for unresolved source-registered JAX-RS entries.
 
 The fallback is deliberately narrower than the CodeQL JAX-RS query.  It only
-publishes a complete entry when one source-defined Dropwizard application
-installs one source-defined Guice module, that module explicitly binds the
-resource class, and the application supplies one constant Jersey URL pattern.
+publishes a complete entry for an exact Airlift binder, one source-defined
+Dropwizard application/module installation, or a Sisu GLOBAL_INDEX-discovered
+``@Named`` Guice root with one installed child and one semantics-verified
+resource-binding helper.  Duplicate installation/binding paths fail closed.
 It exists for databases where dependency bytecode is missing and CodeQL keeps
-the annotations/calls as unresolved AST nodes.
+the annotations or registration calls as unresolved AST nodes.
 """
 from __future__ import annotations
 
@@ -44,10 +45,8 @@ _INTERFACE_STRING = re.compile(
     r"\b(?:public\s+static\s+final\s+)?String\s+"
     r"(?P<name>[A-Za-z_$][\w$]*)\s*=\s*(?P<expr>[^;]{1,2048});",
 )
-_METHOD = re.compile(
-    r"(?P<annotations>^[ \t]*(?:@[A-Za-z_$][\w.$]*"
-    r"(?:\s*\([^)]*\))?[ \t]*(?:\r?\n[ \t]*|(?=@)))+)"
-    r"[ \t]*(?:(?:public|protected|private|static|final|synchronized|default)\s+)+"
+_METHOD_DECL = re.compile(
+    r"^[ \t]*(?:(?:public|protected|private|static|final|synchronized|default)\s+)+"
     r"(?:<[^;{}]+>\s+)?[A-Za-z_$][\w.$<>, ?\[\]]*?\s+"
     r"(?P<name>[A-Za-z_$][\w$]*)\s*\((?P<params>.*?)\)\s*"
     r"(?:throws\s+[^;{}]+)?\{",
@@ -57,6 +56,16 @@ _BIND = re.compile(r"\bbind\s*\(\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\
 _AIRLIFT_JAXRS_BIND = re.compile(
     r"\bjaxrsBinder\s*\(\s*[A-Za-z_$][\w$]*\s*\)\s*\.bind\s*\(\s*"
     r"([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\.class\s*\)",
+)
+_INSTALL_NEW_MODULE = re.compile(
+    r"\b[A-Za-z_$][\w$]*\s*\.\s*install\s*\(\s*new\s+"
+    r"(?P<module>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(",
+)
+_SOURCE_BINDING_HELPER_CALL = re.compile(
+    r"\b(?P<helper>[A-Za-z_$][\w$]*)\s*\(\s*"
+    r"(?P<binder>[A-Za-z_$][\w$]*)\s*,\s*"
+    r"(?P<resource>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)"
+    r"\s*\.class\s*\)",
 )
 
 
@@ -76,6 +85,14 @@ class _JavaUnit:
     @property
     def fqn(self) -> str:
         return f"{self.package}.{self.name}" if self.package else self.name
+
+
+@dataclass(frozen=True)
+class _JavaMethod:
+    annotations: str
+    name: str
+    params: str
+    name_start: int
 
 
 def _mask_comments(source: str) -> str:
@@ -389,6 +406,51 @@ def _matching_delimiter(source: str, opening: int, left: str = "(", right: str =
     return None
 
 
+def _annotation_block(unit: _JavaUnit, method_start: int) -> str | None:
+    boundary = unit.structure.rfind("}", 0, method_start) + 1
+    for opening in (
+        index for index in range(boundary, method_start)
+        if unit.structure[index] == "@"
+    ):
+        cursor = opening
+        count = 0
+        while cursor < method_start:
+            annotation = re.match(r"@[A-Za-z_$][\w.$]*", unit.structure[cursor:])
+            if annotation is None:
+                break
+            count += 1
+            cursor += annotation.end()
+            while cursor < method_start and unit.structure[cursor].isspace():
+                cursor += 1
+            if cursor < method_start and unit.structure[cursor] == "(":
+                closing = _matching_delimiter(unit.structure, cursor)
+                if closing is None or closing >= method_start:
+                    break
+                cursor = closing + 1
+            while cursor < method_start and unit.structure[cursor].isspace():
+                cursor += 1
+            if cursor == method_start and count:
+                return unit.clean[opening:method_start]
+            if cursor >= method_start or unit.structure[cursor] != "@":
+                break
+    return None
+
+
+def _annotated_methods(unit: _JavaUnit) -> list[_JavaMethod]:
+    methods: list[_JavaMethod] = []
+    for declaration in _METHOD_DECL.finditer(unit.clean):
+        annotations = _annotation_block(unit, declaration.start())
+        if annotations is None:
+            continue
+        methods.append(_JavaMethod(
+            annotations=annotations,
+            name=declaration.group("name"),
+            params=declaration.group("params"),
+            name_start=declaration.start("name"),
+        ))
+    return methods
+
+
 def _call_argument(statement: str, name: str) -> str | None:
     structure = _mask_literals(statement)
     match = re.search(rf"\.{re.escape(name)}\s*\(", structure)
@@ -469,6 +531,119 @@ def _installed_modules(
                 if module is not None:
                     installed.setdefault(module.fqn, set()).add((application.fqn, prefix))
     return installed
+
+
+def _has_sisu_global_index_scan(units: Sequence[_JavaUnit]) -> bool:
+    return any(
+        {
+            "org.eclipse.sisu.space.BeanScanning",
+            "org.eclipse.sisu.space.SpaceModule",
+            "org.eclipse.sisu.wire.WireModule",
+        }.issubset(unit.imports)
+        and re.search(r"\bnew\s+WireModule\s*\(", unit.structure)
+        and re.search(r"\bnew\s+SpaceModule\s*\(", unit.structure)
+        and "BeanScanning.GLOBAL_INDEX" in unit.clean
+        for unit in units
+    )
+
+
+def _is_named_guice_module(unit: _JavaUnit) -> bool:
+    if (
+        "com.google.inject.Binder" not in unit.imports
+        or "com.google.inject.Module" not in unit.imports
+        or not any(value in unit.imports for value in ("javax.inject.Named", "jakarta.inject.Named"))
+        or not re.search(r"\bimplements\s+(?:[A-Za-z_$][\w$]*\s*,\s*)*Module\b", unit.tail)
+    ):
+        return False
+    prefix = unit.clean[max(0, unit.class_start - 4096):unit.class_start]
+    return re.search(r"@Named(?:\s*\([^)]*\))?\s*$", prefix, re.MULTILINE) is not None
+
+
+def _sisu_installed_modules(
+    units: Sequence[_JavaUnit],
+    by_fqn: Mapping[str, _JavaUnit],
+    by_simple: Mapping[str, tuple[_JavaUnit, ...]],
+) -> dict[str, list[tuple[_JavaUnit, re.Match[str], int]]]:
+    if not _has_sisu_global_index_scan(units):
+        return {}
+    installed: dict[str, list[tuple[_JavaUnit, re.Match[str], int]]] = {}
+    for root in units:
+        if not _is_named_guice_module(root):
+            continue
+        configure_bodies = _method_bodies(root, "configure")
+        if len(configure_bodies) != 1:
+            continue
+        body_start, body_end = configure_bodies[0]
+        body = root.clean[body_start:body_end]
+        for installation in _INSTALL_NEW_MODULE.finditer(body):
+            child = _resolve_type(
+                installation.group("module"), root, by_fqn, by_simple
+            )
+            if child is not None:
+                installed.setdefault(child.fqn, []).append(
+                    (root, installation, body_start)
+                )
+    return installed
+
+
+def _source_binding_helper(
+    caller: _JavaUnit,
+    method_name: str,
+    by_fqn: Mapping[str, _JavaUnit],
+) -> tuple[_JavaUnit, str, str] | None:
+    imported = {
+        value.rsplit(".", 1)[0]
+        for value in caller.imports
+        if value.endswith(f".{method_name}")
+    }
+    imported.update(
+        value[:-2]
+        for value in caller.imports
+        if value.endswith(".*") and value[:-2] in by_fqn
+    )
+    if len(imported) != 1:
+        return None
+    helper = by_fqn.get(next(iter(imported)))
+    if helper is None or "com.google.inject.Binder" not in helper.imports:
+        return None
+    if (
+        "com.google.inject.Scopes.SINGLETON" not in helper.imports
+        or "com.google.inject.multibindings.Multibinder.newSetBinder" not in helper.imports
+    ):
+        return None
+    declaration = re.compile(
+        rf"\bpublic\s+static\s+(?:<[^;{{}}]+>\s+)?void\s+"
+        rf"{re.escape(method_name)}\s*\((?P<params>[^;{{}}]+)\)\s*\{{"
+    )
+    matches = list(declaration.finditer(helper.structure))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    parsed = _parameters(match.group("params"))
+    if parsed is None or len(parsed) != 2:
+        return None
+    binder_name, binder_type, _ = parsed[0]
+    class_name, class_type, _ = parsed[1]
+    if binder_type.rsplit(".", 1)[-1] != "Binder" or not class_type.startswith("Class<"):
+        return None
+    opening = helper.structure.find("{", match.start(), match.end())
+    closing = _matching_delimiter(helper.structure, opening, "{", "}")
+    if closing is None:
+        return None
+    body = helper.clean[opening + 1:closing]
+    direct_bind = re.compile(
+        rf"\b{re.escape(binder_name)}\s*\.\s*bind\s*\(\s*"
+        rf"{re.escape(class_name)}\s*\)\s*\.\s*in\s*\(\s*SINGLETON\s*\)\s*;"
+    )
+    component_bind = re.compile(
+        rf"\bnewSetBinder\s*\(\s*{re.escape(binder_name)}\s*,\s*"
+        rf"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\.class\s*\)"
+        rf"\s*\.\s*addBinding\s*\(\s*\)\s*\.\s*to\s*\(\s*"
+        rf"{re.escape(class_name)}\s*\)\s*;"
+    )
+    if len(direct_bind.findall(body)) != 1 or len(component_bind.findall(body)) != 1:
+        return None
+    return helper, binder_name, class_name
 
 
 def _class_path(
@@ -559,6 +734,7 @@ def augment_source_backed_jaxrs_entries(
         by_simple[unit.name] = (*by_simple.get(unit.name, ()), unit)
     fields = _constant_fields(units)
     installed = _installed_modules(units, fields, by_fqn, by_simple)
+    sisu_installed = _sisu_installed_modules(units, by_fqn, by_simple)
     complete_keys = {
         (row.get("handler_fqn"), row.get("route_or_event"))
         for row in output
@@ -578,8 +754,8 @@ def augment_source_backed_jaxrs_entries(
         class_path = _class_path(resource, fields, by_fqn, by_simple)
         if class_path is None:
             return
-        for method in _METHOD.finditer(resource.clean):
-            annotations = method.group("annotations")
+        for method in _annotated_methods(resource):
+            annotations = method.annotations
             verb_match = re.search(r"@(" + "|".join(_HTTP_VERBS) + r")\b", annotations)
             if verb_match is None:
                 continue
@@ -589,14 +765,14 @@ def augment_source_backed_jaxrs_entries(
             )
             if method_path is None:
                 continue
-            parameters = _parameters(method.group("params"))
+            parameters = _parameters(method.params)
             if not parameters:
                 continue
-            handler_fqn = f"{resource.fqn}.{method.group('name')}"
+            handler_fqn = f"{resource.fqn}.{method.name}"
             route = f"{verb_match.group(1)} {_join_route(route_prefix, class_path, method_path)}"
             if (handler_fqn, route) in complete_keys:
                 continue
-            handler_line = resource.text.count("\n", 0, method.start("name")) + 1
+            handler_line = resource.text.count("\n", 0, method.name_start) + 1
             for input_name, input_type, input_kind in parameters:
                 additions.append({
                     "framework": "jax_rs",
@@ -647,6 +823,57 @@ def augment_source_backed_jaxrs_entries(
                 registration_file=module.relative,
                 registration_line=module.text.count("\n", 0, body_start + bind.start()) + 1,
                 coverage_note="airlift_jaxrs_source_registration",
+            )
+
+    for module_fqn, installations in sorted(sisu_installed.items()):
+        if len(installations) != 1:
+            continue
+        module = by_fqn.get(module_fqn)
+        if module is None or (
+            "com.google.inject.Binder" not in module.imports
+            or "com.google.inject.Module" not in module.imports
+            or not re.search(
+                r"\bimplements\s+(?:[A-Za-z_$][\w$]*\s*,\s*)*Module\b",
+                module.tail,
+            )
+        ):
+            continue
+        configure_bodies = _method_bodies(module, "configure")
+        if len(configure_bodies) != 1:
+            continue
+        body_start, body_end = configure_bodies[0]
+        body = module.clean[body_start:body_end]
+        bindings: dict[
+            str,
+            list[tuple[_JavaUnit, re.Match[str], _JavaUnit, str]],
+        ] = {}
+        for call in _SOURCE_BINDING_HELPER_CALL.finditer(body):
+            helper = _source_binding_helper(
+                module, call.group("helper"), by_fqn
+            )
+            if helper is None:
+                continue
+            helper_unit, _, _ = helper
+            resource = _resolve_type(
+                call.group("resource"), module, by_fqn, by_simple
+            )
+            if resource is not None:
+                bindings.setdefault(resource.fqn, []).append(
+                    (resource, call, helper_unit, call.group("helper"))
+                )
+        for resource_bindings in bindings.values():
+            if len(resource_bindings) != 1:
+                continue
+            resource, call, helper_unit, helper_name = resource_bindings[0]
+            append_resource_entries(
+                resource,
+                route_prefix="/",
+                registration_fqn=f"{helper_unit.fqn}.{helper_name}",
+                registration_file=module.relative,
+                registration_line=module.text.count(
+                    "\n", 0, body_start + call.start()
+                ) + 1,
+                coverage_note="sisu_named_guice_source_registration",
             )
 
     for module_fqn, installations in sorted(installed.items()):

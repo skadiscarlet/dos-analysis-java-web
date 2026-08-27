@@ -346,6 +346,53 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             coverage_rows,
         )
 
+    def test_source_stream_to_bounded_parser_output_copy_is_exact_partial(self) -> None:
+        source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
+        fixture = source_root / "fixture" / "spring" / "SourceStreamResource.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        method_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "public byte[] processParserOutput(InputStream input)" in line
+        )
+        copy_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "return parserOutput.toByteArray()" in line
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "source-parser-output")
+            associations = self._rows(
+                "Flows/EntryToGrowthAssociations.ql", database, temporary
+            )
+            flows = self._rows("Flows/EntryToGrowth.ql", database, temporary)
+
+        matching_associations = [
+            row for row in associations
+            if row.get("source_file", "").endswith("SourceStreamResource.java")
+            and row.get("source_start_line") == method_line
+            and row.get("sink_start_line") == copy_line
+        ]
+        matching_flows = [
+            row for row in flows
+            if row.get("source_file", "").endswith("SourceStreamResource.java")
+            and row.get("source_start_line") == method_line
+            and row.get("sink_start_line") == copy_line
+        ]
+        self.assertEqual(len(matching_associations), 1, matching_associations)
+        self.assertEqual(len(matching_flows), 1, matching_flows)
+        self.assertEqual(
+            matching_associations[0]["call_path"], matching_flows[0]["call_path"]
+        )
+        for row in matching_associations + matching_flows:
+            self.assertEqual(row["attacker_target"], "size")
+            self.assertEqual(row["confidence"], "partial")
+            self.assertEqual(row["coverage_status"], "partial")
+            self.assertEqual(
+                row["coverage_note"],
+                "source_input_stream_to_output_copy_requires_dataflow_witness",
+            )
+        self.assertEqual(matching_flows[0]["attacker_source"], "input")
+
     def test_jmqtt_qos2_dispatch_emits_only_partial_association(self) -> None:
         source_root = _ROOT / "tests" / "fixtures" / "mqtt" / "src" / "main" / "java"
         fixture = source_root / "fixture" / "mqtt" / "MqttFixture.java"

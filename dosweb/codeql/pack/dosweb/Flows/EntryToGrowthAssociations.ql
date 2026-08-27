@@ -465,6 +465,23 @@ predicate uniqueSourceTarget(MethodCall edge, Method target) {
     not exists(Method other |
       other != target and other.fromSource() and not other.isAbstract() and
       other.getSignature() = edge.getMethod().getSignature() and
+        other.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType()
+      )
+    )
+  or exists(Method filter, FieldAccess receiver, Field field |
+    filter = edge.getEnclosingCallable() and filter.getName() = "doFilter" and
+    (
+      filter.getDeclaringType().getASourceSupertype*().hasQualifiedName("javax.servlet", "Filter")
+      or filter.getDeclaringType().getASourceSupertype*().hasQualifiedName("jakarta.servlet", "Filter")
+    ) and
+    edge.getQualifier() = receiver and receiver.getField() = field and field.isFinal() and
+    edge.getMethod().isAbstract() and
+    target.fromSource() and not target.isAbstract() and
+    target.getSignature() = edge.getMethod().getSignature() and
+    target.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType() and
+    not exists(Method other |
+      other != target and other.fromSource() and not other.isAbstract() and
+      other.getSignature() = edge.getMethod().getSignature() and
       other.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType()
     )
   )
