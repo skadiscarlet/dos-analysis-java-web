@@ -44,6 +44,7 @@ _MAX_ARTIFACT_ID_BYTES: Final = 256
 class ReferenceSpec:
     id_kind: str
     multiple: bool = False
+    allow_empty: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,9 +175,12 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
     ),
     "candidate_dispositions": ArtifactSchema(
         id_field="disposition_id", required_fields=frozenset({"disposition_id", "growth_id", "status", "link_ids", "reason_codes"}),
-        enum_fields={"status": frozenset({"rejected", "verified_relevant", "not_entry_reachable", "unresolved"})},
-        reference_fields={"growth_id": ReferenceSpec("growth_id"), "link_ids": ReferenceSpec("link_id", multiple=True)},
+        enum_fields={"status": frozenset({"rejected", "verified_relevant", "dos_relevant_partial", "not_entry_reachable", "unresolved"})},
+        reference_fields={"growth_id": ReferenceSpec("growth_id"), "link_ids": ReferenceSpec("link_id", multiple=True, allow_empty=True)},
         field_kinds=_field_kinds(disposition_id="string", growth_id="string", status="string", link_ids="list", reason_codes="list"),
+        record_validator=lambda record, artifact_name, line: _validate_candidate_disposition(
+            record, artifact_name, line
+        ),
     ),
     "repeatability_decisions": ArtifactSchema(
         id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "growth_id", "status", "evidence_ids", "reason_codes"}),
@@ -1019,6 +1023,53 @@ def _validate_lifecycle_result(
         )
 
 
+def _validate_candidate_disposition(
+    record: Mapping[str, object], artifact_name: str, line: int
+) -> None:
+    link_ids = record["link_ids"]
+    reason_codes = record["reason_codes"]
+    if (
+        not isinstance(link_ids, list)
+        or any(not isinstance(value, str) or not value for value in link_ids)
+        or link_ids != sorted(set(link_ids))
+        or not isinstance(reason_codes, list)
+        or not reason_codes
+        or any(not isinstance(value, str) or not value for value in reason_codes)
+        or reason_codes != sorted(set(reason_codes))
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Candidate disposition collections must be deterministic strings.",
+            artifact_name,
+            line,
+        )
+    if record["status"] == "verified_relevant" and len(link_ids) != 1:
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Verified relevant candidate requires one canonical Entry link.",
+            artifact_name,
+            line,
+            "link_ids",
+        )
+    if record["status"] == "dos_relevant_partial" and len(link_ids) != 1:
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "DoS-relevant partial candidate requires one canonical Entry link.",
+            artifact_name,
+            line,
+            "link_ids",
+        )
+    semantic = {key: value for key, value in record.items() if key != "disposition_id"}
+    if record["disposition_id"] != stable_identifier("disposition", semantic):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Candidate disposition identifier is malformed.",
+            artifact_name,
+            line,
+            "disposition_id",
+        )
+
+
 def _validate_finding_family(
     record: Mapping[str, object], artifact_name: str, line: int
 ) -> None:
@@ -1059,6 +1110,15 @@ def _validate_finding_family(
             line,
             "resource_id",
         )
+    semantic = {key: value for key, value in record.items() if key != "family_id"}
+    if record["family_id"] != stable_identifier("family", semantic):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Finding family identifier is malformed.",
+            artifact_name,
+            line,
+            "family_id",
+        )
 
 
 def _matches_nested_kind(value: object, kind: str) -> bool:
@@ -1075,11 +1135,11 @@ def _reference_values(
     field: str,
 ) -> list[str]:
     if spec.multiple:
-        if not isinstance(value, list) or not value or not all(
+        if not isinstance(value, list) or (not spec.allow_empty and not value) or not all(
             isinstance(item, str) and bool(item) for item in value
         ):
             raise _error(
-                "ARTIFACT_INVALID_RECORD", f"Artifact reference {field} must be a non-empty list of strings.",
+                "ARTIFACT_INVALID_RECORD", f"Artifact reference {field} must be a list of strings.",
                 artifact_name, line, field,
             )
         return value

@@ -12,7 +12,15 @@ from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.errors import AnalyzerError
 
 _Association = frozenset({"complete", "partial"})
-_Disposition = frozenset({"rejected", "verified_relevant", "not_entry_reachable", "unresolved"})
+_Disposition = frozenset(
+    {
+        "rejected",
+        "verified_relevant",
+        "dos_relevant_partial",
+        "not_entry_reachable",
+        "unresolved",
+    }
+)
 _Decision = frozenset({"proven", "unknown", "not_applicable"})
 
 
@@ -60,7 +68,13 @@ class CandidateEntryLink:
 class CandidateDisposition:
     disposition_id: str
     growth_id: str
-    status: Literal["rejected", "verified_relevant", "not_entry_reachable", "unresolved"]
+    status: Literal[
+        "rejected",
+        "verified_relevant",
+        "dos_relevant_partial",
+        "not_entry_reachable",
+        "unresolved",
+    ]
     link_ids: tuple[str, ...]
     reason_codes: tuple[str, ...]
 
@@ -69,8 +83,13 @@ class CandidateDisposition:
             raise AnalyzerError("ANALYSIS_CANDIDATE_COMPLETENESS_INVALID", "Candidate disposition is invalid.")
         object.__setattr__(self, "link_ids", _strings(self.link_ids, "link_ids", allow_empty=True))
         object.__setattr__(self, "reason_codes", _strings(self.reason_codes, "reason_codes"))
-        if self.status == "verified_relevant" and not self.link_ids:
-            raise AnalyzerError("ANALYSIS_CANDIDATE_COMPLETENESS_INVALID", "Relevant candidate needs an entry link.")
+        if self.status == "verified_relevant" and len(self.link_ids) != 1:
+            raise AnalyzerError("ANALYSIS_CANDIDATE_COMPLETENESS_INVALID", "Relevant candidate needs one canonical entry link.")
+        if self.status == "dos_relevant_partial" and len(self.link_ids) != 1:
+            raise AnalyzerError(
+                "ANALYSIS_CANDIDATE_COMPLETENESS_INVALID",
+                "DoS-relevant partial candidate needs one canonical entry link.",
+            )
         expected = stable_identifier("disposition", self.semantic_identity)
         if self.disposition_id != expected:
             raise AnalyzerError("ANALYSIS_CANDIDATE_COMPLETENESS_INVALID", "Candidate disposition id is invalid.")
@@ -80,7 +99,19 @@ class CandidateDisposition:
         return {"growth_id": self.growth_id, "status": self.status, "link_ids": list(self.link_ids), "reason_codes": list(self.reason_codes)}
 
     @classmethod
-    def create(cls, growth_id: str, status: Literal["rejected", "verified_relevant", "not_entry_reachable", "unresolved"], link_ids: tuple[str, ...], reason_codes: tuple[str, ...]) -> "CandidateDisposition":
+    def create(
+        cls,
+        growth_id: str,
+        status: Literal[
+            "rejected",
+            "verified_relevant",
+            "dos_relevant_partial",
+            "not_entry_reachable",
+            "unresolved",
+        ],
+        link_ids: tuple[str, ...],
+        reason_codes: tuple[str, ...],
+    ) -> "CandidateDisposition":
         semantic = {"growth_id": growth_id, "status": status, "link_ids": list(tuple(sorted(set(link_ids)))), "reason_codes": list(tuple(sorted(set(reason_codes))))}
         return cls(stable_identifier("disposition", semantic), growth_id, status, tuple(sorted(set(link_ids))), tuple(sorted(set(reason_codes))))
 

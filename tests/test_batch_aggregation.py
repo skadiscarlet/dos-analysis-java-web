@@ -35,7 +35,8 @@ class BatchAggregationContractTests(unittest.TestCase):
             "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
             "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
             "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl",
-            "lifecycle_certificates.jsonl", "static_findings.jsonl", "report.md", "summary.json",
+            "finding_families.jsonl", "lifecycle_certificates.jsonl",
+            "static_findings.jsonl", "report.md", "summary.json",
         })
 
     def test_p0_manifest_requires_nested_target_identity(self) -> None:
@@ -81,7 +82,9 @@ class BatchAggregationContractTests(unittest.TestCase):
             flow = {"path_id": flow_id, "entry_id": entry_id, "growth_id": growth_id, "attacker_control": {"target": "size", "source": "request", "sink": "allocate"}, "call_path": ["fixture.Handler"], "phase_sequence": ["handler"], "confidence": "proven", "flow_kind": "direct", "coverage_status": "complete", "coverage_note": "fixture"}
             certificate_id = "certificate:fixture"
             certificate = {"certificate_id": certificate_id, "entry_id": entry_id, "growth_id": growth_id, "attacker_inputs": [], "resource_point": resource, "path_ids": [flow_id], "guard_decision": {}, "bound_decision": {}, "release_decision": {}, "assertions": [], "verdict": "static_unknown", "reason_codes": [], "assumptions": [], "coverage_gaps": [], "unresolved_facts": [], "suggested_follow_up_measurements": []}
-            records = {"entry_facts.jsonl": [entry], "growth_candidates.jsonl": [growth], "flow_proofs.jsonl": [flow], "static_findings.jsonl": [{"finding_id": "finding:fixture", "certificate_id": certificate_id, "entry_id": entry_id, "growth_id": growth_id, "verdict": "static_unknown", "reason_codes": []}], "lifecycle_certificates.jsonl": [certificate]}
+            family_semantic = {"verdict": "static_unknown", "priority": "P1", "primary_finding_id": "finding:fixture", "member_finding_ids": ["finding:fixture"], "member_certificate_ids": [certificate_id], "entry_ids": [entry_id], "growth_ids": [growth_id], "resource_id": resource["resource_id"], "reachability_status": "unknown", "amplification_class": "large_single_request", "reason_codes": []}
+            family = {"family_id": stable_identifier("family", family_semantic), **family_semantic}
+            records = {"entry_facts.jsonl": [entry], "growth_candidates.jsonl": [growth], "flow_proofs.jsonl": [flow], "static_findings.jsonl": [{"finding_id": "finding:fixture", "certificate_id": certificate_id, "entry_id": entry_id, "growth_id": growth_id, "verdict": "static_unknown", "reason_codes": []}], "finding_families.jsonl": [family], "lifecycle_certificates.jsonl": [certificate]}
             artifacts = {}
             for name in P0_ARTIFACTS:
                 if name.endswith(".jsonl"):
@@ -96,7 +99,7 @@ class BatchAggregationContractTests(unittest.TestCase):
                 "growth": {"amplification_decisions.jsonl", "auth_contracts.jsonl", "candidate_dispositions.jsonl", "candidate_entry_links.jsonl", "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl", "reachability_decisions.jsonl", "repeatability_decisions.jsonl", "verified_growth.jsonl"},
                 "flows": {"flow_proofs.jsonl"},
                 "lifecycle": {"bound_candidates.jsonl", "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl", "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl"},
-                "conclude": {"static_findings.jsonl", "lifecycle_certificates.jsonl"},
+                "conclude": {"finding_families.jsonl", "static_findings.jsonl", "lifecycle_certificates.jsonl"},
                 "report": {"summary.json", "report.md"},
             }
             for stage in STAGES:
@@ -116,6 +119,11 @@ class BatchAggregationContractTests(unittest.TestCase):
             inventory = json.loads((root / "aggregate_inventory.json").read_text())
             self.assertEqual("completed", inventory["targets"][0]["status"], inventory["targets"][0])
             self.assertEqual(1, inventory["verdict_counts"].get("static_unknown", 0))
+            aggregate_families = [
+                json.loads(line)
+                for line in (root / "aggregate_finding_families.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(aggregate_families[0]["family_id"], family["family_id"])
             self.assertEqual(
                 inventory["targets"][0]["stage_metrics"]["entries"],
                 {

@@ -39,7 +39,8 @@ P0_ARTIFACTS = (
     "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
     "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
     "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl",
-    "lifecycle_certificates.jsonl", "static_findings.jsonl", "report.md", "summary.json",
+    "finding_families.jsonl", "lifecycle_certificates.jsonl", "static_findings.jsonl",
+    "report.md", "summary.json",
 )
 P0_JSONL_OUTPUTS = {
     "entry_facts.jsonl": "aggregate_entries.jsonl",
@@ -65,6 +66,7 @@ P0_JSONL_OUTPUTS = {
     "lifecycle_summaries.jsonl": "aggregate_lifecycle_summaries.jsonl",
     "lifecycle_results.jsonl": "aggregate_lifecycle_results.jsonl",
     "static_findings.jsonl": "aggregate_findings.jsonl",
+    "finding_families.jsonl": "aggregate_finding_families.jsonl",
     "lifecycle_certificates.jsonl": "aggregate_lifecycle_certificates.jsonl",
 }
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")

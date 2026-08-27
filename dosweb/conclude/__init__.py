@@ -9,6 +9,8 @@ from dosweb.conclude.verdicts import (
     CandidateCoverage,
     StaticVerdict,
     StaticVerdictName,
+    VerdictProofGate,
+    apply_positive_proof_gate,
     derive_verdict,
 )
 
@@ -17,6 +19,8 @@ __all__ = [
     "CandidateCoverage",
     "StaticVerdict",
     "StaticVerdictName",
+    "VerdictProofGate",
+    "apply_positive_proof_gate",
     "derive_verdict",
     "evaluate_assertion_1",
     "evaluate_assertion_2",

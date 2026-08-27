@@ -20,6 +20,44 @@ class CandidateCompletenessTests(unittest.TestCase):
         self.assertEqual(unresolved.status, "unresolved")
         self.assertEqual(link.status, "partial")
 
+        second = CandidateEntryLink.create(
+            "growth:abc",
+            "entry:def",
+            "complete",
+            ("entry:def", "growth:abc"),
+            ("ASSOCIATION_QUERY_EVIDENCE",),
+        )
+        with self.assertRaises(Exception):
+            CandidateDisposition.create(
+                "growth:abc",
+                "verified_relevant",
+                (link.link_id, second.link_id),
+                ("ASSOCIATION_QUERY_EVIDENCE",),
+            )
+
+    def test_dos_relevant_partial_is_distinct_and_requires_one_canonical_link(self) -> None:
+        link = CandidateEntryLink.create(
+            "growth:abc",
+            "entry:abc",
+            "partial",
+            ("entry:abc", "growth:abc"),
+            ("ASSOCIATION_CALL_GRAPH_UNAVAILABLE",),
+        )
+        disposition = CandidateDisposition.create(
+            "growth:abc",
+            "dos_relevant_partial",
+            (link.link_id,),
+            ("GROWTH_DOS_RELEVANT_PARTIAL",),
+        )
+        self.assertEqual(disposition.status, "dos_relevant_partial")
+        with self.assertRaises(Exception):
+            CandidateDisposition.create(
+                "growth:abc",
+                "dos_relevant_partial",
+                (),
+                ("GROWTH_DOS_RELEVANT_PARTIAL",),
+            )
+
     def test_no_entry_association_is_unresolved_without_entry_coverage_proof(self) -> None:
         candidate = GrowthCandidate.create(site=SourceLocation("src/Detached.java", 9), kind="direct_allocation", operation="new byte[8]", resource_dimension="bytes", receiver="byte[]", field_path="allocation", demand_inputs=(DemandInput("size", "size"),), escape_scope="request", evidence_ids=frozenset({"fact:growth"}))
         links, disposition = production._candidate_association({}, candidate)  # noqa: SLF001
@@ -67,6 +105,81 @@ class CandidateCompletenessTests(unittest.TestCase):
         amplify = AmplificationDecision.create("amplification", "entry:abc", "growth:abc", "unknown", ("growth:abc",), ("AMPLIFICATION_LOOP_OR_BATCH_UNMODELED",))
         self.assertEqual(repeat.status, "unknown")
         self.assertEqual(amplify.status, "unknown")
+
+    def test_conclusion_pairs_include_only_verified_or_dos_relevant_partial(self) -> None:
+        verified_link = CandidateEntryLink.create(
+            "growth:verified",
+            "entry:verified",
+            "complete",
+            ("entry:verified", "growth:verified"),
+            ("ASSOCIATION_QUERY_EVIDENCE",),
+        )
+        partial_link = CandidateEntryLink.create(
+            "growth:partial",
+            "entry:partial",
+            "partial",
+            ("entry:partial", "growth:partial"),
+            ("ASSOCIATION_CALL_GRAPH_UNAVAILABLE",),
+        )
+        generic_link = CandidateEntryLink.create(
+            "growth:generic",
+            "entry:generic",
+            "partial",
+            ("entry:generic", "growth:generic"),
+            ("ASSOCIATION_CALL_GRAPH_UNAVAILABLE",),
+        )
+        dispositions = (
+            CandidateDisposition.create(
+                "growth:verified",
+                "verified_relevant",
+                (verified_link.link_id,),
+                ("RELEVANCE_REQUEST_MATERIALIZATION",),
+            ),
+            CandidateDisposition.create(
+                "growth:partial",
+                "dos_relevant_partial",
+                (partial_link.link_id,),
+                ("GROWTH_DOS_RELEVANT_PARTIAL",),
+            ),
+            CandidateDisposition.create(
+                "growth:generic",
+                "unresolved",
+                (generic_link.link_id,),
+                ("RELEVANCE_CANONICAL_ENTRY_UNPROVEN",),
+            ),
+            CandidateDisposition.create(
+                "growth:rejected",
+                "rejected",
+                (),
+                ("RELEVANCE_SERVER_SIZED_ALLOCATION",),
+            ),
+        )
+        pairs, statuses = production._eligible_conclusion_pairs(  # noqa: SLF001
+            tuple(item.to_dict() for item in dispositions),
+            tuple(
+                item.to_dict()
+                for item in (verified_link, partial_link, generic_link)
+            ),
+            {
+                ("entry:verified", "growth:verified"),
+                ("entry:partial", "growth:partial"),
+                ("entry:generic", "growth:generic"),
+            },
+        )
+        self.assertEqual(
+            pairs,
+            {
+                ("entry:verified", "growth:verified"),
+                ("entry:partial", "growth:partial"),
+            },
+        )
+        self.assertEqual(
+            statuses,
+            {
+                ("entry:verified", "growth:verified"): "verified_relevant",
+                ("entry:partial", "growth:partial"): "dos_relevant_partial",
+            },
+        )
 
 
 if __name__ == "__main__":

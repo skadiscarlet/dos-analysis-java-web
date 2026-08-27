@@ -28,7 +28,12 @@ from dosweb.reachability.extract import (
     extract_entry_security_fallback,
 )
 from dosweb.conclude.assertions import evaluate_assertion_1, evaluate_assertion_2
-from dosweb.conclude.verdicts import CandidateCoverage, derive_verdict
+from dosweb.conclude.verdicts import (
+    CandidateCoverage,
+    VerdictProofGate,
+    apply_positive_proof_gate,
+    derive_verdict,
+)
 from dosweb.entries import EntryFact, FrameworkCoverage
 from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
 from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
@@ -57,6 +62,7 @@ from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, Life
 from dosweb.llm.deepseek import DeepSeekClient
 from dosweb.pipeline import Executor, Pipeline, STAGES, StageContext, StageOutput
 from dosweb.report.markdown import render_report
+from dosweb.report.families import FindingFamily, build_finding_families
 from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
@@ -1028,17 +1034,28 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                 or disposition.status != "verified_relevant"
                 or len(candidate_links) != 1
             ):
+                disposition_status = (
+                    "dos_relevant_partial"
+                    if relevance.status == "dos_relevant_partial"
+                    and len(candidate_links) == 1
+                    else "unresolved"
+                )
+                disposition_reasons = (
+                    tuple(sorted(set(relevance_reasons) | {"GROWTH_DOS_RELEVANT_PARTIAL"}))
+                    if disposition_status == "dos_relevant_partial"
+                    else relevance_reasons
+                )
                 disposition = CandidateDisposition.create(
                     candidate.growth_id,
-                    "unresolved",
+                    disposition_status,
                     tuple(link.link_id for link in candidate_links),
-                    relevance_reasons,
+                    disposition_reasons,
                 )
                 dispositions.append(disposition.to_dict())
                 # Only one canonical high-value partial family is eligible for a
                 # downstream static_unknown gap. Multi-entry ambiguity remains
                 # disposition inventory and never creates a cross product.
-                if len(candidate_links) == 1:
+                if disposition_status == "dos_relevant_partial":
                     unresolved = VerifiedGrowthResult.create(
                         candidate=candidate,
                         slice_id=stable_identifier(
@@ -1583,6 +1600,99 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
     return execute
 
 
+def _eligible_conclusion_pairs(
+    dispositions: Sequence[Mapping[str, object]],
+    links: Sequence[Mapping[str, object]],
+    flow_pairs: set[tuple[str, str]],
+) -> tuple[set[tuple[str, str]], dict[tuple[str, str], str]]:
+    """Resolve the only disposition classes allowed to publish conclusions."""
+
+    links_by_id = {
+        record["link_id"]: record
+        for record in links
+        if isinstance(record, Mapping) and isinstance(record.get("link_id"), str)
+    }
+    if len(links_by_id) != len(links):
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID", "Candidate Entry links are duplicated or malformed."
+        )
+    eligible_pairs: set[tuple[str, str]] = set()
+    statuses: dict[tuple[str, str], str] = {}
+    for disposition in dispositions:
+        status = disposition.get("status")
+        if status not in {"verified_relevant", "dos_relevant_partial"}:
+            continue
+        growth_id = disposition.get("growth_id")
+        link_ids = disposition.get("link_ids")
+        if (
+            not isinstance(growth_id, str)
+            or not isinstance(link_ids, list)
+            or not link_ids
+            or any(not isinstance(link_id, str) for link_id in link_ids)
+            or any(link_id not in links_by_id for link_id in link_ids)
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "Candidate disposition references a missing Entry link.",
+            )
+        linked = [links_by_id[link_id] for link_id in link_ids]
+        pairs: list[tuple[str, str]] = []
+        for link in linked:
+            entry_id = link.get("entry_id")
+            link_growth_id = link.get("growth_id")
+            if (
+                not isinstance(entry_id, str)
+                or link_growth_id != growth_id
+                or (entry_id, growth_id) not in flow_pairs
+            ):
+                raise AnalyzerError(
+                    "ARTIFACT_UPSTREAM_HASH_MISMATCH",
+                    "Candidate-relevant Growth is missing its required flow artifact.",
+                )
+            pairs.append((entry_id, growth_id))
+        for pair in pairs:
+            previous = statuses.get(pair)
+            if previous is not None and previous != status:
+                raise AnalyzerError(
+                    "ARTIFACT_UPSTREAM_INVALID",
+                    "Candidate conclusion eligibility is ambiguous.",
+                )
+            eligible_pairs.add(pair)
+            statuses[pair] = status
+    return eligible_pairs, statuses
+
+
+def _conclusion_amplification_classes(
+    dispositions: Sequence[Mapping[str, object]],
+    eligible_pairs: set[tuple[str, str]],
+) -> dict[tuple[str, str], str]:
+    allowed = {
+        "superlinear",
+        "large_single_request",
+        "concurrent_retention",
+        "queue_instability",
+        "high_cardinality_retention",
+        "low_amplification",
+        "unknown",
+    }
+    by_growth: dict[str, str] = {}
+    prefix = "RELEVANCE_AMPLIFICATION_"
+    for disposition in dispositions:
+        growth_id = disposition.get("growth_id")
+        reasons = disposition.get("reason_codes")
+        if not isinstance(growth_id, str) or not isinstance(reasons, list):
+            continue
+        classes = {
+            reason[len(prefix) :].lower()
+            for reason in reasons
+            if isinstance(reason, str) and reason.startswith(prefix)
+        }
+        classes &= allowed
+        if len(classes) == 1:
+            by_growth[growth_id] = classes.pop()
+    return {pair: by_growth.get(pair[1], "unknown") for pair in eligible_pairs}
+
+
 def make_conclude_executor() -> Executor:
     def execute(context: StageContext) -> StageOutput:
         entries = _load_entries(context)
@@ -1590,7 +1700,11 @@ def make_conclude_executor() -> Executor:
         flows = [verify_flow(FlowProof.from_dict(record), entries, growth) for record in _records(context, "flows", "flow_proofs.jsonl", "flow_proofs")]
         lifecycle = {record["path_id"]: record for record in _records(context, "lifecycle", "lifecycle_results.jsonl", "lifecycle_results")}
         coverage_records = [LifecycleCoverage.from_dict(record) for record in _strict_records(context, "lifecycle", "lifecycle_coverage.jsonl")]
-        coverage_keys = {(item.entry_id, item.growth_id, item.path_id, item.family) for item in coverage_records}
+        coverage_by_key = {
+            (item.entry_id, item.growth_id, item.path_id, item.family): item.status
+            for item in coverage_records
+        }
+        coverage_keys = set(coverage_by_key)
         guards = [GuardCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "guard_candidates.jsonl")]
         bounds = [BoundCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "bound_candidates.jsonl")]
         releases = [ReleaseCandidate.from_dict(record) for record in _strict_records(context, "lifecycle", "release_candidates.jsonl")]
@@ -1602,17 +1716,21 @@ def make_conclude_executor() -> Executor:
         amplification = {(record["entry_id"], record["growth_id"]): AmplificationDecision(record["decision_id"], record["entry_id"], record["growth_id"], record["status"], tuple(record["evidence_ids"]), tuple(record["reason_codes"]), "amplification") for record in _strict_records(context, "growth", "amplification_decisions.jsonl")}
         certificates: list[dict[str, object]] = []
         findings: list[dict[str, object]] = []
-        links_by_id = {record["link_id"]: record for record in _strict_records(context, "growth", "candidate_entry_links.jsonl")}
-        relevant = [record for record in _strict_records(context, "growth", "candidate_dispositions.jsonl") if record["status"] == "verified_relevant"]
+        certificate_objects: list[LifecycleCertificate] = []
+        finding_objects: list[StaticFinding] = []
+        link_records = _strict_records(context, "growth", "candidate_entry_links.jsonl")
+        disposition_records = _strict_records(context, "growth", "candidate_dispositions.jsonl")
         flow_pairs = {(flow.entry_id, flow.growth_id) for flow in flows}
-        for disposition in relevant:
-            if any(link_id not in links_by_id for link_id in disposition["link_ids"]):
-                raise AnalyzerError("ANALYSIS_DANGLING_FACT_REFERENCE", "Candidate disposition references a missing Entry link.")
-            linked = [links_by_id[link_id] for link_id in disposition["link_ids"]]
-            if not linked or any((link["entry_id"], disposition["growth_id"]) not in flow_pairs for link in linked):
-                raise AnalyzerError("ARTIFACT_UPSTREAM_HASH_MISMATCH", "Candidate-relevant Growth is missing its required flow artifact.")
+        eligible_pairs, disposition_statuses = _eligible_conclusion_pairs(
+            disposition_records, link_records, flow_pairs
+        )
+        amplification_classes = _conclusion_amplification_classes(
+            disposition_records, eligible_pairs
+        )
         grouped: dict[tuple[str, str], list[VerifiedFlow]] = {}
         for flow in flows:
+            if (flow.entry_id, flow.growth_id) not in eligible_pairs:
+                continue
             if flow.path_id not in lifecycle:
                 raise AnalyzerError("ARTIFACT_UPSTREAM_HASH_MISMATCH", "Lifecycle result is missing a flow path.")
             missing_families = {family for family in ("guard", "bound", "release") if (flow.entry_id, flow.growth_id, flow.path_id, family) not in coverage_keys}
@@ -1656,16 +1774,62 @@ def make_conclude_executor() -> Executor:
                 )
             else:
                 coverage = CandidateCoverage.from_framework(framework_item, registration_pattern=registration_pattern, entry_id=entry.entry_id, growth_id=growth_id)
-            verdict = derive_verdict(assertions, coverage)
+            proof_gate = VerdictProofGate(
+                entry_complete=coverage.status == "complete",
+                ordinary_reachability=(
+                    reachability.get(entry_id) is not None
+                    and reachability[entry_id].status == "ordinary_attacker_reachable"
+                ),
+                growth_verified=result.status == "verified",
+                flow_proven=bool(proven) and len(proven) == len(ordered),
+                lifecycle_families_complete=all(
+                    coverage_by_key.get(
+                        (entry_id, growth_id, flow.path_id, family)
+                    )
+                    == "complete"
+                    for flow in ordered
+                    for family in ("guard", "bound", "release")
+                ),
+                candidate_relevant_gap_free=(
+                    disposition_statuses[(entry_id, growth_id)] == "verified_relevant"
+                ),
+            )
+            verdict = apply_positive_proof_gate(
+                derive_verdict(assertions, coverage), proof_gate
+            )
             certificate = build_lifecycle_certificate(
                 entry, result, ordered, guard, bound, release,
                 assertions, coverage, verdict,
                 reachability=reachability.get(entry_id), repeatability=repeatability.get((entry_id, growth_id)), amplification=amplification.get((entry_id, growth_id)),
+                proof_gate=proof_gate,
             )
             finding = StaticFinding.from_certificate(certificate)
+            certificate_objects.append(certificate)
+            finding_objects.append(finding)
             certificates.append(certificate.to_dict()); findings.append(finding.to_dict())
-        validate_records("lifecycle_certificates", certificates); validate_records("static_findings", findings)
-        return StageOutput({"lifecycle_certificates.jsonl": certificates, "static_findings.jsonl": findings}, {"finding_count": len(findings), "unresolved_path_count": sum(not flow.satisfies_premise for flow in flows)})
+        families = build_finding_families(
+            tuple(finding_objects),
+            tuple(certificate_objects),
+            entries,
+            reachability,
+            amplification_classes,
+        )
+        family_records = [family.to_dict() for family in families]
+        validate_records("lifecycle_certificates", certificates)
+        validate_records("static_findings", findings)
+        validate_records("finding_families", family_records)
+        return StageOutput(
+            {
+                "lifecycle_certificates.jsonl": certificates,
+                "static_findings.jsonl": findings,
+                "finding_families.jsonl": family_records,
+            },
+            {
+                "finding_count": len(findings),
+                "finding_family_count": len(family_records),
+                "unresolved_path_count": sum(not flow.satisfies_premise for flow in flows),
+            },
+        )
     return execute
 
 
@@ -1673,10 +1837,12 @@ def make_report_executor() -> Executor:
     def execute(context: StageContext) -> StageOutput:
         cert_records = _records(context, "conclude", "lifecycle_certificates.jsonl", "lifecycle_certificates")
         finding_records = _records(context, "conclude", "static_findings.jsonl", "static_findings")
+        family_records = _records(context, "conclude", "finding_families.jsonl", "finding_families")
         certificates = [LifecycleCertificate(**{**record, "attacker_inputs": tuple(record["attacker_inputs"]), "path_ids": tuple(record["path_ids"]), "assertions": tuple(record["assertions"]), "reason_codes": tuple(record["reason_codes"]), "assumptions": tuple(record["assumptions"]), "coverage_gaps": tuple(record["coverage_gaps"]), "unresolved_facts": tuple(record["unresolved_facts"]), "suggested_follow_up_measurements": tuple(record["suggested_follow_up_measurements"])}) for record in cert_records]
         findings = [StaticFinding.from_dict(record) for record in finding_records]
-        summary = build_summary(findings, _coverage(context))
-        return StageOutput({"summary.json": canonical_json(summary) + b"\n", "report.md": render_report(summary, findings, certificates)})
+        families = [FindingFamily.from_dict(record) for record in family_records]
+        summary = build_summary(families, findings, _coverage(context))
+        return StageOutput({"summary.json": canonical_json(summary) + b"\n", "report.md": render_report(summary, families, findings, certificates)})
     return execute
 
 

@@ -263,8 +263,7 @@ class ArtifactContractTests(unittest.TestCase):
         )
 
     def test_finding_family_allowlist_is_strict_before_publication(self):
-        record = {
-            "family_id": "family:fixture",
+        semantic = {
             "verdict": "static_unknown",
             "priority": "inventory",
             "primary_finding_id": "finding:primary",
@@ -277,11 +276,56 @@ class ArtifactContractTests(unittest.TestCase):
             "amplification_class": "unknown",
             "reason_codes": ["FIXTURE_UNKNOWN"],
         }
+        record = {
+            "family_id": stable_identifier("family", semantic),
+            **semantic,
+        }
 
         validate_records("finding_families", [record])
         with self.assertRaises(AnalyzerError) as raised:
             validate_records("finding_families", [{**record, "unexpected": True}])
         self.assertEqual("ARTIFACT_INVALID_RECORD", raised.exception.code)
+        with self.assertRaises(AnalyzerError):
+            validate_records(
+                "finding_families", [{**record, "family_id": "family:forged"}]
+            )
+
+    def test_candidate_disposition_schema_preserves_dos_relevant_partial(self):
+        semantic = {
+            "growth_id": "growth:partial",
+            "status": "dos_relevant_partial",
+            "link_ids": ["candidate_link:partial"],
+            "reason_codes": ["GROWTH_DOS_RELEVANT_PARTIAL"],
+        }
+        record = {
+            "disposition_id": stable_identifier("disposition", semantic),
+            **semantic,
+        }
+        validate_records("candidate_dispositions", [record])
+        with self.assertRaises(AnalyzerError):
+            validate_records(
+                "candidate_dispositions",
+                [{**record, "link_ids": []}],
+            )
+
+        rejected_semantic = {
+            "growth_id": "growth:rejected",
+            "status": "rejected",
+            "link_ids": [],
+            "reason_codes": ["RELEVANCE_SERVER_SIZED_ALLOCATION"],
+        }
+        validate_references(
+            "candidate_dispositions",
+            [
+                {
+                    "disposition_id": stable_identifier(
+                        "disposition", rejected_semantic
+                    ),
+                    **rejected_semantic,
+                }
+            ],
+            {"growth_id": {"growth:rejected"}, "link_id": set()},
+        )
 
     def test_lifecycle_candidate_models_match_published_artifact_schemas(self):
         guard = GuardCandidate.create(

@@ -12,7 +12,12 @@ from dosweb.conclude.assertions import (
     evaluate_assertion_1,
     evaluate_assertion_2,
 )
-from dosweb.conclude.verdicts import CandidateCoverage, StaticVerdict
+from dosweb.conclude.verdicts import (
+    CandidateCoverage,
+    StaticVerdict,
+    VerdictProofGate,
+    apply_positive_proof_gate,
+)
 from dosweb.entries import EntryFact
 from dosweb.errors import AnalyzerError
 from dosweb.flows import VerifiedFlow
@@ -254,6 +259,7 @@ def build_lifecycle_certificate(
     reachability: object | None = None,
     repeatability: object | None = None,
     amplification: object | None = None,
+    proof_gate: VerdictProofGate | None = None,
 ) -> LifecycleCertificate:
     if not isinstance(entry, EntryFact) or not isinstance(growth, VerifiedGrowthResult):
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Certificate facts are malformed.")
@@ -282,6 +288,8 @@ def build_lifecycle_certificate(
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Certificate assertions are malformed.")
     if not isinstance(coverage, CandidateCoverage) or not isinstance(verdict, StaticVerdict):
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Coverage or verdict is malformed.")
+    if proof_gate is not None and not isinstance(proof_gate, VerdictProofGate):
+        raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Certificate proof gate is malformed.")
     expected_assertions = tuple(
         evaluation
         for flow in flows
@@ -310,6 +318,8 @@ def build_lifecycle_certificate(
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Coverage path is absent from certificate paths.")
     from dosweb.conclude.verdicts import derive_verdict
     expected_verdict = derive_verdict(assertions, coverage)
+    if proof_gate is not None:
+        expected_verdict = apply_positive_proof_gate(expected_verdict, proof_gate)
     if verdict != expected_verdict:
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Supplied verdict does not match deterministic derivation.")
     if coverage.forces_unknown and verdict.verdict != "static_unknown":

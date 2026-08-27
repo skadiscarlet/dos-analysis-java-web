@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from dosweb.conclude import (
     AssertionEvaluation,
     CandidateCoverage,
+    VerdictProofGate,
+    apply_positive_proof_gate,
     derive_verdict,
     evaluate_assertion_1,
     evaluate_assertion_2,
@@ -149,6 +152,48 @@ class AssertionTests(unittest.TestCase):
         self.assertNotIn("safe", verdict.verdict)
         self.assertEqual(verdict.covered_entries, (self.entry.entry_id,))
         self.assertEqual(verdict.covered_paths, (self.flow.path_id,))
+
+    def test_positive_proof_gate_preserves_only_fully_proven_vulnerability(self) -> None:
+        matched = evaluate_assertion_1(self.growth, self.flow, self.no_guard, self.no_bound)
+        not_applicable = evaluate_assertion_2(
+            self.growth, self.flow, self.no_bound, self.no_release
+        )
+        verdict = derive_verdict((matched, not_applicable), self.coverage)
+        gate = VerdictProofGate(
+            entry_complete=True,
+            ordinary_reachability=True,
+            growth_verified=True,
+            flow_proven=True,
+            lifecycle_families_complete=True,
+            candidate_relevant_gap_free=True,
+        )
+
+        self.assertEqual(apply_positive_proof_gate(verdict, gate), verdict)
+
+    def test_positive_proof_gate_downgrades_each_missing_obligation_with_exact_reason(self) -> None:
+        matched = evaluate_assertion_1(self.growth, self.flow, self.no_guard, self.no_bound)
+        not_applicable = evaluate_assertion_2(
+            self.growth, self.flow, self.no_bound, self.no_release
+        )
+        verdict = derive_verdict((matched, not_applicable), self.coverage)
+        complete = VerdictProofGate(True, True, True, True, True, True)
+        reasons = {
+            "entry_complete": "VERDICT_ENTRY_COVERAGE_INCOMPLETE",
+            "ordinary_reachability": "VERDICT_REACHABILITY_NOT_PROVEN",
+            "growth_verified": "VERDICT_GROWTH_NOT_VERIFIED",
+            "flow_proven": "VERDICT_FLOW_NOT_PROVEN",
+            "lifecycle_families_complete": "VERDICT_LIFECYCLE_COVERAGE_INCOMPLETE",
+            "candidate_relevant_gap_free": "VERDICT_CANDIDATE_RELEVANT_GAP",
+        }
+
+        for field, reason in reasons.items():
+            with self.subTest(field=field):
+                gated = apply_positive_proof_gate(
+                    verdict,
+                    replace(complete, **{field: False}),
+                )
+                self.assertEqual(gated.verdict, "static_unknown")
+                self.assertIn(reason, gated.reason_codes)
 
     def test_coverage_gap_or_unknown_evidence_forces_static_unknown(self) -> None:
         matched = evaluate_assertion_1(self.growth, self.flow, self.no_guard, self.no_bound)

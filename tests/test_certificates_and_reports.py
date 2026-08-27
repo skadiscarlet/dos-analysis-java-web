@@ -8,6 +8,8 @@ from dosweb.errors import AnalyzerError
 from dosweb.conclude import (
     AssertionEvaluation,
     CandidateCoverage,
+    VerdictProofGate,
+    apply_positive_proof_gate,
     derive_verdict,
     evaluate_assertion_1,
     evaluate_assertion_2,
@@ -15,7 +17,7 @@ from dosweb.conclude import (
 from dosweb.flows import FlowProof, normalize_flow_rows, verify_flow
 from dosweb.lifecycle import BoundDecision, GuardDecision, ReleaseDecision
 from dosweb.lifecycle.certificates import StaticFinding, build_lifecycle_certificate
-from dosweb.report import build_summary, render_report
+from dosweb.report import build_finding_families, build_summary, render_report
 from tests.test_flow_verification import FlowVerificationTests
 
 
@@ -92,10 +94,15 @@ class CertificateReportTests(unittest.TestCase):
     def test_summary_and_markdown_agree_on_ids_and_verdicts(self) -> None:
         certificate = self._certificate()
         finding = StaticFinding.from_certificate(certificate)
-        summary = build_summary((finding,), (self._framework_coverage(),))
-        report = render_report(summary, (finding,), (certificate,))
+        families = self._families(finding, certificate)
+        summary = build_summary(families, (finding,), (self._framework_coverage(),))
+        report = render_report(summary, families, (finding,), (certificate,))
+        self.assertEqual(summary["family_ids"], [families[0].family_id])
         self.assertEqual(summary["finding_ids"], [finding.finding_id])
         self.assertEqual(summary["verdict_counts"][finding.verdict], 1)
+        self.assertIn("## Finding families", report)
+        self.assertIn("| Priority | Family ID | Verdict | Amplification | Reachability | Bound status | Missing evidence / reasons |", report)
+        self.assertLess(report.index("## Finding families"), report.index("## Exact finding audit"))
         self.assertIn(finding.finding_id, report)
         self.assertIn(certificate.verdict, report)
         self.assertIn("Coverage and limitations", report)
@@ -117,6 +124,43 @@ class CertificateReportTests(unittest.TestCase):
             build_lifecycle_certificate(
                 self.entry, self.growth, (self.flow,), self.guard, self.bound, self.release,
                 assertions, self.coverage, replace(verdict, covered_paths=()),
+            )
+
+    def test_builder_recomputes_positive_proof_gate_before_signing_certificate(self) -> None:
+        assertions = (
+            evaluate_assertion_1(self.growth, self.flow, self.guard, self.bound),
+            evaluate_assertion_2(self.growth, self.flow, self.bound, self.release),
+        )
+        derived = derive_verdict(assertions, self.coverage)
+        gate = VerdictProofGate(True, False, True, True, True, True)
+        gated = apply_positive_proof_gate(derived, gate)
+
+        certificate = build_lifecycle_certificate(
+            self.entry,
+            self.growth,
+            (self.flow,),
+            self.guard,
+            self.bound,
+            self.release,
+            assertions,
+            self.coverage,
+            gated,
+            proof_gate=gate,
+        )
+        self.assertEqual(certificate.verdict, "static_unknown")
+        self.assertIn("VERDICT_REACHABILITY_NOT_PROVEN", certificate.reason_codes)
+        with self.assertRaises(AnalyzerError):
+            build_lifecycle_certificate(
+                self.entry,
+                self.growth,
+                (self.flow,),
+                self.guard,
+                self.bound,
+                self.release,
+                assertions,
+                self.coverage,
+                derived,
+                proof_gate=gate,
             )
 
     def test_partial_sibling_path_forces_static_unknown(self) -> None:
@@ -193,18 +237,28 @@ class CertificateReportTests(unittest.TestCase):
 
     def test_report_rejects_orphan_certificate(self) -> None:
         certificate = self._certificate()
-        summary = build_summary((), (self._framework_coverage(),))
+        summary = build_summary((), (), (self._framework_coverage(),))
         with self.assertRaises(AnalyzerError) as raised:
-            render_report(summary, (), (certificate,))
+            render_report(summary, (), (), (certificate,))
         self.assertEqual(raised.exception.code, "ANALYSIS_REPORT_INVALID")
 
     def test_report_rejects_finding_certificate_disagreement(self) -> None:
         certificate = self._certificate()
         finding = StaticFinding.from_certificate(certificate)
-        summary = build_summary((finding,), (self._framework_coverage(),))
+        families = self._families(finding, certificate)
+        summary = build_summary(families, (finding,), (self._framework_coverage(),))
         forged = replace(finding, reason_codes=("FORGED",))
         with self.assertRaises(AnalyzerError):
-            render_report(summary, (forged,), (certificate,))
+            render_report(summary, families, (forged,), (certificate,))
+
+    def _families(self, finding, certificate):
+        return build_finding_families(
+            (finding,),
+            (certificate,),
+            {self.entry.entry_id: self.entry},
+            {},
+            {(self.entry.entry_id, self.growth.growth_id): "large_single_request"},
+        )
 
     def _framework_coverage(self):
         from dosweb.entries import FrameworkCoverage

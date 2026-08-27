@@ -17,6 +17,48 @@ StaticVerdictName = Literal[
 
 
 @dataclass(frozen=True)
+class VerdictProofGate:
+    """Positive obligations required before publishing ``static_vulnerable``."""
+
+    entry_complete: bool
+    ordinary_reachability: bool
+    growth_verified: bool
+    flow_proven: bool
+    lifecycle_families_complete: bool
+    candidate_relevant_gap_free: bool
+
+    def __post_init__(self) -> None:
+        if any(
+            type(getattr(self, field)) is not bool
+            for field in (
+                "entry_complete",
+                "ordinary_reachability",
+                "growth_verified",
+                "flow_proven",
+                "lifecycle_families_complete",
+                "candidate_relevant_gap_free",
+            )
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_VERDICT_INVALID", "Verdict proof gate is malformed."
+            )
+
+    @property
+    def missing_reason_codes(self) -> tuple[str, ...]:
+        reasons = {
+            "entry_complete": "VERDICT_ENTRY_COVERAGE_INCOMPLETE",
+            "ordinary_reachability": "VERDICT_REACHABILITY_NOT_PROVEN",
+            "growth_verified": "VERDICT_GROWTH_NOT_VERIFIED",
+            "flow_proven": "VERDICT_FLOW_NOT_PROVEN",
+            "lifecycle_families_complete": "VERDICT_LIFECYCLE_COVERAGE_INCOMPLETE",
+            "candidate_relevant_gap_free": "VERDICT_CANDIDATE_RELEVANT_GAP",
+        }
+        return tuple(
+            sorted(reason for field, reason in reasons.items() if not getattr(self, field))
+        )
+
+
+@dataclass(frozen=True)
 class CandidateCoverage:
     """Coverage for a candidate, optionally narrowed to fact identifiers."""
 
@@ -240,4 +282,38 @@ def derive_verdict(
     )
 
 
-__all__ = ["CandidateCoverage", "StaticVerdict", "StaticVerdictName", "derive_verdict"]
+def apply_positive_proof_gate(
+    verdict: StaticVerdict,
+    gate: VerdictProofGate,
+) -> StaticVerdict:
+    if not isinstance(verdict, StaticVerdict) or not isinstance(gate, VerdictProofGate):
+        raise AnalyzerError("ANALYSIS_VERDICT_INVALID", "Verdict proof gate inputs are malformed.")
+    missing = gate.missing_reason_codes
+    if not missing:
+        return verdict
+    if verdict.verdict == "bounded_under_modeled_assumptions":
+        return verdict
+    gated_name: StaticVerdictName = (
+        "static_unknown" if verdict.verdict == "static_vulnerable" else verdict.verdict
+    )
+    return StaticVerdict(
+        verdict=gated_name,
+        reason_codes=tuple(sorted(set((*verdict.reason_codes, *missing)))),
+        evidence_ids=verdict.evidence_ids,
+        unresolved_facts=verdict.unresolved_facts,
+        assumptions=verdict.assumptions,
+        modeled_configuration_refs=verdict.modeled_configuration_refs,
+        covered_entries=verdict.covered_entries,
+        covered_paths=verdict.covered_paths,
+        coverage_gaps=verdict.coverage_gaps,
+    )
+
+
+__all__ = [
+    "CandidateCoverage",
+    "StaticVerdict",
+    "StaticVerdictName",
+    "VerdictProofGate",
+    "apply_positive_proof_gate",
+    "derive_verdict",
+]

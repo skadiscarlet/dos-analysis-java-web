@@ -1409,7 +1409,11 @@ public class ServiceApplication extends Application<Object> {
             self.assertEqual(len(query_calls), 20)
             self.assertEqual(
                 {item["path"] for item in result["stages"]["conclude"]["artifacts"]},
-                {"lifecycle_certificates.jsonl", "static_findings.jsonl"},
+                {
+                    "lifecycle_certificates.jsonl",
+                    "static_findings.jsonl",
+                    "finding_families.jsonl",
+                },
             )
             self.assertEqual(
                 {item["path"] for item in result["stages"]["report"]["artifacts"]},
@@ -1440,7 +1444,7 @@ public class ServiceApplication extends Application<Object> {
                 "InputMaterialization": (GROWTH_COLUMNS, [[
                     "src/Handler.java", 24, "input_materialization", "spring_request_body_materialization",
                     "bytes", "fixture.Handler.handle", "body", "body", "size", "request",
-                    "fact:growth", "complete", "recognized_spring_request_body_bytes",
+                    "fact:growth", "partial", "recognized_spring_request_body_bytes",
                 ]]),
                 "EntryToGrowth": (FLOW_COLUMNS, [[
                     "src/Handler.java", 20, "src/Handler.java", 24, "size", "body", "body",
@@ -1540,11 +1544,25 @@ public class ServiceApplication extends Application<Object> {
             )
             result = pipeline.run("analyze")
             self.assertEqual("completed", result["status"])
+            disposition = json.loads(
+                (root / "output" / "candidate_dispositions.jsonl").read_text().strip()
+            )
+            self.assertEqual("dos_relevant_partial", disposition["status"])
             findings = json.loads((root / "output" / "static_findings.jsonl").read_text().strip())
             self.assertEqual("static_unknown", findings["verdict"])
             certificate = json.loads((root / "output" / "lifecycle_certificates.jsonl").read_text().strip())
             self.assertEqual(findings["certificate_id"], certificate["certificate_id"])
             self.assertIn("VERDICT_UNRESOLVED_EVIDENCE", findings["reason_codes"])
+            self.assertIn("VERDICT_CANDIDATE_RELEVANT_GAP", findings["reason_codes"])
+            family = json.loads(
+                (root / "output" / "finding_families.jsonl").read_text().strip()
+            )
+            self.assertEqual(family["verdict"], "static_unknown")
+            self.assertEqual(family["member_finding_ids"], [findings["finding_id"]])
+            self.assertEqual(
+                family["member_certificate_ids"], [certificate["certificate_id"]]
+            )
+            self.assertEqual(family["amplification_class"], "large_single_request")
             self.assertIn("static_unknown", (root / "output" / "report.md").read_text())
 
     def test_lifecycle_decision_records_preserve_exact_boolean_checks_and_coverage(self) -> None:

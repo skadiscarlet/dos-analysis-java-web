@@ -25,7 +25,7 @@ from dosweb.lifecycle import (
 )
 from dosweb.lifecycle.certificates import StaticFinding, build_lifecycle_certificate
 from dosweb.pipeline import Pipeline, STAGES, StageOutput
-from dosweb.report import build_summary, render_report
+from dosweb.report import build_finding_families, build_summary, render_report
 
 
 class P0EndToEndTests(unittest.TestCase):
@@ -85,7 +85,10 @@ class P0EndToEndTests(unittest.TestCase):
                 entry_id=entry.entry_id,
                 growth_id=growth.growth_id,
                 attacker_control=AttackerControl(role, input_name, f"resource.{input_name}"),
-                call_path=(handler.callable, "resource.grow"),
+                call_path=(
+                    handler.callable,
+                    f"{handler.callable}~resource.grow@{file_name}:19",
+                ),
                 phase_sequence=("in_handler", "growth"),
                 confidence="proven",
             ),
@@ -216,7 +219,31 @@ class P0EndToEndTests(unittest.TestCase):
         self.assertIn("dynamic_subscription", mqtt_certificate.coverage_gaps)
         self.assertTrue(mqtt_certificate.coverage_gaps)
 
+        entries = {
+            case["entry"].entry_id: case["entry"]
+            for _, case, _, _, _, _ in scenarios
+        }
+        amplification_classes = {
+            (finding.entry_id, finding.growth_id): (
+                "large_single_request"
+                if case["growth"].candidate.kind
+                in {"input_materialization", "direct_allocation"}
+                else "high_cardinality_retention"
+                if case["growth"].candidate.kind == "container_growth"
+                else "queue_instability"
+            )
+            for finding, (_, case, _, _, _, _) in zip(findings, scenarios, strict=True)
+        }
+        families = build_finding_families(
+            tuple(findings),
+            tuple(certificates),
+            entries,
+            {},
+            amplification_classes,
+        )
+
         summary = build_summary(
+            families,
             tuple(findings),
             (
                 FrameworkCoverage("spring_mvc", "complete", ("annotation_mapping",), (), "none"),
@@ -224,7 +251,7 @@ class P0EndToEndTests(unittest.TestCase):
                 FrameworkCoverage("mqtt", "partial", ("static_subscription",), ("dynamic_subscription",), "forces_unknown"),
             ),
         )
-        report = render_report(summary, tuple(findings), tuple(certificates))
+        report = render_report(summary, families, tuple(findings), tuple(certificates))
         self.assertEqual(summary["finding_ids"], sorted(item.finding_id for item in findings))
         self.assertEqual(sum(summary["verdict_counts"].values()), 10)
         self.assertEqual(summary["verdict_counts"]["static_unknown"], 2)
