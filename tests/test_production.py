@@ -35,7 +35,13 @@ from dosweb.growth import (
     VerificationCheck,
     VerifiedGrowthResult,
 )
-from dosweb.lifecycle import BoundDecision, DecisionCheck, GuardDecision, ReleaseDecision
+from dosweb.lifecycle import (
+    BoundDecision,
+    DecisionCheck,
+    GuardDecision,
+    ModeledConfiguration,
+    ReleaseDecision,
+)
 from dosweb.pipeline import STAGES, StageContext, StageFingerprint, StageOutput
 from dosweb.production import build_production_pipeline
 import dosweb.production as production
@@ -87,6 +93,49 @@ class ProductionFactoryTests(unittest.TestCase):
             "resume": False,
         }
         return values
+
+    def test_production_path_bound_framework_limit_is_effective_only_for_exact_domain(self) -> None:
+        from tests.test_lifecycle_bounds import BoundEvaluationTests
+
+        helper = BoundEvaluationTests()
+        helper.setUp()
+        entry, flow = helper._framework_path("spring_mvc")  # noqa: SLF001
+        candidate = helper._candidate(  # noqa: SLF001
+            kind="limit",
+            configuration_key="literal",
+            configuration_value="1024",
+            phase="before_growth",
+            request_encoding="multipart",
+            evidence=("servlet_multipart_config_literal",),
+        )
+
+        effective = production._evaluate_path_bounds(  # noqa: SLF001
+            entry,
+            helper.growth,
+            flow,
+            (candidate,),
+            ModeledConfiguration(()),
+            coverage_status="complete",
+        )
+        mismatch = production._evaluate_path_bounds(  # noqa: SLF001
+            entry,
+            helper.growth,
+            flow,
+            (helper._candidate(  # noqa: SLF001
+                kind="limit",
+                configuration_key="literal",
+                configuration_value="1024",
+                phase="before_growth",
+                request_encoding="json",
+                evidence=("servlet_multipart_config_literal",),
+            ),),
+            ModeledConfiguration(()),
+            coverage_status="complete",
+        )
+
+        self.assertEqual("effective", effective.status)
+        self.assertNotEqual("effective", mismatch.status)
+        self.assertIn("BOUND_REQUEST_ENCODING_MISMATCH", mismatch.reason_codes)
 
     def test_flow_stage_does_not_cross_product_missing_rows_from_candidate_links(self) -> None:
         handler = HandlerFact("fixture.Alias.handle", "src/Alias.java", 20)

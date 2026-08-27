@@ -6,6 +6,7 @@ from typing import Literal
 
 from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.entries import EntryFact
+from dosweb.errors import AnalyzerError
 from dosweb.flows import VerifiedFlow
 from dosweb.growth import VerifiedGrowthResult
 from dosweb.lifecycle.guards import DecisionCheck, ModeledConfiguration, _boolean, _evidence, _site, _validate_context
@@ -81,7 +82,13 @@ def evaluate_bound(entry: EntryFact, growth: VerifiedGrowthResult, flow: Verifie
         if candidate.receiver != growth.candidate.receiver: local.append("BOUND_RECEIVER_MISMATCH")
         if not candidate.result_checked: local.append("BOUND_RESULT_IGNORED")
         if candidate.queue_resource != growth.candidate.field_path: local.append("BOUND_QUEUE_CONFIGURATION_MISMATCH")
-        if candidate.request_encoding not in {"raw_body", "any"}: local.append("BOUND_REQUEST_ENCODING_MISMATCH")
+        from dosweb.lifecycle.framework_limits import framework_limit_reason_codes
+        framework_reasons = framework_limit_reason_codes(entry, candidate)
+        if framework_reasons is None:
+            if candidate.request_encoding not in {"raw_body", "any"}:
+                local.append("BOUND_REQUEST_ENCODING_MISMATCH")
+        else:
+            local.extend(framework_reasons)
         if not candidate.product_bound: local.append("BOUND_MULTIPLICATIVE_DEMAND_UNCOVERED")
         if candidate.phase not in {"before_growth", "inside_growth"} or not candidate.covers_flow or candidate.behavior not in {"reject", "block", "evict"}: local.append("BOUND_POSSIBLY_OVER_BUDGET")
         if candidate.configuration_key == "literal":

@@ -10,11 +10,12 @@ from dosweb.lifecycle.guards import (
 )
 from dosweb.lifecycle.releases import ReleaseCandidate, ReleaseDecision, evaluate_synchronous_release
 from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, LifecycleSummary
+from dosweb.lifecycle.framework_limits import normalize_framework_limit
 
 __all__ = [
     "BoundCandidate", "BoundDecision", "BoundStatus", "DecisionCheck",
     "GuardCandidate", "GuardDecision", "ModeledConfiguration", "ReleaseCandidate",
-    "ReleaseDecision", "LifecycleCoverage", "LifecycleEvidence", "LifecycleSummary", "evaluate_bound", "evaluate_guard", "evaluate_synchronous_release",
+    "ReleaseDecision", "LifecycleCoverage", "LifecycleEvidence", "LifecycleSummary", "evaluate_bound", "evaluate_guard", "evaluate_synchronous_release", "normalize_framework_limit",
     "LifecycleCertificate", "StaticFinding", "build_lifecycle_certificate",
 ]
 

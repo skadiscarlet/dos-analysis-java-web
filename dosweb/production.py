@@ -47,6 +47,10 @@ from dosweb.growth.source_fallback import source_backed_same_handler_growth
 from dosweb.growth.verify import VerificationCheck, VerifiedGrowthResult, verify_growth_contract
 from dosweb.lifecycle.bounds import BoundCandidate, BoundDecision, evaluate_bound
 from dosweb.lifecycle.certificates import LifecycleCertificate, StaticFinding, build_lifecycle_certificate
+from dosweb.lifecycle.framework_limits import (
+    is_framework_limit_candidate,
+    normalize_framework_limit,
+)
 from dosweb.lifecycle.guards import DecisionCheck, GuardCandidate, GuardDecision, ModeledConfiguration, evaluate_guard
 from dosweb.lifecycle.releases import ReleaseCandidate, ReleaseDecision, evaluate_synchronous_release
 from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, LifecycleSummary
@@ -1315,6 +1319,65 @@ def _modeled_configuration(context: StageContext) -> ModeledConfiguration:
     return ModeledConfiguration(tuple(values.items()))
 
 
+def _evaluate_path_bounds(
+    entry: EntryFact,
+    growth: VerifiedGrowthResult,
+    flow: VerifiedFlow,
+    candidates: Sequence[BoundCandidate],
+    configuration: ModeledConfiguration,
+    *,
+    coverage_status: str,
+) -> BoundDecision:
+    """Evaluate exact framework limits through their path/domain normalizer."""
+    ordered = tuple(sorted(candidates, key=lambda item: item.bound_id))
+    if not ordered:
+        return evaluate_bound(
+            entry, growth, flow, (), configuration, coverage_status=coverage_status
+        )
+
+    individual: list[BoundDecision] = []
+    for candidate in ordered:
+        if is_framework_limit_candidate(candidate):
+            individual.append(
+                normalize_framework_limit(
+                    entry=entry,
+                    growth=growth,
+                    flow=flow,
+                    candidate=candidate,
+                    configuration=configuration,
+                )
+            )
+        else:
+            individual.append(
+                evaluate_bound(
+                    entry,
+                    growth,
+                    flow,
+                    (candidate,),
+                    configuration,
+                    coverage_status="complete",
+                )
+            )
+
+    if any(decision.status == "effective" for decision in individual):
+        return BoundDecision(
+            "effective",
+            (),
+            tuple(check for decision in individual for check in decision.checks),
+            tuple(sorted({item for decision in individual for item in decision.evidence_ids})),
+            tuple(sorted({item for decision in individual for item in decision.unresolved_facts})),
+            tuple(candidate.bound_id for candidate in ordered),
+        )
+    return evaluate_bound(
+        entry,
+        growth,
+        flow,
+        ordered,
+        configuration,
+        coverage_status=coverage_status,
+    )
+
+
 def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None) -> Executor:
     runner = run_query_fn or globals()["run_query"]
     def execute(context: StageContext) -> StageOutput:
@@ -1487,7 +1550,14 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
                 release = ReleaseDecision("unknown", "unknown", reasons, (), (), reasons, ())
             else:
                 guard = evaluate_guard(entry, result, flow, cast(Sequence[GuardCandidate], linked["guard"]), configuration, coverage_status=coverage_by_family["guard"])
-                bound = evaluate_bound(entry, result, flow, cast(Sequence[BoundCandidate], linked["bound"]), configuration, coverage_status=coverage_by_family["bound"])
+                bound = _evaluate_path_bounds(
+                    entry,
+                    result,
+                    flow,
+                    cast(Sequence[BoundCandidate], linked["bound"]),
+                    configuration,
+                    coverage_status=coverage_by_family["bound"],
+                )
                 release = evaluate_synchronous_release(entry, result, flow, cast(Sequence[ReleaseCandidate], linked["release"]), coverage_status=coverage_by_family["release"])
             semantic = {
                 "entry_id": entry.entry_id,

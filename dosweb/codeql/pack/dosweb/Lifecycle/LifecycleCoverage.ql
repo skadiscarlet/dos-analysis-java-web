@@ -7,6 +7,10 @@
 
 import java
 import FiniteQueueDomain
+import FrameworkLimitDomain
+
+// Bound coverage includes only exact StreamReadConstraints,
+// HttpObjectAggregator, MultipartConfig, and formdataUploadLimitInKB domains.
 
 predicate isInputStreamType(Type type) {
   type.(RefType).getASupertype*().hasQualifiedName("java.io", "InputStream")
@@ -337,6 +341,47 @@ predicate unresolvedFiniteQueueOffer(Element growth) {
   )
 }
 
+predicate guardModeledDomain(Element growth) {
+  exists(MethodCall call |
+    growth = call and
+    (
+      call.getMethod().getName() = ["put", "add"]
+      or call.getMethod().getName() = ["offer", "submit", "execute"]
+      or call.getMethod().getName() = ["allocate", "allocateDirect"] and
+         call.getMethod().getDeclaringType().hasQualifiedName("java.nio", "ByteBuffer")
+      or call.getMethod().getName() = "getPayload" and
+         call.getMethod().getDeclaringType().hasQualifiedName(
+           "org.eclipse.paho.client.mqttv3", "MqttMessage"
+         )
+    )
+  )
+}
+
+predicate boundModeledDomain(Element growth) {
+  exists(MethodCall call, Field field |
+    growth = call and call.getMethod().getName() = "offer" and
+    field = queueReceiverField(call) and finiteFieldQueueType(field)
+  )
+  or exists(Element site, MethodCall call, string key, string value,
+            string encoding, string receiver, string fieldPath, string evidence |
+    growth = call and frameworkLimitCandidate(
+      site, call, key, value, encoding, receiver, fieldPath, evidence
+    )
+  )
+}
+
+predicate releaseModeledDomain(Element growth) {
+  exists(MethodCall call |
+    growth = call and call.getMethod().getName() = ["put", "add", "offer", "submit"]
+  )
+}
+
+predicate familyModeledDomain(Element growth, string family) {
+  family = "guard" and guardModeledDomain(growth)
+  or family = "bound" and boundModeledDomain(growth)
+  or family = "release" and releaseModeledDomain(growth)
+}
+
 from Element growth, string familyValue, string statusValue, string noteValue
 where
   modeledGrowth(growth) and entryReachableGrowth(growth) and familyValue = ["guard", "bound", "release"] and
@@ -351,8 +396,14 @@ where
       familyValue = "bound" and unresolvedFiniteQueueOffer(growth) and
       statusValue = "partial" and noteValue = "finite_queue_capacity_not_statically_attested"
       or
+      not reflectiveLifecycleDispatch(growth) and
+      not unmodeledLifecycleDispatch(growth, familyValue) and
+      not familyModeledDomain(growth, familyValue) and
+      statusValue = "partial" and noteValue = "lifecycle_family_api_domain_unmodeled"
+      or
       not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and
       not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and
+      familyModeledDomain(growth, familyValue) and
       statusValue = "complete" and noteValue = "same_callable_modeled_domain_scanned"
     )
   )

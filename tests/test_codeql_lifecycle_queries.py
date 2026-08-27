@@ -31,6 +31,7 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
             "Flows/EntryGrowthDomain.qll", "Flows/EntryToGrowth.ql",
             "Flows/EntryToGrowthAssociations.ql",
             "Lifecycle/GuardCandidates.ql", "Lifecycle/BoundCandidates.ql",
+            "Lifecycle/FrameworkLimitDomain.qll",
             "Lifecycle/SynchronousReleaseCandidates.ql", "Lifecycle/LifecycleCoverage.ql",
             "Lifecycle/LifecycleSummary.ql", "Growth/LoopAmplification.qll",
             "Growth/ContainerGrowth.ql", "Growth/AsyncWorkGrowth.ql",
@@ -144,6 +145,29 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
         for depth in range(4):
             with self.subTest(depth=depth):
                 self.assertIn(f"depth = {depth}", domain)
+
+    def test_framework_limit_domains_are_explicit_and_coverage_is_fail_closed(self) -> None:
+        bound = (
+            _ROOT / "codeql" / "dosweb" / "Lifecycle" / "BoundCandidates.ql"
+        ).read_text(encoding="utf-8")
+        coverage = (
+            _ROOT / "codeql" / "dosweb" / "Lifecycle" / "LifecycleCoverage.ql"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "StreamReadConstraints",
+            "HttpObjectAggregator",
+            "MultipartConfig",
+            "formdataUploadLimitInKB",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, bound)
+                self.assertIn(token, coverage)
+        self.assertIn("familyModeledDomain", coverage)
+        self.assertIn("lifecycle_family_api_domain_unmodeled", coverage)
+        self.assertNotIn(
+            'not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and\n      not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and\n      statusValue = "complete"',
+            coverage,
+        )
 
 
 @unittest.skipUnless(
@@ -547,8 +571,12 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             fixture_coverage,
         )
         self.assertTrue(
-            all(row["coverage_status"] == "complete" for row in fixture_coverage),
+            all(row["coverage_status"] == "partial" for row in fixture_coverage),
             fixture_coverage,
+        )
+        self.assertEqual(
+            {row["coverage_note"] for row in fixture_coverage},
+            {"lifecycle_family_api_domain_unmodeled"},
         )
         for negative_line in (unannotated_line, lookalike_line):
             self.assertNotIn(
@@ -624,8 +652,12 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             fixture_coverage,
         )
         self.assertTrue(
-            all(row["coverage_status"] == "complete" for row in fixture_coverage),
+            all(row["coverage_status"] == "partial" for row in fixture_coverage),
             fixture_coverage,
+        )
+        self.assertEqual(
+            {row["coverage_note"] for row in fixture_coverage},
+            {"lifecycle_family_api_domain_unmodeled"},
         )
         self.assertNotIn(
             lookalike_line,
@@ -702,6 +734,91 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
         self.assertEqual(
             {row["coverage_note"] for row in matching_coverage},
             {"netty_async_json_dispatch_lifecycle_unresolved"},
+        )
+
+    def test_framework_limits_emit_complete_growth_anchored_bound_rows(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "framework_limits" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "limits" / "FrameworkLimitFixture.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        anchors = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(jacksonSize)",
+                "ByteBuffer.allocate(message.content().readableBytes())",
+                "ByteBuffer.allocate(request.size())",
+                "keyStream.toByteArray()",
+            )
+        }
+        unrelated_anchors = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(unboundJacksonSize)",
+                "ByteBuffer.allocate((Integer) looseMessage)",
+                "ByteBuffer.allocate(1024); // unrelated multipart allocation",
+            )
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "framework-limits")
+            bounds = self._rows("Lifecycle/BoundCandidates.ql", database, temporary)
+            coverage = self._rows("Lifecycle/LifecycleCoverage.ql", database, temporary)
+
+        fixture_bounds = [
+            row for row in bounds
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+        ]
+        self.assertEqual(
+            {row["evidence"] for row in fixture_bounds},
+            {
+                "jackson_stream_read_constraints_literal",
+                "netty_http_object_aggregator_literal",
+                "servlet_multipart_config_literal",
+                "solr_formdata_upload_limit_literal",
+            },
+            fixture_bounds,
+        )
+        self.assertEqual(
+            {row["anchor_start_line"] for row in fixture_bounds},
+            set(anchors.values()),
+            fixture_bounds,
+        )
+        self.assertTrue(
+            set(unrelated_anchors.values()).isdisjoint(
+                {row["anchor_start_line"] for row in fixture_bounds}
+            ),
+            fixture_bounds,
+        )
+        self.assertTrue(
+            all(
+                row["coverage_status"] == "complete"
+                and row["coverage_note"] == "framework_limit_exact_path_literal"
+                and row["phase"] == "before_growth"
+                and row["covers_flow"] is True
+                and row["product_bound"] is True
+                for row in fixture_bounds
+            ),
+            fixture_bounds,
+        )
+        bound_coverage = [
+            row for row in coverage
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+            and row.get("anchor_start_line") in anchors.values()
+            and row.get("family") == "bound"
+        ]
+        self.assertEqual(len(bound_coverage), 4, bound_coverage)
+        self.assertTrue(
+            all(
+                row["coverage_status"] == "complete"
+                and row["coverage_note"] == "same_callable_modeled_domain_scanned"
+                for row in bound_coverage
+            ),
+            bound_coverage,
         )
 
     def test_fixture_semantics(self) -> None:
