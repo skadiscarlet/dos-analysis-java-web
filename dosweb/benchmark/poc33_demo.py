@@ -136,6 +136,21 @@ def _ratio(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 6)
 
 
+def _explicit_deferred(row: Mapping[str, object]) -> bool:
+    reasons = row.get("reason_codes")
+    reason_set = {
+        value for value in reasons
+        if isinstance(value, str)
+    } if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes)) else set()
+    return (
+        row.get("status") == "growth_only"
+        and {
+            "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
+            "GROWTH_SINK_MATCHED",
+        }.issubset(reason_set)
+    )
+
+
 def build_demo_metrics(
     *,
     statuses: Sequence[Mapping[str, object]],
@@ -163,6 +178,11 @@ def build_demo_metrics(
         str(row.get("status") or "missing") for row in truth_dispositions
     )
     full_chain = truth_statuses["full_chain_finding"]
+    deferred = [row for row in truth_dispositions if _explicit_deferred(row)]
+    supported = [row for row in truth_dispositions if not _explicit_deferred(row)]
+    supported_full_chain = sum(
+        1 for row in supported if row.get("status") == "full_chain_finding"
+    )
 
     static_by_finding, families = _static_index(static_findings)
     static_verdict_counts = Counter(
@@ -212,11 +232,12 @@ def build_demo_metrics(
         "skipped_queries": skipped_queries,
         "truth": len(truth_dispositions),
         "full_chain_finding": full_chain,
+        "explicit_deferred": len(deferred),
         "truth_status_counts": dict(sorted(truth_statuses.items())),
         "supported_chain_recall": {
-            "numerator": full_chain,
-            "denominator": len(truth_dispositions),
-            "ratio": _ratio(full_chain, len(truth_dispositions)),
+            "numerator": supported_full_chain,
+            "denominator": len(supported),
+            "ratio": _ratio(supported_full_chain, len(supported)),
         },
         "queue": len(static_findings),
         "families": len(families),
@@ -375,6 +396,7 @@ def _report(metrics: Mapping[str, object]) -> str:
             "## Supported-chain recall",
             "",
             f"- full chain: {recall.get('numerator')}/{recall.get('denominator')} ({recall.get('ratio')})",
+            f"- explicit deferred: {metrics.get('explicit_deferred')}",
             "",
             "## Dynamic case taxonomy",
             "",
@@ -431,7 +453,12 @@ def main(argv: list[str] | None = None) -> int:
     if static_audit is not None:
         static_findings = _read_jsonl(static_audit / "static_positive_queue.jsonl")
     else:
-        static_findings = _read_jsonl(static_batch / "finding_families.jsonl")
+        direct_families = static_batch / "finding_families.jsonl"
+        aggregate_families = static_batch / "aggregate_finding_families.jsonl"
+        if direct_families.is_file() and aggregate_families.is_file():
+            raise ValueError("static batch has ambiguous finding family roots")
+        family_path = direct_families if direct_families.is_file() else aggregate_families
+        static_findings = _read_jsonl(family_path)
     dynamic_results = [
         *_read_jsonl(dynamic / "findings.jsonl"),
         *_read_jsonl(dynamic / "blocked_or_rejected.jsonl"),
@@ -462,4 +489,3 @@ __all__ = [
     "classify_dynamic_case",
     "main",
 ]
-

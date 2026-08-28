@@ -26,6 +26,7 @@ from dosweb.entries import AttackerInputFact, EntryFact, HandlerFact, Registrati
 from dosweb.errors import AnalyzerError
 from dosweb.growth import (
     AttackerInfluence,
+    CandidateDisposition,
     CandidateEntryLink,
     DemandInput,
     GrowthCandidate,
@@ -262,6 +263,112 @@ class ProductionFactoryTests(unittest.TestCase):
         self.assertEqual(len(proofs), 1)
         self.assertEqual(proofs[0]["entry_id"], canonical.entry_id)
         self.assertEqual(proofs[0]["confidence"], "proven")
+
+    def test_candidate_relevant_partial_link_gets_one_explicit_gap_flow(self) -> None:
+        entry = EntryFact.create(
+            framework="servlet",
+            protocol="http",
+            handler=HandlerFact("fixture.Upload.doPost", "src/Upload.java", 20),
+            registration=RegistrationFact(
+                "annotation_mapping", "fixture.Upload", "src/Upload.java", 18
+            ),
+            route_or_event="POST /upload",
+            auth_context="unauthenticated",
+            attacker_inputs=(
+                AttackerInputFact("request", "HttpServletRequest", "stream"),
+            ),
+            materialization_phase="in_handler",
+        )
+        candidate = GrowthCandidate.create(
+            site=SourceLocation("src/Upload.java", 29),
+            kind="container_growth",
+            operation="java.util.Map.put",
+            resource_dimension="entries",
+            receiver="fixture.Upload.registry",
+            field_path="registry",
+            demand_inputs=(DemandInput("valueOf(...)", "key"),),
+            escape_scope="instance",
+            evidence_ids=frozenset({"fact:growth"}),
+            coverage_status="partial",
+            coverage_notes=("field_retention_partial",),
+        )
+        growth = VerifiedGrowthResult.create(
+            candidate=candidate,
+            slice_id="slice:partial",
+            status="unresolved",
+            reason_codes=("GROWTH_DOS_RELEVANT_PARTIAL",),
+            checks=(
+                VerificationCheck(
+                    "candidate_relevance_and_entry_association",
+                    False,
+                    "GROWTH_DOS_RELEVANT_PARTIAL",
+                ),
+            ),
+        )
+        link = CandidateEntryLink.create(
+            candidate.growth_id,
+            entry.entry_id,
+            "partial",
+            (candidate.growth_id, entry.entry_id),
+            ("ASSOCIATION_LEGACY_SOURCE_ORDER_PARTIAL", "FLOW_CODEQL_ROW_MISSING"),
+        )
+        disposition = CandidateDisposition.create(
+            candidate.growth_id,
+            "dos_relevant_partial",
+            (link.link_id,),
+            ("GROWTH_DOS_RELEVANT_PARTIAL",),
+        )
+
+        rows = production._candidate_relevant_partial_flow_rows(  # noqa: SLF001
+            {entry.entry_id: entry},
+            {candidate.growth_id: growth},
+            (link.to_dict(),),
+            (disposition.to_dict(),),
+            set(),
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["attacker_source"], "request")
+        self.assertEqual(rows[0]["attacker_sink"], "valueOf(...)")
+        self.assertEqual(rows[0]["attacker_target"], "key")
+        self.assertEqual(rows[0]["flow_kind"], "unmodeled")
+        self.assertEqual(rows[0]["confidence"], "partial")
+        self.assertEqual(rows[0]["coverage_status"], "partial")
+        proofs = production.normalize_flow_rows(  # noqa: SLF001
+            rows,
+            {entry.entry_id: entry},
+            {candidate.growth_id: growth},
+        )
+        self.assertEqual(len(proofs), 1)
+        self.assertEqual(proofs[0]["entry_id"], entry.entry_id)
+        self.assertEqual(proofs[0]["growth_id"], candidate.growth_id)
+
+        generic = CandidateDisposition.create(
+            candidate.growth_id,
+            "unresolved",
+            (link.link_id,),
+            ("ASSOCIATION_CALL_GRAPH_UNAVAILABLE",),
+        )
+        self.assertEqual(
+            production._candidate_relevant_partial_flow_rows(  # noqa: SLF001
+                {entry.entry_id: entry},
+                {candidate.growth_id: growth},
+                (link.to_dict(),),
+                (generic.to_dict(),),
+                set(),
+            ),
+            [],
+        )
+        self.assertEqual(
+            production._candidate_relevant_partial_flow_rows(  # noqa: SLF001
+                {entry.entry_id: entry},
+                {candidate.growth_id: growth},
+                (link.to_dict(),),
+                (disposition.to_dict(),),
+                {(entry.entry_id, candidate.growth_id)},
+            ),
+            [],
+        )
 
     def _fake_executors(self, calls: list[str], secret: str = "", *, fail: bool = False):
         def execute(context: StageContext) -> StageOutput:
@@ -625,7 +732,7 @@ public class ServiceApplication extends Application<Object> {
             self.assertEqual(raised.exception.code, "CODEQL_QUERY_FAILED")
             self.assertFalse((root / "output" / ".stage-manifests" / "entries.json").exists())
 
-    def test_default_entries_marks_failed_selected_queries_as_partial_coverage(self) -> None:
+    def test_exploratory_entries_runs_all_queries_and_marks_failures_as_partial_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             database = root / "database"
@@ -651,33 +758,29 @@ public class ServiceApplication extends Application<Object> {
             )
             result = pipeline.run("entries")
             self.assertEqual(result["status"], "completed")
-            self.assertEqual(result["stages"]["entries"]["metadata"]["query_count"], 3)
-            self.assertEqual(result["stages"]["entries"]["metadata"]["skipped_query_count"], 3)
+            self.assertEqual(result["stages"]["entries"]["metadata"]["query_count"], 8)
+            self.assertEqual(result["stages"]["entries"]["metadata"]["skipped_query_count"], 8)
             self.assertEqual(
-                result["stages"]["entries"]["metadata"]["query_diagnostics"],
-                [{
-                    "code": "CODEQL_QUERY_FAILED",
-                    "diagnostic": "timeout",
-                    "query_name": "SpringMvcEntries.ql",
-                    "stage": "query_run",
-                }, {
-                    "code": "CODEQL_QUERY_FAILED",
-                    "query_name": "EntryInterpositions.ql",
-                }, {
-                    "code": "CODEQL_QUERY_FAILED",
-                    "query_name": "EntrySecurity.ql",
-                }],
+                {
+                    row["query_name"]
+                    for row in result["stages"]["entries"]["metadata"]["query_diagnostics"]
+                },
+                {
+                    *production._ENTRY_QUERIES,
+                    production._INTERPOSITION_QUERY,
+                    production._SECURITY_QUERY,
+                },
             )
             coverage = json.loads((root / "output" / "coverage.json").read_text(encoding="utf-8"))
             spring = next(item for item in coverage if item["framework"] == "spring_mvc")
             self.assertEqual(spring["status"], "partial")
             self.assertIn("query_failed:SpringMvcEntries", spring["unsupported_patterns"])
             servlet = next(item for item in coverage if item["framework"] == "servlet")
-            self.assertEqual(servlet["status"], "unsupported")
-            self.assertIn("framework_evidence_absent:ServletEntries", servlet["unsupported_patterns"])
+            self.assertEqual(servlet["status"], "partial")
+            self.assertIn("query_failed:ServletEntries", servlet["unsupported_patterns"])
             self.assertEqual((root / "output" / "entry_facts.jsonl").read_text(encoding="utf-8"), "")
 
-    def test_truncated_entry_hint_scan_marks_unselected_frameworks_partial(self) -> None:
+    def test_exploratory_entries_does_not_reduce_queries_for_a_large_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             database = root / "database"
@@ -691,8 +794,10 @@ public class ServiceApplication extends Application<Object> {
                     encoding="utf-8",
                 )
             info = DatabaseInfo(database, source, "d" * 64)
+            observed_queries: list[str] = []
 
             def fake_run(query: Path, _database: DatabaseInfo, output_dir: Path, **_kwargs: object) -> QueryResult:
+                observed_queries.append(query.name)
                 payload = self._payload_for_query(query)
                 if query.name in production._ENTRY_QUERIES:
                     payload["#select"]["tuples"][0][0] = "spring_mvc"  # type: ignore[index]
@@ -712,11 +817,20 @@ public class ServiceApplication extends Application<Object> {
                 validate_database_fn=lambda *_args, **_kwargs: info,
                 run_query_fn=fake_run,
             )
-            self.assertEqual(pipeline.run("entries")["status"], "completed")
-            coverage = json.loads((root / "output" / "coverage.json").read_text(encoding="utf-8"))
-            servlet = next(item for item in coverage if item["framework"] == "servlet")
-            self.assertEqual(servlet["status"], "partial")
-            self.assertIn("framework_evidence_scan_truncated:ServletEntries", servlet["unsupported_patterns"])
+            result = pipeline.run("entries")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(
+                observed_queries,
+                [
+                    *production._ENTRY_QUERIES,
+                    production._INTERPOSITION_QUERY,
+                    production._SECURITY_QUERY,
+                ],
+            )
+            self.assertEqual(result["stages"]["entries"]["metadata"]["query_count"], 8)
+            self.assertFalse(
+                result["stages"]["entries"]["metadata"]["entry_evidence_scan_truncated"]
+            )
 
     def test_default_entries_executes_the_preflight_query_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1096,7 +1210,7 @@ public class ServiceApplication extends Application<Object> {
 
         self.assertEqual(reconciled, [valid])
 
-    def test_flow_reconciliation_invalidates_pre_fix_resume_artifacts(self) -> None:
+    def test_poc33_repairs_invalidate_pre_fix_resume_artifacts(self) -> None:
         self.assertEqual(set(production._IMPLEMENTATION_VERSIONS), set(STAGES))  # noqa: SLF001
         for stage, version in production._IMPLEMENTATION_VERSIONS.items():  # noqa: SLF001
             with self.subTest(stage=stage):
@@ -1104,6 +1218,14 @@ public class ServiceApplication extends Application<Object> {
                     version.startswith(f"production-v2.6-poc33-demo-repair-{stage}-"),
                     version,
                 )
+        self.assertEqual(  # noqa: SLF001
+            production._IMPLEMENTATION_VERSIONS["flows"],
+            "production-v2.6-poc33-demo-repair-flows-v2",
+        )
+        self.assertEqual(  # noqa: SLF001
+            production._IMPLEMENTATION_VERSIONS["entries"],
+            "production-v2.6-poc33-demo-repair-entries-v2",
+        )
 
     def test_candidate_entry_association_falls_back_to_single_semantic_target_entry(self) -> None:
         entry, _candidate = self._entry_and_candidate()

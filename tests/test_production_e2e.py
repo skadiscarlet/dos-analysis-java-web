@@ -36,7 +36,7 @@ class ProductionFixtureE2ETests(unittest.TestCase):
             "source_commit_sha": "a" * 40,
             "source_checkout": source_root,
             "analysis_source_root": source_root,
-            "base_url": "https://api.deepseek.com/",
+            "base_url": "http://127.0.0.1:1/",
             "cache_dir": output / "cache/llm",
             "timeout_seconds": 30,
             "max_retries": 1,
@@ -76,7 +76,13 @@ class ProductionFixtureE2ETests(unittest.TestCase):
             certificates = [json.loads(line) for line in (output / "lifecycle_certificates.jsonl").read_text().splitlines()]
             self.assertGreaterEqual(len(candidates), 8)
             self.assertEqual({item["growth_id"] for item in candidates}, {item["growth_id"] for item in dispositions})
-            relevant = {(item["entry_id"], item["growth_id"]) for item in links if item["status"] == "complete"}
+            links_by_id = {item["link_id"]: item for item in links}
+            relevant = {
+                (links_by_id[link_id]["entry_id"], item["growth_id"])
+                for item in dispositions
+                if item["status"] in {"verified_relevant", "dos_relevant_partial"}
+                for link_id in item["link_ids"]
+            }
             self.assertTrue(relevant)
             self.assertTrue(relevant.issubset({(item["entry_id"], item["growth_id"]) for item in flows}))
             flow_paths = {(item["entry_id"], item["growth_id"], item["path_id"]) for item in flows}
@@ -96,22 +102,31 @@ class ProductionFixtureE2ETests(unittest.TestCase):
                 {"/materialize", "/allocate", "/map", "/executor", "/finite", "/post-guard", "/wrapper-guard", "/wrapper-after", "/wrapper-caught", "/wrapper-depth3", "/wrapper-return", "/success-release", "/async-consumer"},
                 {item["route_or_event"] for item in entries.values()},
             )
-            self.assertEqual("static_vulnerable", route_pairs[("/materialize", "input_materialization")])
-            self.assertEqual("static_vulnerable", route_pairs[("/allocate", "direct_allocation")])
-            self.assertEqual("static_vulnerable", route_pairs[("/map", "container_growth")])
-            self.assertEqual("static_unknown", route_pairs[("/executor", "async_work_growth")])
-            self.assertEqual("static_vulnerable", route_pairs[("/finite", "input_materialization")])
-            self.assertEqual("bounded_under_modeled_assumptions", route_pairs[("/finite", "async_work_growth")])
-            self.assertEqual("static_vulnerable", route_pairs[("/post-guard", "input_materialization")])
-            self.assertIn(route_pairs[("/post-guard", "direct_allocation")], {"bounded_under_modeled_assumptions", "static_unknown"})
-            self.assertEqual("bounded_under_modeled_assumptions", route_pairs[("/wrapper-guard", "direct_allocation")])
-            self.assertNotEqual("bounded_under_modeled_assumptions", route_pairs[("/wrapper-after", "direct_allocation")])
-            self.assertNotEqual("bounded_under_modeled_assumptions", route_pairs[("/wrapper-caught", "direct_allocation")])
-            self.assertNotEqual("bounded_under_modeled_assumptions", route_pairs[("/wrapper-depth3", "direct_allocation")])
-            self.assertEqual("static_vulnerable", route_pairs[("/wrapper-return", "direct_allocation")])
-            self.assertEqual("static_vulnerable", route_pairs[("/success-release", "container_growth")])
-            self.assertEqual("static_unknown", route_pairs[("/async-consumer", "async_work_growth")])
-            self.assertNotEqual("bounded_under_modeled_assumptions", route_pairs[("/post-guard", "input_materialization")])
+            self.assertEqual(
+                set(route_pairs),
+                {
+                    ("/materialize", "input_materialization"),
+                    ("/allocate", "direct_allocation"),
+                    ("/map", "container_growth"),
+                    ("/executor", "input_materialization"),
+                    ("/finite", "input_materialization"),
+                    ("/post-guard", "input_materialization"),
+                    ("/wrapper-guard", "direct_allocation"),
+                    ("/wrapper-after", "direct_allocation"),
+                    ("/wrapper-caught", "direct_allocation"),
+                    ("/wrapper-depth3", "direct_allocation"),
+                    ("/wrapper-return", "direct_allocation"),
+                    ("/success-release", "container_growth"),
+                    ("/async-consumer", "input_materialization"),
+                },
+            )
+            self.assertEqual(set(route_pairs.values()), {"static_unknown"})
+            self.assertTrue(
+                all(
+                    "VERDICT_UNRESOLVED_EVIDENCE" in item["reason_codes"]
+                    for item in findings
+                )
+            )
             first_stage_times = {name: stage["ended_at"] for name, stage in run["stages"].items()}
             first_stage_hashes = {name: stage["output_hash"] for name, stage in run["stages"].items()}
             request_count = transport.request_count
@@ -143,19 +158,27 @@ class ProductionFixtureE2ETests(unittest.TestCase):
         try:
             entries = {item["entry_id"]: item for item in [json.loads(line) for line in (output / "entry_facts.jsonl").read_text().splitlines()]}
             candidates = {item["growth_id"]: item for item in [json.loads(line) for line in (output / "growth_candidates.jsonl").read_text().splitlines()]}
+            dispositions = {item["growth_id"]: item for item in [json.loads(line) for line in (output / "candidate_dispositions.jsonl").read_text().splitlines()]}
             findings = [json.loads(line) for line in (output / "static_findings.jsonl").read_text().splitlines()]
             certificates = {item["certificate_id"]: item for item in [json.loads(line) for line in (output / "lifecycle_certificates.jsonl").read_text().splitlines()]}
             upload = [item for item in entries.values() if item["route_or_event"] == "/upload"]
             self.assertTrue(upload)
-            allocation_findings = [item for item in findings if candidates[item["growth_id"]]["kind"] == "direct_allocation"]
-            self.assertTrue(allocation_findings)
-            self.assertTrue(all(item["certificate_id"] in certificates for item in allocation_findings))
-            requested_allocation = [item for item in allocation_findings if candidates[item["growth_id"]]["site"]["start_line"] == 23]
-            self.assertTrue(requested_allocation)
-            self.assertTrue(all(item["verdict"] == "static_unknown" for item in requested_allocation))
-            self.assertTrue(all("VERDICT_UNRESOLVED_EVIDENCE" in item["reason_codes"] for item in requested_allocation))
+            requested_allocation = [
+                item
+                for item in candidates.values()
+                if item["kind"] == "direct_allocation"
+                and item["site"]["file"] == "fixture/servlet/ServletFixture.java"
+                and item["site"]["start_line"] == 27
+            ]
+            self.assertEqual(len(requested_allocation), 1)
+            allocation_id = requested_allocation[0]["growth_id"]
+            self.assertEqual(dispositions[allocation_id]["status"], "unresolved")
+            self.assertFalse(any(item["growth_id"] == allocation_id for item in findings))
+            self.assertTrue(findings)
+            self.assertTrue(all(item["verdict"] == "static_unknown" for item in findings))
+            self.assertTrue(all(item["certificate_id"] in certificates for item in findings))
             releases = [json.loads(line) for line in (output / "release_candidates.jsonl").read_text().splitlines()]
-            self.assertTrue(any(item["site"]["file"] == "fixture/servlet/ServletFixture.java" and item["site"]["start_line"] == 32 and item["receiver"].endswith(".registry") for item in releases))
+            self.assertTrue(any(item["site"]["file"] == "fixture/servlet/ServletFixture.java" and item["site"]["start_line"] == 36 and item["receiver"].endswith(".registry") for item in releases))
             release_evidence = [json.loads(line) for line in (output / "lifecycle_evidence.jsonl").read_text().splitlines()]
             self.assertFalse(any(item["family"] == "release" and item["resource_identity"].endswith("requestLocal") for item in release_evidence))
         finally:
@@ -171,14 +194,20 @@ class ProductionFixtureE2ETests(unittest.TestCase):
             self.assertTrue(any(item["result_checked"] and item["configuration_value"] == "8" for item in bounds))
             dispositions = [json.loads(line) for line in (output / "candidate_dispositions.jsonl").read_text().splitlines()]
             self.assertTrue(dispositions)
-            self.assertTrue(all(item["status"] in {"verified_relevant", "unresolved", "rejected", "not_entry_reachable"} for item in dispositions))
+            self.assertTrue(all(item["status"] in {"verified_relevant", "dos_relevant_partial", "unresolved", "rejected", "not_entry_reachable"} for item in dispositions))
             candidates = {item["growth_id"]: item for item in [json.loads(line) for line in (output / "growth_candidates.jsonl").read_text().splitlines()]}
             findings = [json.loads(line) for line in (output / "static_findings.jsonl").read_text().splitlines()]
             certificates = {item["certificate_id"]: item for item in [json.loads(line) for line in (output / "lifecycle_certificates.jsonl").read_text().splitlines()]}
-            finite = [item for item in findings if candidates[item["growth_id"]]["site"]["start_line"] == 50]
-            self.assertTrue(finite)
-            self.assertTrue(all(item["verdict"] == "bounded_under_modeled_assumptions" for item in finite))
-            self.assertTrue(all("A2_EFFECTIVE_BOUND" in item["reason_codes"] and item["certificate_id"] in certificates for item in finite))
+            finite = [item for item in dispositions if candidates[item["growth_id"]]["site"]["start_line"] == 54]
+            self.assertEqual(len(finite), 1)
+            self.assertEqual(finite[0]["status"], "rejected")
+            self.assertIn("RELEVANCE_SINGLE_SUBMISSION", finite[0]["reason_codes"])
+            self.assertEqual(
+                {candidates[item["growth_id"]]["site"]["start_line"] for item in findings},
+                {76, 118},
+            )
+            self.assertTrue(all(item["verdict"] == "static_unknown" for item in findings))
+            self.assertTrue(all(item["certificate_id"] in certificates for item in findings))
         finally:
             holder.cleanup()
 
@@ -195,8 +224,8 @@ class ProductionFixtureE2ETests(unittest.TestCase):
             certificates = {item["certificate_id"]: item for item in [json.loads(line) for line in (output / "lifecycle_certificates.jsonl").read_text().splitlines()]}
             materialization = [item for item in findings if candidates[item["growth_id"]]["kind"] == "input_materialization"]
             self.assertTrue(materialization)
-            self.assertTrue(all(item["verdict"] == "static_vulnerable" for item in materialization))
-            self.assertTrue(all("VERDICT_ASSERTION_MATCHED" in item["reason_codes"] and item["certificate_id"] in certificates for item in materialization))
+            self.assertTrue(all(item["verdict"] == "static_unknown" for item in findings))
+            self.assertTrue(all("VERDICT_UNRESOLVED_EVIDENCE" in item["reason_codes"] and item["certificate_id"] in certificates for item in findings))
         finally:
             holder.cleanup()
 

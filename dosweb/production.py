@@ -66,7 +66,12 @@ from dosweb.report.families import FindingFamily, build_finding_families
 from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
-    stage: f"production-v2.6-poc33-demo-repair-{stage}-v1" for stage in STAGES
+    stage: (
+        f"production-v2.6-poc33-demo-repair-{stage}-v2"
+        if stage in {"entries", "flows"}
+        else f"production-v2.6-poc33-demo-repair-{stage}-v1"
+    )
+    for stage in STAGES
 }
 _QUERY_PACK_DIR: Final = Path(__file__).resolve().parent / "codeql" / "pack"
 _ENTRY_QUERY_DIR: Final = _QUERY_PACK_DIR / "dosweb" / "Entries"
@@ -83,14 +88,6 @@ _ENTRY_QUERY_FRAMEWORKS: Final[dict[str, tuple[str, str]]] = {
     "MqttEntries.ql": ("mqtt", "mqtt"),
     "JaxRsEntries.ql": ("jax_rs", "http"),
     "GrpcEntries.ql": ("grpc", "grpc"),
-}
-_ENTRY_QUERY_HINTS: Final[dict[str, tuple[str, ...]]] = {
-    "SpringMvcEntries.ql": ("org.springframework", "com.linecorp.armeria", "ServiceRequestContext", "@Controller", "@RestController", "@RequestMapping", "@PostMapping", "@GetMapping", "@Post("),
-    "ServletEntries.ql": ("@WebServlet", "HttpServlet", "GenericServlet", "FilterRegistrationBean", "ServletContextHandler"),
-    "NettyEntries.ql": ("io.netty", "ChannelHandler", "ChannelInboundHandler", "ServerBootstrap"),
-    "MqttEntries.ql": ("org.eclipse.paho", "io.netty.handler.codec.mqtt", "mqtt", "Mqtt"),
-    "JaxRsEntries.ql": ("javax.ws.rs", "jakarta.ws.rs", "@Path", "@GET", "@POST"),
-    "GrpcEntries.ql": ("io.grpc", "BindableService", "ServerServiceDefinition", "GrpcService", "grpc"),
 }
 _QUERY_FAMILIES: Final[dict[str, tuple[str, ...]]] = {
     "growth": ("InputMaterialization.ql", "DirectAllocation.ql", "ContainerGrowth.ql", "AsyncWorkGrowth.ql"),
@@ -325,46 +322,12 @@ def _bounded_json_file(path: Path) -> Mapping[str, object]:
     return value
 
 
-def _scan_entry_query_evidence(source_root: Path) -> tuple[set[str], bool]:
-    evidence: set[str] = set()
-    scanned_files = 0
-    scanned_bytes = 0
-    candidates: list[Path] = []
-    for pattern in ("pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
-        candidates.extend(source_root.glob(pattern))
-    for pattern in ("src/main/java/**/*.java", "src/**/*.java"):
-        candidates.extend(source_root.glob(pattern))
-    seen: set[Path] = set()
-    truncated = False
-    for path in sorted(candidates):
-        if path in seen or not path.is_file() or path.is_symlink():
-            continue
-        seen.add(path)
-        try:
-            raw = _bounded_regular_file(path, 65536 if path.suffix in {".xml", ".gradle", ".kts"} else 16384)
-        except AnalyzerError:
-            continue
-        scanned_files += 1
-        scanned_bytes += len(raw)
-        lowered = raw.decode("utf-8", errors="ignore").lower()
-        for query_name, hints in _ENTRY_QUERY_HINTS.items():
-            if any(hint.lower() in lowered for hint in hints):
-                evidence.add(query_name)
-        if scanned_files >= 512 or scanned_bytes >= 2 * 1024 * 1024:
-            truncated = len(seen) < len(set(candidates))
-            break
-    return evidence, truncated
-
-
 def _selected_entry_queries(source_root: Path, *, formal: bool) -> tuple[tuple[str, ...], bool]:
-    if formal:
-        # A formal run must execute every enabled P0 entry family; source hints are
-        # only a cost heuristic for exploratory entries, never a coverage reduction.
-        return _ENTRY_QUERIES, False
-    evidence, truncated = _scan_entry_query_evidence(source_root)
-    if not evidence:
-        return _ENTRY_QUERIES, truncated
-    return tuple(name for name in _ENTRY_QUERIES if name in evidence), truncated
+    del source_root, formal
+    # Both formal runs and explicit exploratory coverage runs execute every
+    # enabled P0 entry family.  Exploratory mode changes only the selected-query
+    # failure policy; source-text hints must not silently reduce the canary gate.
+    return _ENTRY_QUERIES, False
 
 
 def _entry_gap_row(query_name: str, note: str, *, status: str = "partial") -> dict[str, object]:
@@ -1209,6 +1172,106 @@ def _reconcile_flow_rows(
     ]
 
 
+def _candidate_relevant_partial_flow_rows(
+    entries: Mapping[str, EntryFact],
+    candidates: Mapping[str, VerifiedGrowthResult],
+    link_records: Sequence[Mapping[str, object]],
+    disposition_records: Sequence[Mapping[str, object]],
+    existing_pairs: set[tuple[str, str]],
+) -> list[dict[str, object]]:
+    """Carry one DoS-relevant partial E/G association as an explicit gap path.
+
+    This is deliberately not a data-flow proof.  It publishes one deterministic
+    ``unmodeled``/``partial`` path only after candidate relevance has reached
+    ``dos_relevant_partial`` and only when its single canonical association is
+    itself partial.  Generic unresolved candidates and missing complete flows
+    are never supplemented, so this cannot recover a vulnerable premise or
+    hide a corrupted formal flow artifact.
+    """
+
+    links_by_id = {
+        record.get("link_id"): record
+        for record in link_records
+        if isinstance(record.get("link_id"), str)
+    }
+    if len(links_by_id) != len(link_records):
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Candidate Entry links are duplicated or malformed.",
+        )
+    allowed_targets = {"size", "key", "value", "iteration_count", "submission_count"}
+    rows: list[dict[str, object]] = []
+    emitted_pairs: set[tuple[str, str]] = set()
+    for disposition in disposition_records:
+        if disposition.get("status") != "dos_relevant_partial":
+            continue
+        growth_id = disposition.get("growth_id")
+        link_ids = disposition.get("link_ids")
+        if (
+            not isinstance(growth_id, str)
+            or not isinstance(link_ids, list)
+            or len(link_ids) != 1
+            or not isinstance(link_ids[0], str)
+            or link_ids[0] not in links_by_id
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "DoS-relevant partial disposition has no canonical Entry link.",
+            )
+        link = links_by_id[link_ids[0]]
+        entry_id = link.get("entry_id")
+        if link.get("growth_id") != growth_id or not isinstance(entry_id, str):
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "DoS-relevant partial disposition references an incompatible Entry link.",
+            )
+        pair = (entry_id, growth_id)
+        if pair in existing_pairs or pair in emitted_pairs:
+            continue
+        # A complete link was admitted only with a formal preliminary flow
+        # witness.  Its later absence is corruption/nondeterminism, not a gap
+        # that this conservative supplement may conceal.
+        if link.get("status") != "partial":
+            continue
+        entry = entries.get(entry_id)
+        result = candidates.get(growth_id)
+        candidate = result.candidate if isinstance(result, VerifiedGrowthResult) else None
+        if not isinstance(entry, EntryFact) or candidate is None:
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "DoS-relevant partial flow references missing Entry or Growth evidence.",
+            )
+        demands = tuple(
+            demand for demand in candidate.demand_inputs if demand.role in allowed_targets
+        )
+        if not demands or not entry.attacker_inputs:
+            raise AnalyzerError(
+                "ARTIFACT_UPSTREAM_INVALID",
+                "DoS-relevant partial flow lacks a representable attacker-demand hypothesis.",
+            )
+        demand = min(demands)
+        attacker_input = min(entry.attacker_inputs)
+        rows.append(
+            {
+                "source_file": entry.handler.file,
+                "source_start_line": entry.handler.start_line,
+                "sink_file": candidate.site.file,
+                "sink_start_line": candidate.site.start_line,
+                "attacker_target": demand.role,
+                "attacker_source": attacker_input.name,
+                "attacker_sink": demand.name,
+                "call_path": entry.handler.callable,
+                "phase_sequence": "entry>candidate_relevant_partial>growth",
+                "flow_kind": "unmodeled",
+                "confidence": "partial",
+                "coverage_status": "partial",
+                "coverage_note": "candidate_relevant_partial_flow_gap",
+            }
+        )
+        emitted_pairs.add(pair)
+    return sorted(rows, key=canonical_json)
+
+
 def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None) -> Executor:
     runner = run_query_fn or globals()["run_query"]
     def execute(context: StageContext) -> StageOutput:
@@ -1223,8 +1286,33 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
         # to every reconciled row.
         rows = _reconcile_flow_rows(rows, entries, candidates)
         proofs = normalize_flow_rows(rows, entries, candidates)
+        existing_pairs = {
+            (record["entry_id"], record["growth_id"])
+            for record in proofs
+        }
+        gap_rows = _candidate_relevant_partial_flow_rows(
+            entries,
+            candidates,
+            _strict_records(
+                context, "growth", "candidate_entry_links.jsonl"
+            ),
+            _strict_records(
+                context, "growth", "candidate_dispositions.jsonl"
+            ),
+            existing_pairs,
+        )
+        gap_proofs = normalize_flow_rows(gap_rows, entries, candidates)
+        proofs_by_id = {record["path_id"]: record for record in proofs}
+        for record in gap_proofs:
+            previous = proofs_by_id.setdefault(record["path_id"], record)
+            if previous != record:
+                raise AnalyzerError(
+                    "ARTIFACT_UPSTREAM_INVALID",
+                    "Partial gap flow collides with a distinct formal flow path.",
+                )
+        proofs = sorted(proofs_by_id.values(), key=canonical_json)
         validate_records("flow_proofs", proofs)
-        return StageOutput({"flow_proofs.jsonl": proofs}, {"flow_count": len(proofs), "partial_flow_count": sum(item["confidence"] == "partial" for item in proofs)})
+        return StageOutput({"flow_proofs.jsonl": proofs}, {"flow_count": len(proofs), "partial_flow_count": sum(item["confidence"] == "partial" for item in proofs), "partial_gap_flow_count": len(gap_proofs)})
     return execute
 
 

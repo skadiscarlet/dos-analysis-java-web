@@ -146,6 +146,36 @@ class DynamicCaseTaxonomyTests(unittest.TestCase):
 
 
 class DemoMetricsTests(unittest.TestCase):
+    def test_supported_recall_excludes_only_explicit_deferred_dispatches(self):
+        truth = [
+            {"record_id": f"supported:{index}", "status": "full_chain_finding"}
+            for index in range(29)
+        ]
+        truth.extend(
+            {
+                "record_id": f"deferred:{index}",
+                "status": "growth_only",
+                "reason_codes": [
+                    "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
+                    "GROWTH_SINK_MATCHED",
+                ],
+            }
+            for index in range(4)
+        )
+
+        metrics = build_demo_metrics(
+            statuses=[],
+            truth_dispositions=truth,
+            static_findings=[],
+            dynamic_results=[],
+        )
+
+        self.assertEqual(metrics["explicit_deferred"], 4)
+        self.assertEqual(
+            metrics["supported_chain_recall"],
+            {"numerator": 29, "denominator": 29, "ratio": 1.0},
+        )
+
     def test_metrics_keep_legacy_precision_separate_from_demo_gates(self):
         statuses = [
             {
@@ -260,6 +290,41 @@ class DemoMetricsTests(unittest.TestCase):
 
 
 class DemoEvaluatorIsolationTests(unittest.TestCase):
+    def test_new_p0_cli_reads_aggregate_finding_families_without_static_audit(self):
+        statuses = [{"batch_target_slug": "a", "status": "completed", "stage_metrics": {}}]
+        truth = [{"record_id": "truth:1", "status": "full_chain_finding"}]
+        families = [{
+            "family_id": "family:1",
+            "member_finding_ids": ["finding:1"],
+            "verdict": "static_unknown",
+        }]
+        dynamic_results = [
+            _dynamic_result("finding:1", verdict="confirmed", status="confirmed_oom")
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            batch = root / "batch"
+            recall = root / "recall"
+            dynamic = root / "dynamic"
+            output = root / "evaluation"
+            _write_jsonl(batch / "aggregate_status.jsonl", statuses)
+            _write_jsonl(batch / "aggregate_finding_families.jsonl", families)
+            _write_jsonl(recall / "truth_dispositions.jsonl", truth)
+            _write_jsonl(dynamic / "findings.jsonl", dynamic_results)
+            _write_jsonl(dynamic / "blocked_or_rejected.jsonl", [])
+
+            self.assertEqual(0, main([
+                "--static-batch", str(batch),
+                "--recall", str(recall),
+                "--dynamic", str(dynamic),
+                "--output", str(output),
+            ]))
+            metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(metrics["queue"], 1)
+        self.assertEqual(metrics["tp"], 1)
+
     def test_production_modules_do_not_import_demo_oracle(self):
         root = Path(__file__).resolve().parents[1]
         production_sources = [root / "dosweb/production.py"]

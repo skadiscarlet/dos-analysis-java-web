@@ -4,9 +4,11 @@ Static analyzer for resource-exhaustion denial-of-service patterns in Java Web a
 
 ## Status
 
-The Java Web DoS P0 analyzer now closes the approved P0 Gate 2/3 implementation scope: the default CLI connects the full CodeQL → bounded-slice RightAPI Codex Responses Growth/Auth Contracts → deterministic verification pipeline across all six resumable stages, with same-CFG/depth≤1 lifecycle evidence and attacker-controlled loop witnesses. Unsupported depth>1/custom/reflection/async-capacity semantics remain explicitly fail-closed as `static_unknown`. A new 205-target formal plan is published and ready for an independently authorized batch execution; no 205-target batch was started by the acceptance run.
+The Java Web DoS P0 analyzer now implements the approved P0.2 evidence-funnel repair: the default CLI connects CodeQL screening, bounded-slice RightAPI Codex Responses Growth/Auth Contracts, proof-carrying Entry→Growth paths, path-bound Reach/lifecycle evidence, and certificate-preserving finding-family aggregation across all six resumable stages. Unsupported depth>1/custom/reflection/async-capacity semantics remain explicitly fail-closed as `static_unknown`.
 
-Schema/tool 2.5/0.4.0 adds offline `modeled_configuration.jsonl`, `entry_security_facts.jsonl`, `configuration_coverage.json`, `entry_gap_facts.jsonl`, partial-first `entry_interposition_facts.jsonl`, candidate disposition/applicability records, path-bound lifecycle evidence/coverage, and private LLM audit artifacts. Use non-secret `analysis.modeled_defaults` or repeated `--modeled-default key=value` (CLI wins) for explicit modeled defaults. The Auth Contract interface is constrained: a model may cite only matching extracted security/config slice facts; unverifiable authentication remains `unknown`.
+Schema/tool 2.6/0.5.0 adds strict DoS-relevance dispositions, 19-field Growth Contracts, modeled Auth/deployment facts, Reach decisions, shared proof-carrying association/flow evidence, framework-limit Bound normalization, positive-verdict proof gates, and `finding_families.jsonl`. Use non-secret `analysis.modeled_defaults` or repeated `--modeled-default key=value` (CLI wins) for explicit modeled defaults. Model output is never a verdict by itself: every cited fact must belong to the bounded slice and pass deterministic verification.
+
+The immutable no-provider PoC-33 entries canary `poc33-p02-20260828_152629` completed 21/21 targets with all 168 selected queries, zero diagnostics, and zero skipped queries. The real-provider full prerequisite check stopped with `paused_by_provider_prerequisite` because no explicit remote authorization was supplied; it did not create a full batch or make a remote call. The 178/205-target formal rollout therefore remains paused pending a separately authorized real-provider canary and offline gate.
 
 Ordinary development tests are network-free. They do not contact RightAPI or GitHub, start target services, send attack traffic, or perform dynamic DoS validation.
 
@@ -51,9 +53,11 @@ The P0 framework scope is:
 - Spring MVC registered controller routes;
 - Servlet registered endpoints;
 - Netty registered channel handlers;
-- MQTT registered message callbacks.
+- MQTT registered message callbacks;
+- statically registered JAX-RS resources within the approved source-backed shapes;
+- gRPC registered service handlers within the approved generated/forwarding shapes.
 
-Recognized but unresolved registration, entry, Growth, path, configuration, or lifecycle patterns are recorded as coverage gaps rather than guessed away. Flow sources use real Spring MVC, Servlet, Netty, and MQTT qualified APIs; direct/global data-flow witnesses are proven only for supported callable paths, while multi-wrapper, field/alias, reflection, custom dispatch, and unproven loop/fan-out paths remain explicit partial coverage.
+Recognized but unresolved registration, entry, Growth, path, configuration, or lifecycle patterns are recorded as coverage gaps rather than guessed away. Flow sources use real Spring MVC, Servlet, Netty, MQTT, JAX-RS, and gRPC qualified APIs; direct/global data-flow witnesses are proven only for supported callable paths, while multi-wrapper, field/alias, reflection, custom dispatch, and unproven loop/fan-out paths remain explicit partial coverage.
 
 ## Assertions and verdicts
 
@@ -61,9 +65,9 @@ Assertion 1 matches only for verified direct input/allocation size demand, or co
 
 Assertion 2 requires ordinary-attacker reachability, a proven repeatable E→G path, escaping attacker-controlled persistent key/value/submission/resource creation, and no effective Bound or synchronous Release. Unknown authentication, repeatability, amplification, association, or flow remains `static_unknown`.
 
-Every raw Growth has an internal auditable disposition (`rejected`, `verified_relevant`, `not_entry_reachable`, or `unresolved`). Legacy source-order association is explicitly partial and never a complete call-graph proof.
+Every raw Growth has an internal auditable disposition (`rejected`, `verified_relevant`, `dos_relevant_partial`, `not_entry_reachable`, or `unresolved`). Legacy source-order association is explicitly partial and never a complete call-graph proof.
 
-P0 does not prove asynchronous Release. Growth and Auth LLM cache entries are private (`0600`), HMAC-authenticated, atomically published audit records: a fresh or cache-hit audit retains the bounded exact provider body, normalized prompt, parsed contract, settings and hashes without API keys, authorization headers, or environment data. Old cache formats are not reused.
+Growth and Auth LLM cache entries are private (`0600`), HMAC-authenticated, atomically published audit records: a fresh or cache-hit audit retains the bounded exact provider body, normalized prompt, parsed contract, settings and hashes without API keys, authorization headers, or environment data. Old cache formats are not reused.
 
 P0 does not prove asynchronous Release. A potential asynchronous consumer, expiry mechanism, background cleanup, or completion path remains unresolved unless a supported synchronous reduction is established. Relevant unresolved evidence or incomplete coverage forces an unknown conclusion.
 
@@ -118,22 +122,33 @@ OUTPUT/
 ├── run.json
 ├── coverage.json
 ├── entry_facts.jsonl
+├── entry_gap_facts.jsonl
+├── entry_interposition_facts.jsonl
+├── modeled_configuration.jsonl
+├── configuration_coverage.json
+├── descriptor_coverage.json
+├── entry_security_facts.jsonl
 ├── growth_candidates.jsonl
 ├── candidate_entry_links.jsonl
 ├── candidate_dispositions.jsonl
 ├── repeatability_decisions.jsonl
 ├── amplification_decisions.jsonl
 ├── growth_contracts.jsonl
+├── auth_contracts.jsonl
+├── reachability_decisions.jsonl
 ├── verified_growth.jsonl
 ├── flow_proofs.jsonl
 ├── guard_candidates.jsonl
 ├── bound_candidates.jsonl
 ├── release_candidates.jsonl
+├── lifecycle_summaries.jsonl
 ├── lifecycle_evidence.jsonl
 ├── lifecycle_coverage.jsonl
 ├── lifecycle_results.jsonl
 ├── static_findings.jsonl
+├── finding_families.jsonl
 ├── lifecycle_certificates.jsonl
+├── llm_audit.private.jsonl
 ├── summary.json
 └── report.md
 ```
@@ -164,11 +179,13 @@ DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q \
 DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_production_e2e.py
 ```
 
-Current accepted baseline: the network-free suite passes 656 tests plus 447 subtests (10 opt-in skips); real entry fixtures pass 4 tests plus 20 subtests, real growth fixtures pass 2 tests plus 12 subtests, and real lifecycle/flow fixtures pass 3 tests plus 53 subtests. The four production E2E scenarios remain covered across Spring, Servlet, Netty, and MQTT; an additional real HertzBeat scripted-provider canary now yields a certificate-backed `static_unknown` for the filter→`jobInstanceMap.computeIfAbsent` chain without promoting partial evidence.
+Current Task 10 baseline: the network-free suite passes 797 tests plus 548 subtests (26 opt-in skips); the real CodeQL Entry/Growth/Lifecycle/production-E2E gate passes 35 tests plus 131 subtests. The four production E2E scenarios remain covered across Spring, Servlet, Netty, and MQTT, and candidate-relevant unresolved evidence remains certificate-backed `static_unknown` rather than being promoted through missing Reach, flow, or lifecycle proof.
 
 These fixture checks create local test databases; the production E2E uses the real RightAPI Codex Responses client with a bounded in-memory mock transport and does not contact the provider. No default test requires `DEEPSEEK_API_KEY`.
 
-The PoC-33 hardening entries wave at `results/java_web_dos_batch/poc33-recall-v2-20260819_093248-entries/` resolves all 21 truth repositories to unique source/database assets and completes formal extraction for 21/21 targets. Every target ran all seven required entry/interposition queries with zero skipped query or query diagnostic, and the current seven-artifact entries set is hash-manifested; see `AUDIT.json`. Zero complete entries for SkyWalking, Solr, SMQTT, Grobid, and Concord remains explicit gap/coverage evidence rather than a failed stage.
+The current PoC-33 exploratory coverage archive is `results/java_web_dos_batch/poc33-p02-20260828_152629-entries/`. Its immutable `selection.json`, digest-bound `batch_plan.json`, completed batch state, per-target run manifests, and `acceptance_manifest.json` prove 21/21 targets, 8/8 selected queries per target, 168 total queries, zero diagnostics, and zero skipped queries. This entries archive is provider-independent and is not eligible for formal resume.
+
+`scripts/run_poc33_demo_acceptance.py` also gates the network-free suite, real CodeQL fixtures, an explicitly authorized real-provider full canary, and the post-hoc offline evaluator. For `poc33-p02-20260828_152629`, the provider prerequisite record is `results/java_web_dos_batch/poc33-p02-20260828_152629-provider-prerequisite.json`; no `-full/`, recall, evaluation, or large-target rollout was created.
 
 A separate authorized formal static canary was run against three archived dynamic true-positive seeds (Erupt, Citrus, DataCompare). All three completed with strict CodeQL policy, zero query diagnostics, replayable certificates/audits, no credential leak, and honest `static_unknown` results where auth/flow/lifecycle evidence remained incomplete. See `results/java_web_dos_batch/p0-true-positive-canary-20260817/{canary_manifest.json,canary_summary.json}`. Dynamic truth was used only for post-hoc target selection and never entered ordinary verdict derivation.
 
