@@ -51,6 +51,13 @@ class P0EndToEndTests(unittest.TestCase):
             protocol=protocol,
             handler=handler,
             registration=registration_fact,
+            registration_pattern_id={
+                ("spring_mvc", "annotation_mapping"): "entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",
+                ("spring_mvc", "static_registration"): "entry-registration-coverage:spring_mvc:static_registration:armeria_annotated_service_registration",
+                ("netty", "pipeline_registration"): "entry-registration-coverage:netty:pipeline_registration:netty_pipeline_registration",
+                ("mqtt", "subscription_registration"): "entry-registration-coverage:mqtt:subscription_registration:mqtt_subscription_registration",
+                ("mqtt", "broker_registration"): "entry-registration-coverage:mqtt:broker_registration:jmqtt_anonymous_channel_initializer",
+            }[(framework, registration)],
             route_or_event="/p0" if framework == "spring_mvc" else "channelRead" if framework == "netty" else "messageArrived",
             auth_context="unauthenticated",
             attacker_inputs=(AttackerInputFact(input_name, input_type, input_kind),),
@@ -115,16 +122,18 @@ class P0EndToEndTests(unittest.TestCase):
     def _coverage(self, case: dict[str, object]) -> CandidateCoverage:
         status = case["coverage_status"]
         if status == "partial":
-            supported, unsupported, effect = ("static_subscription",), ("dynamic_subscription",), "forces_unknown"
+            supported, unsupported, effect = (), ("dynamic_subscription",), "forces_unknown"
         else:
-            supported, unsupported, effect = (case["registration"],), (), "none"
+            supported, unsupported, effect = (
+                case["entry"].registration_pattern_id,
+            ), (), "none"
         return CandidateCoverage(
             framework=case["framework"],
             status=status,
             supported_patterns=supported,
             unsupported_patterns=unsupported,
             effect_on_verdict=effect,
-            registration_pattern=case["registration"],
+            registration_pattern_id=case["entry"].registration_pattern_id,
             entry_id=case["entry"].entry_id,
             growth_id=case["growth"].growth_id,
             path_id=case["flow"].path_id,
@@ -246,9 +255,9 @@ class P0EndToEndTests(unittest.TestCase):
             families,
             tuple(findings),
             (
-                FrameworkCoverage("spring_mvc", "complete", ("annotation_mapping",), (), "none"),
-                FrameworkCoverage("netty", "complete", ("pipeline_registration",), (), "none"),
-                FrameworkCoverage("mqtt", "partial", ("static_subscription",), ("dynamic_subscription",), "forces_unknown"),
+                FrameworkCoverage("spring_mvc", "complete", ("entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",), (), "none"),
+                FrameworkCoverage("netty", "complete", ("entry-registration-coverage:netty:pipeline_registration:netty_pipeline_registration",), (), "none"),
+                FrameworkCoverage("mqtt", "partial", (), ("dynamic_subscription",), "forces_unknown"),
             ),
         )
         report = render_report(summary, families, tuple(findings), tuple(certificates))

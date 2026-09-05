@@ -1,6 +1,7 @@
 /** Shared proof-carrying Entry -> Growth domain. */
 
 import java
+import dosweb.Growth.LoopAmplification
 import semmle.code.java.dataflow.DataFlow
 import semmle.code.java.dataflow.TaintTracking
 
@@ -213,6 +214,94 @@ module EntryGrowthPathDomain {
     )
   }
 
+  predicate directAllocationSite(Expr site) {
+    exists(MethodCall call |
+      site = call and
+      call.getMethod().getName() = ["allocate", "allocateDirect"] and
+      call.getMethod().getDeclaringType().hasQualifiedName(
+        "java.nio", "ByteBuffer"
+      )
+    )
+    or site instanceof ArrayCreationExpr
+    or exists(ClassInstanceExpr allocation |
+      site = allocation and
+      (
+        allocation.getConstructedType().hasQualifiedName(
+          "java.awt.image", "BufferedImage"
+        )
+        or allocation.getConstructedType().hasQualifiedName(
+          "com.wf.captcha", "SpecCaptcha"
+        )
+      )
+    )
+  }
+
+  predicate exactRequestLocalContainerIterationDemand(
+    MethodCall call, VarAccess boundAccess
+  ) {
+    exists(LocalVariableDecl local, VarAccess localAccess, Method handler,
+           ClassInstanceExpr allocation, LoopStmt loop, ForStmt forLoop,
+           Variable induction, Parameter bound, Expr elementDemand |
+      handler = call.getEnclosingCallable() and handlerMethod(handler) and
+      localAccess = call.getQualifier() and localAccess.getVariable() = local and
+      local.getCallable() = handler and allocation = local.getInitializer() and
+      allocation.getNumArgument() = 0 and
+      (
+        allocation.getConstructedType().getSourceDeclaration().hasQualifiedName(
+          "java.util", "HashMap"
+        )
+        or allocation.getConstructedType().getSourceDeclaration().hasQualifiedName(
+          "java.util", "ArrayList"
+        )
+      ) and
+      growthInLoopBody(call, loop) and
+      not exists(LocalVariableDeclStmt declaration |
+        declaration.getAVariable() = local.getDeclExpr() and
+        declaration.getParent*() = loop.getBody()
+      ) and
+      dominates(allocation.getControlFlowNode(), loop.getControlFlowNode()) and
+      not exists(VarAccess otherAccess |
+        otherAccess.getVariable() = local and otherAccess != localAccess
+      ) and
+      loop = forLoop and
+      canonicalAttackerBoundForLoop(
+        forLoop, induction, bound, boundAccess
+      ) and
+      provenAttackerLoopMultiplicity(call, loop, bound, boundAccess) and
+      (
+        call.getMethod().getName() = "put" and call.getNumArgument() >= 2 and
+        allocation.getConstructedType().getSourceDeclaration().hasQualifiedName(
+          "java.util", "HashMap"
+        ) and
+        elementDemand = call.getArgument(0) and
+        elementDemand.(VarAccess).getVariable() = induction
+        or
+        call.getMethod().getName() = "add" and call.getNumArgument() = 1 and
+        allocation.getConstructedType().getSourceDeclaration().hasQualifiedName(
+          "java.util", "ArrayList"
+        ) and elementDemand = call.getArgument(0)
+      )
+    )
+  }
+
+  predicate exactAsyncSubmissionIterationDemand(
+    MethodCall call, VarAccess boundAccess
+  ) {
+    exists(LoopStmt loop, Parameter bound |
+      call.getMethod().getName() = ["submit", "execute", "offer", "add", "schedule"] and
+      (
+        call.getQualifier().getType().(RefType).getASourceSupertype*().hasQualifiedName(
+          "java.util.concurrent", ["Executor", "ExecutorService", "ScheduledExecutorService"]
+        )
+        or
+        call.getQualifier().getType().(RefType).getASourceSupertype*().hasQualifiedName(
+          "java.util.concurrent", "BlockingQueue"
+        )
+      ) and
+      provenAttackerLoopMultiplicity(call, loop, bound, boundAccess)
+    )
+  }
+
   /** submit(task) carries a task value, never a submission count without a loop/batch proof. */
   predicate growthDemand(Expr site, string target, Expr demand) {
     exists(MethodCall call |
@@ -240,7 +329,7 @@ module EntryGrowthPathDomain {
       )
     )
     or exists(ArrayCreationExpr allocation |
-      site = allocation and target = "size" and demand = allocation.getDimension(0)
+      site = allocation and target = "size" and demand = allocation.getADimension()
     )
     or exists(ClassInstanceExpr allocation |
       site = allocation and
@@ -249,6 +338,23 @@ module EntryGrowthPathDomain {
         or allocation.getConstructedType().hasQualifiedName("com.wf.captcha", "SpecCaptcha")
       ) and
       target = "size" and demand = [allocation.getArgument(0), allocation.getArgument(1)]
+    )
+    or exists(LoopStmt loop, Parameter bound, VarAccess boundAccess |
+      directAllocationSite(site) and
+      provenAttackerLoopMultiplicityForDirectAllocation(
+        site, loop, bound, boundAccess
+      ) and
+      target = "iteration_count" and demand = boundAccess
+    )
+    or exists(MethodCall call, VarAccess boundAccess |
+      site = call and
+      exactRequestLocalContainerIterationDemand(call, boundAccess) and
+      target = "iteration_count" and demand = boundAccess
+    )
+    or exists(MethodCall call, VarAccess boundAccess |
+      site = call and
+      exactAsyncSubmissionIterationDemand(call, boundAccess) and
+      target = "submission_count" and demand = boundAccess
     )
   }
 

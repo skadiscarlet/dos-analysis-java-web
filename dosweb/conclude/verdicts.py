@@ -6,6 +6,9 @@ from typing import Literal
 
 from dosweb.errors import AnalyzerError
 from dosweb.entries import FrameworkCoverage
+from dosweb.entries.coverage import (
+    registration_coverage_pattern_belongs_to_framework,
+)
 
 from .assertions import AssertionEvaluation
 
@@ -18,13 +21,14 @@ StaticVerdictName = Literal[
 
 @dataclass(frozen=True)
 class VerdictProofGate:
-    """Positive obligations required before publishing ``static_vulnerable``."""
+    """Proof obligations required for vulnerable or modeled-bounded output."""
 
     entry_complete: bool
     ordinary_reachability: bool
     growth_verified: bool
     flow_proven: bool
-    lifecycle_families_complete: bool
+    assertion_1_lifecycle_complete: bool
+    assertion_2_lifecycle_complete: bool
     candidate_relevant_gap_free: bool
 
     def __post_init__(self) -> None:
@@ -35,7 +39,8 @@ class VerdictProofGate:
                 "ordinary_reachability",
                 "growth_verified",
                 "flow_proven",
-                "lifecycle_families_complete",
+                "assertion_1_lifecycle_complete",
+                "assertion_2_lifecycle_complete",
                 "candidate_relevant_gap_free",
             )
         ):
@@ -50,7 +55,8 @@ class VerdictProofGate:
             "ordinary_reachability": "VERDICT_REACHABILITY_NOT_PROVEN",
             "growth_verified": "VERDICT_GROWTH_NOT_VERIFIED",
             "flow_proven": "VERDICT_FLOW_NOT_PROVEN",
-            "lifecycle_families_complete": "VERDICT_LIFECYCLE_COVERAGE_INCOMPLETE",
+            "assertion_1_lifecycle_complete": "VERDICT_ASSERTION_1_LIFECYCLE_COVERAGE_INCOMPLETE",
+            "assertion_2_lifecycle_complete": "VERDICT_ASSERTION_2_LIFECYCLE_COVERAGE_INCOMPLETE",
             "candidate_relevant_gap_free": "VERDICT_CANDIDATE_RELEVANT_GAP",
         }
         return tuple(
@@ -67,7 +73,7 @@ class CandidateCoverage:
     supported_patterns: tuple[str, ...]
     unsupported_patterns: tuple[str, ...]
     effect_on_verdict: Literal["none", "forces_unknown"]
-    registration_pattern: str | None = None
+    registration_pattern_id: str | None = None
     entry_id: str | None = None
     growth_id: str | None = None
     path_id: str | None = None
@@ -89,34 +95,99 @@ class CandidateCoverage:
                 "COVERAGE_ENTRY_INVALID",
                 "Supported and unsupported candidate patterns must be disjoint.",
             )
+        if any(
+            not registration_coverage_pattern_belongs_to_framework(
+                self.framework, pattern_id
+            )
+            for pattern_id in self.supported_patterns
+        ):
+            raise AnalyzerError(
+                "COVERAGE_ENTRY_INVALID",
+                "Supported candidate patterns must be exact modeled identities for their framework.",
+            )
         if self.status == "complete" and self.unsupported_patterns:
             raise AnalyzerError("COVERAGE_ENTRY_INVALID", "Complete candidate coverage cannot contain gaps.")
         if self.status != "complete" and not self.unsupported_patterns:
             raise AnalyzerError("COVERAGE_ENTRY_INVALID", "Incomplete candidate coverage requires a gap.")
-        for field in ("registration_pattern", "entry_id", "growth_id", "path_id"):
+        for field in ("registration_pattern_id", "entry_id", "growth_id", "path_id"):
             value = getattr(self, field)
             if value is not None and (not isinstance(value, str) or not value):
                 raise AnalyzerError("COVERAGE_ENTRY_INVALID", f"{field} is invalid.")
+        if self.registration_pattern_id is not None and not registration_coverage_pattern_belongs_to_framework(
+            self.framework, self.registration_pattern_id
+        ):
+            raise AnalyzerError(
+                "COVERAGE_ENTRY_INVALID",
+                "Candidate registration pattern identity is not modeled for its framework.",
+            )
+        if self.entry_id is not None and self.registration_pattern_id is None:
+            raise AnalyzerError(
+                "COVERAGE_ENTRY_INVALID",
+                "Entry-scoped candidate coverage requires an exact registration pattern identity.",
+            )
+        if self.registration_pattern_id is not None and any(
+            pattern_id != self.registration_pattern_id
+            for pattern_id in self.supported_patterns
+        ):
+            raise AnalyzerError(
+                "COVERAGE_ENTRY_INVALID",
+                "Candidate coverage cannot cite a sibling registration pattern.",
+            )
+        if self.status == "complete" and self.entry_id is not None and (
+            self.registration_pattern_id is None
+            or self.supported_patterns != (self.registration_pattern_id,)
+        ):
+            raise AnalyzerError(
+                "COVERAGE_ENTRY_INVALID",
+                "Complete entry-scoped coverage requires exactly its registration pattern identity.",
+            )
 
     @classmethod
     def from_framework(
         cls,
         coverage: FrameworkCoverage,
         *,
-        registration_pattern: str | None = None,
+        registration_pattern_id: str | None = None,
         entry_id: str | None = None,
         growth_id: str | None = None,
         path_id: str | None = None,
     ) -> "CandidateCoverage":
         if not isinstance(coverage, FrameworkCoverage):
             raise AnalyzerError("COVERAGE_ENTRY_INVALID", "Framework coverage is malformed.")
+        if registration_pattern_id is not None:
+            if registration_pattern_id in coverage.supported_patterns:
+                return cls(
+                    coverage.framework,
+                    "complete",
+                    (registration_pattern_id,),
+                    (),
+                    "none",
+                    registration_pattern_id,
+                    entry_id,
+                    growth_id,
+                    path_id,
+                )
+            return cls(
+                coverage.framework,
+                "partial",
+                (),
+                (
+                    "entry_registration_pattern_uncovered:"
+                    f"{registration_pattern_id}",
+                ),
+                "forces_unknown",
+                registration_pattern_id,
+                entry_id,
+                growth_id,
+                path_id,
+            )
         return cls(
             coverage.framework,
             coverage.status,
             coverage.supported_patterns,
             coverage.unsupported_patterns,
             coverage.effect_on_verdict,
-            registration_pattern,
+            registration_pattern_id,
             entry_id,
             growth_id,
             path_id,
@@ -126,14 +197,17 @@ class CandidateCoverage:
         self,
         *,
         framework: str,
-        registration_pattern: str | None = None,
+        registration_pattern_id: str | None = None,
         entry_id: str | None = None,
         growth_id: str | None = None,
         path_id: str | None = None,
     ) -> bool:
         if self.framework != framework:
             return False
-        if self.registration_pattern is not None and self.registration_pattern != registration_pattern:
+        if (
+            self.registration_pattern_id is not None
+            and self.registration_pattern_id != registration_pattern_id
+        ):
             return False
         for scoped, candidate in (
             (self.entry_id, entry_id),
@@ -159,7 +233,7 @@ class CandidateCoverage:
             "supported_patterns": list(self.supported_patterns),
             "unsupported_patterns": list(self.unsupported_patterns),
             "effect_on_verdict": self.effect_on_verdict,
-            "registration_pattern": self.registration_pattern,
+            "registration_pattern_id": self.registration_pattern_id,
             "entry_id": self.entry_id,
             "growth_id": self.growth_id,
             "path_id": self.path_id,
@@ -286,22 +360,34 @@ def apply_positive_proof_gate(
     verdict: StaticVerdict,
     gate: VerdictProofGate,
 ) -> StaticVerdict:
+    """Fail closed to unknown when any required proof obligation is missing.
+
+    Both ``static_vulnerable`` and ``bounded_under_modeled_assumptions`` are
+    determinate static conclusions and require the complete gate. An existing
+    ``static_unknown`` remains unknown while receiving the exact missing reason
+    codes for auditability. When a modeled-bounded conclusion is actually
+    downgraded, its contradictory ``STATIC_EVIDENCE_COVERAGE_COMPLETE``
+    assumption is removed while evidence-backed modeled-default references are
+    preserved.
+    """
     if not isinstance(verdict, StaticVerdict) or not isinstance(gate, VerdictProofGate):
         raise AnalyzerError("ANALYSIS_VERDICT_INVALID", "Verdict proof gate inputs are malformed.")
     missing = gate.missing_reason_codes
     if not missing:
         return verdict
+    assumptions = verdict.assumptions
     if verdict.verdict == "bounded_under_modeled_assumptions":
-        return verdict
-    gated_name: StaticVerdictName = (
-        "static_unknown" if verdict.verdict == "static_vulnerable" else verdict.verdict
-    )
+        assumptions = tuple(
+            assumption
+            for assumption in assumptions
+            if assumption != "STATIC_EVIDENCE_COVERAGE_COMPLETE"
+        )
     return StaticVerdict(
-        verdict=gated_name,
+        verdict="static_unknown",
         reason_codes=tuple(sorted(set((*verdict.reason_codes, *missing)))),
         evidence_ids=verdict.evidence_ids,
         unresolved_facts=verdict.unresolved_facts,
-        assumptions=verdict.assumptions,
+        assumptions=assumptions,
         modeled_configuration_refs=verdict.modeled_configuration_refs,
         covered_entries=verdict.covered_entries,
         covered_paths=verdict.covered_paths,

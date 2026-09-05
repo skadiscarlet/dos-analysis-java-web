@@ -180,12 +180,13 @@ def load_flow_proofs(path: Path) -> tuple[FlowProof, ...]:
     return proofs
 
 
-def _entry_registration_identity(entry: EntryFact) -> tuple[str, str, str, int]:
+def _entry_registration_identity(entry: EntryFact) -> tuple[str, str, str, int, str]:
     return (
         entry.registration.kind,
         entry.registration.callable,
         entry.registration.file,
         entry.registration.start_line,
+        entry.registration_pattern_id,
     )
 
 
@@ -200,6 +201,7 @@ def _entry_semantic_key(entry: EntryFact) -> tuple[object, ...]:
         entry.auth_context,
         tuple((item.name, item.type, item.kind) for item in entry.attacker_inputs),
         entry.materialization_phase,
+        entry.registration_pattern_id,
     )
 
 
@@ -231,7 +233,13 @@ def _entries_for_growth(matches: Sequence[EntryFact], growth_result: VerifiedGro
     raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
 
 
-def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[str, EntryFact], growth: Mapping[str, VerifiedGrowthResult]) -> list[dict[str, object]]:
+def normalize_flow_rows(
+    rows: Sequence[Mapping[str, object]],
+    entries: Mapping[str, EntryFact],
+    growth: Mapping[str, VerifiedGrowthResult],
+    *,
+    canonical_entry_ids: Mapping[str, str] | None = None,
+) -> list[dict[str, object]]:
     materialized = tuple(rows[: _MAX_ROWS + 1])
     if len(materialized) > _MAX_ROWS:
         raise _invalid("ROW_LIMIT")
@@ -271,10 +279,24 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
             entry for entry in entry_matches
             if control.source in {item.name for item in entry.attacker_inputs}
         )
-        resolved_entries = _entries_for_growth(
-            tuple(sorted(source_matched or tuple(entry_matches), key=lambda item: item.entry_id)),
-            growth_result,
+        entry_domain = tuple(
+            sorted(
+                source_matched or tuple(entry_matches),
+                key=lambda item: item.entry_id,
+            )
         )
+        if canonical_entry_ids is None:
+            resolved_entries = _entries_for_growth(entry_domain, growth_result)
+        else:
+            canonical_entry_id = canonical_entry_ids.get(growth_result.growth_id)
+            canonical_entry = entries.get(canonical_entry_id or "")
+            if (
+                not isinstance(canonical_entry_id, str)
+                or not isinstance(canonical_entry, EntryFact)
+                or canonical_entry not in entry_domain
+            ):
+                raise _invalid("FLOW_CANONICAL_ENTRY_MISMATCH")
+            resolved_entries = (canonical_entry,)
         roles = {item.role for item in growth_result.candidate.demand_inputs}
         demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == control.target}
         if control.target not in roles:
@@ -298,5 +320,7 @@ def normalize_flow_rows(rows: Sequence[Mapping[str, object]], entries: Mapping[s
             elif coverage != "complete" or flow_kind not in {"data_flow", "local_data_flow"}:
                 confidence = "partial"
             proof = FlowProof.create(entry_id=entry.entry_id, growth_id=growth_result.growth_id, attacker_control=control, call_path=_sequence(row["call_path"], "call_path"), phase_sequence=_sequence(row["phase_sequence"], "phase_sequence"), confidence=confidence, flow_kind=flow_kind, coverage_status=coverage, coverage_note=note)
+            if proof.path_id in proofs:
+                raise _invalid("DUPLICATE_PATH_ID")
             proofs[proof.path_id] = proof
     return [proofs[key].to_dict() for key in sorted(proofs, key=lambda item: canonical_json(proofs[item].semantic_identity))]

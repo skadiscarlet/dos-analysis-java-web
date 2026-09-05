@@ -18,6 +18,12 @@ from dosweb.artifacts.jsonl import (
 from dosweb.artifacts.metadata import StageFingerprint, invalidate_from, reusable_stage
 from dosweb.artifacts.schemas import ARTIFACT_SCHEMAS, SCHEMA_VERSION, validate_records, validate_references
 from dosweb.errors import AnalyzerError
+from dosweb.growth.completeness import (
+    CandidateDisposition,
+    CandidateEntryLink,
+    CandidateNegativeProof,
+)
+from dosweb.growth.slices import DemandInput, GrowthCandidate, SourceLocation
 from dosweb.lifecycle import BoundCandidate, GuardCandidate, ReleaseCandidate
 
 
@@ -113,6 +119,7 @@ class ArtifactContractTests(unittest.TestCase):
             "entry_id": "entry:a", "framework": "servlet", "protocol": "http",
             "handler": {"callable": "A.run", "file": "A.java", "start_line": 1},
             "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1}, "route_or_event": "/a", "auth_context": "unknown",
+            "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
             "attacker_inputs": [], "materialization_phase": "unknown",
         }]
         other = [{**records[0], "entry_id": "entry:b", "route_or_event": "/b"}]
@@ -201,6 +208,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "protocol": "http",
                 "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
                 "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
+                "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
                 "route_or_event": "/b",
                 "auth_context": "unknown",
                 "attacker_inputs": [],
@@ -212,6 +220,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "protocol": "http",
                 "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
                 "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
+                "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
                 "route_or_event": "/a",
                 "auth_context": "unknown",
                 "attacker_inputs": [],
@@ -229,7 +238,7 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertEqual(left_ref.sha256, right_ref.sha256)
 
     def test_schema_registry_covers_every_p0_jsonl_artifact(self):
-        self.assertEqual("2.6", SCHEMA_VERSION)
+        self.assertEqual("2.7", SCHEMA_VERSION)
         self.assertEqual(
             set(ARTIFACT_SCHEMAS),
             {
@@ -240,6 +249,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "modeled_configuration",
                 "growth_candidates",
                 "candidate_entry_links",
+                "candidate_negative_proofs",
                 "candidate_dispositions",
                 "repeatability_decisions",
                 "amplification_decisions",
@@ -261,6 +271,56 @@ class ArtifactContractTests(unittest.TestCase):
                 "lifecycle_certificates",
             },
         )
+
+    def test_candidate_entry_link_semantic_identity_and_collections_are_strict(
+        self,
+    ) -> None:
+        link = CandidateEntryLink.create(
+            "growth:semantic-link",
+            "entry:semantic-link",
+            "complete",
+            ("fact:a", "fact:b"),
+            ("ASSOCIATION_A", "ASSOCIATION_B"),
+        ).to_dict()
+        validate_records("candidate_entry_links", [link])
+
+        cases = {
+            "status_tamper": {**link, "status": "partial"},
+            "evidence_tamper": {
+                **link,
+                "evidence_ids": ["fact:a", "fact:b", "fact:c"],
+            },
+            "reason_tamper": {
+                **link,
+                "reason_codes": [
+                    "ASSOCIATION_A",
+                    "ASSOCIATION_B",
+                    "ASSOCIATION_C",
+                ],
+            },
+            "empty_evidence": {**link, "evidence_ids": []},
+            "duplicate_evidence": {
+                **link,
+                "evidence_ids": ["fact:a", "fact:a"],
+            },
+            "unsorted_evidence": {
+                **link,
+                "evidence_ids": ["fact:b", "fact:a"],
+            },
+            "empty_reasons": {**link, "reason_codes": []},
+            "duplicate_reasons": {
+                **link,
+                "reason_codes": ["ASSOCIATION_A", "ASSOCIATION_A"],
+            },
+            "unsorted_reasons": {
+                **link,
+                "reason_codes": ["ASSOCIATION_B", "ASSOCIATION_A"],
+            },
+        }
+        for name, record in cases.items():
+            with self.subTest(name=name):
+                with self.assertRaises(AnalyzerError):
+                    validate_records("candidate_entry_links", [record])
 
     def test_finding_family_allowlist_is_strict_before_publication(self):
         semantic = {
@@ -290,17 +350,18 @@ class ArtifactContractTests(unittest.TestCase):
                 "finding_families", [{**record, "family_id": "family:forged"}]
             )
 
-    def test_candidate_disposition_schema_preserves_dos_relevant_partial(self):
-        semantic = {
-            "growth_id": "growth:partial",
-            "status": "dos_relevant_partial",
-            "link_ids": ["candidate_link:partial"],
-            "reason_codes": ["GROWTH_DOS_RELEVANT_PARTIAL"],
-        }
-        record = {
-            "disposition_id": stable_identifier("disposition", semantic),
-            **semantic,
-        }
+    def test_candidate_disposition_schema_preserves_gap_and_negative_proof(self):
+        record = CandidateDisposition.create(
+            "growth:partial",
+            "gap_eligible",
+            canonical_entry_id="entry:partial",
+            local_growth_status="partial",
+            association_status="complete",
+            link_ids=("candidate_link:partial",),
+            evidence_ids=("candidate_link:partial", "fact:partial"),
+            negative_proof_ids=(),
+            reason_codes=("MATURATION_GAP_ELIGIBLE",),
+        ).to_dict()
         validate_records("candidate_dispositions", [record])
         with self.assertRaises(AnalyzerError):
             validate_records(
@@ -308,23 +369,447 @@ class ArtifactContractTests(unittest.TestCase):
                 [{**record, "link_ids": []}],
             )
 
-        rejected_semantic = {
-            "growth_id": "growth:rejected",
-            "status": "rejected",
-            "link_ids": [],
-            "reason_codes": ["RELEVANCE_SERVER_SIZED_ALLOCATION"],
-        }
+        negative = CandidateNegativeProof.create(
+            "growth:rejected",
+            "server_controlled_source",
+            evidence_ids=("fact:server-sized",),
+            reason_codes=("NEGATIVE_SERVER_CONTROLLED_SOURCE",),
+        ).to_dict()
+        rejected = CandidateDisposition.create(
+            "growth:rejected",
+            "rejected",
+            canonical_entry_id="",
+            local_growth_status="rejected",
+            association_status="missing",
+            link_ids=(),
+            evidence_ids=(negative["negative_proof_id"],),
+            negative_proof_ids=(negative["negative_proof_id"],),
+            reason_codes=("MATURATION_SOURCE_PROVEN_NEGATIVE",),
+        ).to_dict()
+        validate_records("candidate_negative_proofs", [negative])
         validate_references(
             "candidate_dispositions",
-            [
+            [rejected],
+            {
+                "growth_id": {"growth:rejected"},
+                "entry_id": set(),
+                "link_id": set(),
+                "negative_proof_id": {negative["negative_proof_id"]},
+                "negative_proof_growth_ids": {
+                    negative["negative_proof_id"]: "growth:rejected"
+                },
+            },
+        )
+
+    def test_candidate_disposition_artifact_enforces_maturation_matrix(self):
+        cases = (
+            ("gap_eligible", "partial", "complete", True),
+            ("gap_eligible", "complete", "partial", True),
+            ("gap_eligible", "complete", "complete", False),
+            ("formal_eligible", "complete", "complete", True),
+            ("formal_eligible", "partial", "complete", False),
+            ("formal_eligible", "complete", "partial", False),
+        )
+        for status, local_status, association_status, accepted in cases:
+            semantic = {
+                "growth_id": "growth:maturation-matrix",
+                "status": status,
+                "canonical_entry_id": "entry:maturation-matrix",
+                "local_growth_status": local_status,
+                "association_status": association_status,
+                "link_ids": ["candidate_link:maturation-matrix"],
+                "evidence_ids": [
+                    "candidate_link:maturation-matrix",
+                    "fact:growth",
+                ],
+                "negative_proof_ids": [],
+                "reason_codes": [
+                    "MATURATION_FORMAL_ELIGIBLE"
+                    if status == "formal_eligible"
+                    else "MATURATION_GAP_ELIGIBLE"
+                ],
+            }
+            record = {
+                "disposition_id": stable_identifier("disposition", semantic),
+                **semantic,
+            }
+            with self.subTest(
+                status=status,
+                local_status=local_status,
+                association_status=association_status,
+            ):
+                if accepted:
+                    validate_records("candidate_dispositions", [record])
+                else:
+                    with self.assertRaises(AnalyzerError):
+                        validate_records("candidate_dispositions", [record])
+
+    def test_candidate_artifact_schema_enforces_negative_proof_status_contract(self):
+        proof = CandidateNegativeProof.create(
+            "growth:negative",
+            "server_controlled_source",
+            evidence_ids=("fact:growth",),
+            reason_codes=("NEGATIVE_SERVER_CONTROLLED_SOURCE",),
+        ).to_dict()
+        rejected = CandidateDisposition.create(
+            "growth:negative",
+            "rejected",
+            canonical_entry_id="",
+            local_growth_status="rejected",
+            association_status="missing",
+            link_ids=(),
+            evidence_ids=(proof["negative_proof_id"],),
+            negative_proof_ids=(proof["negative_proof_id"],),
+            reason_codes=("MATURATION_SOURCE_PROVEN_NEGATIVE",),
+        ).to_dict()
+
+        ordinary_only = {
+            **rejected,
+            "evidence_ids": ["fact:ordinary"],
+            "negative_proof_ids": [],
+        }
+        ordinary_semantic = {
+            key: value
+            for key, value in ordinary_only.items()
+            if key != "disposition_id"
+        }
+        ordinary_only["disposition_id"] = stable_identifier(
+            "disposition", ordinary_semantic
+        )
+        with self.assertRaises(AnalyzerError):
+            validate_records("candidate_dispositions", [ordinary_only])
+
+        inventory_with_proof = {
+            **rejected,
+            "status": "inventory_unresolved",
+            "local_growth_status": "unknown",
+        }
+        inventory_semantic = {
+            key: value
+            for key, value in inventory_with_proof.items()
+            if key != "disposition_id"
+        }
+        inventory_with_proof["disposition_id"] = stable_identifier(
+            "disposition", inventory_semantic
+        )
+        with self.assertRaises(AnalyzerError):
+            validate_records("candidate_dispositions", [inventory_with_proof])
+
+        non_fact_proof = {**proof, "evidence_ids": ["reachability:decision"]}
+        proof_semantic = {
+            key: value for key, value in non_fact_proof.items()
+            if key != "negative_proof_id"
+        }
+        non_fact_proof["negative_proof_id"] = stable_identifier(
+            "negative_proof", proof_semantic
+        )
+        with self.assertRaises(AnalyzerError):
+            validate_records("candidate_negative_proofs", [non_fact_proof])
+
+    def test_candidate_disposition_schema_requires_exact_negative_proof_evidence(self):
+        first = CandidateNegativeProof.create(
+            "growth:negative",
+            "server_controlled_source",
+            evidence_ids=("fact:first",),
+            reason_codes=("NEGATIVE_SERVER_CONTROLLED_SOURCE",),
+        )
+        second = CandidateNegativeProof.create(
+            "growth:negative",
+            "non_retained_owner",
+            evidence_ids=("fact:second",),
+            reason_codes=("NEGATIVE_NON_RETAINED_OWNER",),
+        )
+        valid = CandidateDisposition.create(
+            "growth:negative",
+            "rejected",
+            canonical_entry_id="",
+            local_growth_status="rejected",
+            association_status="missing",
+            link_ids=(),
+            evidence_ids=(first.negative_proof_id,),
+            negative_proof_ids=(first.negative_proof_id,),
+            reason_codes=("MATURATION_SOURCE_PROVEN_NEGATIVE",),
+        ).to_dict()
+
+        cases = (
+            {
+                **valid,
+                "evidence_ids": sorted(
+                    [first.negative_proof_id, second.negative_proof_id]
+                ),
+            },
+            {**valid, "evidence_ids": ["fact:ordinary"]},
+        )
+        for malformed in cases:
+            semantic = {
+                key: value
+                for key, value in malformed.items()
+                if key != "disposition_id"
+            }
+            malformed["disposition_id"] = stable_identifier(
+                "disposition", semantic
+            )
+            with self.subTest(evidence_ids=malformed["evidence_ids"]):
+                with self.assertRaises(AnalyzerError):
+                    validate_records("candidate_dispositions", [malformed])
+
+    def test_eligible_disposition_link_must_own_growth_and_canonical_entry(self):
+        cases = (
+            ("growth:other", "entry:formal"),
+            ("growth:formal", "entry:other"),
+        )
+        for link_growth_id, link_entry_id in cases:
+            link = CandidateEntryLink.create(
+                link_growth_id,
+                link_entry_id,
+                "complete",
+                ("fact:association",),
+                ("ASSOCIATION_FIXTURE",),
+            )
+            disposition = CandidateDisposition.create(
+                "growth:formal",
+                "formal_eligible",
+                canonical_entry_id="entry:formal",
+                local_growth_status="complete",
+                association_status="complete",
+                link_ids=(link.link_id,),
+                evidence_ids=("fact:growth", link.link_id),
+                negative_proof_ids=(),
+                reason_codes=("MATURATION_FORMAL_ELIGIBLE",),
+            )
+            known = {
+                "growth_id": {"growth:formal", "growth:other"},
+                "entry_id": {"entry:formal", "entry:other"},
+                "link_id": {link.link_id},
+                "link_ownership": {
+                    link.link_id: (link.growth_id, link.entry_id, link.status)
+                },
+                "negative_proof_id": set(),
+                "negative_proof_growth_ids": {},
+            }
+            with self.subTest(
+                link_growth_id=link_growth_id,
+                link_entry_id=link_entry_id,
+            ):
+                with self.assertRaises(AnalyzerError) as raised:
+                    validate_references(
+                        "candidate_dispositions",
+                        [disposition.to_dict()],
+                        known,
+                    )
+                self.assertEqual(
+                    "ANALYSIS_DANGLING_FACT_REFERENCE", raised.exception.code
+                )
+
+    def test_eligible_disposition_accepts_exact_link_ownership(self):
+        link = CandidateEntryLink.create(
+            "growth:formal",
+            "entry:formal",
+            "complete",
+            ("fact:association",),
+            ("ASSOCIATION_FIXTURE",),
+        )
+        disposition = CandidateDisposition.create(
+            "growth:formal",
+            "formal_eligible",
+            canonical_entry_id="entry:formal",
+            local_growth_status="complete",
+            association_status="complete",
+            link_ids=(link.link_id,),
+            evidence_ids=("fact:growth", link.link_id),
+            negative_proof_ids=(),
+            reason_codes=("MATURATION_FORMAL_ELIGIBLE",),
+        )
+
+        validate_references(
+            "candidate_dispositions",
+            [disposition.to_dict()],
+            {
+                "growth_id": {"growth:formal"},
+                "entry_id": {"entry:formal"},
+                "link_id": {link.link_id},
+                "link_ownership": {
+                    link.link_id: (link.growth_id, link.entry_id, link.status)
+                },
+                "negative_proof_id": set(),
+                "negative_proof_growth_ids": {},
+            },
+        )
+
+    def test_partial_link_cannot_masquerade_as_formal_complete_association(self):
+        link = CandidateEntryLink.create(
+            "growth:formal",
+            "entry:formal",
+            "partial",
+            ("fact:association",),
+            ("ASSOCIATION_PARTIAL_FIXTURE",),
+        )
+        disposition = CandidateDisposition.create(
+            "growth:formal",
+            "formal_eligible",
+            canonical_entry_id="entry:formal",
+            local_growth_status="complete",
+            association_status="complete",
+            link_ids=(link.link_id,),
+            evidence_ids=("fact:growth", link.link_id),
+            negative_proof_ids=(),
+            reason_codes=("MATURATION_FORMAL_ELIGIBLE",),
+        )
+
+        with self.assertRaises(AnalyzerError) as raised:
+            validate_references(
+                "candidate_dispositions",
+                [disposition.to_dict()],
                 {
-                    "disposition_id": stable_identifier(
-                        "disposition", rejected_semantic
-                    ),
-                    **rejected_semantic,
-                }
-            ],
-            {"growth_id": {"growth:rejected"}, "link_id": set()},
+                    "growth_id": {"growth:formal"},
+                    "entry_id": {"entry:formal"},
+                    "link_id": {link.link_id},
+                    "link_ownership": {
+                        link.link_id: (link.growth_id, link.entry_id, link.status)
+                    },
+                    "negative_proof_id": set(),
+                    "negative_proof_growth_ids": {},
+                },
+            )
+        self.assertEqual(
+            "ANALYSIS_DANGLING_FACT_REFERENCE", raised.exception.code
+        )
+
+    def test_gap_link_status_must_exactly_match_association_status(self):
+        cases = (
+            ("partial", "complete", "complete", True),
+            ("complete", "partial", "partial", True),
+            ("partial", "complete", "partial", False),
+            ("complete", "partial", "complete", False),
+        )
+        for local_status, association_status, link_status, accepted in cases:
+            link = CandidateEntryLink.create(
+                "growth:gap",
+                "entry:gap",
+                link_status,
+                ("fact:association",),
+                ("ASSOCIATION_GAP_FIXTURE",),
+            )
+            disposition = CandidateDisposition.create(
+                "growth:gap",
+                "gap_eligible",
+                canonical_entry_id="entry:gap",
+                local_growth_status=local_status,
+                association_status=association_status,
+                link_ids=(link.link_id,),
+                evidence_ids=("fact:growth", link.link_id),
+                negative_proof_ids=(),
+                reason_codes=("MATURATION_GAP_ELIGIBLE",),
+            )
+            known = {
+                "growth_id": {"growth:gap"},
+                "entry_id": {"entry:gap"},
+                "link_id": {link.link_id},
+                "link_ownership": {
+                    link.link_id: (link.growth_id, link.entry_id, link.status)
+                },
+                "negative_proof_id": set(),
+                "negative_proof_growth_ids": {},
+            }
+            with self.subTest(
+                local_status=local_status,
+                association_status=association_status,
+                link_status=link_status,
+            ):
+                if accepted:
+                    validate_references(
+                        "candidate_dispositions", [disposition.to_dict()], known
+                    )
+                else:
+                    with self.assertRaises(AnalyzerError):
+                        validate_references(
+                            "candidate_dispositions",
+                            [disposition.to_dict()],
+                            known,
+                        )
+
+    def test_negative_proof_references_are_scoped_to_the_same_growth_candidate(self):
+        first = GrowthCandidate.create(
+            site=SourceLocation("src/First.java", 10),
+            kind="direct_allocation",
+            operation="array_creation",
+            resource_dimension="bytes",
+            receiver="byte[]",
+            field_path="allocation",
+            demand_inputs=(DemandInput("size", "size"),),
+            escape_scope="request",
+            evidence_ids=frozenset({"fact:first"}),
+            coverage_notes=("direct_allocation:server_metadata_size",),
+        )
+        second = GrowthCandidate.create(
+            site=SourceLocation("src/Second.java", 20),
+            kind="direct_allocation",
+            operation="array_creation",
+            resource_dimension="bytes",
+            receiver="byte[]",
+            field_path="allocation",
+            demand_inputs=(DemandInput("size", "size"),),
+            escape_scope="request",
+            evidence_ids=frozenset({"fact:second"}),
+            coverage_notes=("direct_allocation:server_metadata_size",),
+        )
+        wrong_evidence = CandidateNegativeProof.create(
+            first.growth_id,
+            "server_controlled_source",
+            evidence_ids=("fact:second",),
+            reason_codes=("NEGATIVE_SERVER_CONTROLLED_SOURCE",),
+        )
+        known = {
+            "growth_id": {first.growth_id, second.growth_id},
+            "fact_id": {"fact:first", "fact:second"},
+            "growth_fact_ids": {
+                first.growth_id: {"fact:first"},
+                second.growth_id: {"fact:second"},
+            },
+        }
+        with self.assertRaises(AnalyzerError) as raised:
+            validate_references(
+                "candidate_negative_proofs",
+                [wrong_evidence.to_dict()],
+                known,
+            )
+        self.assertEqual(
+            "ANALYSIS_DANGLING_FACT_REFERENCE", raised.exception.code
+        )
+
+        second_proof = CandidateNegativeProof.create(
+            second.growth_id,
+            "server_controlled_source",
+            evidence_ids=("fact:second",),
+            reason_codes=("NEGATIVE_SERVER_CONTROLLED_SOURCE",),
+        )
+        mismatched = CandidateDisposition.create(
+            first.growth_id,
+            "rejected",
+            canonical_entry_id="",
+            local_growth_status="rejected",
+            association_status="missing",
+            link_ids=(),
+            evidence_ids=(second_proof.negative_proof_id,),
+            negative_proof_ids=(second_proof.negative_proof_id,),
+            reason_codes=("MATURATION_SOURCE_PROVEN_NEGATIVE",),
+        )
+        with self.assertRaises(AnalyzerError) as raised:
+            validate_references(
+                "candidate_dispositions",
+                [mismatched.to_dict()],
+                {
+                    "growth_id": {first.growth_id, second.growth_id},
+                    "entry_id": set(),
+                    "link_id": set(),
+                    "negative_proof_id": {second_proof.negative_proof_id},
+                    "negative_proof_growth_ids": {
+                        second_proof.negative_proof_id: second.growth_id
+                    },
+                },
+            )
+        self.assertEqual(
+            "ANALYSIS_DANGLING_FACT_REFERENCE", raised.exception.code
         )
 
     def test_lifecycle_candidate_models_match_published_artifact_schemas(self):
@@ -389,6 +874,30 @@ class ArtifactContractTests(unittest.TestCase):
         validate_references("bound_candidates", [bound.to_dict()], known_ids={})
         validate_references("release_candidates", [release.to_dict()], known_ids={})
 
+    def test_bound_candidate_schema_accepts_numeric_clamp(self) -> None:
+        clamp = BoundCandidate.create(
+            site_file="fixture/Handler.java",
+            site_start_line=20,
+            kind="limit",
+            resource_dimension="bytes",
+            scope="request",
+            behavior="clamp",
+            receiver="java.nio.ByteBuffer",
+            field_path="allocation",
+            result_checked=True,
+            configuration_key="literal",
+            configuration_value="1024",
+            phase="inside_growth",
+            covers_flow=True,
+            request_encoding="any",
+            queue_resource="allocation",
+            product_bound=True,
+            evidence=("numeric_min_literal",),
+            coverage_status="complete",
+        )
+
+        validate_records("bound_candidates", [clamp.to_dict()])
+
     def test_entry_schema_requires_p0_fields_and_enum_values(self):
         record = {
             "entry_id": "entry:abc",
@@ -396,6 +905,7 @@ class ArtifactContractTests(unittest.TestCase):
             "protocol": "http",
             "handler": {"callable": "a", "file": "A.java", "start_line": 1},
             "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
+            "registration_pattern_id": "entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",
             "route_or_event": "/a",
             "auth_context": "unauthenticated",
             "attacker_inputs": [],
@@ -414,6 +924,7 @@ class ArtifactContractTests(unittest.TestCase):
             "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
             "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
+            "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
             "route_or_event": "/",
             "auth_context": "unknown",
             "attacker_inputs": [],
@@ -562,6 +1073,7 @@ class ArtifactContractTests(unittest.TestCase):
             "entry_id": "entry:1", "framework": "servlet", "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
             "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1}, "route_or_event": "/", "auth_context": "unknown",
+            "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
             "attacker_inputs": [], "materialization_phase": "unknown",
         }
         for records in ((entry, entry), ({**entry, "entry_id": "wrong"},)):
@@ -828,6 +1340,7 @@ class ArtifactContractTests(unittest.TestCase):
             "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
             "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
+            "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
             "route_or_event": "/",
             "auth_context": "unknown",
             "attacker_inputs": [],
@@ -864,6 +1377,7 @@ class ArtifactContractTests(unittest.TestCase):
             "protocol": "http",
             "handler": {"callable": "Handler.run", "file": "Handler.java", "start_line": 1},
             "registration": {"kind": "annotation_mapping", "callable": "fixture.Handler.handle", "file": "fixture/Handler.java", "start_line": 1},
+            "registration_pattern_id": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
             "route_or_event": "/",
             "auth_context": "unknown",
             "attacker_inputs": [],

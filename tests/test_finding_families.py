@@ -38,7 +38,7 @@ class FindingFamilyTests(unittest.TestCase):
                 "attacker_input_kind": "request_parameter",
                 "materialization_phase": "in_handler",
                 "coverage_status": "complete",
-                "coverage_note": "registered",
+                "coverage_note": "spring_annotation_mapping",
             }
         )
 
@@ -156,10 +156,10 @@ class FindingFamilyTests(unittest.TestCase):
         coverage = CandidateCoverage(
             entry.framework,
             "complete",
-            (entry.registration.kind,),
+            (entry.registration_pattern_id,),
             (),
             "none",
-            registration_pattern=entry.registration.kind,
+            registration_pattern_id=entry.registration_pattern_id,
             entry_id=entry.entry_id,
             growth_id=growth.growth_id,
             path_id=flow.path_id,

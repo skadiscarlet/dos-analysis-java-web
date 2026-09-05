@@ -1,8 +1,10 @@
-# Bumped after audit artifacts became part of formal reproducibility.
-PROMPT_VERSION = "growth-contract-v4"
-RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v4"
-AUTH_PROMPT_VERSION = "auth-contract-v3"
-AUTH_RESPONSE_SCHEMA_VERSION = "auth-contract-schema-v2"
+# Bumped after the Growth provider wire schema was flattened for provider
+# compatibility; cross-field invariants remain enforced by the prompt and local
+# typed validation.
+PROMPT_VERSION = "growth-contract-v9"
+RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v5"
+AUTH_PROMPT_VERSION = "auth-contract-v5"
+AUTH_RESPONSE_SCHEMA_VERSION = "auth-contract-schema-v3"
 
 AUTH_CONTRACT_RESPONSE_SCHEMA = {
     "auth_context": ["unauthenticated", "low_privilege", "privileged", "unknown"],
@@ -13,9 +15,7 @@ AUTH_CONTRACT_RESPONSE_SCHEMA = {
 
 GROWTH_CONTRACT_RESPONSE_SCHEMA = {
     "is_resource_growth": ["yes", "no", "unknown"],
-    "growth_kind": ["input_materialization", "direct_allocation", "container_growth", "async_work_growth", "unknown"],
-    "resource_dimension": ["entries", "bytes", "tasks", "connections", "objects", "unknown"],
-    "attacker_influence": [{"target": ["size", "key", "value", "iteration_count", "submission_count", "unknown"], "evidence_id": "fact:<ordinal>"}],
+    "attacker_evidence_ids": ["fact:<ordinal>"],
     "resource_effect": ["materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"],
     "attacker_variable": "bounded safe text",
     "attacker_value_space": ["stream", "unlimited", "large", "limited", "server_controlled", "unknown"],
@@ -31,4 +31,69 @@ GROWTH_CONTRACT_RESPONSE_SCHEMA = {
     "contract_status": ["dos_relevant", "growth_not_dos_relevant", "unknown"],
     "rejection_reason": ["none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"],
     "confidence": ["high", "medium", "low"],
+}
+
+
+def _enum(values: list[str]) -> dict[str, object]:
+    return {"type": "string", "enum": values}
+
+
+_FACT_ALIAS = {
+    "type": "array",
+    "items": {"type": "string", "pattern": r"^fact:[1-9][0-9]*$"},
+    "uniqueItems": True,
+}
+_BOUNDED_TEXT = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 4096,
+    "pattern": r"^[^\r\n]+$",
+}
+
+
+GROWTH_CONTRACT_JSON_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "is_resource_growth": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["is_resource_growth"]),
+        "attacker_evidence_ids": {**_FACT_ALIAS, "maxItems": 16},
+        "resource_effect": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["resource_effect"]),
+        "attacker_variable": _BOUNDED_TEXT,
+        "attacker_value_space": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["attacker_value_space"]),
+        "growth_unit": _BOUNDED_TEXT,
+        "growth_function": _BOUNDED_TEXT,
+        "amplification_class": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["amplification_class"]),
+        "requests_to_pressure": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["requests_to_pressure"]),
+        "concurrency_model": _BOUNDED_TEXT,
+        "retention_window": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["retention_window"]),
+        "failure_mechanism": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["failure_mechanism"]),
+        "failure_signal": _BOUNDED_TEXT,
+        "required_static_evidence": {**_FACT_ALIAS, "maxItems": 32},
+        "contract_status": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["contract_status"]),
+        "rejection_reason": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["rejection_reason"]),
+        "confidence": _enum(GROWTH_CONTRACT_RESPONSE_SCHEMA["confidence"]),
+    },
+    "required": sorted(GROWTH_CONTRACT_RESPONSE_SCHEMA),
+    "additionalProperties": False,
+}
+
+
+AUTH_CONTRACT_JSON_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "auth_context": _enum(AUTH_CONTRACT_RESPONSE_SCHEMA["auth_context"]),
+        "evidence_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": r"^security:[1-9][0-9]*$"},
+            "maxItems": 32,
+            "uniqueItems": True,
+        },
+        "assumptions": {
+            "type": "array",
+            "items": _BOUNDED_TEXT,
+            "maxItems": 32,
+        },
+        "confidence": _enum(AUTH_CONTRACT_RESPONSE_SCHEMA["confidence"]),
+    },
+    "required": sorted(AUTH_CONTRACT_RESPONSE_SCHEMA),
+    "additionalProperties": False,
 }

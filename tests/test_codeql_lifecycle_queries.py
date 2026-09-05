@@ -128,6 +128,37 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
         self.assertIn("boundedCallPath", domain)
         self.assertIn("callEdgeId", domain)
         self.assertIn("getStartLine().toString()", domain)
+        self.assertIn("import dosweb.Growth.LoopAmplification", domain)
+        self.assertIn("getADimension", domain)
+        self.assertNotIn("getDimension(0)", domain)
+        self.assertIn("provenAttackerLoopMultiplicity", domain)
+        self.assertIn('target = "iteration_count"', domain)
+        self.assertIn('target = "submission_count"', domain)
+        self.assertIn("exactRequestLocalContainerIterationDemand", domain)
+        self.assertIn("exactAsyncSubmissionIterationDemand", domain)
+        self.assertIn(
+            "provenAttackerLoopMultiplicityForDirectAllocation", domain
+        )
+
+        loop_domain = (
+            _ROOT / "codeql" / "dosweb" / "Growth" / "LoopAmplification.qll"
+        ).read_text(encoding="utf-8")
+        for marker in (
+            "canonicalAttackerBoundForLoop",
+            "variableUpdatedInLoopBody",
+            "soleTopLevelStatement",
+            "unconditionalTopLevelGrowthInLoop",
+            "unconditionalTopLevelDirectAllocationInLoop",
+            "provenAttackerLoopMultiplicity",
+            "provenAttackerLoopMultiplicityForDirectAllocation",
+            "growth.getEnclosingCallable() = loop.getEnclosingCallable()",
+            "statement.getExpr() = growth",
+            "AssignExpr assignment",
+            "assignment.getSource() = growth",
+            "SingletonBlock",
+        ):
+            with self.subTest(loop_marker=marker):
+                self.assertIn(marker, loop_domain)
 
         for query_name in ("EntryToGrowth.ql", "EntryToGrowthAssociations.ql"):
             with self.subTest(query=query_name):
@@ -163,6 +194,25 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
                 self.assertIn(token, bound)
                 self.assertIn(token, coverage)
         self.assertIn("familyModeledDomain", coverage)
+        self.assertIn("numericClampBound", bound)
+        framework_domain = (
+            _ROOT
+            / "codeql"
+            / "dosweb"
+            / "Lifecycle"
+            / "FrameworkLimitDomain.qll"
+        ).read_text(encoding="utf-8")
+        self.assertIn("exists(IntegerLiteral configured", framework_domain)
+        self.assertIn("configured.getIntValue() > 0", framework_domain)
+        self.assertIn("value = configured.getIntValue().toString()", framework_domain)
+        self.assertIn("annotation = input.getAnAnnotation()", framework_domain)
+        self.assertIn(
+            '["RequestBody", "RequestParam", "PathVariable", "RequestHeader"]',
+            framework_domain,
+        )
+        self.assertIn("demand = access", framework_domain)
+        self.assertNotIn("not demand instanceof CompileTimeConstantExpr", framework_domain)
+        self.assertIn("directByteAllocationModeledDomain", coverage)
         self.assertIn("lifecycle_family_api_domain_unmodeled", coverage)
         self.assertNotIn(
             'not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and\n      not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and\n      statusValue = "complete"',
@@ -795,6 +845,9 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             )
             for marker in (
                 "ByteBuffer.allocate(jacksonSize)",
+                "ByteBuffer.allocate(Math.min(requestedSize, 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0x400))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))",
                 "ByteBuffer.allocate(message.content().readableBytes())",
                 "ByteBuffer.allocate(request.size())",
                 "keyStream.toByteArray()",
@@ -808,6 +861,19 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
                 "ByteBuffer.allocate(unboundJacksonSize)",
                 "ByteBuffer.allocate((Integer) looseMessage)",
                 "ByteBuffer.allocate(1024); // unrelated multipart allocation",
+            )
+        }
+        invalid_clamp_anchors = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(Math.min(requestedSize, 512 + 512))",
+                "ByteBuffer.allocate(Math.min(requestedSize, LIMIT))",
+                "ByteBuffer.allocate(Math.min(serverDerivedValue(), 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0))",
+                "ByteBuffer.allocate(Math.min(requestedSize, -1))",
+                "ByteBuffer.allocate(Math.min(-1, 1024))",
             )
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -825,6 +891,7 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             {
                 "jackson_stream_read_constraints_literal",
                 "netty_http_object_aggregator_literal",
+                "numeric_min_literal",
                 "servlet_multipart_config_literal",
                 "solr_formdata_upload_limit_literal",
             },
@@ -835,6 +902,56 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             set(anchors.values()),
             fixture_bounds,
         )
+        self.assertEqual(len(fixture_bounds), 7, fixture_bounds)
+        expected_bound_rows = {
+            anchors["ByteBuffer.allocate(jacksonSize)"]: (
+                "jackson_stream_read_constraints_literal",
+                "1024",
+                "json",
+            ),
+            anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"]: (
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            anchors["ByteBuffer.allocate(Math.min(requestedSize, 0x400))"]: (
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            anchors["ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"]: (
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            anchors["ByteBuffer.allocate(message.content().readableBytes())"]: (
+                "netty_http_object_aggregator_literal",
+                "1024",
+                "aggregated_http",
+            ),
+            anchors["ByteBuffer.allocate(request.size())"]: (
+                "servlet_multipart_config_literal",
+                "1024",
+                "multipart",
+            ),
+            anchors["keyStream.toByteArray()"]: (
+                "solr_formdata_upload_limit_literal",
+                "1024",
+                "form_urlencoded",
+            ),
+        }
+        self.assertEqual(
+            {
+                row["anchor_start_line"]: (
+                    row["evidence"],
+                    row["configuration_value"],
+                    row["request_encoding"],
+                )
+                for row in fixture_bounds
+            },
+            expected_bound_rows,
+            fixture_bounds,
+        )
         self.assertTrue(
             set(unrelated_anchors.values()).isdisjoint(
                 {row["anchor_start_line"] for row in fixture_bounds}
@@ -842,15 +959,55 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             fixture_bounds,
         )
         self.assertTrue(
+            set(invalid_clamp_anchors.values()).isdisjoint(
+                {row["anchor_start_line"] for row in fixture_bounds}
+            ),
+            fixture_bounds,
+        )
+        framework_bounds = [
+            row for row in fixture_bounds
+            if row["evidence"] != "numeric_min_literal"
+        ]
+        self.assertEqual(len(framework_bounds), 4, framework_bounds)
+        self.assertTrue(
             all(
                 row["coverage_status"] == "complete"
+                and row["behavior"] == "reject"
                 and row["coverage_note"] == "framework_limit_exact_path_literal"
                 and row["phase"] == "before_growth"
                 and row["covers_flow"] is True
                 and row["product_bound"] is True
-                for row in fixture_bounds
+                for row in framework_bounds
             ),
-            fixture_bounds,
+            framework_bounds,
+        )
+        clamp_bounds = [
+            row for row in fixture_bounds
+            if row["evidence"] == "numeric_min_literal"
+        ]
+        self.assertEqual(len(clamp_bounds), 3, clamp_bounds)
+        self.assertEqual(
+            {
+                anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"],
+                anchors["ByteBuffer.allocate(Math.min(requestedSize, 0x400))"],
+                anchors[
+                    "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"
+                ],
+            },
+            {row["anchor_start_line"] for row in clamp_bounds},
+        )
+        self.assertTrue(
+            all(
+                row["behavior"] == "clamp"
+                and row["coverage_note"] == "same_expression_numeric_clamp"
+                and row["phase"] == "inside_growth"
+                and row["configuration_value"] == "1024"
+                and row["coverage_status"] == "complete"
+                and row["covers_flow"] is True
+                and row["product_bound"] is True
+                for row in clamp_bounds
+            ),
+            clamp_bounds,
         )
         bound_coverage = [
             row for row in coverage
@@ -858,13 +1015,99 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             and row.get("anchor_start_line") in anchors.values()
             and row.get("family") == "bound"
         ]
-        self.assertEqual(len(bound_coverage), 4, bound_coverage)
+        self.assertEqual(len(bound_coverage), 7, bound_coverage)
+        self.assertEqual(
+            {row["anchor_start_line"] for row in bound_coverage},
+            set(anchors.values()),
+            bound_coverage,
+        )
         self.assertTrue(
             all(
                 row["coverage_status"] == "complete"
                 and row["coverage_note"] == "same_callable_modeled_domain_scanned"
                 for row in bound_coverage
             ),
+            bound_coverage,
+        )
+
+    def test_direct_byte_allocation_bound_domain_covers_absence_and_numeric_clamp(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "framework_limits" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "limits" / "FrameworkLimitFixture.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        plain_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "ByteBuffer.allocate(requestedSize)" in line
+        )
+        clamped_lines = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(Math.min(requestedSize, 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0x400))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))",
+            )
+        }
+        invalid_clamped_lines = {
+            next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(Math.min(requestedSize, 512 + 512))",
+                "ByteBuffer.allocate(Math.min(requestedSize, LIMIT))",
+                "ByteBuffer.allocate(Math.min(serverDerivedValue(), 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0))",
+                "ByteBuffer.allocate(Math.min(requestedSize, -1))",
+                "ByteBuffer.allocate(Math.min(-1, 1024))",
+            )
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "direct-allocation-bound-domain")
+            bounds = self._rows("Lifecycle/BoundCandidates.ql", database, temporary)
+            coverage = self._rows("Lifecycle/LifecycleCoverage.ql", database, temporary)
+
+        fixture_bounds = [
+            row for row in bounds
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+        ]
+        self.assertFalse(
+            any(row["anchor_start_line"] == plain_line for row in fixture_bounds),
+            fixture_bounds,
+        )
+        clamped = [
+            row for row in fixture_bounds
+            if row["anchor_start_line"] in clamped_lines.values()
+        ]
+        self.assertEqual(3, len(clamped), clamped)
+        self.assertTrue(
+            all(
+                row["behavior"] == "clamp"
+                and row["evidence"] == "numeric_min_literal"
+                and row["configuration_value"] == "1024"
+                and row["product_bound"] is True
+                for row in clamped
+            ),
+            clamped,
+        )
+        self.assertTrue(
+            invalid_clamped_lines.isdisjoint(
+                {row["anchor_start_line"] for row in fixture_bounds}
+            ),
+            fixture_bounds,
+        )
+        bound_coverage = {
+            row["anchor_start_line"]: row
+            for row in coverage
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+            and row.get("family") == "bound"
+            and row.get("anchor_start_line") in {plain_line, *clamped_lines.values()}
+        }
+        self.assertEqual({plain_line, *clamped_lines.values()}, set(bound_coverage))
+        self.assertTrue(
+            all(row["coverage_status"] == "complete" for row in bound_coverage.values()),
             bound_coverage,
         )
 

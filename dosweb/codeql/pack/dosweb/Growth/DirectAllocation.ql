@@ -29,9 +29,9 @@ predicate sizeUsesAttackerParameter(Expr allocation, Expr size) {
   )
 }
 
-from Expr allocation, Expr size, string operation, string receiver, string evidence,
-     string coverageStatus, string note
-where
+predicate allocationSizeDriver(
+  Expr allocation, Expr size, string operation, string receiver, string evidence
+) {
   (
     allocation instanceof MethodCall and
     allocationCall(allocation.(MethodCall)) and
@@ -41,7 +41,7 @@ where
     evidence = "allocation_size_argument"
     or
     allocation instanceof ArrayCreationExpr and
-    size = allocation.(ArrayCreationExpr).getDimension(0) and
+    size = allocation.(ArrayCreationExpr).getADimension() and
     operation = "array_creation" and receiver = allocation.getType().toString() and
     evidence = "array_dimension_size"
     or
@@ -54,14 +54,79 @@ where
     operation = allocation.(ClassInstanceExpr).getConstructedType().getQualifiedName() + ".<init>" and
     receiver = allocation.(ClassInstanceExpr).getConstructedType().getQualifiedName() and
     evidence = "image_dimension_size"
-  ) and
+  )
+}
+
+predicate directAllocationIdentity(Expr allocation, string operation, string receiver) {
+  exists(Expr size, string evidence |
+    allocationSizeDriver(allocation, size, operation, receiver, evidence)
+  )
+}
+
+/** Syntactic containment is deliberately broader than an expression statement:
+ * allocations in returns, arguments, assignments, and initializers all count.
+ * The loop-control source is proved separately by the shared global-flow model.
+ */
+predicate allocationInLoopBody(Expr allocation, LoopStmt loop) {
+  growthLexicallyInLoopBody(allocation, loop)
+}
+
+string unmodeledLoopDemand(LoopStmt loop) {
+  exists(Expr condition |
+    condition = loop.getCondition() and result = condition.toString()
+  )
+  or
+  not exists(Expr condition | condition = loop.getCondition()) and
+  result = "enclosing_loop"
+}
+
+from Expr allocation, string operation, string receiver, string evidence,
+     string demandName, string demandRole, string coverageStatus, string note
+where
   (
-    sizeUsesAttackerParameter(allocation, size) and
-    coverageStatus = "complete" and
-    note = "direct_allocation:handler_parameter_size"
-    or not sizeUsesAttackerParameter(allocation, size) and
-       coverageStatus = "partial" and
-       note = "direct_allocation:size_origin_unclassified"
+    exists(Expr size |
+      allocationSizeDriver(allocation, size, operation, receiver, evidence) and
+      demandName = size.toString() and demandRole = "size" and
+      (
+        sizeUsesAttackerParameter(allocation, size) and
+        coverageStatus = "complete" and
+        note = "direct_allocation:handler_parameter_size"
+        or not sizeUsesAttackerParameter(allocation, size) and
+           size instanceof CompileTimeConstantExpr and
+           coverageStatus = "complete" and
+           note = "direct_allocation:server_controlled_fixed_size"
+        or not sizeUsesAttackerParameter(allocation, size) and
+           not size instanceof CompileTimeConstantExpr and
+           coverageStatus = "partial" and
+           note = "direct_allocation:size_origin_unclassified"
+      )
+    )
+    or
+    directAllocationIdentity(allocation, operation, receiver) and
+    evidence = "allocation_loop_multiplicity" and
+    demandRole = "iteration_count" and
+    exists(LoopStmt loop |
+      allocationInLoopBody(allocation, loop) and
+      (
+        exists(Parameter bound, VarAccess boundAccess |
+          provenAttackerLoopMultiplicityForDirectAllocation(
+            allocation, loop, bound, boundAccess
+          ) and
+          demandName = bound.getName() and
+          coverageStatus = "complete" and
+          note = "direct_allocation:attacker_controlled_loop_multiplicity_proven"
+        )
+        or
+        not exists(Parameter provenBound, VarAccess provenAccess |
+          provenAttackerLoopMultiplicityForDirectAllocation(
+            allocation, loop, provenBound, provenAccess
+          )
+        ) and
+        demandName = unmodeledLoopDemand(loop) and
+        coverageStatus = "partial" and
+        note = "direct_allocation:loop_multiplicity_unmodeled"
+      )
+    )
   )
 select
   allocation.getLocation().getFile().getRelativePath() as site_file,
@@ -71,8 +136,8 @@ select
   "bytes" as resource_dimension,
   receiver,
   "allocation" as field_path,
-  size.toString() as demand_input_name,
-  "size" as demand_input_role,
+  demandName as demand_input_name,
+  demandRole as demand_input_role,
   "request" as escape_scope,
   evidence as candidate_evidence,
   coverageStatus as coverage_status,

@@ -19,8 +19,8 @@ from dosweb.artifacts.identifiers import canonical_json, file_sha256
 from dosweb.errors import AnalyzerError
 
 STAGES: Final[tuple[str, ...]] = ("entries", "growth", "flows", "lifecycle", "conclude", "report")
-SCHEMA_VERSION: Final = "2.6"
-TOOL_VERSION: Final = "0.5.0"
+SCHEMA_VERSION: Final = "2.7"
+TOOL_VERSION: Final = "0.6.0"
 _MAX_RECORDS: Final = 4096
 _MAX_RECORD_BYTES: Final = 262144
 _MAX_TOTAL_BYTES: Final = 16 * 1024 * 1024
@@ -164,7 +164,7 @@ def _encode_payload(payload: Payload) -> tuple[bytes, int]:
 
 
 class Pipeline:
-    def __init__(self, output_root: Path | str | None = None, executors: Mapping[str, Executor] | None = None, *, output_dir: Path | str | None = None, database_fingerprint: str = "", model_fingerprint: str = "", report_fingerprint: str = "", config_fingerprint: str = "", query_pack_hash: str = "", config_hash: str = "", schema_version: str = SCHEMA_VERSION, tool_version: str = TOOL_VERSION, implementation_versions: Mapping[str, str] | None = None, fingerprints: Mapping[str, str] | None = None, resume: bool = False, preflight: Callable[[], None] | None = None, run_identity: Mapping[str, object] | None = None) -> None:
+    def __init__(self, output_root: Path | str | None = None, executors: Mapping[str, Executor] | None = None, *, output_dir: Path | str | None = None, database_fingerprint: str = "", model_fingerprint: str = "", report_fingerprint: str = "", config_fingerprint: str = "", query_pack_hash: str = "", config_hash: str = "", schema_version: str = SCHEMA_VERSION, tool_version: str = TOOL_VERSION, implementation_versions: Mapping[str, str] | None = None, fingerprints: Mapping[str, str] | None = None, resume: bool = False, preflight: Callable[[], None] | None = None, finalizer: Callable[[], None] | None = None, run_identity: Mapping[str, object] | None = None) -> None:
         root = output_root if output_root is not None else output_dir
         if root is None:
             raise TypeError("output_root is required")
@@ -182,6 +182,7 @@ class Pipeline:
         self.implementation_versions = dict(implementation_versions or {})
         self.resume = resume
         self.preflight = preflight
+        self.finalizer = finalizer
         # Caller supplies only non-secret, canonical run identity fields.
         self.run_identity = dict(run_identity or {})
         self._run: dict[str, object] = {}
@@ -212,50 +213,117 @@ class Pipeline:
             raise AnalyzerError("CONFIG_INVALID_COMMAND", f"Unknown pipeline target: {target}.")
         last_stage = STAGES[-1] if target == "analyze" else target
         with self._locked_output():
-            if self.preflight is not None:
-                self.preflight()
-            self._prior_stage_metadata = self._load_prior_stage_manifests()
-            self._run = self._load_run() if self.resume else self._new_run()
-            previous_identity = self._run.get("identity")
-            if previous_identity != self.run_identity and isinstance(previous_identity, Mapping):
-                self._run["previous_identity_hash"] = hashlib.sha256(canonical_json(previous_identity)).hexdigest()
-            prior_attempt = self._run.get("attempt", 0)
-            if not isinstance(prior_attempt, int) or isinstance(prior_attempt, bool) or prior_attempt < 0:
-                prior_attempt = 0
-            self._run.update(
-                schema_version=self.schema_version,
-                tool_version=self.tool_version,
-                identity=dict(self.run_identity),
-                attempt=prior_attempt + 1,
-                status="running",
-                error=None,
-                started_at=time.time(),
-            )
-            self._write_run()
-            upstream_hashes: dict[str, str] = {}
-            upstream: dict[str, Mapping[str, object]] = {}
-            for stage in STAGES:
-                expected = self._fingerprint(stage, upstream_hashes)
-                if not self._reusable(stage, expected):
-                    self._invalidate_from(stage)
+            failure: BaseException | None = None
+            failure_write_failure: BaseException | None = None
+            finalization_failure: AnalyzerError | None = None
+            try:
+                try:
+                    self._prior_stage_metadata = self._load_prior_stage_manifests()
+                    self._run = self._load_run() if self.resume else self._new_run()
+                    previous_identity = self._run.get("identity")
+                    prior_attempt = self._run.get("attempt", 0)
+                    if not isinstance(prior_attempt, int) or isinstance(prior_attempt, bool) or prior_attempt < 0:
+                        prior_attempt = 0
+                    self._run.update(
+                        schema_version=self.schema_version,
+                        tool_version=self.tool_version,
+                        identity=dict(self.run_identity),
+                        attempt=prior_attempt + 1,
+                        status="running",
+                        error=None,
+                        started_at=time.time(),
+                    )
+                    self._write_run()
+                    if self.preflight is not None:
+                        self.preflight()
+                    if previous_identity != self.run_identity and isinstance(previous_identity, Mapping):
+                        self._run["previous_identity_hash"] = hashlib.sha256(canonical_json(previous_identity)).hexdigest()
+                    self._run["identity"] = dict(self.run_identity)
+                    self._write_run()
+                    upstream_hashes: dict[str, str] = {}
+                    upstream: dict[str, Mapping[str, object]] = {}
+                    for stage in STAGES:
+                        expected = self._fingerprint(stage, upstream_hashes)
+                        if not self._reusable(stage, expected):
+                            self._invalidate_from(stage)
+                            try:
+                                started_at = time.time()
+                                self._publish(stage, expected, self._execute(stage, expected, upstream), started_at=started_at, ended_at=time.time())
+                                self._write_run()
+                            except AnalyzerError as exc:
+                                self._mark_failure(stage, exc)
+                                raise
+                            except Exception as exc:
+                                error = AnalyzerError("ANALYSIS_STAGE_FAILED", "Injected stage executor failed.", {"stage": stage, "error_type": type(exc).__name__})
+                                self._mark_failure(stage, error)
+                                raise error from exc
+                        metadata = self._stage_meta(stage)
+                        upstream[stage] = metadata
+                        upstream_hashes[stage] = str(metadata.get("output_hash", ""))
+                        if stage == last_stage:
+                            break
+                except BaseException as exc:
+                    failure = exc
+                    if self._run:
+                        if self._run.get("status") != "failed":
+                            if isinstance(exc, AnalyzerError):
+                                persisted_error = exc
+                            else:
+                                persisted_error = AnalyzerError(
+                                    "ANALYSIS_PIPELINE_FAILED",
+                                    "Pipeline execution failed.",
+                                    {"error_type": type(exc).__name__},
+                                )
+                            self._mark_run_failure(persisted_error)
+                        try:
+                            self._write_run()
+                        except BaseException as write_exc:
+                            failure_write_failure = write_exc
+            finally:
+                if self.finalizer is not None:
                     try:
-                        started_at = time.time()
-                        self._publish(stage, expected, self._execute(stage, expected, upstream), started_at=started_at, ended_at=time.time())
-                        self._write_run()
+                        self.finalizer()
                     except AnalyzerError as exc:
-                        self._mark_failure(stage, exc)
-                        self._write_run()
-                        raise
-                    except Exception as exc:
-                        error = AnalyzerError("ANALYSIS_STAGE_FAILED", "Injected stage executor failed.", {"stage": stage, "error_type": type(exc).__name__})
-                        self._mark_failure(stage, error)
-                        self._write_run()
-                        raise error from exc
-                metadata = self._stage_meta(stage)
-                upstream[stage] = metadata
-                upstream_hashes[stage] = str(metadata.get("output_hash", ""))
-                if stage == last_stage:
-                    break
+                        finalization_failure = exc
+                    except BaseException as exc:
+                        finalization_failure = AnalyzerError(
+                            "ANALYSIS_FINALIZATION_FAILED",
+                            "Pipeline finalization failed.",
+                            {"error_type": type(exc).__name__},
+                        )
+
+            retry_write_failure: BaseException | None = None
+            if finalization_failure is not None:
+                if self._run:
+                    self._mark_run_failure(finalization_failure)
+            if self._run and (
+                finalization_failure is not None
+                or failure_write_failure is not None
+            ):
+                try:
+                    self._write_run()
+                except BaseException as write_exc:
+                    retry_write_failure = write_exc
+
+            write_failure = retry_write_failure or failure_write_failure
+            if finalization_failure is not None:
+                cause = write_failure or failure
+                if cause is not None:
+                    if (
+                        write_failure is not None
+                        and failure is not None
+                        and write_failure is not failure
+                    ):
+                        write_failure.__cause__ = failure
+                        write_failure.__suppress_context__ = True
+                    raise finalization_failure from cause
+                raise finalization_failure
+            if write_failure is not None:
+                if failure is not None and write_failure is not failure:
+                    raise write_failure from failure
+                raise write_failure
+            if failure is not None:
+                raise failure
             self._run.update(status="completed", error=None, ended_at=time.time())
             self._write_run()
             return self._run
@@ -482,6 +550,20 @@ class Pipeline:
         if details:
             failure["details"] = details
         self._run.update(status="failed", error=failure)
+
+    def _mark_run_failure(self, error: AnalyzerError) -> None:
+        details: dict[str, object] = {}
+        for field in ("stage", "reason", "error_type"):
+            value = error.details.get(field)
+            if isinstance(value, str):
+                details[field] = value[-128:]
+        failure: dict[str, object] = {
+            "code": error.code,
+            "message": error.message,
+        }
+        if details:
+            failure["details"] = details
+        self._run.update(status="failed", error=failure, ended_at=time.time())
 
 
 __all__ = ["Executor", "Pipeline", "Payload", "SCHEMA_VERSION", "StageContext", "StageFingerprint", "StageOutput", "STAGES"]

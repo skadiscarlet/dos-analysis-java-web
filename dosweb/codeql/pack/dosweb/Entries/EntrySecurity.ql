@@ -1,6 +1,6 @@
 /**
  * @name Entry security and deployment facts
- * @description Extracts source-backed method authorization, Servlet constraints, static Spring Security matchers, and default deployment gates.
+ * @description Extracts source-backed method authorization, Servlet constraints, static Spring Security matchers, and deployment-gate evidence.
  * @kind table
  * @id dosweb/entry-security
  */
@@ -16,13 +16,52 @@ predicate sourceAnnotation(Annotation annotation) {
   annotation.getLocation().getFile().getRelativePath().matches("%.java")
 }
 
-predicate namedAnnotation(Annotation annotation, string name) {
-  annotation.getType().hasName(name)
-}
-
 predicate methodOrTypeAnnotation(Method method, Annotation annotation) {
   annotation = method.getAnAnnotation()
   or annotation = method.getDeclaringType().getAnAnnotation()
+}
+
+predicate simplePositiveProfile(Annotation annotation, string profile) {
+  profile = annotation.getAStringArrayValue("value") and
+  profile.regexpMatch("[A-Za-z0-9][A-Za-z0-9._-]*")
+}
+
+predicate exactAdministrativeRole(string role) {
+  role = ["ADMIN", "ROLE_ADMIN"]
+}
+
+predicate onlyExactAdministrativeAnnotationRoles(Annotation annotation) {
+  exists(string role |
+    role = annotation.getAStringArrayValue("value") and
+    exactAdministrativeRole(role)
+  ) and
+  not exists(string role |
+    role = annotation.getAStringArrayValue("value") and
+    not exactAdministrativeRole(role)
+  )
+}
+
+predicate exactAdministrativePreAuthorizeExpression(string expression) {
+  expression = [
+    "hasRole('ADMIN')", "hasRole(\"ADMIN\")",
+    "hasAuthority('ROLE_ADMIN')", "hasAuthority(\"ROLE_ADMIN\")"
+  ]
+}
+
+predicate exactPermitAllAnnotation(Annotation annotation) {
+  annotation.getType().hasQualifiedName("javax.annotation.security", "PermitAll")
+  or annotation.getType().hasQualifiedName("jakarta.annotation.security", "PermitAll")
+  or annotation.getType().hasQualifiedName("com.vaadin.flow.server.auth", "AnonymousAllowed")
+}
+
+predicate exactRoleAnnotation(Annotation annotation) {
+  annotation.getType().hasQualifiedName("javax.annotation.security", "RolesAllowed")
+  or annotation.getType().hasQualifiedName("jakarta.annotation.security", "RolesAllowed")
+  or annotation.getType().hasQualifiedName("org.springframework.security.access.annotation", "Secured")
+}
+
+predicate exactPreAuthorizeAnnotation(Annotation annotation) {
+  annotation.getType().hasQualifiedName("org.springframework.security.access.prepost", "PreAuthorize")
 }
 
 predicate profileDeployment(
@@ -33,8 +72,21 @@ predicate profileDeployment(
   annotation.getType().hasQualifiedName("org.springframework.context.annotation", "Profile") and
   exists(string profile |
     profile = annotation.getAStringArrayValue("value") and profile != "" and
-    value = "profile:" + profile and coverageStatus = "complete" and
-    coverageNote = "explicit_spring_profile_gate"
+    value = "profile:" + profile and
+    (
+      simplePositiveProfile(annotation, profile) and
+      not exists(string other |
+        other = annotation.getAStringArrayValue("value") and other != profile
+      ) and
+      coverageStatus = "complete" and coverageNote = "explicit_spring_profile_gate"
+      or
+      (not simplePositiveProfile(annotation, profile)
+       or exists(string other |
+            other = annotation.getAStringArrayValue("value") and other != profile
+          )) and
+      coverageStatus = "partial" and
+      coverageNote = "spring_profile_expression_presence_unresolved"
+    )
   )
 }
 
@@ -47,22 +99,48 @@ predicate conditionalPropertyDeployment(
     "org.springframework.boot.autoconfigure.condition", "ConditionalOnProperty"
   ) and
   (
-    exists(string key, string expected |
+    exists(string key, string prefix, string canonicalKey, string expected |
       (key = annotation.getAStringArrayValue("name") or
-       key = annotation.getAStringArrayValue("value")) and
-      key != "" and expected = annotation.getStringValue("havingValue") and
-      expected != "" and value = "conditional_property:" + key + "=" + expected and
+       key = annotation.getAStringArrayValue("value")) and key != "" and
+      not exists(string other |
+        (other = annotation.getAStringArrayValue("name") or
+         other = annotation.getAStringArrayValue("value")) and
+        other != "" and other != key
+      ) and
+      prefix = annotation.getStringValue("prefix") and
+      (
+        prefix = "" and canonicalKey = key
+        or prefix != "" and prefix.matches("%.") and canonicalKey = prefix + key
+        or prefix != "" and not prefix.matches("%.") and
+           canonicalKey = prefix + "." + key
+      ) and
+      expected = annotation.getStringValue("havingValue") and expected != "" and
+      annotation.getBooleanValue("matchIfMissing") = false and
+      value = "conditional_property:" + canonicalKey + "=" + expected and
       coverageStatus = "complete" and
       coverageNote = "explicit_conditional_property_gate"
     )
-    or not exists(string key, string expected |
+    or not exists(string key, string prefix, string canonicalKey, string expected |
          (key = annotation.getAStringArrayValue("name") or
-          key = annotation.getAStringArrayValue("value")) and
-         key != "" and expected = annotation.getStringValue("havingValue") and
-         expected != ""
+          key = annotation.getAStringArrayValue("value")) and key != "" and
+         not exists(string other |
+           (other = annotation.getAStringArrayValue("name") or
+            other = annotation.getAStringArrayValue("value")) and
+           other != "" and other != key
+         ) and
+         prefix = annotation.getStringValue("prefix") and
+         (
+           prefix = "" and canonicalKey = key
+           or prefix != "" and prefix.matches("%.") and canonicalKey = prefix + key
+           or prefix != "" and not prefix.matches("%.") and
+              canonicalKey = prefix + "." + key
+         ) and
+         expected = annotation.getStringValue("havingValue") and expected != "" and
+         annotation.getBooleanValue("matchIfMissing") = false
        ) and
        value = "conditional_property_unknown" and coverageStatus = "partial" and
-       coverageNote = "conditional_property_requires_static_name_and_value"
+       coverageNote =
+         "conditional_property_requires_static_name_value_prefix_and_absence_semantics"
   )
 }
 
@@ -80,8 +158,8 @@ predicate optionalDeployment(
          "org.springframework.context.annotation", "Conditional"
        )
   ) and
-  value = "optional" and coverageStatus = "complete" and
-  coverageNote = "explicit_optional_component_gate"
+  value = "optional" and coverageStatus = "partial" and
+  coverageNote = "conditional_presence_default_distribution_unresolved"
 }
 
 predicate deploymentAnnotation(
@@ -101,32 +179,35 @@ predicate annotationAuth(
 ) {
   methodOrTypeAnnotation(method, annotation) and sourceAnnotation(annotation) and
   (
-    namedAnnotation(annotation, ["PermitAll", "AnonymousAllowed"]) and
+    exactPermitAllAnnotation(annotation) and
     value = "unauthenticated_annotation" and coverageStatus = "complete" and
     coverageNote = "permit_all"
-    or namedAnnotation(annotation, "PreAuthorize") and
+    or exactPreAuthorizeAnnotation(annotation) and
        annotation.getStringValue("value") = "permitAll()" and
        value = "unauthenticated_annotation" and coverageStatus = "complete" and
        coverageNote = "preauthorize_permit_all"
-    or namedAnnotation(annotation, "PreAuthorize") and
+    or exactPreAuthorizeAnnotation(annotation) and
        annotation.getStringValue("value") = "isAuthenticated()" and
        value = "low_privilege_annotation" and coverageStatus = "complete" and
        coverageNote = "preauthorize_authenticated"
-    or namedAnnotation(annotation, ["RolesAllowed", "Secured"]) and
+    or exactRoleAnnotation(annotation) and
+       onlyExactAdministrativeAnnotationRoles(annotation) and
        value = "privileged_annotation" and coverageStatus = "complete" and
-       coverageNote = "role_annotation"
-    or namedAnnotation(annotation, "PreAuthorize") and
-       (annotation.getStringValue("value").matches("%hasRole%") or
-        annotation.getStringValue("value").matches("%hasAuthority%")) and
+       coverageNote = "exact_administrative_role"
+    or exactPreAuthorizeAnnotation(annotation) and
+       exactAdministrativePreAuthorizeExpression(annotation.getStringValue("value")) and
        value = "privileged_annotation" and coverageStatus = "complete" and
-       coverageNote = "preauthorize_static_role"
-    or namedAnnotation(annotation, "PreAuthorize") and
+       coverageNote = "preauthorize_exact_administrative_role"
+    or exactRoleAnnotation(annotation) and
+       not onlyExactAdministrativeAnnotationRoles(annotation) and
+       value = "security_matcher_unknown" and coverageStatus = "partial" and
+       coverageNote = "role_requirement_not_proven_administrative"
+    or exactPreAuthorizeAnnotation(annotation) and
        not annotation.getStringValue("value") = "permitAll()" and
        not annotation.getStringValue("value") = "isAuthenticated()" and
-       not annotation.getStringValue("value").matches("%hasRole%") and
-       not annotation.getStringValue("value").matches("%hasAuthority%") and
+       not exactAdministrativePreAuthorizeExpression(annotation.getStringValue("value")) and
        value = "security_matcher_unknown" and coverageStatus = "partial" and
-       coverageNote = "dynamic_security_matcher_partial"
+       coverageNote = "role_requirement_not_proven_administrative"
   )
 }
 
@@ -145,15 +226,25 @@ predicate servletConstraint(
         ["javax.servlet.annotation", "jakarta.servlet.annotation"], "HttpConstraint"
       ) and
       role = constraint.getAStringArrayValue("rolesAllowed") and role != "" and
+      exactAdministrativeRole(role) and
+      not exists(string other |
+        other = constraint.getAStringArrayValue("rolesAllowed") and
+        not exactAdministrativeRole(other)
+      ) and
       value = "privileged_constraint" and coverageStatus = "complete" and
-      coverageNote = "servlet_security_roles_allowed"
+      coverageNote = "exact_administrative_role"
     )
     or not exists(Annotation constraint, string role |
          constraint = annotation.getValue("value") and
-         role = constraint.getAStringArrayValue("rolesAllowed") and role != ""
+         role = constraint.getAStringArrayValue("rolesAllowed") and role != "" and
+         exactAdministrativeRole(role) and
+         not exists(string other |
+           other = constraint.getAStringArrayValue("rolesAllowed") and
+           not exactAdministrativeRole(other)
+         )
        ) and
        value = "security_matcher_unknown" and coverageStatus = "partial" and
-       coverageNote = "servlet_security_constraint_partial"
+       coverageNote = "role_requirement_not_proven_administrative"
   )
 }
 
@@ -179,10 +270,27 @@ predicate staticSecurityRule(
     or rule.getMethod().getName() = "authenticated" and
        value = "low_privilege_filter" and coverageStatus = "complete" and
        coverageNote = "static_request_matcher_authenticated"
-    or rule.getMethod().getName() = ["hasRole", "hasAuthority"] and
+    or rule.getMethod().getName() = "hasRole" and
        rule.getArgument(0) instanceof CompileTimeConstantExpr and
+       rule.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ADMIN" and
        value = "privileged_filter" and coverageStatus = "complete" and
-       coverageNote = "static_request_matcher_hasRole"
+       coverageNote = "static_request_matcher_exact_administrative_role"
+    or rule.getMethod().getName() = "hasAuthority" and
+       rule.getArgument(0) instanceof CompileTimeConstantExpr and
+       rule.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ROLE_ADMIN" and
+       value = "privileged_filter" and coverageStatus = "complete" and
+       coverageNote = "static_request_matcher_exact_administrative_role"
+    or rule.getMethod().getName() = ["hasRole", "hasAuthority"] and
+       not (
+         rule.getMethod().getName() = "hasRole" and
+         rule.getArgument(0) instanceof CompileTimeConstantExpr and
+         rule.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ADMIN"
+         or rule.getMethod().getName() = "hasAuthority" and
+            rule.getArgument(0) instanceof CompileTimeConstantExpr and
+            rule.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ROLE_ADMIN"
+       ) and
+       value = "security_matcher_unknown" and coverageStatus = "partial" and
+       coverageNote = "role_requirement_not_proven_administrative"
   )
 }
 

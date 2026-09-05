@@ -20,7 +20,7 @@ class FlowVerificationTests(unittest.TestCase):
             "route_or_event": "/items", "auth_context": "unauthenticated",
             "attacker_input_name": "limit", "attacker_input_type": "int",
             "attacker_input_kind": "request_parameter", "materialization_phase": "in_handler",
-            "coverage_status": "complete", "coverage_note": "registered",
+            "coverage_status": "complete", "coverage_note": "spring_annotation_mapping",
         })
 
     def _candidate(self) -> GrowthCandidate:
@@ -165,7 +165,7 @@ class FlowVerificationTests(unittest.TestCase):
             "route_or_event": "/aliases", "auth_context": "unauthenticated",
             "attacker_input_name": "limit", "attacker_input_type": "int",
             "attacker_input_kind": "request_parameter", "materialization_phase": "in_handler",
-            "coverage_status": "complete", "coverage_note": "registered",
+            "coverage_status": "complete", "coverage_note": "spring_annotation_mapping",
         })
         growth = self._growth()
         records = normalize_flow_rows(
@@ -234,6 +234,45 @@ class FlowVerificationTests(unittest.TestCase):
         forged = {**record, "path_id": "flow:forged"}
         with self.assertRaises(Exception):
             validate_records("flow_proofs", (forged,))
+
+    def test_duplicate_path_id_rows_fail_closed_in_every_codeql_order(self) -> None:
+        entry = self._entry()
+        growth = self._growth()
+        first = self._raw(
+            confidence="partial",
+            coverage_status="complete",
+            coverage_note="first_codeql_row",
+        )
+        second = self._raw(
+            confidence="partial",
+            flow_kind="unmodeled",
+            coverage_status="partial",
+            coverage_note="second_codeql_row",
+        )
+        sequences = {
+            "forward": (first, second),
+            "reverse": (second, first),
+            "identical": (first, first),
+        }
+        observed: set[tuple[str, str | None]] = set()
+        for label, rows in sequences.items():
+            with self.subTest(order=label):
+                with self.assertRaises(Exception) as raised:
+                    normalize_flow_rows(
+                        rows,
+                        {entry.entry_id: entry},
+                        {growth.growth_id: growth},
+                    )
+                observed.add(
+                    (
+                        getattr(raised.exception, "code", ""),
+                        getattr(raised.exception, "details", {}).get("reason"),
+                    )
+                )
+        self.assertEqual(
+            observed,
+            {("ANALYSIS_FLOW_INVALID", "DUPLICATE_PATH_ID")},
+        )
 
 
 if __name__ == "__main__":

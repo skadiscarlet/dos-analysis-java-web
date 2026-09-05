@@ -49,7 +49,9 @@ class AuthContract:
     @classmethod
     def from_dict(cls,r:Mapping[str,object])->"AuthContract":
         if set(r)!={"auth_context","evidence_ids","assumptions","confidence"}: _bad()
-        return cls(cast(Literal["unauthenticated","low_privilege","privileged","unknown"],r["auth_context"]),tuple(cast(list[str],r["evidence_ids"])),tuple(cast(list[str],r["assumptions"])),cast(Literal["high","medium","low"],r["confidence"]))
+        evidence_ids, assumptions = r["evidence_ids"], r["assumptions"]
+        if not isinstance(evidence_ids,list) or not isinstance(assumptions,list): _bad()
+        return cls(cast(Literal["unauthenticated","low_privilege","privileged","unknown"],r["auth_context"]),tuple(cast(list[str],evidence_ids)),tuple(cast(list[str],assumptions)),cast(Literal["high","medium","low"],r["confidence"]))
 
 @dataclass(frozen=True)
 class ReachabilityDecision:
@@ -57,7 +59,9 @@ class ReachabilityDecision:
     def __post_init__(self)->None:
         _id(self.entry_id,"entry:"); _id(self.auth_contract_id,"auth_contract:")
         if self.auth_context not in {"unauthenticated","low_privilege","privileged","unknown"} or self.deployment_status not in {"default_enabled","default_disabled","optional","unknown"} or self.status not in {"ordinary_attacker_reachable","not_entry_reachable","unknown"} or len(self.evidence_ids)>32 or not self.reason_codes or len(self.reason_codes)>32 or len(set(self.evidence_ids))!=len(self.evidence_ids) or len(set(self.reason_codes))!=len(self.reason_codes): _bad()
-        expected_status = "ordinary_attacker_reachable" if self.auth_context in {"unauthenticated","low_privilege"} and self.deployment_status == "default_enabled" else "not_entry_reachable" if self.auth_context == "privileged" or self.deployment_status in {"default_disabled","optional"} else "unknown"
+        auth_coverage_gap = "REACH_AUTH_COVERAGE_PARTIAL" in self.reason_codes
+        if auth_coverage_gap and self.auth_context != "unknown": _bad()
+        expected_status = "unknown" if auth_coverage_gap else "ordinary_attacker_reachable" if self.auth_context in {"unauthenticated","low_privilege"} and self.deployment_status == "default_enabled" else "not_entry_reachable" if self.auth_context == "privileged" or self.deployment_status in {"default_disabled","optional"} else "unknown"
         if self.status != expected_status: _bad()
         for x in self.evidence_ids:_id(x,"security:")
         for x in self.reason_codes:_str(x)

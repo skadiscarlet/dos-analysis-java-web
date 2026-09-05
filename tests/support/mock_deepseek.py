@@ -78,10 +78,16 @@ def auth_unauthenticated_from_facts(request: dict[str, object]) -> dict[str, obj
     facts = prompt.get("security_facts")
     if not isinstance(facts, list) or not facts:
         return {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
-    first = facts[0]
-    if not isinstance(first, dict) or first.get("coverage") != "complete" or first.get("value") != "unauthenticated_annotation":
+    matches = [
+        fact
+        for fact in facts
+        if isinstance(fact, dict)
+        and fact.get("coverage") == "complete"
+        and fact.get("value") == "unauthenticated_annotation"
+    ]
+    if len(matches) != 1:
         return {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
-    return {"auth_context": "unauthenticated", "evidence_ids": [first["fact_id"]], "assumptions": [], "confidence": "high"}
+    return {"auth_context": "unauthenticated", "evidence_ids": [matches[0]["fact_id"]], "assumptions": [], "confidence": "high"}
 
 
 def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
@@ -101,8 +107,7 @@ def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
 
     def unknown() -> dict[str, object]:
         return {
-            "is_resource_growth": "unknown", "growth_kind": "unknown",
-            "resource_dimension": "unknown", "attacker_influence": [],
+            "is_resource_growth": "unknown", "attacker_evidence_ids": [],
             "resource_effect": "unknown", "attacker_variable": "unknown",
             "attacker_value_space": "unknown", "growth_unit": "unknown",
             "growth_function": "unknown", "amplification_class": "unknown",
@@ -138,9 +143,7 @@ def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
         return unknown()
     return {
         "is_resource_growth": "yes",
-        "growth_kind": kind,
-        "resource_dimension": dimension,
-        "attacker_influence": [{"target": target, "evidence_id": flows[0]["fact_id"]}],
+        "attacker_evidence_ids": [flows[0]["fact_id"]],
         "resource_effect": effect,
         "attacker_variable": "attacker input",
         "attacker_value_space": value_space,

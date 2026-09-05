@@ -4,20 +4,36 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import stat
 import subprocess
+import sys
 import tempfile
+import uuid
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, cast
 
+import dosweb.filesystem as filesystem
 from dosweb.artifacts.identifiers import canonical_json, stable_identifier
 from dosweb.artifacts.jsonl import read_jsonl_bytes_strict
 from dosweb.artifacts.metadata import read_upstream_artifact_bytes
 from dosweb.artifacts.schemas import SCHEMA_VERSION as ARTIFACT_SCHEMA_VERSION, validate_records, validate_references
-from dosweb.codeql.database import DatabaseInfo, validate_database as _validate_database
+from dosweb.codeql.database import (
+    DatabaseInfo,
+    cleanup_execution_database_snapshot as _cleanup_execution_database_snapshot,
+    create_execution_database_snapshot as _create_execution_database_snapshot,
+    validate_canonical_database as _validate_canonical_database,
+    validate_database as _validate_database,
+)
 from dosweb.codeql.decoder import DecodeSource, decode_bqrs_json
-from dosweb.codeql.runner import QueryResult, run_query as _run_query
+from dosweb.codeql.runner import (
+    QueryResult,
+    _QueryOutputBinding,
+    _pin_query_output_binding,
+    run_query as _run_query,
+)
 from dosweb.config import AnalyzerConfig, _DEFAULT_SECRETS_PATH, load_config, resolve_api_key
 from dosweb.configuration import extract_modeled_configuration_with_coverage
 from dosweb.configuration.models import ModeledConfigurationFact
@@ -35,14 +51,27 @@ from dosweb.conclude.verdicts import (
     derive_verdict,
 )
 from dosweb.entries import EntryFact, FrameworkCoverage
+from dosweb.entries.coverage import registration_coverage_pattern_id
 from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
 from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
 from dosweb.errors import AnalyzerError
 from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_descriptor_coverage
 from dosweb.flows.models import FlowProof, expression_binds_demand, normalize_flow_rows
 from dosweb.flows.verify import VerifiedFlow, verify_flow
+from dosweb.filesystem import (
+    CloseRangeCapability,
+    open_owned_descriptor as _open_owned_descriptor,
+    renameat2_no_replace,
+    release_owned_descriptor_once,
+    require_close_fd_once,
+    run_with_deferred_interrupts,
+)
 from dosweb.growth.contracts import validate_contract_static_evidence
-from dosweb.growth.completeness import CandidateDisposition
+from dosweb.growth.completeness import (
+    CandidateDisposition,
+    CandidateEntryLink,
+    CandidateNegativeProof,
+)
 from dosweb.growth.evidence import adapt_growth_static_evidence
 from dosweb.growth.excerpts import extract_source_excerpt
 from dosweb.growth.models import BoundedSlice, BoundedSlicePayload, GrowthContract
@@ -67,9 +96,17 @@ from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
-        f"production-v2.6-poc33-demo-repair-{stage}-v2"
-        if stage in {"entries", "flows"}
-        else f"production-v2.6-poc33-demo-repair-{stage}-v1"
+        "production-v2.7-open-world-maturation-growth-v32"
+        if stage == "growth"
+        else "production-v2.7-open-world-maturation-entries-v17"
+        if stage == "entries"
+        else "production-v2.7-open-world-maturation-conclude-v5"
+        if stage == "conclude"
+        else "production-v2.7-open-world-maturation-flows-v21"
+        if stage == "flows"
+        else f"production-v2.7-open-world-maturation-{stage}-v14"
+        if stage == "lifecycle"
+        else f"production-v2.7-open-world-maturation-{stage}-v1"
     )
     for stage in STAGES
 }
@@ -142,6 +179,9 @@ _CODEQL_TIMEOUT_SECONDS: Final = 300
 
 validate_database = _validate_database
 run_query = _run_query
+create_execution_database_snapshot = _create_execution_database_snapshot
+cleanup_execution_database_snapshot = _cleanup_execution_database_snapshot
+validate_canonical_database = _validate_canonical_database
 
 
 
@@ -245,8 +285,15 @@ def _digest(value: object) -> str:
 
 def _bounded_regular_file(path: Path, limit: int) -> bytes:
     descriptor = -1
+    descriptor_owner: list[int] = []
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = _open_owned_descriptor(
+            descriptor_owner,
+            path,
+            os.O_RDONLY
+            | os.O_NONBLOCK
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise ValueError("input is not a bounded regular file")
@@ -262,8 +309,9 @@ def _bounded_regular_file(path: Path, limit: int) -> bytes:
     except (OSError, ValueError, MemoryError) as exc:
         raise AnalyzerError("CODEQL_QUERY_PACK_INVALID", "The production query pack is unavailable.", {"path": path.name}) from exc
     finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+        for descriptor in reversed(descriptor_owner):
+            if descriptor >= 0:
+                os.close(descriptor)
 
 
 def _query_pack_snapshot(query_root: Path = _ENTRY_QUERY_DIR) -> tuple[str, dict[str, bytes]]:
@@ -309,14 +357,82 @@ def _materialize_query_pack(root: Path, snapshot: Mapping[str, bytes]) -> Path:
     return root
 
 
-def _bounded_json_file(path: Path) -> Mapping[str, object]:
+def _bounded_decoded_descriptor(descriptor: int) -> bytes:
     try:
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_size > _MAX_DECODED_BYTES
+        ):
+            raise ValueError("decoded output is not a bounded regular file")
+        raw = bytearray()
+        offset = 0
+        while len(raw) <= _MAX_DECODED_BYTES:
+            chunk = os.pread(
+                descriptor,
+                min(
+                    1024 * 1024,
+                    _MAX_DECODED_BYTES + 1 - len(raw),
+                ),
+                offset,
+            )
+            if not chunk:
+                break
+            raw.extend(chunk)
+            offset += len(chunk)
+        if len(raw) > _MAX_DECODED_BYTES:
+            raise ValueError("decoded output exceeds limit")
+        return bytes(raw)
+    except (OSError, ValueError, MemoryError) as exc:
+        raise AnalyzerError(
+            "CODEQL_RESULT_INVALID",
+            "Decoded CodeQL output could not be read safely.",
+        ) from exc
+
+
+def _bounded_json_file(
+    path: Path | QueryResult,
+    workspace: _CodeqlQueryWorkspace | None = None,
+) -> Mapping[str, object]:
+    binding: _QueryOutputBinding | None = None
+    if isinstance(path, QueryResult):
+        if workspace is None:
+            raise _workspace_query_failed(
+                "query output binding is unavailable"
+            )
+        owned = workspace.result_bindings.get(id(path))
+        if owned is None or owned[0] is not path:
+            raise _workspace_query_failed("query output binding changed")
+        binding = owned[1]
+        if not _query_output_binding_current(
+            workspace, binding
+        ):
+            raise _workspace_query_failed("query output binding changed")
+        raw = binding.decoded_bytes
+        if (
+            len(raw) != binding.decoded_size
+            or hashlib.sha256(raw).hexdigest()
+            != binding.decoded_sha256
+        ):
+            raise _workspace_query_failed(
+                "query decoded snapshot changed"
+            )
+        if not _query_output_binding_current(workspace, binding):
+            raise _workspace_query_failed("query output binding changed")
+    else:
         raw = _bounded_regular_file(path, _MAX_DECODED_BYTES)
+    try:
         value = json.loads(raw.decode("utf-8"))
     except (AnalyzerError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, MemoryError, RecursionError) as exc:
         if isinstance(exc, AnalyzerError):
             raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL output could not be read safely.") from exc
         raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL output could not be read safely.") from exc
+    if (
+        binding is not None
+        and workspace is not None
+        and not _query_output_binding_current(workspace, binding)
+    ):
+        raise _workspace_query_failed("query output binding changed")
     if not isinstance(value, Mapping):
         raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL output must be an object.")
     return value
@@ -360,15 +476,1234 @@ def _query_files(stage: str, pack_root: Path) -> tuple[Path, ...]:
     return tuple(pack_root / "dosweb" / directory / name for name in _QUERY_FAMILIES[stage])
 
 
+@dataclass
+class _LexicalDirectoryBinding:
+    name: str
+    descriptor: int
+    info: os.stat_result
+
+
+@dataclass
+class _WorkspaceDescriptorOwner:
+    """Persistent reverse-order owner for one workspace descriptor chain."""
+
+    descriptors: list[int]
+    close_capability: CloseRangeCapability
+    transactions: dict[int, filesystem.DeferredCloseFdOnceOutcome] = field(
+        default_factory=dict
+    )
+    failed: bool = False
+
+    @staticmethod
+    def _consumed(
+        transaction: filesystem.DeferredCloseFdOnceOutcome,
+    ) -> bool:
+        return transaction.explicitly_consumed or transaction.fallback_attempted
+
+    def close(self) -> bool:
+        def release_all() -> None:
+            while self.descriptors:
+                descriptor = self.descriptors[-1]
+                if descriptor < 0:
+                    self.descriptors.pop()
+                    continue
+                transaction = self.transactions.get(descriptor)
+                if transaction is None:
+                    try:
+                        transaction = filesystem.DeferredCloseFdOnceOutcome()
+                    except BaseException:
+                        self.failed = True
+                        try:
+                            os.closerange(descriptor, descriptor + 1)
+                        except BaseException:
+                            pass
+                        self.descriptors.pop()
+                        continue
+                    self.transactions[descriptor] = transaction
+                try:
+                    succeeded = _release_workspace_descriptor_once(
+                        descriptor,
+                        self.close_capability,
+                        transaction=transaction,
+                    )
+                except BaseException:
+                    self.failed = True
+                    if self._consumed(transaction):
+                        self.descriptors.pop()
+                        self.transactions.pop(descriptor, None)
+                    raise
+                if not self._consumed(transaction):
+                    self.failed = True
+                    return
+                self.descriptors.pop()
+                self.transactions.pop(descriptor, None)
+                if not succeeded:
+                    self.failed = True
+
+        try:
+            run_with_deferred_interrupts(release_all)
+        except BaseException:
+            self.failed = True
+            try:
+                run_with_deferred_interrupts(release_all)
+            except BaseException:
+                self.failed = True
+        return not self.descriptors and not self.failed
+
+
+@dataclass
+class _CodeqlQueryWorkspace:
+    output_root: Path
+    stage: str
+    name: str
+    close_capability: CloseRangeCapability
+    output_parent_descriptor: int
+    output_parent_info: os.stat_result
+    output_ancestry: tuple[_LexicalDirectoryBinding, ...]
+    output_name: str
+    output_descriptor: int
+    output_info: os.stat_result
+    workspace_descriptor: int
+    workspace_info: os.stat_result
+    results_descriptor: int
+    results_info: os.stat_result
+    query_bindings: list[_QueryOutputBinding] = field(default_factory=list)
+    result_bindings: dict[int, tuple[QueryResult, _QueryOutputBinding]] = field(
+        default_factory=dict
+    )
+    _descriptor_owner: _WorkspaceDescriptorOwner | None = field(
+        default=None,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self._descriptor_owner is None:
+            self._descriptor_owner = _WorkspaceDescriptorOwner(
+                [
+                    *(
+                        lexical.descriptor
+                        for lexical in self.output_ancestry
+                    ),
+                    self.output_descriptor,
+                    self.workspace_descriptor,
+                    self.results_descriptor,
+                ],
+                self.close_capability,
+            )
+
+    @property
+    def path(self) -> Path:
+        return Path(f"/proc/self/fd/{self.workspace_descriptor}")
+
+    @property
+    def results(self) -> Path:
+        return Path(f"/proc/self/fd/{self.results_descriptor}")
+
+    def close(self) -> bool:
+        released = True
+
+        def release_query_bindings() -> None:
+            nonlocal released
+            while self.query_bindings:
+                binding = self.query_bindings[-1]
+                if not _release_query_output_binding(self, binding):
+                    released = False
+                if any(
+                    cast(int, getattr(binding, field)) >= 0
+                    for field in (
+                        "decoded_descriptor",
+                        "generation_descriptor",
+                        "generations_descriptor",
+                    )
+                ):
+                    return
+                self.query_bindings.pop()
+
+        try:
+            run_with_deferred_interrupts(release_query_bindings)
+        except BaseException:
+            released = False
+            try:
+                run_with_deferred_interrupts(release_query_bindings)
+            except BaseException:
+                released = False
+        descriptor_owner = self._descriptor_owner
+        assert descriptor_owner is not None
+        descriptor_released = False
+        descriptor_retry_released = False
+        try:
+            try:
+                descriptor_released = _release_workspace_descriptors(
+                    descriptor_owner,
+                )
+            finally:
+                descriptor_retry_released = _release_workspace_descriptors(
+                    descriptor_owner,
+                )
+        except BaseException:
+            released = False
+        remaining = set(descriptor_owner.descriptors)
+        for field_name in (
+            "results_descriptor",
+            "workspace_descriptor",
+            "output_descriptor",
+        ):
+            descriptor = cast(int, getattr(self, field_name))
+            if descriptor not in remaining:
+                setattr(self, field_name, -1)
+        for lexical in self.output_ancestry:
+            if lexical.descriptor not in remaining:
+                lexical.descriptor = -1
+        if not any(
+            lexical.descriptor >= 0 for lexical in self.output_ancestry
+        ):
+            self.output_ancestry = ()
+            self.output_parent_descriptor = -1
+        elif self.output_parent_descriptor not in remaining:
+            self.output_parent_descriptor = -1
+        return (
+            released
+            and descriptor_released
+            and descriptor_retry_released
+            and not descriptor_owner.descriptors
+        )
+
+
+def _workspace_query_failed(
+    diagnostic: str = "query workspace binding changed",
+) -> AnalyzerError:
+    return AnalyzerError(
+        "CODEQL_QUERY_FAILED",
+        "CodeQL query execution failed.",
+        {
+            "stage": "publication",
+            "diagnostic": diagnostic,
+        },
+    )
+
+
+def _release_workspace_descriptor_once(
+    descriptor: int,
+    capability: CloseRangeCapability,
+    *,
+    transaction: filesystem.DeferredCloseFdOnceOutcome | None = None,
+) -> bool:
+    if transaction is None:
+        try:
+            transaction = filesystem.DeferredCloseFdOnceOutcome()
+        except BaseException:
+            try:
+                os.closerange(descriptor, descriptor + 1)
+            except BaseException:
+                pass
+            return False
+    return release_owned_descriptor_once(
+        descriptor,
+        capability,
+        transaction=transaction,
+    ).succeeded
+
+
+def _release_workspace_descriptors(
+    owner: _WorkspaceDescriptorOwner,
+) -> bool:
+    return owner.close()
+
+
+def _open_owned_directory_descriptor(
+    owner: list[int],
+    name: str,
+    *,
+    dir_fd: int | None = None,
+) -> int:
+    """Open one directory only after reserving an owner slot.
+
+    Trace/profile callbacks and SIGINT are deferred across the C-return to
+    owner-slot assignment window.  Once instrumentation is restored, the fd is
+    already reachable through ``owner`` even if restoration raises.
+    """
+
+    return _open_owned_descriptor(
+        owner,
+        name,
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | getattr(os, "O_NOFOLLOW", 0),
+        dir_fd=dir_fd,
+    )
+
+
+def _pin_lexical_output_ancestry(
+    output_parent: Path,
+    capability: CloseRangeCapability,
+    owner_holder: list[tuple[_LexicalDirectoryBinding, ...]],
+    descriptor_owner: _WorkspaceDescriptorOwner,
+) -> tuple[_LexicalDirectoryBinding, ...]:
+    owned_descriptors = descriptor_owner.descriptors
+    bindings: list[_LexicalDirectoryBinding] = []
+    transferred = False
+    bound: tuple[_LexicalDirectoryBinding, ...] | None = None
+    try:
+        root_descriptor = _open_owned_directory_descriptor(
+            owned_descriptors,
+            "/",
+        )
+        root_info = os.fstat(root_descriptor)
+        if not stat.S_ISDIR(root_info.st_mode):
+            raise OSError("query workspace filesystem root is unsafe")
+        bindings.append(
+            _LexicalDirectoryBinding("", root_descriptor, root_info)
+        )
+        current_descriptor = root_descriptor
+        for component in output_parent.parts[1:]:
+            if component in {"", ".", ".."}:
+                raise OSError("query workspace output ancestry is unsafe")
+            descriptor = _open_owned_directory_descriptor(
+                owned_descriptors,
+                component,
+                dir_fd=current_descriptor,
+            )
+            info = os.fstat(descriptor)
+            named = os.stat(
+                component,
+                dir_fd=current_descriptor,
+                follow_symlinks=False,
+            )
+            if not stat.S_ISDIR(info.st_mode) or not _same_inode(info, named):
+                raise OSError("query workspace output ancestry is unsafe")
+            bindings.append(
+                _LexicalDirectoryBinding(component, descriptor, info)
+            )
+            current_descriptor = descriptor
+        bound = tuple(bindings)
+        append_failure: BaseException | None = None
+
+        def transfer() -> None:
+            nonlocal append_failure, transferred
+            try:
+                owner_holder.append(bound)
+            except BaseException as exc:
+                append_failure = exc
+            finally:
+                transferred = any(
+                    item is bound
+                    for item in list.__iter__(owner_holder)
+                )
+
+        run_with_deferred_interrupts(transfer)
+        if append_failure is not None:
+            raise append_failure
+        return bound
+    except BaseException as exc:
+        if transferred:
+            raise
+        released = False
+        retry_released = False
+        try:
+            released = _release_workspace_descriptors(descriptor_owner)
+        finally:
+            retry_released = _release_workspace_descriptors(descriptor_owner)
+        if not released or not retry_released:
+            raise _workspace_query_failed(
+                "query workspace ancestry release failed"
+            ) from exc
+        raise
+
+
+def _release_query_output_binding(
+    workspace: _CodeqlQueryWorkspace,
+    binding: _QueryOutputBinding,
+) -> bool:
+    released = True
+
+    def release_binding() -> None:
+        nonlocal released
+        for binding_field in (
+            "decoded_descriptor",
+            "generation_descriptor",
+            "generations_descriptor",
+        ):
+            descriptor = cast(int, getattr(binding, binding_field))
+            setattr(binding, binding_field, -1)
+            if descriptor >= 0 and not _release_workspace_descriptor_once(
+                descriptor,
+                workspace.close_capability,
+            ):
+                released = False
+
+    try:
+        run_with_deferred_interrupts(release_binding)
+    except BaseException:
+        released = False
+    return released
+
+
+def _same_inode(first: os.stat_result, second: os.stat_result) -> bool:
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
+def _bound_owner_directory(
+    current: os.stat_result,
+    expected: os.stat_result,
+    *,
+    exact_mode: int | None,
+) -> bool:
+    return (
+        stat.S_ISDIR(current.st_mode)
+        and _same_inode(current, expected)
+        and current.st_uid == os.getuid()
+        and (
+            exact_mode is None
+            or stat.S_IMODE(current.st_mode) == exact_mode
+        )
+    )
+
+
+def _optional_stat_at(
+    directory_descriptor: int,
+    name: str,
+) -> os.stat_result | None:
+    try:
+        return os.stat(
+            name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return None
+
+
+def _workspace_bindings_current(workspace: _CodeqlQueryWorkspace) -> bool:
+    try:
+        if not workspace.output_ancestry:
+            return False
+        previous: _LexicalDirectoryBinding | None = None
+        for lexical in workspace.output_ancestry:
+            opened_ancestor = os.fstat(lexical.descriptor)
+            if (
+                not stat.S_ISDIR(opened_ancestor.st_mode)
+                or not _same_inode(opened_ancestor, lexical.info)
+                or opened_ancestor.st_uid != lexical.info.st_uid
+                or stat.S_IMODE(opened_ancestor.st_mode)
+                != stat.S_IMODE(lexical.info.st_mode)
+            ):
+                return False
+            if previous is not None:
+                named_ancestor = os.stat(
+                    lexical.name,
+                    dir_fd=previous.descriptor,
+                    follow_symlinks=False,
+                )
+                if not _same_inode(named_ancestor, lexical.info):
+                    return False
+            previous = lexical
+        assert previous is not None
+        if (
+            previous.descriptor != workspace.output_parent_descriptor
+            or not _same_inode(previous.info, workspace.output_parent_info)
+        ):
+            return False
+        opened_parent = os.fstat(workspace.output_parent_descriptor)
+        output = os.fstat(workspace.output_descriptor)
+        named_output = os.stat(
+            workspace.output_name,
+            dir_fd=workspace.output_parent_descriptor,
+            follow_symlinks=False,
+        )
+        opened_workspace = os.fstat(workspace.workspace_descriptor)
+        named_workspace = os.stat(
+            workspace.name,
+            dir_fd=workspace.output_descriptor,
+            follow_symlinks=False,
+        )
+        opened_results = os.fstat(workspace.results_descriptor)
+        named_results = os.stat(
+            "results",
+            dir_fd=workspace.workspace_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(opened_parent.st_mode)
+        and _same_inode(opened_parent, workspace.output_parent_info)
+        and opened_parent.st_uid == workspace.output_parent_info.st_uid
+        and stat.S_IMODE(opened_parent.st_mode)
+        == stat.S_IMODE(workspace.output_parent_info.st_mode)
+        and _same_inode(named_output, workspace.output_info)
+        and _bound_owner_directory(
+            output,
+            workspace.output_info,
+            exact_mode=stat.S_IMODE(workspace.output_info.st_mode),
+        )
+        and _bound_owner_directory(
+            opened_workspace,
+            workspace.workspace_info,
+            exact_mode=0o700,
+        )
+        and _same_inode(named_workspace, workspace.workspace_info)
+        and _bound_owner_directory(
+            opened_results,
+            workspace.results_info,
+            exact_mode=0o700,
+        )
+        and _same_inode(named_results, workspace.results_info)
+    )
+
+
+def _query_output_binding_current(
+    workspace: _CodeqlQueryWorkspace,
+    binding: _QueryOutputBinding,
+) -> bool:
+    if not _workspace_bindings_current(workspace):
+        return False
+    try:
+        if binding.generations_descriptor >= 0:
+            opened_generations = os.fstat(
+                binding.generations_descriptor
+            )
+            named_generations = os.stat(
+                ".generations",
+                dir_fd=workspace.results_descriptor,
+                follow_symlinks=False,
+            )
+            if not (
+                _bound_owner_directory(
+                    opened_generations,
+                    binding.generations_info,
+                    exact_mode=0o700,
+                )
+                and _same_inode(
+                    named_generations, binding.generations_info
+                )
+            ):
+                return False
+        if binding.generation_descriptor >= 0:
+            if binding.generations_descriptor < 0:
+                return False
+            opened_generation = os.fstat(binding.generation_descriptor)
+            named_generation = os.stat(
+                binding.generation_name,
+                dir_fd=binding.generations_descriptor,
+                follow_symlinks=False,
+            )
+            if not (
+                _bound_owner_directory(
+                    opened_generation,
+                    binding.generation_info,
+                    exact_mode=0o700,
+                )
+                and _same_inode(
+                    named_generation, binding.generation_info
+                )
+            ):
+                return False
+        if binding.decoded_parent == "generation":
+            decoded_parent = binding.generation_descriptor
+        elif binding.decoded_parent == "results":
+            decoded_parent = workspace.results_descriptor
+        else:
+            return False
+        if decoded_parent < 0:
+            return False
+        opened_decoded = os.fstat(binding.decoded_descriptor)
+        named_decoded = os.stat(
+            binding.decoded_name,
+            dir_fd=decoded_parent,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return False
+    metadata_current = (
+        stat.S_ISREG(opened_decoded.st_mode)
+        and _same_inode(opened_decoded, binding.decoded_info)
+        and _same_inode(named_decoded, binding.decoded_info)
+        and opened_decoded.st_uid == os.getuid()
+        and stat.S_IMODE(opened_decoded.st_mode)
+        == stat.S_IMODE(binding.decoded_info.st_mode)
+        and opened_decoded.st_size <= _MAX_DECODED_BYTES
+    )
+    if not metadata_current:
+        return False
+    try:
+        current_bytes = _bounded_decoded_descriptor(
+            binding.decoded_descriptor
+        )
+    except AnalyzerError:
+        return False
+    return (
+        len(current_bytes) == binding.decoded_size
+        and hashlib.sha256(current_bytes).hexdigest()
+        == binding.decoded_sha256
+    )
+
+
+def _result_relative_to_workspace(
+    workspace: _CodeqlQueryWorkspace,
+    result: QueryResult,
+) -> Path:
+    decoded = Path(result.decoded_path)
+    candidates = (workspace.results,)
+    try:
+        stable_results = Path(
+            os.readlink(
+                f"/proc/self/fd/{workspace.results_descriptor}"
+            )
+        )
+    except OSError:
+        stable_results = workspace.results
+    candidates = (*candidates, stable_results)
+    for root in candidates:
+        try:
+            relative = decoded.relative_to(root)
+        except ValueError:
+            continue
+        if (
+            relative != Path(".")
+            and not relative.is_absolute()
+            and ".." not in relative.parts
+        ):
+            return relative
+    raise _workspace_query_failed("query result path is outside workspace")
+
+
+def _register_query_output_binding(
+    workspace: _CodeqlQueryWorkspace,
+    result: QueryResult,
+    binding: _QueryOutputBinding,
+) -> _QueryOutputBinding:
+    append_failure: BaseException | None = None
+    try:
+        workspace.query_bindings.append(binding)
+    except BaseException as exc:
+        append_failure = exc
+    finally:
+        registered = any(
+            item is binding for item in workspace.query_bindings
+        )
+        if registered:
+            binding.attached = True
+    if append_failure is not None:
+        if not registered:
+            _release_query_output_binding(workspace, binding)
+        raise _workspace_query_failed(
+            "query output binding registration failed"
+        ) from append_failure
+    try:
+        workspace.result_bindings[id(result)] = (result, binding)
+    except BaseException as exc:
+        raise _workspace_query_failed(
+            "query output binding registration failed"
+        ) from exc
+    return binding
+
+
+def _capture_query_output_binding(
+    workspace: _CodeqlQueryWorkspace,
+    result: QueryResult,
+) -> _QueryOutputBinding:
+    supplied = result._output_binding
+    if supplied is not None:
+        if supplied.attached:
+            raise _workspace_query_failed(
+                "query output binding was reused"
+            )
+        if not _query_output_binding_current(workspace, supplied):
+            _release_query_output_binding(workspace, supplied)
+            raise _workspace_query_failed(
+                "query output binding changed"
+            )
+        return _register_query_output_binding(
+            workspace,
+            result,
+            supplied,
+        )
+
+    relative = _result_relative_to_workspace(workspace, result)
+    if len(relative.parts) == 3 and relative.parts[0] == ".generations":
+        pin_owner: list[_QueryOutputBinding] = []
+        try:
+            _pin_query_output_binding(
+                workspace.results_descriptor,
+                relative.parts[1],
+                relative.parts[2],
+                workspace.close_capability,
+                owner_holder=pin_owner,
+            )
+        except BaseException:
+            if pin_owner:
+                _release_query_output_binding(workspace, pin_owner[0])
+            raise
+        binding = pin_owner[0]
+        if not _query_output_binding_current(workspace, binding):
+            _release_query_output_binding(workspace, binding)
+            raise _workspace_query_failed(
+                "query output binding changed"
+            )
+        return _register_query_output_binding(
+            workspace,
+            result,
+            binding,
+        )
+    if len(relative.parts) != 1:
+        raise _workspace_query_failed("query result path is unsafe")
+
+    fallback_owner: list[int] = []
+    fallback_descriptor_owner = _WorkspaceDescriptorOwner(
+        fallback_owner,
+        workspace.close_capability,
+    )
+    generations_descriptor = -1
+    binding: _QueryOutputBinding | None = None
+    try:
+        try:
+            generations_descriptor = _open_owned_descriptor(
+                fallback_owner,
+                ".generations",
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=workspace.results_descriptor,
+            )
+        except FileNotFoundError:
+            generations_info = workspace.results_info
+        else:
+            generations_info = os.fstat(generations_descriptor)
+            named_generations = os.stat(
+                ".generations",
+                dir_fd=workspace.results_descriptor,
+                follow_symlinks=False,
+            )
+            if not _bound_owner_directory(
+                generations_info,
+                named_generations,
+                exact_mode=0o700,
+            ):
+                raise OSError("query generations binding changed")
+        decoded_name = relative.parts[0]
+        decoded_descriptor = _open_owned_descriptor(
+            fallback_owner,
+            decoded_name,
+            os.O_RDONLY
+            | os.O_NONBLOCK
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=workspace.results_descriptor,
+        )
+        decoded_info = os.fstat(decoded_descriptor)
+        named_decoded = os.stat(
+            decoded_name,
+            dir_fd=workspace.results_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(decoded_info.st_mode)
+            or not _same_inode(decoded_info, named_decoded)
+            or decoded_info.st_uid != os.getuid()
+            or decoded_info.st_size > _MAX_DECODED_BYTES
+        ):
+            raise OSError("query decoded output binding changed")
+        decoded_bytes = _bounded_decoded_descriptor(decoded_descriptor)
+        rebound_decoded = os.fstat(decoded_descriptor)
+        rebound_name = os.stat(
+            decoded_name,
+            dir_fd=workspace.results_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not _same_inode(rebound_decoded, decoded_info)
+            or not _same_inode(rebound_name, decoded_info)
+            or rebound_decoded.st_size != len(decoded_bytes)
+        ):
+            raise OSError("query decoded output changed during capture")
+        binding = _QueryOutputBinding(
+            close_capability=workspace.close_capability,
+            generations_descriptor=generations_descriptor,
+            generations_info=generations_info,
+            generation_name="",
+            generation_descriptor=-1,
+            generation_info=workspace.results_info,
+            decoded_name=decoded_name,
+            decoded_descriptor=decoded_descriptor,
+            decoded_info=rebound_decoded,
+            decoded_size=len(decoded_bytes),
+            decoded_sha256=hashlib.sha256(decoded_bytes).hexdigest(),
+            decoded_bytes=decoded_bytes,
+            decoded_parent="results",
+        )
+        if not _query_output_binding_current(workspace, binding):
+            raise OSError("query output binding changed")
+        return _register_query_output_binding(
+            workspace,
+            result,
+            binding,
+        )
+    except BaseException as exc:
+        registered = binding is not None and any(
+            item is binding for item in workspace.query_bindings
+        )
+        if registered:
+            released = True
+        elif binding is not None:
+            released = _release_query_output_binding(
+                workspace,
+                binding,
+            )
+        else:
+            released = False
+            retry_released = False
+            try:
+                released = _release_workspace_descriptors(
+                    fallback_descriptor_owner,
+                )
+            finally:
+                retry_released = _release_workspace_descriptors(
+                    fallback_descriptor_owner,
+                )
+            released = released and retry_released
+        if isinstance(exc, AnalyzerError) and released:
+            raise
+        raise _workspace_query_failed(
+            "query output binding failed"
+        ) from exc
+
+
+def _create_codeql_query_workspace(
+    output_root: Path,
+    stage: str,
+    *,
+    owner_holder: list[_CodeqlQueryWorkspace] | None = None,
+) -> _CodeqlQueryWorkspace:
+    try:
+        close_capability = require_close_fd_once()
+    except BaseException as exc:
+        raise _workspace_query_failed(
+            "query workspace release capability unavailable"
+        ) from exc
+    absolute_output = output_root.absolute()
+    output_name = absolute_output.name
+    if not output_name:
+        raise _workspace_query_failed("query workspace output root is unsafe")
+    ancestry_owner: list[tuple[_LexicalDirectoryBinding, ...]] = []
+    descriptor_owner = _WorkspaceDescriptorOwner([], close_capability)
+    directory_owner = descriptor_owner.descriptors
+    workspace: _CodeqlQueryWorkspace | None = None
+    workspace_owned = False
+    try:
+        output_ancestry = _pin_lexical_output_ancestry(
+            absolute_output.parent,
+            close_capability,
+            ancestry_owner,
+            descriptor_owner,
+        )
+        output_parent_descriptor = output_ancestry[-1].descriptor
+        output_parent_info = output_ancestry[-1].info
+        output_descriptor = _open_owned_directory_descriptor(
+            directory_owner,
+            output_name,
+            dir_fd=output_parent_descriptor,
+        )
+        output_info = os.fstat(output_descriptor)
+        named_output = os.stat(
+            output_name,
+            dir_fd=output_parent_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISDIR(output_info.st_mode)
+            or output_info.st_uid != os.getuid()
+            or not _same_inode(named_output, output_info)
+        ):
+            raise OSError("query workspace output root is unsafe")
+        name = ""
+        for _ in range(128):
+            candidate = f".dosweb-{stage}-queries-{uuid.uuid4().hex}"
+            try:
+                os.mkdir(
+                    candidate,
+                    mode=0o700,
+                    dir_fd=output_descriptor,
+                )
+            except FileExistsError:
+                continue
+            name = candidate
+            break
+        if not name:
+            raise OSError("could not allocate query workspace")
+        workspace_descriptor = _open_owned_directory_descriptor(
+            directory_owner,
+            name,
+            dir_fd=output_descriptor,
+        )
+        workspace_info = os.fstat(workspace_descriptor)
+        named_workspace = os.stat(
+            name,
+            dir_fd=output_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not _bound_owner_directory(
+                workspace_info,
+                named_workspace,
+                exact_mode=0o700,
+            )
+        ):
+            raise OSError("query workspace root changed")
+        os.mkdir("results", mode=0o700, dir_fd=workspace_descriptor)
+        results_descriptor = _open_owned_directory_descriptor(
+            directory_owner,
+            "results",
+            dir_fd=workspace_descriptor,
+        )
+        results_info = os.fstat(results_descriptor)
+        named_results = os.stat(
+            "results",
+            dir_fd=workspace_descriptor,
+            follow_symlinks=False,
+        )
+        if not _bound_owner_directory(
+            results_info,
+            named_results,
+            exact_mode=0o700,
+        ):
+            raise OSError("query workspace results changed")
+        workspace = _CodeqlQueryWorkspace(
+            output_root=absolute_output,
+            stage=stage,
+            name=name,
+            close_capability=close_capability,
+            output_parent_descriptor=output_parent_descriptor,
+            output_parent_info=output_parent_info,
+            output_ancestry=tuple(output_ancestry),
+            output_name=output_name,
+            output_descriptor=output_descriptor,
+            output_info=output_info,
+            workspace_descriptor=workspace_descriptor,
+            workspace_info=workspace_info,
+            results_descriptor=results_descriptor,
+            results_info=results_info,
+            _descriptor_owner=descriptor_owner,
+        )
+        if owner_holder is not None:
+            append_failure: BaseException | None = None
+
+            def transfer() -> None:
+                nonlocal append_failure, workspace_owned
+                try:
+                    owner_holder.append(workspace)
+                except BaseException as exc:
+                    append_failure = exc
+                finally:
+                    workspace_owned = any(
+                        item is workspace
+                        for item in list.__iter__(owner_holder)
+                    )
+
+            run_with_deferred_interrupts(transfer)
+            if append_failure is not None:
+                raise _workspace_query_failed(
+                    "query workspace owner registration failed"
+                ) from append_failure
+        return workspace
+    except BaseException as exc:
+        if workspace is not None and owner_holder is not None:
+            workspace_owned = workspace_owned or any(
+                item is workspace
+                for item in list.__iter__(owner_holder)
+            )
+        if workspace_owned:
+            raise
+        released_workspace_chain = False
+        retry_released_workspace_chain = False
+        try:
+            released_workspace_chain = _release_workspace_descriptors(
+                descriptor_owner,
+            )
+        finally:
+            retry_released_workspace_chain = _release_workspace_descriptors(
+                descriptor_owner,
+            )
+        if (
+            not released_workspace_chain
+            or not retry_released_workspace_chain
+            or isinstance(exc, Exception)
+        ):
+            raise _workspace_query_failed(
+                "query workspace creation failed"
+            ) from exc
+        raise
+
+
+def _workspace_has_safe_generation_inventory(
+    workspace: _CodeqlQueryWorkspace,
+) -> bool:
+    if not _workspace_bindings_current(workspace):
+        return False
+    pinned = [
+        binding
+        for binding in workspace.query_bindings
+        if binding.generations_descriptor >= 0
+    ]
+    if pinned:
+        expected = pinned[0].generations_info
+        if any(
+            not _same_inode(binding.generations_info, expected)
+            or not _query_output_binding_current(workspace, binding)
+            for binding in workspace.query_bindings
+        ):
+            return False
+        try:
+            with os.scandir(
+                pinned[0].generations_descriptor
+            ) as entries:
+                for index, entry in enumerate(entries):
+                    if index >= _MAX_ENTRY_ROWS or entry.name.startswith("."):
+                        return False
+            rebound = os.fstat(pinned[0].generations_descriptor)
+            named = os.stat(
+                ".generations",
+                dir_fd=workspace.results_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError:
+            return False
+        return (
+            _bound_owner_directory(
+                rebound,
+                expected,
+                exact_mode=0o700,
+            )
+            and _same_inode(named, expected)
+            and all(
+                _query_output_binding_current(workspace, binding)
+                for binding in workspace.query_bindings
+            )
+            and _workspace_bindings_current(workspace)
+        )
+    inventory_owner: list[int] = []
+    inventory_descriptor_owner = _WorkspaceDescriptorOwner(
+        inventory_owner,
+        workspace.close_capability,
+    )
+    safe = False
+    try:
+        try:
+            generations_descriptor = _open_owned_descriptor(
+                inventory_owner,
+                ".generations",
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=workspace.results_descriptor,
+            )
+        except FileNotFoundError:
+            return _workspace_bindings_current(workspace)
+        except OSError:
+            return False
+        expected = os.fstat(generations_descriptor)
+        named = os.stat(
+            ".generations",
+            dir_fd=workspace.results_descriptor,
+            follow_symlinks=False,
+        )
+        safe = _bound_owner_directory(
+            expected,
+            named,
+            exact_mode=0o700,
+        )
+        if safe:
+            with os.scandir(generations_descriptor) as entries:
+                for index, entry in enumerate(entries):
+                    if index >= _MAX_ENTRY_ROWS or entry.name.startswith("."):
+                        safe = False
+                        break
+        if safe:
+            rebound_descriptor = os.fstat(generations_descriptor)
+            rebound_name = os.stat(
+                ".generations",
+                dir_fd=workspace.results_descriptor,
+                follow_symlinks=False,
+            )
+            safe = (
+                _bound_owner_directory(
+                    rebound_descriptor,
+                    expected,
+                    exact_mode=0o700,
+                )
+                and _same_inode(rebound_name, expected)
+                and _workspace_bindings_current(workspace)
+            )
+    except OSError:
+        safe = False
+    finally:
+        released_inventory = False
+        retry_released_inventory = False
+        try:
+            released_inventory = _release_workspace_descriptors(
+                inventory_descriptor_owner,
+            )
+        finally:
+            retry_released_inventory = _release_workspace_descriptors(
+                inventory_descriptor_owner,
+            )
+        if not released_inventory or not retry_released_inventory:
+            safe = False
+    return safe
+
+
+def _isolate_codeql_query_workspace(
+    workspace: _CodeqlQueryWorkspace,
+) -> bool:
+    if not _workspace_bindings_current(workspace):
+        return False
+    for _ in range(128):
+        candidate = (
+            f".dosweb-{workspace.stage}-quarantine-{uuid.uuid4().hex}"
+        )
+        failure: BaseException | None = None
+        try:
+            renameat2_no_replace(
+                workspace.output_descriptor,
+                workspace.name,
+                workspace.output_descriptor,
+                candidate,
+            )
+        except BaseException as exc:
+            failure = exc
+        source = _optional_stat_at(
+            workspace.output_descriptor,
+            workspace.name,
+        )
+        destination = _optional_stat_at(
+            workspace.output_descriptor,
+            candidate,
+        )
+        if (
+            source is None
+            and destination is not None
+            and _same_inode(destination, workspace.workspace_info)
+        ):
+            workspace.name = candidate
+            try:
+                os.fsync(workspace.output_descriptor)
+            except OSError:
+                return False
+            return _workspace_bindings_current(workspace)
+        if (
+            isinstance(failure, FileExistsError)
+            and source is not None
+            and _same_inode(source, workspace.workspace_info)
+            and destination is not None
+            and not _same_inode(destination, workspace.workspace_info)
+        ):
+            continue
+        return False
+    return False
+
+
+def _cleanup_codeql_query_workspace(
+    workspace: _CodeqlQueryWorkspace,
+) -> bool:
+    """Isolate and retain only a fully bound workspace with no hidden output."""
+
+    safe = False
+    try:
+        if _workspace_has_safe_generation_inventory(workspace):
+            safe = _isolate_codeql_query_workspace(workspace)
+    except BaseException:
+        safe = False
+    finally:
+        released = False
+        retry_released = False
+        try:
+            released = workspace.close()
+        finally:
+            retry_released = workspace.close()
+        released = released and retry_released
+    return safe and released
+
+
+def _require_workspace_bindings(
+    workspace: _CodeqlQueryWorkspace,
+) -> None:
+    if not _workspace_bindings_current(workspace):
+        raise _workspace_query_failed()
+
+
+def _run_workspace_query(
+    workspace: _CodeqlQueryWorkspace,
+    runner: Callable[..., QueryResult],
+    query: Path,
+    database: DatabaseInfo,
+    config: AnalyzerConfig,
+) -> QueryResult:
+    _require_workspace_bindings(workspace)
+    def own_result(result: QueryResult) -> None:
+        if not isinstance(result, QueryResult):
+            raise _workspace_query_failed(
+                "query runner ownership result is invalid"
+            )
+        owned = workspace.result_bindings.get(id(result))
+        if owned is not None and owned[0] is result:
+            raise _workspace_query_failed(
+                "query output binding was reused"
+            )
+        _capture_query_output_binding(workspace, result)
+
+    try:
+        result = runner(
+            query,
+            database,
+            workspace.results,
+            output_descriptor=workspace.results_descriptor,
+            retain_output_binding=True,
+            result_owner_callback=own_result,
+            codeql_binary=config.codeql_binary,
+            timeout_seconds=_CODEQL_TIMEOUT_SECONDS,
+        )
+    except BaseException as exc:
+        if not _workspace_bindings_current(workspace):
+            raise _workspace_query_failed() from exc
+        raise
+    if isinstance(result, QueryResult):
+        owned = workspace.result_bindings.get(id(result))
+        if owned is None or owned[0] is not result:
+            _capture_query_output_binding(workspace, result)
+    _require_workspace_bindings(workspace)
+    return result
+
+
 def _run_codeql_family(config: AnalyzerConfig, database: DatabaseInfo, stage: str, query_root: Path, runner: Callable[..., QueryResult]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    with tempfile.TemporaryDirectory(prefix=f"dosweb-{stage}-queries-") as temporary:
-        output = Path(temporary) / "results"; output.mkdir(parents=True)
+    workspace_owner: list[_CodeqlQueryWorkspace] = []
+    workspace: _CodeqlQueryWorkspace | None = None
+    try:
+        workspace = _create_codeql_query_workspace(
+            config.output,
+            stage,
+            owner_holder=workspace_owner,
+        )
         for query in _query_files(stage, query_root):
-            result = runner(query, database, output, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
+            result = _run_workspace_query(
+                workspace,
+                runner,
+                query,
+                database,
+                config,
+            )
             if not isinstance(result, QueryResult):
                 raise AnalyzerError("CODEQL_QUERY_FAILED", "The query runner returned an invalid result.")
-            payload = _bounded_json_file(Path(result.decoded_path))
+            if not _workspace_has_safe_generation_inventory(workspace):
+                raise AnalyzerError(
+                    "CODEQL_QUERY_FAILED",
+                    "CodeQL query execution failed.",
+                    {
+                        "stage": "publication",
+                        "diagnostic": "retained hidden query quarantine",
+                    },
+                )
+            _require_workspace_bindings(workspace)
+            payload = _bounded_json_file(result, workspace)
+            _require_workspace_bindings(workspace)
             if stage == "growth":
                 family = "growth"
             elif stage in {"flows", "associations"}:
@@ -377,9 +1712,44 @@ def _run_codeql_family(config: AnalyzerConfig, database: DatabaseInfo, stage: st
                 lowered = query.stem.lower()
                 family = "lifecycle_summary" if "lifecyclesummary" in lowered else "lifecycle_coverage" if "lifecyclecoverage" in lowered else "guard" if "guard" in lowered else "bound" if "bound" in lowered else "release"
             decoded = decode_bqrs_json(family, payload, DecodeSource(database.source_root, result.query_sha256))
+            _require_workspace_bindings(workspace)
             if len(rows) + len(decoded) > _MAX_ENTRY_ROWS:
                 raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL output exceeds the aggregate row limit.")
             rows.extend({"query_name": family, **item} for item in decoded)
+    except BaseException as exc:
+        owned_workspace = (
+            workspace_owner[0] if workspace_owner else workspace
+        )
+        cleanup_succeeded = owned_workspace is None
+        cleanup_retry_succeeded = owned_workspace is None
+        if owned_workspace is not None:
+            try:
+                cleanup_succeeded = _cleanup_codeql_query_workspace(
+                    owned_workspace
+                )
+            finally:
+                cleanup_retry_succeeded = _cleanup_codeql_query_workspace(
+                    owned_workspace
+                )
+        if not cleanup_succeeded and not cleanup_retry_succeeded:
+            raise _workspace_query_failed() from exc
+        raise
+    assert workspace is not None
+    cleanup_succeeded = False
+    cleanup_retry_succeeded = False
+    try:
+        cleanup_succeeded = _cleanup_codeql_query_workspace(workspace)
+    finally:
+        cleanup_retry_succeeded = _cleanup_codeql_query_workspace(workspace)
+    if not cleanup_succeeded and not cleanup_retry_succeeded:
+        raise AnalyzerError(
+            "CODEQL_QUERY_FAILED",
+            "CodeQL query execution failed.",
+            {
+                "stage": "publication",
+                "diagnostic": "retained unsafe query workspace",
+            },
+        )
     return rows
 
 
@@ -396,76 +1766,152 @@ def make_entries_executor(config: AnalyzerConfig, *, validate_database_fn: Calla
         if not isinstance(database, DatabaseInfo):
             raise AnalyzerError("CODEQL_DATABASE_INVALID", "CodeQL database validation failed.")
         selected_queries, evidence_scan_truncated = _selected_entry_queries(database.source_root, formal=not config.allow_partial_codeql)
-        with tempfile.TemporaryDirectory(prefix="dosweb-entry-queries-") as temporary:
-            root = Path(temporary) / "pack"
-            if query_pack_snapshot_fn:
-                effective = _materialize_query_pack(root, query_pack_snapshot_fn()) / "dosweb" / "Entries"
-            else:
-                effective = query_dir
-            rows: list[dict[str, object]] = []
-            results = Path(temporary) / "results"; results.mkdir()
-            skipped_queries = 0
-            query_diagnostics: list[dict[str, object]] = []
-            selected_names = frozenset(selected_queries)
-            for name in _ENTRY_QUERIES:
-                if name in selected_names:
-                    continue
-                reason = "framework_evidence_scan_truncated" if evidence_scan_truncated else "framework_evidence_absent"
-                rows.append(_entry_gap_row(
-                    name,
-                    f"{reason}:{Path(name).stem}",
-                    status="partial" if evidence_scan_truncated else "unsupported",
-                ))
-            for name in selected_queries:
+        workspace_owner: list[_CodeqlQueryWorkspace] = []
+        workspace: _CodeqlQueryWorkspace | None = None
+        try:
+            workspace = _create_codeql_query_workspace(
+                config.output,
+                "entry",
+                owner_holder=workspace_owner,
+            )
+            with tempfile.TemporaryDirectory(prefix="dosweb-entry-pack-") as temporary:
+                root = Path(temporary) / "pack"
+                if query_pack_snapshot_fn:
+                    effective = _materialize_query_pack(root, query_pack_snapshot_fn()) / "dosweb" / "Entries"
+                else:
+                    effective = query_dir
+                rows: list[dict[str, object]] = []
+                skipped_queries = 0
+                query_diagnostics: list[dict[str, object]] = []
+                selected_names = frozenset(selected_queries)
+                for name in _ENTRY_QUERIES:
+                    if name in selected_names:
+                        continue
+                    reason = "framework_evidence_scan_truncated" if evidence_scan_truncated else "framework_evidence_absent"
+                    rows.append(_entry_gap_row(
+                        name,
+                        f"{reason}:{Path(name).stem}",
+                        status="partial" if evidence_scan_truncated else "unsupported",
+                    ))
+                for name in selected_queries:
+                    try:
+                        result = _run_workspace_query(
+                            workspace,
+                            runner,
+                            effective / name,
+                            database,
+                            config,
+                        )
+                    except AnalyzerError as exc:
+                        if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
+                            # Formal runs never publish an entries stage after a selected query fails.
+                            raise
+                        skipped_queries += 1
+                        rows.append(_entry_gap_row(name, f"query_failed:{Path(name).stem}"))
+                        diagnostic: dict[str, object] = {
+                            "code": exc.code,
+                            "query_name": name,
+                        }
+                        for field in ("stage", "diagnostic", "returncode"):
+                            value = exc.details.get(field)
+                            if field == "returncode" and isinstance(value, int) and not isinstance(value, bool):
+                                diagnostic[field] = value
+                            elif field != "returncode" and isinstance(value, str) and value:
+                                diagnostic[field] = value[:512]
+                        query_diagnostics.append(diagnostic)
+                        continue
+                    if not isinstance(result, QueryResult):
+                        raise AnalyzerError("CODEQL_QUERY_FAILED", "The entry query runner returned an invalid result.")
+                    _require_workspace_bindings(workspace)
+                    payload = _bounded_json_file(result, workspace)
+                    _require_workspace_bindings(workspace)
+                    rows.extend(decode_bqrs_json("entries", payload, DecodeSource(database.source_root, result.query_sha256)))
+                    _require_workspace_bindings(workspace)
+                    if len(rows) > _MAX_ENTRY_ROWS:
+                        raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL entry output exceeds the aggregate row limit.")
                 try:
-                    result = runner(effective / name, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
+                    result = _run_workspace_query(
+                        workspace,
+                        runner,
+                        effective / _INTERPOSITION_QUERY,
+                        database,
+                        config,
+                    )
                 except AnalyzerError as exc:
                     if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
-                        # Formal runs never publish an entries stage after a selected query fails.
                         raise
                     skipped_queries += 1
-                    rows.append(_entry_gap_row(name, f"query_failed:{Path(name).stem}"))
-                    diagnostic: dict[str, object] = {
-                        "code": exc.code,
-                        "query_name": name,
-                    }
-                    for field in ("stage", "diagnostic", "returncode"):
-                        value = exc.details.get(field)
-                        if field == "returncode" and isinstance(value, int) and not isinstance(value, bool):
-                            diagnostic[field] = value
-                        elif field != "returncode" and isinstance(value, str) and value:
-                            diagnostic[field] = value[:512]
-                    query_diagnostics.append(diagnostic)
-                    continue
-                if not isinstance(result, QueryResult):
-                    raise AnalyzerError("CODEQL_QUERY_FAILED", "The entry query runner returned an invalid result.")
-                rows.extend(decode_bqrs_json("entries", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256)))
-                if len(rows) > _MAX_ENTRY_ROWS:
-                    raise AnalyzerError("CODEQL_RESULT_INVALID", "Decoded CodeQL entry output exceeds the aggregate row limit.")
-            try:
-                result = runner(effective / _INTERPOSITION_QUERY, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
-            except AnalyzerError as exc:
-                if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
-                    raise
-                skipped_queries += 1
-                query_diagnostics.append({"code": exc.code, "query_name": _INTERPOSITION_QUERY})
-                interposition_rows: list[dict[str, object]] = []
-            else:
-                if not isinstance(result, QueryResult):
-                    raise AnalyzerError("CODEQL_QUERY_FAILED", "The interposition query runner returned an invalid result.")
-                interposition_rows = decode_bqrs_json("entry_interposition", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256))
-            try:
-                result = runner(effective / _SECURITY_QUERY, database, results, codeql_binary=config.codeql_binary, timeout_seconds=_CODEQL_TIMEOUT_SECONDS)
-            except AnalyzerError as exc:
-                if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
-                    raise
-                skipped_queries += 1
-                query_diagnostics.append({"code": exc.code, "query_name": _SECURITY_QUERY})
-                security_rows: list[dict[str, object]] = []
-            else:
-                if not isinstance(result, QueryResult):
-                    raise AnalyzerError("CODEQL_QUERY_FAILED", "The Entry security query runner returned an invalid result.")
-                security_rows = decode_bqrs_json("entry_security", _bounded_json_file(Path(result.decoded_path)), DecodeSource(database.source_root, result.query_sha256))
+                    query_diagnostics.append({"code": exc.code, "query_name": _INTERPOSITION_QUERY})
+                    interposition_rows: list[dict[str, object]] = []
+                else:
+                    if not isinstance(result, QueryResult):
+                        raise AnalyzerError("CODEQL_QUERY_FAILED", "The interposition query runner returned an invalid result.")
+                    _require_workspace_bindings(workspace)
+                    payload = _bounded_json_file(result, workspace)
+                    _require_workspace_bindings(workspace)
+                    interposition_rows = decode_bqrs_json("entry_interposition", payload, DecodeSource(database.source_root, result.query_sha256))
+                    _require_workspace_bindings(workspace)
+                try:
+                    result = _run_workspace_query(
+                        workspace,
+                        runner,
+                        effective / _SECURITY_QUERY,
+                        database,
+                        config,
+                    )
+                except AnalyzerError as exc:
+                    if exc.code != "CODEQL_QUERY_FAILED" or not config.allow_partial_codeql:
+                        raise
+                    skipped_queries += 1
+                    query_diagnostics.append({"code": exc.code, "query_name": _SECURITY_QUERY})
+                    security_rows: list[dict[str, object]] = []
+                else:
+                    if not isinstance(result, QueryResult):
+                        raise AnalyzerError("CODEQL_QUERY_FAILED", "The Entry security query runner returned an invalid result.")
+                    _require_workspace_bindings(workspace)
+                    payload = _bounded_json_file(result, workspace)
+                    _require_workspace_bindings(workspace)
+                    security_rows = decode_bqrs_json("entry_security", payload, DecodeSource(database.source_root, result.query_sha256))
+                    _require_workspace_bindings(workspace)
+        except BaseException as exc:
+            owned_workspace = (
+                workspace_owner[0] if workspace_owner else workspace
+            )
+            cleanup_succeeded = owned_workspace is None
+            cleanup_retry_succeeded = owned_workspace is None
+            if owned_workspace is not None:
+                try:
+                    cleanup_succeeded = _cleanup_codeql_query_workspace(
+                        owned_workspace
+                    )
+                finally:
+                    cleanup_retry_succeeded = _cleanup_codeql_query_workspace(
+                        owned_workspace
+                    )
+            if not cleanup_succeeded and not cleanup_retry_succeeded:
+                raise _workspace_query_failed() from exc
+            raise
+        assert workspace is not None
+        cleanup_succeeded = False
+        cleanup_retry_succeeded = False
+        try:
+            cleanup_succeeded = _cleanup_codeql_query_workspace(workspace)
+        finally:
+            cleanup_retry_succeeded = _cleanup_codeql_query_workspace(
+                workspace
+            )
+        retained_hidden_output = (
+            not cleanup_succeeded and not cleanup_retry_succeeded
+        )
+        if retained_hidden_output and not config.allow_partial_codeql:
+            raise AnalyzerError(
+                "CODEQL_QUERY_FAILED",
+                "CodeQL query execution failed.",
+                {
+                    "stage": "publication",
+                    "diagnostic": "retained hidden query quarantine",
+                },
+            )
         rows, descriptor_coverage = resolve_webxml_servlet_candidates(rows, database.source_root)
         validate_descriptor_coverage(descriptor_coverage)
         rows = augment_source_backed_jaxrs_entries(rows, database.source_root)
@@ -534,11 +1980,14 @@ def _records(context: StageContext, stage: str, artifact: str, schema: str) -> l
 
 def _strict_records(context: StageContext, stage: str, artifact: str) -> list[dict[str, object]]:
     """Read a strict JSONL artifact from its authenticated byte snapshot."""
-    return read_jsonl_bytes_strict(
+    schema = artifact.removesuffix(".jsonl")
+    records = read_jsonl_bytes_strict(
         _upstream_bytes(context, stage, artifact),
-        artifact.removesuffix(".jsonl"),
+        schema,
         source_name=artifact,
     )
+    validate_records(schema, records)
+    return records
 
 
 def _coverage(context: StageContext) -> tuple[FrameworkCoverage, ...]:
@@ -579,13 +2028,54 @@ def _candidate_from_record(record: Mapping[str, object]) -> GrowthCandidate:
     return GrowthCandidate.create(site=SourceLocation(site["file"], site["start_line"]), kind=record["kind"], operation=record["operation"], resource_dimension=resource["dimension"], receiver=resource["receiver"], field_path=resource["field_path"], demand_inputs=demands, escape_scope=record["escape_scope"], evidence_ids=frozenset(record["candidate_evidence"]), coverage_status=record["coverage_status"], coverage_notes=record["coverage_notes"])
 
 
-def _entry_registration_identity(entry: EntryFact) -> tuple[str, str, str, int]:
+def _entry_registration_identity(entry: EntryFact) -> tuple[str, str, str, int, str]:
     return (
         entry.registration.kind,
         entry.registration.callable,
         entry.registration.file,
         entry.registration.start_line,
+        entry.registration_pattern_id,
     )
+
+
+def _entry_registration_site_identity(entry: EntryFact) -> tuple[object, ...]:
+    """Bind one installed handler while intentionally excluding route aliases."""
+    return (
+        entry.framework,
+        entry.protocol,
+        entry.handler.callable,
+        entry.handler.file,
+        entry.handler.start_line,
+        entry.registration.kind,
+        entry.registration.callable,
+        entry.registration.file,
+        entry.registration.start_line,
+        entry.auth_context,
+        tuple((item.name, item.type, item.kind) for item in entry.attacker_inputs),
+        entry.materialization_phase,
+    )
+
+
+def _association_row_route(row: Mapping[str, object]) -> str | None:
+    """Recover only the exact route carried by the modeled Netty switch path."""
+    if (
+        row.get("phase_sequence")
+        != "entry>netty_json_switch>async>service>growth"
+        or row.get("coverage_note")
+        != "netty_json_switch_async_dispatch_requires_path_coverage"
+    ):
+        return None
+    call_path = row.get("call_path")
+    if not isinstance(call_path, str) or len(call_path) > 4096:
+        return None
+    start = call_path.find("[/")
+    end = call_path.find("]", start + 2) if start >= 0 else -1
+    if start < 0 or end < 0:
+        return None
+    route = call_path[start + 1 : end]
+    if not route.startswith("/") or any(character.isspace() for character in route):
+        return None
+    return route
 
 
 def _entry_semantic_key(entry: EntryFact) -> tuple[object, ...]:
@@ -599,6 +2089,7 @@ def _entry_semantic_key(entry: EntryFact) -> tuple[object, ...]:
         entry.auth_context,
         tuple((item.name, item.type, item.kind) for item in entry.attacker_inputs),
         entry.materialization_phase,
+        entry.registration_pattern_id,
     )
 
 
@@ -719,6 +2210,58 @@ def _entry_candidate_has_formal_flow(
         and _formal_flow_witness(entry, candidate, row, (row,))
         for row in flow_rows
     )
+
+
+def _association_disposition(
+    candidate: GrowthCandidate,
+    links: Sequence[object],
+    *,
+    association_status: str,
+    reason_codes: Sequence[str],
+) -> CandidateDisposition:
+    """Materialize one auditable maturation record for a raw candidate."""
+    from dosweb.growth import CandidateEntryLink
+
+    materialized = tuple(links)
+    if any(not isinstance(link, CandidateEntryLink) for link in materialized):
+        raise AnalyzerError(
+            "ANALYSIS_CANDIDATE_COMPLETENESS_INVALID",
+            "Candidate association links are malformed.",
+        )
+    canonical_entry_id = (
+        materialized[0].entry_id if len(materialized) == 1 else ""
+    )
+    local_growth_status = (
+        "complete" if candidate.coverage_status == "complete" else "partial"
+    )
+    if canonical_entry_id and association_status in {"complete", "partial"}:
+        status = (
+            "formal_eligible"
+            if local_growth_status == "complete" and association_status == "complete"
+            else "gap_eligible"
+        )
+    else:
+        status = "inventory_unresolved"
+    evidence_ids = tuple(
+        sorted(
+            set(candidate.evidence_ids)
+            | {link.link_id for link in materialized}
+            | ({canonical_entry_id} if canonical_entry_id else set())
+        )
+    )
+    return CandidateDisposition.create(
+        candidate.growth_id,
+        status,
+        canonical_entry_id=canonical_entry_id,
+        local_growth_status=local_growth_status,
+        association_status=association_status,
+        link_ids=tuple(link.link_id for link in materialized),
+        evidence_ids=evidence_ids,
+        negative_proof_ids=(),
+        reason_codes=tuple(sorted(set(reason_codes))),
+    )
+
+
 def _candidate_association(
     entries: Mapping[str, EntryFact],
     candidate: GrowthCandidate,
@@ -737,8 +2280,13 @@ def _candidate_association(
     for row in association_rows:
         if row.get("sink_file") != candidate.site.file or row.get("sink_start_line") != candidate.site.start_line:
             continue
+        modeled_route = _association_row_route(row)
         for entry in entries.values():
-            if row.get("source_file") == entry.handler.file and row.get("source_start_line") == entry.handler.start_line:
+            if (
+                row.get("source_file") == entry.handler.file
+                and row.get("source_start_line") == entry.handler.start_line
+                and (modeled_route is None or entry.route_or_event == modeled_route)
+            ):
                 claimed_complete = (
                     row.get("coverage_status") == "complete"
                     and row.get("confidence") == "proven"
@@ -747,6 +2295,8 @@ def _candidate_association(
                 flow_row_matches = _formal_flow_row_matches(candidate, row, flow_rows)
                 status = "complete" if claimed_complete and flow_witness else "partial"
                 reasons = {str(row.get("coverage_note", "ASSOCIATION_QUERY"))}
+                if modeled_route is not None:
+                    reasons.add("ASSOCIATION_QUERY_ROUTE_ALIAS_MATCHED")
                 if not flow_row_matches:
                     reasons.add("FLOW_CODEQL_ROW_MISSING")
                 elif claimed_complete and not flow_witness:
@@ -767,7 +2317,55 @@ def _candidate_association(
         # `/path` and `GET /path`) for the exact same handler/registration.
         # They are one semantic entry association, not an ambiguity.
         linked_entries = tuple(entries[link.entry_id] for link in linked)
-        if len(linked) > 1 and len({_entry_registration_identity(entry) for entry in linked_entries}) == 1:
+        netty_base_pattern = registration_coverage_pattern_id(
+            "netty", "pipeline_registration", "netty_pipeline_registration"
+        )
+        base_links = tuple(
+            link
+            for link in linked
+            if entries[link.entry_id].registration_pattern_id == netty_base_pattern
+        )
+        if (
+            len(linked) > 1
+            and len(base_links) == 1
+            and len({_entry_registration_site_identity(entry) for entry in linked_entries}) == 1
+            and len({link.status for link in linked}) == 1
+        ):
+            base_link = base_links[0]
+            canonical_link = CandidateEntryLink.create(
+                candidate.growth_id,
+                base_link.entry_id,
+                base_link.status,
+                (candidate.growth_id, base_link.entry_id),
+                tuple(
+                    sorted(
+                        set(base_link.reason_codes)
+                        | {"ASSOCIATION_QUERY_HANDLER_BASE_CANONICALIZED"}
+                    )
+                ),
+            )
+            return (canonical_link,), _association_disposition(
+                candidate,
+                (canonical_link,),
+                association_status=canonical_link.status,
+                reason_codes=tuple(
+                    sorted(
+                        {"ASSOCIATION_QUERY_EVIDENCE"}
+                        | set(canonical_link.reason_codes)
+                    )
+                ),
+            )
+        if (
+            len(linked) > 1
+            and len(
+                {
+                    _entry_registration_site_identity(entry)
+                    for entry in linked_entries
+                }
+            )
+            == 1
+            and len({link.status for link in linked}) == 1
+        ):
             canonical = _canonical_entry(linked_entries, candidate)
             canonical_status = "complete" if all(link.status == "complete" for link in linked) else "partial"
             canonical_link = CandidateEntryLink.create(
@@ -778,17 +2376,27 @@ def _candidate_association(
                     | {reason for link in linked for reason in link.reason_codes}
                 )),
             )
-            disposition_status = "verified_relevant" if canonical_status == "complete" else "unresolved"
-            return (canonical_link,), CandidateDisposition.create(
-                candidate.growth_id, disposition_status, (canonical_link.link_id,),
-                tuple(sorted({"ASSOCIATION_QUERY_EVIDENCE"} | set(canonical_link.reason_codes))),
+            return (canonical_link,), _association_disposition(
+                candidate,
+                (canonical_link,),
+                association_status=canonical_status,
+                reason_codes=tuple(sorted({"ASSOCIATION_QUERY_EVIDENCE"} | set(canonical_link.reason_codes))),
             )
-        disposition_status = "verified_relevant" if len(linked) == 1 and linked[0].status == "complete" else "unresolved"
-        return tuple(linked), CandidateDisposition.create(
-            candidate.growth_id,
-            disposition_status,
-            tuple(link.link_id for link in linked),
-            tuple(sorted(
+        if len(linked) > 64:
+            return (), _association_disposition(
+                candidate,
+                (),
+                association_status="ambiguous",
+                reason_codes=("ASSOCIATION_ENTRY_FANOUT_PARTITION_AMBIGUOUS",),
+            )
+        association_status = (
+            linked[0].status if len(linked) == 1 else "ambiguous"
+        )
+        return tuple(linked), _association_disposition(
+            candidate,
+            tuple(linked),
+            association_status=association_status,
+            reason_codes=tuple(sorted(
                 {"ASSOCIATION_QUERY_EVIDENCE"}
                 | {reason for link in linked for reason in link.reason_codes}
             )),
@@ -802,15 +2410,34 @@ def _candidate_association(
         # Growth coverage says nothing about Entry extraction completeness.
         # Without an explicit candidate-scoped Entry coverage proof, absence of
         # a link remains unresolved rather than being mislabeled unreachable.
-        return (), CandidateDisposition.create(
-            candidate.growth_id,
-            "unresolved",
+        return (), _association_disposition(
+            candidate,
             (),
-            ("ASSOCIATION_ENTRY_COVERAGE_UNPROVEN",),
+            association_status="missing",
+            reason_codes=("ASSOCIATION_ENTRY_COVERAGE_UNPROVEN",),
         )
     # Duplicate registrations for one semantic handler are one candidate link.
     if len({_entry_semantic_key(entry) for entry in matches}) == 1:
         matches = (_canonical_entry(matches, candidate),)
+    if len(matches) > 1:
+        # Partition broad same-file fanout by the closest handler/source
+        # anchor before deciding ambiguity.  Registration and route aliases at
+        # that anchor are canonicalized; unrelated handlers remain inventory.
+        nearest_line = max(entry.handler.start_line for entry in matches)
+        nearest = tuple(
+            entry for entry in matches if entry.handler.start_line == nearest_line
+        )
+        try:
+            matches = (_canonical_entry(nearest, candidate),)
+        except AnalyzerError as exc:
+            if exc.code != "ANALYSIS_GROWTH_ENTRY_AMBIGUOUS":
+                raise
+            return (), _association_disposition(
+                candidate,
+                (),
+                association_status="ambiguous",
+                reason_codes=("ASSOCIATION_ENTRY_FANOUT_PARTITION_AMBIGUOUS",),
+            )
     missing_flow = any(
         not _entry_candidate_has_formal_flow(entry, candidate, flow_rows)
         for entry in matches
@@ -830,11 +2457,11 @@ def _candidate_association(
         )
         for entry in matches
     )
-    return links, CandidateDisposition.create(
-        candidate.growth_id,
-        "unresolved",
-        tuple(link.link_id for link in links),
-        tuple(sorted(disposition_reasons)),
+    return links, _association_disposition(
+        candidate,
+        links,
+        association_status="partial" if len(links) == 1 else "ambiguous",
+        reason_codes=tuple(sorted(disposition_reasons)),
     )
 
 
@@ -903,21 +2530,83 @@ def _amplification_decision_for_candidate(candidate: object) -> tuple[str, str]:
     """Require the exact CodeQL global-flow loop witness; roles alone never prove A1."""
     kind = getattr(candidate, "kind", "")
     notes = tuple(getattr(candidate, "coverage_notes", ()))
+    loop_gap = any(
+        note.endswith(":finite_capacity_prevents_amplification")
+        or note.endswith(":loop_bound_not_attacker_proven")
+        or note.endswith(":loop_multiplicity_unmodeled")
+        for note in notes
+    )
+    if any(
+        note.endswith(":attacker_controlled_loop_multiplicity_proven")
+        for note in notes
+    ) and not loop_gap:
+        return "proven", "AMPLIFICATION_CFG_DATAFLOW_LOOP_WITNESS"
+    if loop_gap:
+        return "unknown", "AMPLIFICATION_LOOP_OR_BATCH_UNMODELED"
     if kind in {"input_materialization", "direct_allocation"} or any(
         note.endswith((":single_submission_no_enclosing_loop", ":single_operation_no_enclosing_loop"))
         for note in notes
     ):
         return "not_applicable", "AMPLIFICATION_DIRECT_DEMAND_ASSERTION"
-    if (
-        any(note.endswith(":attacker_controlled_loop_multiplicity_proven") for note in notes)
-        and not any(
-            note.endswith(":finite_capacity_prevents_amplification")
-            or note.endswith(":loop_bound_not_attacker_proven")
-            for note in notes
-        )
-    ):
-        return "proven", "AMPLIFICATION_CFG_DATAFLOW_LOOP_WITNESS"
     return "unknown", "AMPLIFICATION_LOOP_OR_BATCH_UNMODELED"
+
+
+def _negative_proof_for_relevance(
+    candidate: GrowthCandidate, reason_codes: Sequence[str]
+) -> CandidateNegativeProof:
+    reasons = set(reason_codes)
+    mapping = (
+        ("RELEVANCE_TEST_OR_BENCHMARK_ONLY", "generated_or_test_only", "NEGATIVE_GENERATED_OR_TEST_ONLY"),
+        ("RELEVANCE_SERVER_SIZED_ALLOCATION", "server_controlled_source", "NEGATIVE_SERVER_CONTROLLED_SOURCE"),
+        ("RELEVANCE_SERVER_SIDE_MATERIALIZATION", "server_controlled_source", "NEGATIVE_SERVER_CONTROLLED_SOURCE"),
+        ("RELEVANCE_FIXED_KEY_RETENTION", "finite_keyspace", "NEGATIVE_FINITE_KEYSPACE"),
+        ("RELEVANCE_FINITE_KEYSPACE", "finite_keyspace", "NEGATIVE_FINITE_KEYSPACE"),
+        ("RELEVANCE_SYNCHRONOUS_CLEANUP", "guaranteed_synchronous_cleanup", "NEGATIVE_GUARANTEED_SYNCHRONOUS_CLEANUP"),
+        ("RELEVANCE_FALSE_ENTRY_GROWTH_FLOW", "false_entry_growth_flow", "NEGATIVE_FALSE_ENTRY_GROWTH_FLOW"),
+    )
+    for trigger, kind, reason in mapping:
+        if trigger in reasons:
+            return CandidateNegativeProof.create(
+                candidate.growth_id,
+                cast(object, kind),
+                evidence_ids=tuple(sorted(candidate.evidence_ids)),
+                reason_codes=(reason,),
+            )
+    raise AnalyzerError(
+        "ANALYSIS_CANDIDATE_COMPLETENESS_INVALID",
+        "Rejected relevance decision lacks a deterministic negative-proof mapping.",
+        {"growth_id": candidate.growth_id},
+    )
+
+
+def _mature_disposition(
+    candidate: GrowthCandidate,
+    association: CandidateDisposition,
+    *,
+    status: str,
+    relevance_status: str | None = None,
+    reason_codes: Sequence[str],
+    evidence_ids: Sequence[str] = (),
+    negative_proof_ids: Sequence[str] = (),
+) -> CandidateDisposition:
+    local_growth_status = association.local_growth_status
+    if status == "rejected" and negative_proof_ids:
+        local_growth_status = "rejected"
+    elif status == "gap_eligible" and relevance_status == "dos_relevant_partial":
+        local_growth_status = "partial"
+    return CandidateDisposition.create(
+        candidate.growth_id,
+        cast(object, status),
+        canonical_entry_id=association.canonical_entry_id,
+        local_growth_status=cast(object, local_growth_status),
+        association_status=association.association_status,
+        link_ids=association.link_ids,
+        evidence_ids=tuple(
+            sorted(set(association.evidence_ids) | set(evidence_ids) | set(negative_proof_ids))
+        ),
+        negative_proof_ids=tuple(sorted(set(negative_proof_ids))),
+        reason_codes=tuple(sorted(set(association.reason_codes) | set(reason_codes))),
+    )
 
 
 def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] = DeepSeekClient, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> Executor:
@@ -942,12 +2631,13 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
         configuration_models = tuple(ModeledConfigurationFact.from_dict(item) for item in configuration_facts)
         contracts: list[dict[str, object]] = []; verified: list[dict[str, object]] = []
         links: list[dict[str, object]] = []; dispositions: list[dict[str, object]] = []
+        negative_proofs: list[dict[str, object]] = []
         repeatability: list[dict[str, object]] = []; amplification: list[dict[str, object]] = []
         auth_contracts: list[dict[str, object]] = []; reachability: list[dict[str, object]] = []; audits: list[dict[str, object]] = []
         auth_by_entry: dict[str, object] = {}
         for record in candidate_records:
             candidate = _candidate_from_record(record)
-            candidate_links, disposition = _candidate_association(
+            candidate_links, association = _candidate_association(
                 entries,
                 candidate,
                 association_rows,
@@ -966,7 +2656,7 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             )
             relevance_reasons = tuple(
                 sorted(
-                    set(disposition.reason_codes)
+                    set(association.reason_codes)
                     | set(relevance.reason_codes)
                     | {
                         "RELEVANCE_AMPLIFICATION_"
@@ -975,72 +2665,42 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                 )
             )
             if relevance.status == "rejected":
-                disposition = CandidateDisposition.create(
-                    candidate.growth_id,
-                    "rejected",
-                    tuple(link.link_id for link in candidate_links),
-                    relevance_reasons,
-                )
-                dispositions.append(disposition.to_dict())
-                continue
-            if relevance.status == "unresolved":
-                disposition = CandidateDisposition.create(
-                    candidate.growth_id,
-                    "unresolved",
-                    tuple(link.link_id for link in candidate_links),
-                    relevance_reasons,
+                proof = _negative_proof_for_relevance(candidate, relevance.reason_codes)
+                negative_proofs.append(proof.to_dict())
+                disposition = _mature_disposition(
+                    candidate,
+                    association,
+                    status="rejected",
+                    reason_codes=(*relevance_reasons, "MATURATION_SOURCE_PROVEN_NEGATIVE"),
+                    negative_proof_ids=(proof.negative_proof_id,),
                 )
                 dispositions.append(disposition.to_dict())
                 continue
             if (
-                relevance.status == "dos_relevant_partial"
-                or disposition.status != "verified_relevant"
+                relevance.status == "unresolved"
+                or association.status == "inventory_unresolved"
                 or len(candidate_links) != 1
             ):
-                disposition_status = (
-                    "dos_relevant_partial"
-                    if relevance.status == "dos_relevant_partial"
-                    and len(candidate_links) == 1
-                    else "unresolved"
-                )
-                disposition_reasons = (
-                    tuple(sorted(set(relevance_reasons) | {"GROWTH_DOS_RELEVANT_PARTIAL"}))
-                    if disposition_status == "dos_relevant_partial"
-                    else relevance_reasons
-                )
-                disposition = CandidateDisposition.create(
-                    candidate.growth_id,
-                    disposition_status,
-                    tuple(link.link_id for link in candidate_links),
-                    disposition_reasons,
+                disposition = _mature_disposition(
+                    candidate,
+                    association,
+                    status="inventory_unresolved",
+                    reason_codes=(*relevance_reasons, "MATURATION_INVENTORY_UNRESOLVED"),
                 )
                 dispositions.append(disposition.to_dict())
-                # Only one canonical high-value partial family is eligible for a
-                # downstream static_unknown gap. Multi-entry ambiguity remains
-                # disposition inventory and never creates a cross product.
-                if disposition_status == "dos_relevant_partial":
-                    unresolved = VerifiedGrowthResult.create(
-                        candidate=candidate,
-                        slice_id=stable_identifier(
-                            "slice",
-                            {
-                                "growth_id": candidate.growth_id,
-                                "reason": "candidate_relevance_or_association_partial",
-                            },
-                        ),
-                        status="unresolved",
-                        reason_codes=("GROWTH_DOS_RELEVANT_PARTIAL",),
-                        checks=(
-                            VerificationCheck(
-                                "candidate_relevance_and_entry_association",
-                                False,
-                                "GROWTH_DOS_RELEVANT_PARTIAL",
-                            ),
-                        ),
-                    )
-                    verified.append(unresolved.to_dict())
                 continue
             entry = entries[candidate_links[0].entry_id]
+            maturation_status = (
+                "formal_eligible"
+                if relevance.status == "contract_eligible"
+                and association.status == "formal_eligible"
+                else "gap_eligible"
+            )
+            maturation_reason = (
+                "MATURATION_FORMAL_ELIGIBLE"
+                if maturation_status == "formal_eligible"
+                else "MATURATION_GAP_ELIGIBLE"
+            )
             from dosweb.growth import RepeatabilityDecision, AmplificationDecision
             repeatable_registrations = {
                 "annotation_mapping", "static_registration", "pipeline_registration",
@@ -1073,42 +2733,47 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             cached_auth = auth_by_entry.get(entry.entry_id)
             if cached_auth is None:
                 security_facts = security_by_entry.get(entry.entry_id, ())
+                from dosweb.reachability.verify import derive_auth_contract_from_facts, verify_auth_contract
+                auth = derive_auth_contract_from_facts(entry.entry_id, security_facts)
+                auth_used_provider = False
                 classify_auth = getattr(classifier, "classify_auth", None)
-                if callable(classify_auth):
+                if auth is None and callable(classify_auth):
                     auth = classify_auth(entry.entry_id, security_facts, configuration_facts)
-                    from dosweb.reachability.verify import verify_auth_contract
-                    decision = verify_auth_contract(entry.entry_id, auth, security_facts, slice_fact_ids=frozenset(item.fact_id for item in security_facts), configuration_facts=configuration_models)
-                else:
+                    auth_used_provider = True
+                if auth is None:
                     from dosweb.reachability.models import AuthContract, ReachabilityDecision
                     auth = AuthContract("unknown", (), ("auth_transport_unavailable",), "low")
                     contract_id = "auth_contract:" + hashlib.sha256((entry.entry_id + repr(auth.to_dict())).encode()).hexdigest()
                     decision = ReachabilityDecision(entry.entry_id, contract_id, "unknown", "unknown", "unknown", (), ("REACH_AUTH_TRANSPORT_UNAVAILABLE", "REACH_DEPLOYMENT_UNKNOWN"))
+                else:
+                    decision = verify_auth_contract(entry.entry_id, auth, security_facts, slice_fact_ids=frozenset(item.fact_id for item in security_facts), configuration_facts=configuration_models)
                 auth_by_entry[entry.entry_id] = (auth, decision)
                 auth_contracts.append({"auth_contract_id": decision.auth_contract_id, "entry_id": entry.entry_id, **auth.to_dict()})
                 reachability.append(decision.to_dict())
                 last_audit = getattr(classifier, "last_audit", None)
-                if callable(last_audit):
+                if auth_used_provider and callable(last_audit):
                     audit = last_audit()
                     if audit is not None:
                         audits.append(audit.to_dict())
             else:
                 auth, decision = cached_auth
             if decision.status == "not_entry_reachable":
-                disposition = CandidateDisposition.create(
+                proof = CandidateNegativeProof.create(
                     candidate.growth_id,
                     "not_entry_reachable",
-                    tuple(link.link_id for link in candidate_links),
-                    tuple(sorted(set(relevance_reasons) | set(decision.reason_codes))),
+                    evidence_ids=tuple(sorted(candidate.evidence_ids)),
+                    reason_codes=("NEGATIVE_NOT_ENTRY_REACHABLE",),
+                )
+                negative_proofs.append(proof.to_dict())
+                disposition = _mature_disposition(
+                    candidate,
+                    association,
+                    status="rejected",
+                    reason_codes=(*relevance_reasons, *decision.reason_codes, "MATURATION_NOT_ENTRY_REACHABLE"),
+                    negative_proof_ids=(proof.negative_proof_id,),
                 )
                 dispositions.append(disposition.to_dict())
                 continue
-            disposition = CandidateDisposition.create(
-                candidate.growth_id,
-                "verified_relevant",
-                tuple(link.link_id for link in candidate_links),
-                relevance_reasons,
-            )
-            dispositions.append(disposition.to_dict())
             bounded = _slice_for(
                 config,
                 entry,
@@ -1133,11 +2798,63 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                     audits.append(audit.to_dict())
             result = verify_growth_contract(candidate, bounded, contract, {fact.fact_id: fact for fact in bounded.payload.static_facts})
             verified.append(result.to_dict())
+            disposition = _mature_disposition(
+                candidate,
+                association,
+                status=maturation_status,
+                relevance_status=relevance.status,
+                reason_codes=(*relevance_reasons, maturation_reason),
+                evidence_ids=(result.verified_growth_id,),
+            )
+            dispositions.append(disposition.to_dict())
         validate_records("growth_contracts", contracts); validate_records("verified_growth", verified)
-        validate_records("candidate_entry_links", links); validate_records("candidate_dispositions", dispositions)
+        validate_records("candidate_entry_links", links)
+        growth_ids = {str(record["growth_id"]) for record in candidate_records}
+        growth_fact_ids = {
+            str(record["growth_id"]): {
+                str(value) for value in record["candidate_evidence"]
+            }
+            for record in candidate_records
+        }
+        negative_proof_growth_ids = {
+            str(record["negative_proof_id"]): str(record["growth_id"])
+            for record in negative_proofs
+        }
+        validate_references(
+            "candidate_negative_proofs",
+            negative_proofs,
+            {
+                "growth_id": growth_ids,
+                "fact_id": {
+                    fact_id
+                    for fact_ids in growth_fact_ids.values()
+                    for fact_id in fact_ids
+                },
+                "growth_fact_ids": growth_fact_ids,
+            },
+        )
+        validate_references(
+            "candidate_dispositions",
+            dispositions,
+            {
+                "growth_id": growth_ids,
+                "entry_id": set(entries),
+                "link_id": {str(record["link_id"]) for record in links},
+                "link_ownership": {
+                    str(record["link_id"]): (
+                        str(record["growth_id"]),
+                        str(record["entry_id"]),
+                        str(record["status"]),
+                    )
+                    for record in links
+                },
+                "negative_proof_id": set(negative_proof_growth_ids),
+                "negative_proof_growth_ids": negative_proof_growth_ids,
+            },
+        )
         validate_records("repeatability_decisions", repeatability); validate_records("amplification_decisions", amplification)
         validate_records("auth_contracts", auth_contracts); validate_records("reachability_decisions", reachability); validate_records("llm_audit", audits)
-        return StageOutput({"growth_candidates.jsonl": candidate_records, "candidate_entry_links.jsonl": links, "candidate_dispositions.jsonl": dispositions, "repeatability_decisions.jsonl": repeatability, "amplification_decisions.jsonl": amplification, "growth_contracts.jsonl": contracts, "verified_growth.jsonl": verified, "auth_contracts.jsonl": auth_contracts, "reachability_decisions.jsonl": reachability, "llm_audit.private.jsonl": audits}, {"candidate_count": len(candidate_records), "candidate_disposition_count": len(dispositions), "relevant_candidate_count": sum(item["status"] == "verified_relevant" for item in dispositions), "mapped_candidate_count": len(verified), "skipped_unmapped_candidate_count": sum(item["status"] == "not_entry_reachable" for item in dispositions), "auth_contract_count": len(auth_contracts), "llm_audit_count": len(audits)})
+        return StageOutput({"growth_candidates.jsonl": candidate_records, "candidate_entry_links.jsonl": links, "candidate_negative_proofs.jsonl": negative_proofs, "candidate_dispositions.jsonl": dispositions, "repeatability_decisions.jsonl": repeatability, "amplification_decisions.jsonl": amplification, "growth_contracts.jsonl": contracts, "verified_growth.jsonl": verified, "auth_contracts.jsonl": auth_contracts, "reachability_decisions.jsonl": reachability, "llm_audit.private.jsonl": audits}, {"candidate_count": len(candidate_records), "candidate_disposition_count": len(dispositions), "formal_eligible_candidate_count": sum(item["status"] == "formal_eligible" for item in dispositions), "gap_eligible_candidate_count": sum(item["status"] == "gap_eligible" for item in dispositions), "negative_proof_count": len(negative_proofs), "mapped_candidate_count": len(verified), "inventory_unresolved_candidate_count": sum(item["status"] == "inventory_unresolved" for item in dispositions), "auth_contract_count": len(auth_contracts), "llm_audit_count": len(audits)})
     return execute
 
 
@@ -1172,6 +2889,190 @@ def _reconcile_flow_rows(
     ]
 
 
+def _canonical_flow_entry_ids(
+    entries: Mapping[str, EntryFact],
+    candidates: Mapping[str, VerifiedGrowthResult],
+    link_records: Sequence[Mapping[str, object]],
+    disposition_records: Sequence[Mapping[str, object]],
+) -> dict[str, str]:
+    """Reconcile retained Growth results to authenticated canonical Entry links.
+
+    The Growth stage owns route-alias canonicalization. Flow normalization must
+    consume that exact decision rather than expanding a shared handler source
+    location back into every route alias. All link/disposition records are
+    checked before selecting retained candidates so non-eligible evidence
+    cannot be silently filtered to conceal a corrupted upstream artifact.
+    """
+
+    try:
+        links = tuple(
+            CandidateEntryLink(
+                cast(str, record["link_id"]),
+                cast(str, record["growth_id"]),
+                cast(str, record["entry_id"]),
+                cast(object, record["status"]),
+                tuple(cast(Sequence[str], record["evidence_ids"])),
+                tuple(cast(Sequence[str], record["reason_codes"])),
+            )
+            for record in link_records
+        )
+        dispositions = tuple(
+            CandidateDisposition(
+                cast(str, record["disposition_id"]),
+                cast(str, record["growth_id"]),
+                cast(object, record["status"]),
+                cast(str, record["canonical_entry_id"]),
+                cast(object, record["local_growth_status"]),
+                cast(object, record["association_status"]),
+                tuple(cast(Sequence[str], record["link_ids"])),
+                tuple(cast(Sequence[str], record["evidence_ids"])),
+                tuple(cast(Sequence[str], record["negative_proof_ids"])),
+                tuple(cast(Sequence[str], record["reason_codes"])),
+            )
+            for record in disposition_records
+        )
+    except (KeyError, TypeError) as exc:
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Candidate link reconciliation records are malformed.",
+        ) from exc
+
+    candidate_growth_ids = frozenset(
+        cast(
+            object,
+            getattr(candidates, "candidate_growth_ids", frozenset(candidates)),
+        )
+    )
+    if not all(isinstance(growth_id, str) for growth_id in candidate_growth_ids):
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Growth candidate domain is malformed.",
+        )
+    links_by_id = {link.link_id: link for link in links}
+    dispositions_by_growth = {
+        disposition.growth_id: disposition for disposition in dispositions
+    }
+    if len(links_by_id) != len(links) or len(dispositions_by_growth) != len(dispositions):
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Candidate link reconciliation records are duplicated.",
+        )
+    disposition_growth_ids = set(dispositions_by_growth)
+    if disposition_growth_ids - candidate_growth_ids:
+        raise AnalyzerError(
+            "ANALYSIS_DANGLING_FACT_REFERENCE",
+            "Candidate disposition references a missing Growth candidate.",
+        )
+    if disposition_growth_ids != candidate_growth_ids:
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Growth candidate domain is missing a candidate disposition.",
+        )
+
+    cited_link_ids: set[str] = set()
+    retained_growth_ids = set(candidates)
+    for link in links:
+        if link.growth_id not in candidate_growth_ids:
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "Candidate Entry link references a missing Growth candidate.",
+            )
+    for disposition in dispositions:
+        if disposition.growth_id not in candidate_growth_ids:
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "Candidate disposition references a missing Growth candidate.",
+            )
+        disposition_links: list[CandidateEntryLink] = []
+        for link_id in disposition.link_ids:
+            link = links_by_id.get(link_id)
+            if link is None or link.growth_id != disposition.growth_id:
+                raise AnalyzerError(
+                    "ANALYSIS_DANGLING_FACT_REFERENCE",
+                    "Candidate disposition references an incompatible Entry link.",
+                )
+            if link.entry_id not in entries:
+                raise AnalyzerError(
+                    "ANALYSIS_DANGLING_FACT_REFERENCE",
+                    "Candidate Entry link references a missing Entry fact.",
+                )
+            disposition_links.append(link)
+            cited_link_ids.add(link_id)
+        if disposition.association_status in {"complete", "partial"}:
+            if (
+                len(disposition_links) != 1
+                or not disposition.canonical_entry_id
+                or disposition.canonical_entry_id not in entries
+                or disposition_links[0].entry_id
+                != disposition.canonical_entry_id
+                or disposition_links[0].status
+                != disposition.association_status
+            ):
+                raise AnalyzerError(
+                    "ANALYSIS_DANGLING_FACT_REFERENCE",
+                    "Candidate disposition association disagrees with its canonical link.",
+                )
+        elif disposition.association_status == "missing":
+            if disposition_links or disposition.canonical_entry_id:
+                raise AnalyzerError(
+                    "ANALYSIS_DANGLING_FACT_REFERENCE",
+                    "Missing candidate association cannot own Entry links.",
+                )
+        elif disposition.association_status == "ambiguous":
+            if disposition.canonical_entry_id or len(disposition_links) == 1:
+                raise AnalyzerError(
+                    "ANALYSIS_DANGLING_FACT_REFERENCE",
+                    "Ambiguous candidate association has a canonical Entry shape.",
+                )
+        if (
+            disposition.status in {"formal_eligible", "gap_eligible"}
+            and disposition.growth_id not in retained_growth_ids
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "Eligible candidate disposition references an unretained Growth result.",
+            )
+    if cited_link_ids != set(links_by_id):
+        raise AnalyzerError(
+            "ANALYSIS_DANGLING_FACT_REFERENCE",
+            "Candidate Entry link is not owned by its Growth disposition.",
+        )
+
+    canonical: dict[str, str] = {}
+    for growth_id, result in candidates.items():
+        if (
+            not isinstance(result, VerifiedGrowthResult)
+            or result.candidate is None
+            or result.growth_id != growth_id
+        ):
+            raise AnalyzerError(
+                "ARTIFACT_UPSTREAM_INVALID",
+                "Retained Growth result identity is malformed.",
+            )
+        disposition = dispositions_by_growth.get(growth_id)
+        if (
+            disposition is None
+            or disposition.status not in {"formal_eligible", "gap_eligible"}
+            or len(disposition.link_ids) != 1
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "Retained Growth result has no eligible canonical Entry disposition.",
+            )
+        link = links_by_id[disposition.link_ids[0]]
+        if (
+            link.growth_id != growth_id
+            or link.entry_id != disposition.canonical_entry_id
+            or link.status != disposition.association_status
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_DANGLING_FACT_REFERENCE",
+                "Retained Growth canonical Entry link identity is inconsistent.",
+            )
+        canonical[growth_id] = link.entry_id
+    return canonical
+
+
 def _candidate_relevant_partial_flow_rows(
     entries: Mapping[str, EntryFact],
     candidates: Mapping[str, VerifiedGrowthResult],
@@ -1183,7 +3084,7 @@ def _candidate_relevant_partial_flow_rows(
 
     This is deliberately not a data-flow proof.  It publishes one deterministic
     ``unmodeled``/``partial`` path only after candidate relevance has reached
-    ``dos_relevant_partial`` and only when its single canonical association is
+    ``gap_eligible`` and only when its single canonical association is
     itself partial.  Generic unresolved candidates and missing complete flows
     are never supplemented, so this cannot recover a vulnerable premise or
     hide a corrupted formal flow artifact.
@@ -1203,7 +3104,7 @@ def _candidate_relevant_partial_flow_rows(
     rows: list[dict[str, object]] = []
     emitted_pairs: set[tuple[str, str]] = set()
     for disposition in disposition_records:
-        if disposition.get("status") != "dos_relevant_partial":
+        if disposition.get("status") != "gap_eligible":
             continue
         growth_id = disposition.get("growth_id")
         link_ids = disposition.get("link_ids")
@@ -1285,7 +3186,24 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
         # authoritative at this boundary; strict normalization still applies
         # to every reconciled row.
         rows = _reconcile_flow_rows(rows, entries, candidates)
-        proofs = normalize_flow_rows(rows, entries, candidates)
+        link_records = _strict_records(
+            context, "growth", "candidate_entry_links.jsonl"
+        )
+        disposition_records = _strict_records(
+            context, "growth", "candidate_dispositions.jsonl"
+        )
+        canonical_entry_ids = _canonical_flow_entry_ids(
+            entries,
+            candidates,
+            link_records,
+            disposition_records,
+        )
+        proofs = normalize_flow_rows(
+            rows,
+            entries,
+            candidates,
+            canonical_entry_ids=canonical_entry_ids,
+        )
         existing_pairs = {
             (record["entry_id"], record["growth_id"])
             for record in proofs
@@ -1293,15 +3211,16 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
         gap_rows = _candidate_relevant_partial_flow_rows(
             entries,
             candidates,
-            _strict_records(
-                context, "growth", "candidate_entry_links.jsonl"
-            ),
-            _strict_records(
-                context, "growth", "candidate_dispositions.jsonl"
-            ),
+            link_records,
+            disposition_records,
             existing_pairs,
         )
-        gap_proofs = normalize_flow_rows(gap_rows, entries, candidates)
+        gap_proofs = normalize_flow_rows(
+            gap_rows,
+            entries,
+            candidates,
+            canonical_entry_ids=canonical_entry_ids,
+        )
         proofs_by_id = {record["path_id"]: record for record in proofs}
         for record in gap_proofs:
             previous = proofs_by_id.setdefault(record["path_id"], record)
@@ -1316,21 +3235,60 @@ def make_flows_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[]
     return execute
 
 
+class _VerifiedGrowthDomain(dict[str, VerifiedGrowthResult]):
+    def __init__(
+        self,
+        values: Mapping[str, VerifiedGrowthResult],
+        candidate_growth_ids: frozenset[str],
+    ) -> None:
+        super().__init__(values)
+        self.candidate_growth_ids = candidate_growth_ids
+
+
 def _load_verified_growth(context: StageContext) -> dict[str, VerifiedGrowthResult]:
-    candidates = {
-        record["growth_id"]: _candidate_from_record(record)
-        for record in _records(
-            context, "growth", "growth_candidates.jsonl", "growth_candidates"
-        )
-    }
-    results: dict[str, VerifiedGrowthResult] = {}
-    for record in _records(
-        context, "growth", "verified_growth.jsonl", "verified_growth"
+    candidate_records = _records(
+        context,
+        "growth",
+        "growth_candidates.jsonl",
+        "growth_candidates",
+    )
+    candidate_growth_ids = tuple(record["growth_id"] for record in candidate_records)
+    if (
+        not all(isinstance(growth_id, str) for growth_id in candidate_growth_ids)
+        or len(set(candidate_growth_ids)) != len(candidate_growth_ids)
     ):
-        candidate = candidates.get(record["growth_id"])
-        result = VerifiedGrowthResult.from_dict(record, candidate)
-        results[result.growth_id] = result
-    return results
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Growth candidate records contain duplicate or malformed ownership.",
+        )
+    candidates = {
+        cast(str, record["growth_id"]): _candidate_from_record(record)
+        for record in candidate_records
+    }
+    verified_records = _records(
+        context,
+        "growth",
+        "verified_growth.jsonl",
+        "verified_growth",
+    )
+    if any(record["growth_id"] not in candidates for record in verified_records):
+        raise AnalyzerError(
+            "ANALYSIS_DANGLING_FACT_REFERENCE",
+            "Verified Growth references a missing Growth candidate.",
+        )
+    materialized = tuple(
+        VerifiedGrowthResult.from_dict(record, candidates.get(record["growth_id"]))
+        for record in verified_records
+    )
+    if len({result.growth_id for result in materialized}) != len(materialized):
+        raise AnalyzerError(
+            "ARTIFACT_UPSTREAM_INVALID",
+            "Verified Growth records contain duplicate Growth ownership.",
+        )
+    return _VerifiedGrowthDomain(
+        {result.growth_id: result for result in materialized},
+        frozenset(cast(str, growth_id) for growth_id in candidate_growth_ids),
+    )
 
 
 def _decision_record(decision: object) -> dict[str, object]:
@@ -1708,7 +3666,7 @@ def _eligible_conclusion_pairs(
     statuses: dict[tuple[str, str], str] = {}
     for disposition in dispositions:
         status = disposition.get("status")
-        if status not in {"verified_relevant", "dos_relevant_partial"}:
+        if status not in {"formal_eligible", "gap_eligible"}:
             continue
         growth_id = disposition.get("growth_id")
         link_ids = disposition.get("link_ids")
@@ -1748,6 +3706,10 @@ def _eligible_conclusion_pairs(
             eligible_pairs.add(pair)
             statuses[pair] = status
     return eligible_pairs, statuses
+
+
+def _candidate_relevant_gap_free(disposition_status: str) -> bool:
+    return disposition_status == "formal_eligible"
 
 
 def _conclusion_amplification_classes(
@@ -1842,26 +3804,30 @@ def make_conclude_executor() -> Executor:
                     "ARTIFACT_UPSTREAM_INVALID",
                     "Lifecycle decisions disagree across proven paths.",
                 )
-            assertions = tuple(
-                evaluation
-                for flow in ordered
-                for evaluation in (
+            evaluations_by_path = tuple(
+                (
+                    flow,
                     evaluate_assertion_1(result, flow, guard, bound, amplification=amplification.get((entry_id, growth_id)), reachability=reachability.get(entry_id)),
                     evaluate_assertion_2(result, flow, bound, release, reachability=reachability.get(entry_id), repeatability=repeatability.get((entry_id, growth_id))),
                 )
+                for flow in ordered
+            )
+            assertions = tuple(
+                evaluation
+                for _flow, assertion_1, assertion_2 in evaluations_by_path
+                for evaluation in (assertion_1, assertion_2)
             )
             framework_item = framework_coverage.get(entry.framework, FrameworkCoverage(entry.framework, "unsupported", (), ("no_coverage",), "forces_unknown"))
-            registration_pattern = entry.registration.kind
+            registration_pattern_id = entry.registration_pattern_id
             # Framework-level dynamic/reflection gaps do not taint a concrete
-            # entry whose exact registration pattern was proven complete.
-            pattern_proven = any(registration_pattern in pattern for pattern in framework_item.supported_patterns)
-            if pattern_proven and registration_pattern != "dynamic_unresolved":
-                coverage = CandidateCoverage(
-                    entry.framework, "complete", tuple(sorted(set(framework_item.supported_patterns))), (), "none",
-                    registration_pattern=registration_pattern, entry_id=entry.entry_id, growth_id=growth_id,
-                )
-            else:
-                coverage = CandidateCoverage.from_framework(framework_item, registration_pattern=registration_pattern, entry_id=entry.entry_id, growth_id=growth_id)
+            # Entry only when this Entry's exact persisted pattern identity is
+            # present in the authenticated framework coverage artifact.
+            coverage = CandidateCoverage.from_framework(
+                framework_item,
+                registration_pattern_id=registration_pattern_id,
+                entry_id=entry.entry_id,
+                growth_id=growth_id,
+            )
             proof_gate = VerdictProofGate(
                 entry_complete=coverage.status == "complete",
                 ordinary_reachability=(
@@ -1870,16 +3836,26 @@ def make_conclude_executor() -> Executor:
                 ),
                 growth_verified=result.status == "verified",
                 flow_proven=bool(proven) and len(proven) == len(ordered),
-                lifecycle_families_complete=all(
-                    coverage_by_key.get(
-                        (entry_id, growth_id, flow.path_id, family)
+                assertion_1_lifecycle_complete=all(
+                    assertion_1.status == "not_applicable"
+                    or all(
+                        coverage_by_key.get((entry_id, growth_id, flow.path_id, family)) == "complete"
+                        for family in ("guard", "bound")
                     )
-                    == "complete"
-                    for flow in ordered
-                    for family in ("guard", "bound", "release")
+                    for flow, assertion_1, _assertion_2 in evaluations_by_path
+                ),
+                assertion_2_lifecycle_complete=all(
+                    assertion_2.status == "not_applicable"
+                    or all(
+                        coverage_by_key.get((entry_id, growth_id, flow.path_id, family)) == "complete"
+                        for family in ("bound", "release")
+                    )
+                    for flow, _assertion_1, assertion_2 in evaluations_by_path
                 ),
                 candidate_relevant_gap_free=(
-                    disposition_statuses[(entry_id, growth_id)] == "verified_relevant"
+                    _candidate_relevant_gap_free(
+                        disposition_statuses[(entry_id, growth_id)]
+                    )
                 ),
             )
             verdict = apply_positive_proof_gate(
@@ -1950,7 +3926,7 @@ class ProductionPipeline:
         return self._pipeline.run(target)
 
 
-def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[str, str] | None = None, secrets_path: Path | None = None, stage_executors: Mapping[str, Executor] | None = None, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] | None = None, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> ProductionPipeline:
+def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[str, str] | None = None, secrets_path: Path | None = None, stage_executors: Mapping[str, Executor] | None = None, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, create_execution_snapshot_fn: Callable[..., DatabaseInfo] | None = None, cleanup_execution_snapshot_fn: Callable[[DatabaseInfo], None] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] | None = None, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> ProductionPipeline:
     config_path = values.get("config")
     if config_path is not None and not isinstance(config_path, Path): raise AnalyzerError("CONFIG_INVALID_VALUE", "config must be a path.")
     if secrets_path is None:
@@ -1959,6 +3935,9 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
     if values.get("command") == "entries":
         env = {key: value for key, value in env.items() if key != "DEEPSEEK_API_KEY"}; values = dict(values); values["allow_remote_llm"] = False
     config = load_config(values, config_path, env, secrets_path=secrets_path); validate = validate_database_fn or globals()["validate_database"]; runner = run_query_fn or globals()["run_query"]
+    snapshot_factory = create_execution_snapshot_fn or globals()["create_execution_database_snapshot"]
+    snapshot_cleanup = cleanup_execution_snapshot_fn or globals()["cleanup_execution_database_snapshot"]
+    owned_database: DatabaseInfo | None = None
     validated_database: DatabaseInfo | None = None; validated_pack: dict[str, bytes] | None = None
     def current_database() -> DatabaseInfo:
         if validated_database is None: raise AnalyzerError("CODEQL_DATABASE_INVALID", "CodeQL database validation failed.")
@@ -1974,7 +3953,7 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
         if set(executors) != set(STAGES): raise AnalyzerError("INTERNAL_STAGE_EXECUTORS_UNAVAILABLE", "Production stage executors are unavailable.", {"missing_stages": sorted(set(STAGES) - set(executors))})
     pipeline: Pipeline
     def preflight() -> None:
-        nonlocal validated_database, validated_pack
+        nonlocal owned_database, validated_database, validated_pack
         pack_hash, snapshot = _query_pack_snapshot(); database = validate(config.database)
         if not isinstance(database, DatabaseInfo): raise AnalyzerError("CODEQL_DATABASE_INVALID", "CodeQL database validation failed.")
         try:
@@ -1990,7 +3969,34 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
                 "CODEQL_DATABASE_INVALID",
                 "CodeQL database source provenance does not match the configured checkout.",
             )
-        validated_database, validated_pack = database, snapshot; pipeline.query_pack_hash = pack_hash; pipeline.database_fingerprint = database.fingerprint
+        def register_owner(candidate: DatabaseInfo) -> None:
+            nonlocal owned_database
+            if (
+                not isinstance(candidate, DatabaseInfo)
+                or candidate.execution is None
+                or owned_database is not None
+            ):
+                raise TypeError("invalid execution snapshot ownership")
+            owned_database = candidate
+
+        validated_database = snapshot_factory(
+            database,
+            config.output,
+            validate_database_fn=validate,
+            owner_callback=register_owner,
+        )
+        if (
+            not isinstance(validated_database, DatabaseInfo)
+            or validated_database.execution is None
+            or owned_database is not validated_database
+        ):
+            validated_database = None
+            raise AnalyzerError(
+                "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+                "Private CodeQL execution database snapshot failed.",
+                {"stage": "validation", "reason": "EXECUTION_BINDING_REQUIRED"},
+            )
+        validated_pack = snapshot; pipeline.query_pack_hash = pack_hash; pipeline.database_fingerprint = database.fingerprint
         # Bounded best-effort metadata only; query execution remains authoritative.
         codeql_version = "unavailable"
         try:
@@ -2000,10 +4006,35 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
         except (OSError, subprocess.SubprocessError):
             pass
         pipeline.run_identity.update({"codeql_cli_version": codeql_version, "query_pack_hash": pack_hash, "database_fingerprint": database.fingerprint, "source_root": str(source_root)})
+    def finalizer() -> None:
+        nonlocal owned_database, validated_database
+        database = owned_database
+        if not isinstance(database, DatabaseInfo) or database.execution is None:
+            owned_database = None
+            validated_database = None
+            return
+        validation_failure: BaseException | None = None
+        try:
+            validate_canonical_database(
+                database,
+                validate_database_fn=validate,
+            )
+        except BaseException as exc:
+            validation_failure = exc
+        try:
+            try:
+                snapshot_cleanup(database)
+            finally:
+                snapshot_cleanup(database)
+        finally:
+            owned_database = None
+            validated_database = None
+        if validation_failure is not None:
+            raise validation_failure
     if config.allow_partial_codeql and values.get("command") != "entries":
         raise AnalyzerError("CONFIG_INVALID_VALUE", "Partial CodeQL execution is restricted to exploratory entries runs.")
     analysis_mode = "exploratory_entries" if config.allow_partial_codeql else "formal"
-    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed"}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary})
+    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed"}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary})
     # DeepSeekClient is constructed lazily by the Growth executor, so exposing
     # the complete graph here does not perform provider work during factory
     # construction or pipeline preflight.

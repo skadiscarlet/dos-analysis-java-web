@@ -25,7 +25,7 @@ from dosweb.batch.corpus import load_canonical_corpus
 from dosweb.batch.models import CanonicalCorpus
 from dosweb.batch.plan import build_batch_plan, load_batch_plan, publish_batch_plan
 from dosweb.batch.state import BatchState
-from dosweb.config import resolve_api_key
+from dosweb.config import DEFAULT_BASE_URL, DEFAULT_MODEL, resolve_api_key
 from dosweb.errors import AnalyzerError
 from dosweb.pipeline import TOOL_VERSION
 
@@ -35,6 +35,9 @@ _MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _PROJECT_NAME = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _ACCEPTANCE_FORMAT = "dosweb-poc33-acceptance-v1"
+_REAL_PROVIDER_TIMEOUT_SECONDS = 180
+_REAL_PROVIDER_MAX_RETRIES = 5
+_REAL_PROVIDER_MAX_TARGET_ATTEMPTS = 2
 PAUSED_EXIT_STATUS = 3
 
 
@@ -326,7 +329,13 @@ def validate_full_archive(root: Path, *, run_id: str) -> dict[str, object]:
         or plan.mode != "full"
         or plan.analysis_mode != "formal"
         or plan.query_failure_policy != "fail_closed"
-        or plan.provider.get("allow_remote_llm") is not True
+        or dict(plan.provider) != {
+            "allow_remote_llm": True,
+            "model": DEFAULT_MODEL,
+            "base_url": DEFAULT_BASE_URL,
+            "timeout_seconds": _REAL_PROVIDER_TIMEOUT_SECONDS,
+            "max_retries": _REAL_PROVIDER_MAX_RETRIES,
+        }
         or len(plan.targets) != 21
     ):
         raise ValueError("full batch plan does not match the PoC-33 gate")
@@ -379,10 +388,19 @@ def validate_full_archive(root: Path, *, run_id: str) -> dict[str, object]:
         "report",
     )
     selected_queries = 0
+    retried_targets = 0
     for target in plan.targets:
         state_row = state.targets[target.target_id]
-        if state_row.get("state") != "completed" or state_row.get("status") != "completed":
+        attempt = state_row.get("attempt")
+        if (
+            state_row.get("state") != "completed"
+            or state_row.get("status") != "completed"
+            or isinstance(attempt, bool)
+            or not isinstance(attempt, int)
+            or not 1 <= attempt <= _REAL_PROVIDER_MAX_TARGET_ATTEMPTS
+        ):
             raise ValueError("full target did not complete")
+        retried_targets += int(attempt > 1)
         target_root = root / "targets" / Path(target.output_path).name
         expected_binding = {
             "plan_id": plan.plan_id,
@@ -438,6 +456,8 @@ def validate_full_archive(root: Path, *, run_id: str) -> dict[str, object]:
         "query_diagnostics": 0,
         "skipped_queries": 0,
         "private_audit_mode": "0600",
+        "max_target_attempts": _REAL_PROVIDER_MAX_TARGET_ATTEMPTS,
+        "retried_targets": retried_targets,
     }
 
 
@@ -1086,7 +1106,13 @@ def main(
                 run_id=arguments.run_id,
                 mode="full",
                 output_root=_plan_output_root(output, repo_root),
-                provider_settings={"allow_remote_llm": True},
+                provider_settings={
+                    "allow_remote_llm": True,
+                    "model": DEFAULT_MODEL,
+                    "base_url": DEFAULT_BASE_URL,
+                    "timeout_seconds": _REAL_PROVIDER_TIMEOUT_SECONDS,
+                    "max_retries": _REAL_PROVIDER_MAX_RETRIES,
+                },
             )
             publish_batch_plan(plan, output)
             _write_new_json(output / "selection.json", selection)
@@ -1113,6 +1139,9 @@ def main(
                 str(repo_root),
                 "--max-workers",
                 "1",
+                "--retry-failed",
+                "--max-attempts",
+                str(_REAL_PROVIDER_MAX_TARGET_ATTEMPTS),
                 "--no-resume",
                 "--allow-remote-llm",
             ]

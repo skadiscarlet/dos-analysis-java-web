@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import unittest
 
+from dosweb import production
 from dosweb.entries import AttackerInputFact, EntryFact, HandlerFact, RegistrationFact
 from dosweb.growth.completeness import CandidateEntryLink
 from dosweb.growth.relevance import evaluate_candidate_relevance
-from dosweb.growth.slices import DemandInput, GrowthCandidate, SourceLocation
+from dosweb.growth.slices import (
+    DemandInput,
+    GrowthCandidate,
+    SourceLocation,
+    normalize_growth_rows,
+)
 
 
 class GrowthRelevanceTests(unittest.TestCase):
@@ -17,6 +23,10 @@ class GrowthRelevanceTests(unittest.TestCase):
             registration=RegistrationFact(
                 "annotation_mapping", "fixture.Controller", "src/Controller.java", 18
             ),
+            registration_pattern_id=(
+                "entry-registration-coverage:"
+                "spring_mvc:annotation_mapping:spring_annotation_mapping"
+            ),
             route_or_event="POST /items",
             auth_context="unknown",
             attacker_inputs=(
@@ -24,6 +34,7 @@ class GrowthRelevanceTests(unittest.TestCase):
                 AttackerInputFact("count", "int", "request_parameter"),
                 AttackerInputFact("key", "String", "request_parameter"),
                 AttackerInputFact("size", "int", "request_parameter"),
+                AttackerInputFact("width", "int", "request_parameter"),
             ),
             materialization_phase="in_handler",
         )
@@ -103,6 +114,160 @@ class GrowthRelevanceTests(unittest.TestCase):
         self.assertEqual("rejected", decision.status)
         self.assertIn("RELEVANCE_SERVER_SIZED_ALLOCATION", decision.reason_codes)
 
+    def test_compile_time_fixed_allocation_is_rejected_as_server_controlled(self) -> None:
+        candidate = self._candidate(
+            kind="direct_allocation",
+            operation="array_creation",
+            demand_name="1",
+            demand_role="size",
+            escape_scope="request",
+            notes=("direct_allocation:server_controlled_fixed_size",),
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertEqual("rejected", decision.status)
+        self.assertIn("RELEVANCE_SERVER_SIZED_ALLOCATION", decision.reason_codes)
+
+    def test_mixed_attacker_and_fixed_dimensions_survive_normalization_and_relevance(self) -> None:
+        common: dict[str, object] = {
+            "site_file": "src/Controller.java",
+            "site_start_line": 24,
+            "growth_kind": "direct_allocation",
+            "operation": "java.awt.image.BufferedImage.<init>",
+            "resource_dimension": "bytes",
+            "receiver": "java.awt.image.BufferedImage",
+            "field_path": "allocation",
+            "demand_input_role": "size",
+            "escape_scope": "request",
+            "coverage_status": "complete",
+            "query_name": "DirectAllocation.ql",
+            "query_sha256": "a" * 64,
+            "site_location": "src/Controller.java:24",
+        }
+        rows = (
+            {
+                **common,
+                "demand_input_name": "width",
+                "candidate_evidence": "image_dimension_size",
+                "coverage_note": "direct_allocation:handler_parameter_size",
+            },
+            {
+                **common,
+                "demand_input_name": "1",
+                "candidate_evidence": "image_dimension_fixed_height",
+                "coverage_note": "direct_allocation:server_controlled_fixed_size",
+            },
+        )
+
+        normalized = normalize_growth_rows(rows)
+
+        self.assertEqual(len(normalized), 1)
+        candidate = GrowthCandidate.from_dict(normalized[0])
+        self.assertEqual(
+            {(item.name, item.role) for item in candidate.demand_inputs},
+            {("width", "size"), ("1", "size")},
+        )
+        self.assertEqual(
+            set(candidate.coverage_notes),
+            {
+                "direct_allocation:handler_parameter_size",
+                "direct_allocation:server_controlled_fixed_size",
+            },
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertEqual("contract_eligible", decision.status)
+        self.assertIn("RELEVANCE_ATTACKER_SIZED_ALLOCATION", decision.reason_codes)
+        self.assertNotIn("RELEVANCE_SERVER_SIZED_ALLOCATION", decision.reason_codes)
+
+    def test_fixed_size_marker_with_attacker_multiplicity_is_not_a_hard_negative(self) -> None:
+        candidate = self._candidate(
+            kind="direct_allocation",
+            operation="array_creation",
+            demand_name="1",
+            demand_role="size",
+            escape_scope="request",
+            notes=(
+                "direct_allocation:server_controlled_fixed_size",
+                "direct_allocation:attacker_controlled_loop_multiplicity_proven",
+            ),
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertNotEqual("rejected", decision.status)
+        self.assertNotIn("RELEVANCE_SERVER_SIZED_ALLOCATION", decision.reason_codes)
+
+    def test_fixed_size_marker_with_unmodeled_loop_is_not_a_hard_negative(self) -> None:
+        candidate = self._candidate(
+            kind="direct_allocation",
+            operation="array_creation",
+            demand_name="1",
+            demand_role="size",
+            escape_scope="request",
+            coverage="partial",
+            notes=(
+                "direct_allocation:server_controlled_fixed_size",
+                "direct_allocation:loop_multiplicity_unmodeled",
+            ),
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertNotEqual("rejected", decision.status)
+        self.assertNotIn("RELEVANCE_SERVER_SIZED_ALLOCATION", decision.reason_codes)
+
+    def test_all_fixed_dimensions_own_the_exact_server_controlled_negative_proof(self) -> None:
+        common: dict[str, object] = {
+            "site_file": "src/Controller.java",
+            "site_start_line": 24,
+            "growth_kind": "direct_allocation",
+            "operation": "array_creation",
+            "resource_dimension": "bytes",
+            "receiver": "byte[][]",
+            "field_path": "allocation",
+            "demand_input_role": "size",
+            "escape_scope": "request",
+            "coverage_status": "complete",
+            "coverage_note": "direct_allocation:server_controlled_fixed_size",
+            "query_name": "DirectAllocation.ql",
+            "query_sha256": "a" * 64,
+            "site_location": "src/Controller.java:24",
+        }
+        normalized = normalize_growth_rows(
+            (
+                {
+                    **common,
+                    "demand_input_name": "1",
+                    "candidate_evidence": "array_first_dimension",
+                },
+                {
+                    **common,
+                    "demand_input_name": "2",
+                    "candidate_evidence": "array_second_dimension",
+                },
+            )
+        )
+        self.assertEqual(len(normalized), 1)
+        candidate = GrowthCandidate.from_dict(normalized[0])
+
+        decision = self._decision(candidate)
+
+        self.assertEqual(decision.status, "rejected")
+        self.assertEqual(
+            decision.reason_codes,
+            ("RELEVANCE_SERVER_SIZED_ALLOCATION",),
+        )
+        proof = production._negative_proof_for_relevance(  # noqa: SLF001
+            candidate,
+            decision.reason_codes,
+        )
+        self.assertEqual(proof.kind, "server_controlled_source")
+        self.assertEqual(proof.evidence_ids, tuple(sorted(candidate.evidence_ids)))
+        self.assertEqual(proof.reason_codes, ("NEGATIVE_SERVER_CONTROLLED_SOURCE",))
+
     def test_request_string_and_bytes_materialization_are_eligible(self) -> None:
         for operation, note in (
             ("spring_request_body_materialization", "recognized_spring_request_body_bytes"),
@@ -157,6 +322,158 @@ class GrowthRelevanceTests(unittest.TestCase):
         )
         self.assertEqual("rejected", self._decision(candidate).status)
 
+    def test_request_local_container_without_cardinality_bound_is_unresolved(self) -> None:
+        candidate = self._candidate(
+            kind="container_growth",
+            operation="java.util.Map.put",
+            demand_name="key",
+            demand_role="key",
+            escape_scope="request",
+            notes=("request_local_container_write:attacker_key_driver",),
+            dimension="entries",
+            receiver="local",
+            field_path="local",
+        )
+        decision = self._decision(candidate)
+        self.assertEqual("unresolved", decision.status)
+        self.assertIn("RELEVANCE_REQUEST_LOCAL_CARDINALITY_UNPROVEN", decision.reason_codes)
+
+    def test_request_local_container_with_attacker_loop_witness_is_eligible(self) -> None:
+        candidate = self._candidate(
+            kind="container_growth",
+            operation="java.util.Map.put",
+            demand_name="count",
+            demand_role="iteration_count",
+            escape_scope="request",
+            notes=(
+                "request_local_container_write:key_driver_unclassified:"
+                "attacker_controlled_loop_cardinality_proven",
+            ),
+            dimension="entries",
+            receiver="local",
+            field_path="local",
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertEqual("contract_eligible", decision.status)
+        self.assertEqual("superlinear", decision.amplification_class)
+        self.assertIn(
+            "RELEVANCE_ATTACKER_CARDINALITY_REQUEST_LOCAL",
+            decision.reason_codes,
+        )
+
+    def test_request_local_loop_without_stable_new_entry_witness_is_unresolved(self) -> None:
+        for reason in (
+            "attacker_controlled_loop_new_entry_unproven",
+            "attacker_controlled_loop_instance_stability_unproven",
+            "attacker_controlled_loop_per_iteration_execution_unproven",
+        ):
+            with self.subTest(reason=reason):
+                candidate = self._candidate(
+                    kind="container_growth",
+                    operation="java.util.Map.put",
+                    demand_name="count",
+                    demand_role="key",
+                    escape_scope="request",
+                    coverage="partial",
+                    notes=(f"request_local_container_write:attacker_key_driver:{reason}",),
+                    dimension="entries",
+                    receiver="local",
+                    field_path="local",
+                )
+
+                decision = self._decision(candidate)
+
+                self.assertEqual("unresolved", decision.status)
+                self.assertIn(
+                    "RELEVANCE_REQUEST_LOCAL_CARDINALITY_UNPROVEN",
+                    decision.reason_codes,
+                )
+
+    def test_request_local_old_multiplicity_marker_does_not_prove_cardinality(self) -> None:
+        candidate = self._candidate(
+            kind="container_growth",
+            operation="java.util.Map.put",
+            demand_name="count",
+            demand_role="key",
+            escape_scope="request",
+            notes=(
+                "request_local_container_write:attacker_key_driver:"
+                "attacker_controlled_loop_multiplicity_proven",
+            ),
+            dimension="entries",
+            receiver="local",
+            field_path="local",
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertEqual("unresolved", decision.status)
+        self.assertIn(
+            "RELEVANCE_REQUEST_LOCAL_CARDINALITY_UNPROVEN",
+            decision.reason_codes,
+        )
+
+    def test_request_local_cardinality_marker_requires_one_exact_structured_note(self) -> None:
+        approximate_notes = (
+            (
+                "request_local_container_write:key_driver_unclassified:"
+                "attacker_controlled_loop_cardinality_proven_but_unproven",
+            ),
+            (
+                "prefix:request_local_container_write:key_driver_unclassified:"
+                "attacker_controlled_loop_cardinality_proven",
+            ),
+            (
+                "request_local_container_write:key_driver_unclassified:"
+                "attacker_controlled_loop_cardinality_proven:suffix",
+            ),
+            (
+                "request_local_container_write:key_driver_unclassified",
+                "attacker_controlled_loop_cardinality_proven",
+            ),
+            (
+                "request_local_container_write:attacker_key_driver:"
+                "attacker_controlled_loop_cardinality_proven",
+            ),
+        )
+        for notes in approximate_notes:
+            with self.subTest(notes=notes):
+                candidate = self._candidate(
+                    kind="container_growth",
+                    operation="java.util.Map.put",
+                    demand_name="index",
+                    demand_role="key",
+                    escape_scope="request",
+                    notes=notes,
+                    dimension="entries",
+                    receiver="local",
+                    field_path="local",
+                )
+
+                decision = self._decision(candidate)
+
+                self.assertEqual("unresolved", decision.status)
+                self.assertIn(
+                    "RELEVANCE_REQUEST_LOCAL_CARDINALITY_UNPROVEN",
+                    decision.reason_codes,
+                )
+
+    def test_complete_finite_keyspace_is_rejected(self) -> None:
+        candidate = self._candidate(
+            kind="container_growth",
+            operation="java.util.Map.put",
+            demand_name="kind",
+            demand_role="key",
+            escape_scope="global",
+            notes=("persistent_field_container_write:finite_enum_keyspace",),
+            dimension="entries",
+        )
+        decision = self._decision(candidate)
+        self.assertEqual("rejected", decision.status)
+        self.assertIn("RELEVANCE_FINITE_KEYSPACE", decision.reason_codes)
+
     def test_single_session_fixed_attribute_stays_unresolved(self) -> None:
         candidate = self._candidate(
             kind="container_growth",
@@ -188,7 +505,7 @@ class GrowthRelevanceTests(unittest.TestCase):
         self.assertEqual("contract_eligible", decision.status)
         self.assertEqual("queue_instability", decision.amplification_class)
 
-    def test_one_shot_schedule_is_rejected(self) -> None:
+    def test_one_shot_schedule_is_retained_for_repeatability_and_capacity_analysis(self) -> None:
         candidate = self._candidate(
             kind="async_work_growth",
             operation="java.util.concurrent.ScheduledExecutorService.schedule",
@@ -200,8 +517,12 @@ class GrowthRelevanceTests(unittest.TestCase):
             field_path="scheduler",
         )
         decision = self._decision(candidate)
-        self.assertEqual("rejected", decision.status)
-        self.assertEqual("low_amplification", decision.amplification_class)
+        self.assertEqual("dos_relevant_partial", decision.status)
+        self.assertEqual("queue_instability", decision.amplification_class)
+        self.assertIn(
+            "RELEVANCE_QUEUE_CAPACITY_OR_MULTIPLICITY_PARTIAL",
+            decision.reason_codes,
+        )
 
     def test_test_or_benchmark_only_sink_is_rejected(self) -> None:
         candidate = self._candidate(
@@ -216,6 +537,29 @@ class GrowthRelevanceTests(unittest.TestCase):
         decision = self._decision(candidate)
         self.assertEqual("rejected", decision.status)
         self.assertIn("RELEVANCE_TEST_OR_BENCHMARK_ONLY", decision.reason_codes)
+
+    def test_link_fanout_is_unresolved_instead_of_failing_the_target(self) -> None:
+        candidate = self._candidate(
+            kind="direct_allocation",
+            operation="array_creation",
+            demand_name="size",
+            demand_role="size",
+            escape_scope="request",
+            notes=("direct_allocation:request_derived_size",),
+        )
+        links = tuple(
+            CandidateEntryLink.create(
+                candidate.growth_id,
+                f"entry:{index}",
+                "partial",
+                (candidate.growth_id, f"entry:{index}"),
+                ("ASSOCIATION_QUERY",),
+            )
+            for index in range(65)
+        )
+        decision = evaluate_candidate_relevance(self.entry, candidate, links)
+        self.assertEqual("unresolved", decision.status)
+        self.assertIn("RELEVANCE_LINK_FANOUT_EXCEEDED", decision.reason_codes)
 
     def test_production_package_named_test_is_not_mislabeled_test_only(self) -> None:
         candidate = self._candidate(

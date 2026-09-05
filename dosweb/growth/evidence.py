@@ -269,6 +269,25 @@ def adapt_growth_static_evidence(
         )
         for row in matched_flows
     )
+    target_facts = tuple(
+        StaticFact(
+            fact_id=stable_identifier(
+                "fact",
+                {
+                    "entry_id": entry.entry_id,
+                    "growth_id": candidate.growth_id,
+                    "flow_fact_id": flow_fact.fact_id,
+                    "attacker_target": row["attacker_target"],
+                },
+            ),
+            kind="attacker_target",
+            location_ref=handler_excerpt.excerpt_id,
+            relation="source",
+            value_ref=flow_fact.fact_id,
+            normalized_value=row["attacker_target"],
+        )
+        for row, flow_fact in zip(matched_flows, source_facts, strict=True)
+    )
     primary_source = source_facts[0].fact_id if source_facts else None
     sink_facts = tuple(
         StaticFact(
@@ -333,7 +352,7 @@ def adapt_growth_static_evidence(
         for kind, value, relation in semantic_values
     )
     static_facts = tuple(sorted(
-        (*source_facts, *sink_facts, *driver_facts, *semantic_facts),
+        (*source_facts, *target_facts, *sink_facts, *driver_facts, *semantic_facts),
         key=lambda fact: fact.fact_id,
     ))
     config_facts = tuple(
@@ -382,8 +401,9 @@ def adapt_growth_static_evidence(
             phases,
             tuple(fact.fact_id for fact in driver_facts) + tuple(
                 fact.fact_id
-                for fact in semantic_facts
+                for fact in (*target_facts, *semantic_facts)
                 if fact.kind in {
+                    "attacker_target",
                     "value_space", "escape_scope", "retention", "amplification", "loop_multiplicity",
                     "field_identity", "materialization_phase", "known_limit_location",
                 }

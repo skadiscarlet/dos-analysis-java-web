@@ -26,6 +26,7 @@ from scripts.run_poc33_demo_acceptance import (
     build_poc33_selection,
     main,
     validate_entries_archive,
+    validate_full_archive,
     validate_p0_aggregate,
 )
 
@@ -46,7 +47,7 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("poc33-real-provider-full", completed.stdout)
 
-    def _complete_full_archive(self, root: Path) -> None:
+    def _complete_full_archive(self, root: Path, *, attempt: int = 1) -> None:
         plan = load_batch_plan(root / "batch_plan.json")
         state_targets = {}
         for target in plan.targets:
@@ -57,8 +58,8 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
             audit.write_text("", encoding="utf-8")
             audit.chmod(0o600)
             (target_root / "run.json").write_text(json.dumps({
-                "schema_version": "2.6",
-                "tool_version": "0.5.0",
+                "schema_version": "2.7",
+                "tool_version": "0.6.0",
                 "status": "completed",
                 "identity": {
                     "analysis_mode": "formal",
@@ -89,7 +90,7 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
                 "target_id": target.target_id,
                 "state": "completed",
                 "status": "completed",
-                "attempt": 1,
+                "attempt": attempt,
                 "output_path": target.output_path,
             }
         (root / "batch_state.json").write_text(json.dumps({
@@ -140,6 +141,103 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
             manifest_path=manifest,
         )
 
+    def _selected_poc33_corpus(
+        self,
+        corpus: CanonicalCorpus,
+        selection: dict[str, object],
+    ) -> CanonicalCorpus:
+        rows = selection["targets"]
+        self.assertIsInstance(rows, list)
+        selected_names = {
+            row["name"] for row in rows if isinstance(row, dict)
+        }
+        targets = tuple(
+            target
+            for target in corpus.targets
+            if target.identity.name in selected_names
+        )
+        self.assertEqual(len(targets), 21)
+        return CanonicalCorpus(
+            schema_version=corpus.schema_version,
+            status=corpus.status,
+            corpus="poc33-21",
+            total=len(targets),
+            inventory_digest=corpus.inventory_digest,
+            targets=targets,
+            manifest_path=corpus.manifest_path,
+        )
+
+    def test_full_archive_rejects_self_consistent_non_t180_provider_plan(self) -> None:
+        corpus = self._tracked_canonical_corpus()
+        run_id = "poc33-p02-20260827_120000"
+        selection = build_poc33_selection(
+            ROOT / "intel/applications/java_web_205_targets.json",
+            ROOT / "poc/manifest.json",
+            run_id=run_id,
+        )
+        selected = self._selected_poc33_corpus(corpus, selection)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "full"
+            plan = build_batch_plan(
+                selected,
+                run_id=run_id,
+                mode="full",
+                output_root="results/java_web_dos_batch/non-t180-full",
+                provider_settings={
+                    "allow_remote_llm": True,
+                    "timeout_seconds": 60,
+                    "max_retries": 1,
+                },
+            )
+            publish_batch_plan(plan, root)
+            (root / "selection.json").write_text(
+                json.dumps(selection), encoding="utf-8"
+            )
+            self._complete_full_archive(root)
+
+            loaded = load_batch_plan(root / "batch_plan.json")
+            self.assertEqual(loaded.plan_digest, plan.plan_digest)
+            with self.assertRaisesRegex(ValueError, "full batch plan"):
+                validate_full_archive(root, run_id=run_id)
+
+    def test_t180_provider_settings_change_the_immutable_plan_digest(self) -> None:
+        corpus = self._tracked_canonical_corpus()
+        run_id = "poc33-p02-20260827_120000"
+        selection = build_poc33_selection(
+            ROOT / "intel/applications/java_web_205_targets.json",
+            ROOT / "poc/manifest.json",
+            run_id=run_id,
+        )
+        selected = self._selected_poc33_corpus(corpus, selection)
+        common = {
+            "run_id": run_id,
+            "mode": "full",
+            "output_root": "results/java_web_dos_batch/provider-full",
+        }
+
+        t60 = build_batch_plan(
+            selected,
+            **common,
+            provider_settings={
+                "allow_remote_llm": True,
+                "timeout_seconds": 60,
+                "max_retries": 1,
+            },
+        )
+        t180 = build_batch_plan(
+            selected,
+            **common,
+            provider_settings={
+                "allow_remote_llm": True,
+                "timeout_seconds": 180,
+                "max_retries": 5,
+            },
+        )
+
+        self.assertNotEqual(t60.plan_digest, t180.plan_digest)
+        self.assertNotEqual(t60.plan_id, t180.plan_id)
+
     def _complete_entries_archive(self, root: Path, *, query_count: int = 8) -> None:
         plan = load_batch_plan(root / "batch_plan.json")
         state_targets = {}
@@ -148,8 +246,8 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
             target_root.mkdir(parents=True)
             write_target_binding(plan, target, target_root)
             (target_root / "run.json").write_text(json.dumps({
-                "schema_version": "2.6",
-                "tool_version": "0.5.0",
+                "schema_version": "2.7",
+                "tool_version": "0.6.0",
                 "status": "completed",
                 "identity": {
                     "analysis_mode": "exploratory_entries",
@@ -603,8 +701,17 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(plan.run_id, run_id)
         self.assertEqual(plan.mode, "full")
         self.assertIs(plan.provider["allow_remote_llm"], True)
+        self.assertEqual(plan.provider["model"], "grok-4.6")
+        self.assertEqual(plan.provider["base_url"], "https://apibasis.com/v1/")
+        self.assertEqual(plan.provider["timeout_seconds"], 180)
+        self.assertEqual(plan.provider["max_retries"], 5)
         self.assertIn("--allow-remote-llm", calls[0][0])
         self.assertIn("--no-resume", calls[0][0])
+        self.assertIn("--retry-failed", calls[0][0])
+        self.assertEqual(
+            calls[0][0][calls[0][0].index("--max-attempts") + 1],
+            "2",
+        )
         self.assertEqual(calls[0][0][calls[0][0].index("--max-workers") + 1], "1")
         self.assertEqual(calls[0][1]["env"]["DEEPSEEK_API_KEY"], "fixture-key")
         self.assertEqual(
@@ -614,7 +721,74 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(acceptance["status"], "completed")
         self.assertEqual(acceptance["completed_targets"], 21)
         self.assertEqual(acceptance["private_audit_mode"], "0600")
+        self.assertEqual(acceptance["max_target_attempts"], 2)
+        self.assertEqual(acceptance["retried_targets"], 0)
         self.assertEqual(acceptance["aggregate_completed_targets"], 21)
+
+    def test_full_layer_rejects_archive_above_bounded_target_attempt_limit(self) -> None:
+        corpus = self._tracked_canonical_corpus()
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            if command[1].endswith("run_java_web_dos_batch.py"):
+                output = Path(command[command.index("--output") + 1])
+                self._complete_full_archive(output, attempt=3)
+            elif command[1].endswith("aggregate_java_web_dos_batch.py"):
+                output = Path(command[command.index("--batch-root") + 1])
+                plan = load_batch_plan(output / "batch_plan.json")
+                (output / "aggregate_status.jsonl").write_text(
+                    "".join(
+                        json.dumps({
+                            "batch_target_index": target.identity.index,
+                            "batch_target_name": target.identity.name,
+                            "batch_target_slug": target.identity.slug,
+                            "batch_plan_id": plan.plan_id,
+                            "batch_plan_digest": plan.plan_digest,
+                            "batch_mode": "full",
+                            "status": "completed",
+                            "authoritative_status": "completed",
+                        }) + "\n"
+                        for target in plan.targets
+                    ),
+                    encoding="utf-8",
+                )
+                (output / "aggregate_finding_families.jsonl").write_text(
+                    "", encoding="utf-8"
+                )
+            else:
+                raise AssertionError(command)
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repo_root = Path(temporary) / "repo"
+            repo_root.mkdir()
+            results_root = Path(temporary) / "results"
+            run_id = "poc33-bounded-attempts"
+            status = main(
+                [
+                    "poc33-real-provider-full",
+                    "--run-id",
+                    run_id,
+                    "--repo-root",
+                    str(repo_root),
+                    "--results-root",
+                    str(results_root),
+                    "--canonical-manifest",
+                    str(ROOT / "intel/applications/java_web_205_targets.json"),
+                    "--truth-manifest",
+                    str(ROOT / "poc/manifest.json"),
+                    "--allow-remote-llm",
+                    "--max-workers",
+                    "1",
+                ],
+                environ={"DEEPSEEK_API_KEY": "fixture-key", "PATH": "/bin"},
+                command_runner=runner,
+                corpus_loader=lambda *args, **kwargs: corpus,
+            )
+
+        self.assertEqual(1, status)
+        self.assertEqual(1, len(calls))
 
     def test_offline_eval_keeps_one_run_id_and_enforces_rollout_gates(self) -> None:
         corpus = self._tracked_canonical_corpus()

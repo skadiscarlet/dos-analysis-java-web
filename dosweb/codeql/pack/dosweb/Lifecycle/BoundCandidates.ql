@@ -43,6 +43,20 @@ predicate boundRow(
     )
   )
   or
+  exists(MethodCall growth, MethodCall clamp |
+    numericClampBound(
+      growth, clamp, configurationValue, receiverValue, fieldPathValue
+    ) and
+    anchor = growth and site = clamp and boundKind = "limit" and
+    dimension = "bytes" and scopeValue = "request" and
+    behaviorValue = "clamp" and checkedValue = true and
+    configurationKey = "literal" and phaseValue = "inside_growth" and
+    coversValue = true and requestEncoding = "any" and
+    queueResource = fieldPathValue and productBound = true and
+    evidenceValue = "numeric_min_literal" and statusValue = "complete" and
+    noteValue = "same_expression_numeric_clamp"
+  )
+  or
   exists(MethodCall growth |
     frameworkLimitCandidate(
       site, growth, configurationKey, configurationValue, requestEncoding,

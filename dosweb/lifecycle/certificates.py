@@ -306,12 +306,11 @@ def build_lifecycle_certificate(
     if growth.candidate is None:
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Certificate requires a Growth resource point.")
     path_ids = tuple(sorted({flow.path_id for flow in flows}))
-    if not coverage.relevant_to(
-        framework=entry.framework,
-        registration_pattern=entry.registration.kind,
-        entry_id=entry.entry_id,
-        growth_id=growth.growth_id,
-        path_id=coverage.path_id,
+    if (
+        coverage.framework != entry.framework
+        or coverage.registration_pattern_id != entry.registration_pattern_id
+        or coverage.entry_id != entry.entry_id
+        or coverage.growth_id != growth.growth_id
     ):
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Coverage does not match certificate facts.")
     if coverage.path_id is not None and coverage.path_id not in path_ids:

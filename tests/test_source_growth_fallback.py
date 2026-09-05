@@ -24,6 +24,10 @@ class SourceBackedGrowthFallbackTests(unittest.TestCase):
                 "module/src/main/java/example/CoordinatorModule.java",
                 7,
             ),
+            registration_pattern_id=(
+                "entry-registration-coverage:"
+                "jax_rs:static_registration:airlift_jaxrs_source_registration"
+            ),
             route_or_event="POST /v1/statement",
             auth_context="unknown",
             attacker_inputs=(AttackerInputFact("statement", "String", "request_body"),),

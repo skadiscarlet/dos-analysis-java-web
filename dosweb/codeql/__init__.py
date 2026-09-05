@@ -1,4 +1,13 @@
-from dosweb.codeql.database import DatabaseInfo, validate_database
+from dosweb.codeql.database import (
+    DatabaseInfo,
+    ExecutionDatabaseBinding,
+    cleanup_execution_database_snapshot,
+    cleanup_stale_execution_database_snapshots,
+    create_execution_database_snapshot,
+    validate_canonical_database,
+    validate_database,
+    validate_execution_database,
+)
 from dosweb.codeql.decoder import (
     BOUND_COLUMNS,
     ENTRY_COLUMNS,
@@ -19,6 +28,7 @@ from dosweb.codeql.runner import QueryResult, run_query
 __all__ = [
     "BOUND_COLUMNS",
     "DatabaseInfo",
+    "ExecutionDatabaseBinding",
     "DecodeSource",
     "ENTRY_COLUMNS",
     "INTERPOSITION_COLUMNS",
@@ -32,6 +42,11 @@ __all__ = [
     "SECURITY_COLUMNS",
     "decode_bqrs_json",
     "decode_rows",
+    "cleanup_execution_database_snapshot",
+    "cleanup_stale_execution_database_snapshots",
+    "create_execution_database_snapshot",
     "run_query",
+    "validate_canonical_database",
     "validate_database",
+    "validate_execution_database",
 ]

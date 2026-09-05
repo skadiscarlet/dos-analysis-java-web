@@ -30,6 +30,11 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
                 "src/Handler.java",
                 8,
             ),
+            registration_pattern_id={
+                "spring_mvc": "entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",
+                "servlet": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
+                "netty": "entry-registration-coverage:netty:pipeline_registration:netty_pipeline_registration",
+            }[framework],
             route_or_event="/items",
             auth_context="unknown",
             attacker_inputs=(AttackerInputFact("body", "byte[]", "request_body"),),
@@ -156,7 +161,7 @@ class GrowthStaticEvidenceAdapterTests(unittest.TestCase):
                         for fact in evidence.static_facts
                         if fact.kind
                         in {
-                            "driver_origin", "value_space", "escape_scope", "retention",
+                            "driver_origin", "attacker_target", "value_space", "escape_scope", "retention",
                             "amplification", "loop_multiplicity", "field_identity",
                             "materialization_phase", "known_limit_location",
                         }

@@ -180,18 +180,40 @@ class GrowthVerificationTests(unittest.TestCase):
         self.assertIn("fact:sink", {f.fact_id for f in left.payload.static_facts})
         self.assertIn("fact:source", {f.fact_id for f in left.payload.static_facts})
 
-    def test_no_and_unknown_short_circuit_before_mismatch_checks(self) -> None:
+    def test_negative_and_unknown_status_short_circuit_before_mismatch_checks(self) -> None:
         candidate = self._candidate()
         slice_ = self._slice(candidate)
         index = {fact.fact_id: fact for fact in slice_.payload.static_facts}
         rejected = verify_growth_contract(
-            candidate, slice_, self._contract(is_resource_growth="no", growth_kind="direct_allocation"), index
+            candidate,
+            slice_,
+            self._contract(
+                is_resource_growth="no",
+                contract_status="growth_not_dos_relevant",
+                rejection_reason="no_failure_mechanism",
+                growth_kind="direct_allocation",
+            ),
+            index,
         )
         unresolved = verify_growth_contract(
-            candidate, slice_, self._contract(is_resource_growth="unknown", resource_dimension="bytes"), index
+            candidate,
+            slice_,
+            self._contract(
+                is_resource_growth="unknown",
+                contract_status="unknown",
+                rejection_reason="unknown",
+                resource_dimension="bytes",
+            ),
+            index,
         )
-        self.assertEqual((rejected.status, rejected.reason_codes), ("rejected", ("GROWTH_CONTRACT_NEGATED",)))
-        self.assertEqual((unresolved.status, unresolved.reason_codes), ("unresolved", ("GROWTH_CONTRACT_UNKNOWN",)))
+        self.assertEqual(
+            (rejected.status, rejected.reason_codes),
+            ("rejected", ("GROWTH_NOT_DOS_RELEVANT",)),
+        )
+        self.assertEqual(
+            (unresolved.status, unresolved.reason_codes),
+            ("unresolved", ("GROWTH_DOS_RELEVANCE_UNKNOWN",)),
+        )
 
     def test_mismatches_and_unmapped_evidence_are_unresolved(self) -> None:
         candidate = self._candidate()

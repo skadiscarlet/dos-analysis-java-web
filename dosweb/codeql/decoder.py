@@ -213,7 +213,7 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
             enums={
                 "bound_kind": frozenset({"limit", "quota", "capacity", "backpressure", "rate"}),
                 "resource_dimension": _RESOURCE_DIMENSIONS, "scope": _SCOPES,
-                "behavior": frozenset({"reject", "block", "evict", "unknown"}), "coverage_status": _COVERAGE,
+                "behavior": frozenset({"reject", "block", "evict", "clamp", "unknown"}), "coverage_status": _COVERAGE,
             },
             paths=frozenset({"anchor_file", "site_file"}), lines=frozenset({"anchor_start_line", "site_start_line"}),
         ),

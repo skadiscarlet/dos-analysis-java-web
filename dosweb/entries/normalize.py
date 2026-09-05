@@ -82,6 +82,7 @@ def normalize_entry_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str,
             fact.protocol,
             fact.handler,
             fact.registration,
+            fact.registration_pattern_id,
             fact.route_or_event,
             fact.auth_context,
             fact.materialization_phase,
@@ -100,6 +101,7 @@ def normalize_entry_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str,
                 protocol=first.protocol,
                 handler=first.handler,
                 registration=first.registration,
+                registration_pattern_id=first.registration_pattern_id,
                 route_or_event=first.route_or_event,
                 auth_context=first.auth_context,
                 attacker_inputs=attacker_inputs,
@@ -193,9 +195,7 @@ def normalize_framework_coverage(
                 raise _coverage_invalid("NOTE_LIMIT", field="coverage_note", row=number)
         except UnicodeEncodeError as exc:
             raise _coverage_invalid("NOTE_INVALID", field="coverage_note", row=number) from exc
-        if status == "complete":
-            EntryFact.from_raw(row)
-        else:
+        if status != "complete":
             _validate_gap_row(row, row_number=number)
         state = by_framework[framework]
         statuses = state["statuses"]
@@ -204,7 +204,11 @@ def normalize_framework_coverage(
         target_name = "supported" if status == "complete" else "unsupported"
         target = state[target_name]
         assert isinstance(target, set)
-        target.add(note)
+        if status == "complete":
+            fact = EntryFact.from_raw(row)
+            target.add(fact.registration_pattern_id)
+        else:
+            target.add(note)
 
     coverage: list[FrameworkCoverage] = []
     for framework, state in by_framework.items():

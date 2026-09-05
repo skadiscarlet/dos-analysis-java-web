@@ -44,6 +44,49 @@ predicate byteAllocationGrowth(
   fieldPath = "allocation"
 }
 
+predicate directByteAllocationModeledDomain(Element growth) {
+  exists(MethodCall call, Expr demand, string receiver, string fieldPath |
+    growth = call and byteAllocationGrowth(call, demand, receiver, fieldPath)
+  )
+}
+
+/** An exact Spring handler parameter that the shared P0 source model treats as
+ * attacker-controlled.  This deliberately does not generalize arbitrary
+ * handler parameters or locally computed non-constant expressions. */
+predicate springAttackerDemand(Expr demand) {
+  exists(VarAccess access, Parameter input, Method handler,
+         Annotation mapping, Annotation annotation |
+    demand = access and access.getVariable() = input and
+    input = handler.getAParameter() and
+    mapping = handler.getAnAnnotation() and
+    mapping.getType().hasQualifiedName(
+      "org.springframework.web.bind.annotation",
+      ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"]
+    ) and
+    annotation = input.getAnAnnotation() and
+    annotation.getType().hasQualifiedName(
+      "org.springframework.web.bind.annotation",
+      ["RequestBody", "RequestParam", "PathVariable", "RequestHeader"]
+    )
+  )
+}
+
+predicate numericClampBound(
+  MethodCall growth, MethodCall clamp, string value, string receiver, string fieldPath
+) {
+  byteAllocationGrowth(growth, clamp, receiver, fieldPath) and
+  clamp.getMethod().hasQualifiedName("java.lang", "Math", "min") and
+  exists(IntegerLiteral configured, Expr demand |
+    (
+      configured = clamp.getArgument(0) and demand = clamp.getArgument(1)
+      or configured = clamp.getArgument(1) and demand = clamp.getArgument(0)
+    ) and
+    configured.getIntValue() > 0 and
+    springAttackerDemand(demand) and
+    value = configured.getIntValue().toString()
+  )
+}
+
 predicate sameDemandDriver(Expr left, Expr right) {
   left = right
   or exists(VarAccess leftAccess, VarAccess rightAccess |

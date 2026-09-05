@@ -1,0 +1,2 @@
+package org.springframework.boot.autoconfigure.condition;
+public @interface ConditionalOnBean { Class<?>[] value() default {}; }

@@ -15,23 +15,45 @@ import time
 import threading
 import selectors
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from dosweb.artifacts.identifiers import sha256_canonical_json
 from dosweb.config import DEFAULT_MODEL, LlmConfig, MAX_LLM_RETRIES, MAX_LLM_TIMEOUT_SECONDS, SUPPORTED_MODELS, model_response_matches
+from dosweb.configuration.models import ModeledConfigurationFact
 from dosweb.errors import AnalyzerError
-from dosweb.growth.contracts import parse_growth_contract_json, validate_contract_static_evidence
-from dosweb.growth.models import AttackerInfluence, BoundedSlice, GrowthContract
-from dosweb.llm.cache import ContractCache, cache_identity, canonical_base_url
-from dosweb.llm.prompts import build_auth_messages, build_growth_messages, build_provider_payload
-from dosweb.llm.schemas import AUTH_CONTRACT_RESPONSE_SCHEMA, AUTH_PROMPT_VERSION, AUTH_RESPONSE_SCHEMA_VERSION, GROWTH_CONTRACT_RESPONSE_SCHEMA
+from dosweb.growth.contracts import (
+    bind_provider_growth_contract,
+    parse_growth_contract_json,
+    validate_contract_static_evidence,
+    validate_provider_growth_contract,
+)
+from dosweb.growth.models import BoundedSlice, GrowthContract
+from dosweb.llm.cache import (
+    AUTH_CACHE_FORMAT,
+    MAX_RAW_RESPONSE_BYTES,
+    ContractCache,
+    GrowthCacheSnapshot,
+    PROVIDER_ID,
+    cache_identity,
+    canonical_base_url,
+)
+from dosweb.llm.prompts import build_auth_correction_messages, build_auth_messages, build_growth_correction_payload, build_growth_messages, build_provider_payload
+from dosweb.llm.schemas import (
+    AUTH_CONTRACT_JSON_SCHEMA,
+    AUTH_CONTRACT_RESPONSE_SCHEMA,
+    AUTH_PROMPT_VERSION,
+    AUTH_RESPONSE_SCHEMA_VERSION,
+    GROWTH_CONTRACT_JSON_SCHEMA,
+    GROWTH_CONTRACT_RESPONSE_SCHEMA,
+)
 from dosweb.reachability.models import AuthContract, EntrySecurityFact, LlmAuditRecord
 
-_MAX_RESPONSE_BYTES = 131072
+_MAX_RESPONSE_BYTES = MAX_RAW_RESPONSE_BYTES
 _MAX_GIT_BLOB_BYTES = 1_048_576
 _MAX_JSON_DEPTH = 16
 _MAX_JSON_NODES = 256
@@ -64,7 +86,7 @@ _CREDENTIAL_URI_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/
 _EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\b")
 _PHONE_PATTERN = re.compile(r"(?<!\w)(?:\+?\d{1,3}[ .-]?)?(?:\(\d{2,4}\)[ .-]?)?\d{3}[ .-]\d{4}(?!\w)")
 _SSN_PATTERN = re.compile(r"(?<!\d)(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?!\d)")
-_SLICE_CREDENTIAL_PATTERNS = (
+_RESPONSE_CREDENTIAL_PATTERNS = (
     ("credential_assignment", _CREDENTIAL_ASSIGNMENT),
     ("authorization_value", re.compile(r'''(?i)\b(?:bearer|basic)\s+["']?\S+''')),
     ("deepseek_key", _SECRET_PATTERN),
@@ -73,13 +95,16 @@ _SLICE_CREDENTIAL_PATTERNS = (
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("jwt", _JWT_PATTERN),
     ("credential_uri", _CREDENTIAL_URI_PATTERN),
+)
+_PII_PATTERNS = (
     ("email", _EMAIL_PATTERN),
     ("phone", _PHONE_PATTERN),
     ("ssn", _SSN_PATTERN),
 )
+_SLICE_CREDENTIAL_PATTERNS = (*_RESPONSE_CREDENTIAL_PATTERNS, *_PII_PATTERNS)
 _GITHUB_SOURCE_PATTERN = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$")
 _FULL_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
-_PRODUCTION_ENDPOINTS = frozenset({"https://rightapi.ai/grok/v1/"})
+_PRODUCTION_ENDPOINTS = frozenset({"https://apibasis.com/v1/"})
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -97,23 +122,107 @@ class ProviderReply:
     headers: dict[str, str]
 
 
+@dataclass(frozen=True)
+class _CanonicalResponse:
+    content: str
+    semantic: object
+    actual_model: str
+    request_id: str
+
+
 @dataclass
 class _InFlightState:
     event: threading.Event
-    result: GrowthContract | None = None
+    snapshot: GrowthCacheSnapshot | None = None
     error: tuple[str, str, dict[str, object]] | None = None
     retry: bool = False
 
 
+@dataclass(frozen=True)
+class _AuthCacheSnapshot:
+    contract: AuthContract
+    raw_response: str
+    accepted_prompt_variant: str
+    actual_model: str
+    request_id: str
+
+
+@dataclass
+class _AuthInFlightState:
+    event: threading.Event
+    snapshot: _AuthCacheSnapshot | None = None
+    error: tuple[str, str, dict[str, object]] | None = None
+    retry: bool = False
+
+
+def _bind_auth_evidence_aliases(
+    contract: AuthContract,
+    alias_to_original: dict[str, str],
+) -> AuthContract:
+    """Bind only exact aliases owned by the current Auth bounded slice."""
+    try:
+        evidence_ids = tuple(alias_to_original[item] for item in contract.evidence_ids)
+    except KeyError:
+        contract = None  # type: ignore[assignment]
+        raise AnalyzerError(
+            "LLM_RESPONSE_SCHEMA_INVALID",
+            "Auth Contract response violates schema.",
+        ) from None
+    return AuthContract(
+        contract.auth_context,
+        evidence_ids,
+        contract.assumptions,
+        contract.confidence,
+    )
+
+
+def _validate_auth_contract_ownership(
+    contract: AuthContract,
+    owned_security_ids: frozenset[str],
+) -> AuthContract:
+    """Reject authenticated replay that cites a different bounded security slice."""
+    if any(item not in owned_security_ids for item in contract.evidence_ids):
+        contract = None  # type: ignore[assignment]
+        raise AnalyzerError(
+            "LLM_RESPONSE_SCHEMA_INVALID",
+            "Auth Contract response violates schema.",
+        ) from None
+    return contract
+
+
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT: dict[str, _InFlightState] = {}
-_SHAREABLE_FAILURES = frozenset({"LLM_RESPONSE_INVALID", "LLM_RESPONSE_SCHEMA_INVALID", "LLM_RESPONSE_SENSITIVE_CONTENT"})
+_AUTH_INFLIGHT_LOCK = threading.Lock()
+_AUTH_INFLIGHT: dict[str, _AuthInFlightState] = {}
+_SHAREABLE_FAILURES = frozenset(
+    {
+        "LLM_RESPONSE_INVALID",
+        "LLM_RESPONSE_SCHEMA_INVALID",
+        "LLM_RESPONSE_SENSITIVE_CONTENT",
+    }
+)
+_CORRECTABLE_GROWTH_RESPONSE_ERRORS = frozenset(
+    {"LLM_RESPONSE_SCHEMA_INVALID", "LLM_RESPONSE_SENSITIVE_CONTENT"}
+)
+_TERMINAL_GROWTH_RESPONSE_MESSAGES = {
+    "LLM_RESPONSE_SCHEMA_INVALID": "The provider response does not match the Growth Contract schema.",
+    "LLM_RESPONSE_SENSITIVE_CONTENT": "Provider response contains sensitive content.",
+}
+_CORRECTABLE_AUTH_RESPONSE_ERRORS = frozenset(
+    {"LLM_RESPONSE_SCHEMA_INVALID", "LLM_RESPONSE_SENSITIVE_CONTENT"}
+)
+_TERMINAL_AUTH_RESPONSE_MESSAGES = {
+    "LLM_RESPONSE_SCHEMA_INVALID": "The provider response does not match the Auth Contract schema.",
+    "LLM_RESPONSE_SENSITIVE_CONTENT": "Provider response contains sensitive content.",
+}
 
 
 def _reset_inflight_after_fork() -> None:
-    global _INFLIGHT_LOCK, _INFLIGHT
+    global _INFLIGHT_LOCK, _INFLIGHT, _AUTH_INFLIGHT_LOCK, _AUTH_INFLIGHT
     _INFLIGHT_LOCK = threading.Lock()
     _INFLIGHT = {}
+    _AUTH_INFLIGHT_LOCK = threading.Lock()
+    _AUTH_INFLIGHT = {}
 
 
 if hasattr(os, "register_at_fork"):
@@ -399,7 +508,7 @@ class DeepSeekClient:
         if not all(isinstance(name, str) and isinstance(pattern, re.Pattern) for name, pattern in extra_secret_patterns): raise TypeError("extra_secret_patterns must contain compiled regular expressions")
         self._extra_secret_patterns = extra_secret_patterns
         self._last_audit: LlmAuditRecord | None = None
-        self._auth_cache: dict[str, tuple[AuthContract, LlmAuditRecord]] = {}
+        self._auth_cache: dict[str, _AuthCacheSnapshot] = {}
 
     def last_audit(self) -> LlmAuditRecord | None:
         """Return the non-secret audit record for the immediately preceding contract call."""
@@ -408,80 +517,405 @@ class DeepSeekClient:
     def _audit(self, kind: str, messages: list[dict[str, str]], raw: str, parsed: dict[str, object], attestation: PublicSourceAttestation, *, cache_hit: bool, request_id: str = "", actual_model: str | None = None) -> LlmAuditRecord:
         prompt = json.dumps(messages, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         schema = GROWTH_CONTRACT_RESPONSE_SCHEMA if kind == "growth" else AUTH_CONTRACT_RESPONSE_SCHEMA
-        settings = {"provider": "rightapi_codex_responses", "protocol": "responses-v1", "base_url": canonical_base_url(self._config.base_url), "requested_model": self._config.model, "actual_model": actual_model or self._config.model, "temperature": self._config.temperature, "prompt_version": __import__("dosweb.llm.schemas", fromlist=["PROMPT_VERSION"]).PROMPT_VERSION if kind == "growth" else AUTH_PROMPT_VERSION, "response_schema_version": __import__("dosweb.llm.schemas", fromlist=["RESPONSE_SCHEMA_VERSION"]).RESPONSE_SCHEMA_VERSION if kind == "growth" else AUTH_RESPONSE_SCHEMA_VERSION}
+        settings = {"provider": PROVIDER_ID, "protocol": "responses-v1", "base_url": canonical_base_url(self._config.base_url), "requested_model": self._config.model, "actual_model": actual_model or self._config.model, "temperature": self._config.temperature, "text_format": "json_schema_strict", "prompt_version": __import__("dosweb.llm.schemas", fromlist=["PROMPT_VERSION"]).PROMPT_VERSION if kind == "growth" else AUTH_PROMPT_VERSION, "response_schema_version": __import__("dosweb.llm.schemas", fromlist=["RESPONSE_SCHEMA_VERSION"]).RESPONSE_SCHEMA_VERSION if kind == "growth" else AUTH_RESPONSE_SCHEMA_VERSION}
         att = {"public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
         return LlmAuditRecord(kind, request_id, prompt, schema, raw, parsed, settings, att, cache_hit)
+
+    def _accept_growth_snapshot(
+        self,
+        snapshot: GrowthCacheSnapshot,
+        slice_: BoundedSlice,
+        provider_payload: Any,
+        attestation: PublicSourceAttestation,
+        *,
+        cache_hit: bool = True,
+    ) -> GrowthContract:
+        """Apply this client's policy and audit settings to one immutable result."""
+        response: _CanonicalResponse | None = None
+        provider_contract: object = None
+        rebound: GrowthContract | None = None
+        rejection_code: str | None = None
+        try:
+            response = self._canonical_response(
+                ProviderReply(snapshot.raw_response, {}),
+                slice_,
+                self._config.api_key,
+                self._extra_secret_patterns,
+            )
+            _reject_sensitive_provider_id(
+                snapshot.request_id,
+                self._config.api_key,
+                self._extra_secret_patterns,
+            )
+            if response.actual_model != snapshot.actual_model:
+                raise AnalyzerError(
+                    "LLM_RESPONSE_INVALID",
+                    "Cached response model does not match its typed snapshot.",
+                )
+            provider_contract = validate_provider_growth_contract(response.semantic)
+            rebound = bind_provider_growth_contract(
+                provider_contract,
+                slice_,
+                provider_payload.fact_alias_to_original,
+            )
+            static_fact_ids = frozenset(
+                fact.fact_id for fact in slice_.payload.static_facts
+            )
+            rebound = validate_contract_static_evidence(rebound, static_fact_ids)
+            if rebound.to_dict() != snapshot.contract.to_dict():
+                raise AnalyzerError(
+                    "LLM_RESPONSE_SCHEMA_INVALID",
+                    "Cached response does not match its typed Growth Contract.",
+                )
+        except AnalyzerError as exc:
+            rejection_code = exc.code
+        if rejection_code is not None:
+            snapshot = None  # type: ignore[assignment]
+            response = None
+            provider_contract = None
+            rebound = None
+            if rejection_code == "LLM_RESPONSE_SENSITIVE_CONTENT":
+                message = "Provider response contains sensitive content."
+            elif rejection_code == "LLM_RESPONSE_SCHEMA_INVALID":
+                message = "Cached response does not match its typed Growth Contract."
+            else:
+                message = "Cached Responses API envelope is invalid."
+            raise AnalyzerError(rejection_code, message) from None
+        assert rebound is not None
+        contract = rebound
+        response = None
+        provider_contract = None
+        rebound = None
+        audit_messages = (
+            provider_payload.messages
+            if snapshot.accepted_prompt_variant == "initial"
+            else build_growth_correction_payload(slice_).messages
+        )
+        self._last_audit = self._audit(
+            "growth",
+            audit_messages,
+            snapshot.raw_response,
+            contract.to_dict(),
+            attestation,
+            cache_hit=cache_hit,
+            request_id=snapshot.request_id,
+            actual_model=snapshot.actual_model,
+        )
+        return contract
 
     def classify_growth(self, slice_: BoundedSlice) -> GrowthContract:
         _validate_runtime_config(self._config)
         provider_payload = build_provider_payload(slice_)
         request_body = _encode_request(_responses_request(self._config.model, provider_payload.messages, self._config.temperature))
-        _scan_transmitted_request(request_body, self._config.api_key, self._extra_secret_patterns)
+        _scan_transmitted_request(request_body, self._config.api_key, ())
         self._validate_remote_gate()
         attestation = self._verified_attestation(slice_)
         cache_key, identity = cache_identity(self._config, slice_)
         static_fact_ids = frozenset(fact.fact_id for fact in slice_.payload.static_facts)
-        cached = self._cache.get(cache_key, identity, static_fact_ids) if self._cache.is_usable(cache_key) else None
-        if cached is not None:
-            audit_payload = self._cache.audit_payload(cache_key, identity)
-            if audit_payload is None:
-                # A cache hit is usable only when its exact provider body can be replayed.
-                cached = None
-            else:
-                raw_response, parsed_response = audit_payload
-                _reject_sensitive_response(raw_response, None, self._config.api_key, self._extra_secret_patterns)
-                self._last_audit = self._audit("growth", provider_payload.messages, raw_response, parsed_response, attestation, cache_hit=True)
-                return cached
+        cached_snapshot = (
+            self._cache.snapshot(cache_key, identity, static_fact_ids)
+            if self._cache.is_usable(cache_key)
+            else None
+        )
+        if cached_snapshot is not None:
+            try:
+                return self._accept_growth_snapshot(
+                    cached_snapshot,
+                    slice_,
+                    provider_payload,
+                    attestation,
+                )
+            except BaseException:
+                cached_snapshot = None
+                raise
         state, owner = _join_inflight(cache_key)
         if not owner:
             state.event.wait()
-            if state.result is not None:
-                return state.result
-            if state.error is not None:
-                code, message, details = state.error
+            waiter_snapshot = state.snapshot
+            waiter_error = state.error
+            state = None  # type: ignore[assignment]
+            if waiter_snapshot is not None:
+                try:
+                    return self._accept_growth_snapshot(
+                        waiter_snapshot,
+                        slice_,
+                        provider_payload,
+                        attestation,
+                    )
+                except BaseException:
+                    waiter_snapshot = None
+                    raise
+            if waiter_error is not None:
+                code, message, details = waiter_error
                 raise AnalyzerError(code, message, details)
             return self.classify_growth(slice_)
+        flight_finished = False
         try:
             with self._cache.single_flight(cache_key) as cache_available:
                 authenticated_entry = None
                 if cache_available:
-                    cached = self._cache.get(cache_key, identity, static_fact_ids)
-                    if cached is not None:
-                        audit_payload = self._cache.audit_payload(cache_key, identity)
-                        if audit_payload is not None:
-                            raw_response, parsed_response = audit_payload
-                            _reject_sensitive_response(raw_response, None, self._config.api_key, self._extra_secret_patterns)
-                            self._last_audit = self._audit("growth", provider_payload.messages, raw_response, parsed_response, attestation, cache_hit=True)
-                            _finish_inflight(cache_key, state, result=cached)
-                            return cached
-                        cached = None
-                    authenticated_entry = self._cache.authenticated_contract(cache_key, identity)
+                    cached_snapshot = self._cache.snapshot(
+                        cache_key,
+                        identity,
+                        static_fact_ids,
+                    )
+                    if cached_snapshot is not None:
+                        _finish_inflight(cache_key, state, snapshot=cached_snapshot)
+                        flight_finished = True
+                        state = None  # type: ignore[assignment]
+                        try:
+                            return self._accept_growth_snapshot(
+                                cached_snapshot,
+                                slice_,
+                                provider_payload,
+                                attestation,
+                            )
+                        except BaseException:
+                            cached_snapshot = None
+                            raise
+                    authenticated_entry = self._cache.authenticated_snapshot(
+                        cache_key,
+                        identity,
+                    )
                 reservation = self._cache.capacity_reservation(cache_key, allow_existing=authenticated_entry is not None)
                 with reservation:
-                    reply = self._post_with_retries(request_body, slice_)
-                    _reject_sensitive_response(reply.body, None, self._config.api_key, self._extra_secret_patterns)
-                    content, actual_model, request_id = self._response_content(reply)
-                    _reject_sensitive_response(content, slice_, self._config.api_key, self._extra_secret_patterns)
-                    _reject_sensitive_provider_id(request_id, self._config.api_key, self._extra_secret_patterns)
-                    if not re.fullmatch(r"[A-Za-z0-9._:-]*", request_id):
-                        raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response contained an invalid request identifier.")
-                    contract = _restore_contract_aliases(parse_growth_contract_json(content), provider_payload.fact_alias_to_original)
-                    contract = validate_contract_static_evidence(contract, static_fact_ids)
-                    audit = {"method": "POST", "url": self._endpoint(), "provider": "rightapi_codex_responses", "protocol": "responses-v1", "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
+                    accepted_prompt_variant = "initial"
+                    for response_attempt in range(2):
+                        reply: ProviderReply | None = None
+                        content: object = None
+                        actual_model: str | None = None
+                        request_id: str | None = None
+                        canonical: _CanonicalResponse | None = None
+                        contract: GrowthContract | None = None
+                        current_payload = (
+                            provider_payload
+                            if response_attempt == 0
+                            else build_growth_correction_payload(slice_)
+                        )
+                        current_body = (
+                            request_body
+                            if response_attempt == 0
+                            else _encode_request(
+                                _responses_request(
+                                    self._config.model,
+                                    current_payload.messages,
+                                    self._config.temperature,
+                                )
+                            )
+                        )
+                        if response_attempt:
+                            _scan_transmitted_request(
+                                current_body,
+                                self._config.api_key,
+                                (),
+                            )
+                        terminal_response_code: str | None = None
+                        try:
+                            reply = self._post_with_retries(current_body, slice_)
+                            canonical = self._canonical_response(
+                                reply,
+                                slice_,
+                                self._config.api_key,
+                                (),
+                            )
+                            content = canonical.content
+                            actual_model = canonical.actual_model
+                            request_id = canonical.request_id
+                            contract = bind_provider_growth_contract(
+                                validate_provider_growth_contract(canonical.semantic),
+                                slice_,
+                                current_payload.fact_alias_to_original,
+                            )
+                            contract = validate_contract_static_evidence(contract, static_fact_ids)
+                        except AnalyzerError as exc:
+                            response_code = exc.code
+                            reply = None
+                            content = None
+                            actual_model = None
+                            request_id = None
+                            canonical = None
+                            contract = None
+                            if response_code not in _CORRECTABLE_GROWTH_RESPONSE_ERRORS:
+                                current_body = None
+                                request_body = None
+                                raise
+                            if response_attempt == 0:
+                                continue
+                            terminal_response_code = response_code
+                        if terminal_response_code is not None:
+                            current_body = None
+                            request_body = None
+                            raise AnalyzerError(
+                                terminal_response_code,
+                                _TERMINAL_GROWTH_RESPONSE_MESSAGES[terminal_response_code],
+                            ) from None
+                        accepted_prompt_variant = (
+                            "initial" if response_attempt == 0 else "correction"
+                        )
+                        break
+                    else:  # pragma: no cover - both loop exits are explicit
+                        raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Growth Contract correction failed.")
+                    audit = {"method": "POST", "url": self._endpoint(), "provider": PROVIDER_ID, "protocol": "responses-v1", "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
+                    accepted_snapshot: GrowthCacheSnapshot | None = None
+                    publication_failed = False
+                    published: object = True
                     if authenticated_entry is None:
-                        self._cache.put(cache_key, identity, contract, audit, raw_response=reply.body)
-                    self._last_audit = self._audit("growth", provider_payload.messages, reply.body, contract.to_dict(), attestation, cache_hit=False, request_id=request_id, actual_model=actual_model)
-                    _finish_inflight(cache_key, state, result=contract)
-                    return contract
+                        try:
+                            published = self._cache.put(
+                                cache_key,
+                                identity,
+                                contract,
+                                audit,
+                                raw_response=reply.body,
+                                accepted_prompt_variant=accepted_prompt_variant,
+                            )
+                        except BaseException:
+                            publication_failed = True
+                        if published is not True:
+                            publication_failed = True
+                    if publication_failed:
+                        reply = None
+                        content = None
+                        actual_model = None
+                        request_id = None
+                        canonical = None
+                        contract = None
+                        accepted_snapshot = None
+                        authenticated_entry = None
+                        audit = None
+                        published = None
+                        current_payload = None
+                        current_body = None
+                        raise AnalyzerError(
+                            "LLM_CACHE_WRITE_FAILED",
+                            "Could not publish Growth Contract cache entry.",
+                        ) from None
+                    accepted_snapshot = GrowthCacheSnapshot(
+                        contract,
+                        reply.body,
+                        accepted_prompt_variant,
+                        actual_model,
+                        request_id,
+                    )
+                    _finish_inflight(cache_key, state, snapshot=accepted_snapshot)
+                    flight_finished = True
+                    state = None  # type: ignore[assignment]
+                    reply = None
+                    content = None
+                    actual_model = None
+                    request_id = None
+                    canonical = None
+                    contract = None
+                    authenticated_entry = None
+                    audit = None
+                    published = None
+                    current_payload = None
+                    current_body = None
+                    try:
+                        return self._accept_growth_snapshot(
+                            accepted_snapshot,
+                            slice_,
+                            provider_payload,
+                            attestation,
+                            cache_hit=False,
+                        )
+                    except BaseException:
+                        accepted_snapshot = None
+                        raise
         except AnalyzerError as exc:
-            if exc.code in _SHAREABLE_FAILURES:
-                _finish_inflight(cache_key, state, error=(exc.code, exc.message, _redact_mapping(exc.details, self._config.api_key)))
-            else:
-                _finish_inflight(cache_key, state, retry=True)
+            if not flight_finished:
+                if exc.code in _SHAREABLE_FAILURES:
+                    _finish_inflight(cache_key, state, error=(exc.code, exc.message, _redact_mapping(exc.details, self._config.api_key)))
+                else:
+                    _finish_inflight(cache_key, state, retry=True)
             raise
         except BaseException:
-            _finish_inflight(cache_key, state, retry=True)
+            if not flight_finished:
+                _finish_inflight(cache_key, state, retry=True)
             raise
+
+    def _accept_auth_snapshot(
+        self,
+        snapshot: _AuthCacheSnapshot,
+        initial_messages: list[dict[str, str]],
+        correction_messages: list[dict[str, str]],
+        attestation: PublicSourceAttestation,
+        alias_to_original: dict[str, str],
+        *,
+        cache_hit: bool = True,
+    ) -> AuthContract:
+        """Apply this client's policy and rebuild the exact accepted Auth prompt."""
+        response: _CanonicalResponse | None = None
+        provider_contract: AuthContract | None = None
+        rebound: AuthContract | None = None
+        rejection_code: str | None = None
+        try:
+            response = self._canonical_response(
+                ProviderReply(snapshot.raw_response, {}),
+                None,
+                self._config.api_key,
+                self._extra_secret_patterns,
+            )
+            _reject_sensitive_provider_id(
+                snapshot.request_id,
+                self._config.api_key,
+                self._extra_secret_patterns,
+            )
+            if response.actual_model != snapshot.actual_model:
+                raise AnalyzerError(
+                    "LLM_RESPONSE_INVALID",
+                    "Cached response model does not match its typed snapshot.",
+                )
+            if not isinstance(response.semantic, dict):
+                raise AnalyzerError(
+                    "LLM_RESPONSE_SCHEMA_INVALID",
+                    "Cached Auth Contract response violates schema.",
+                )
+            provider_contract = AuthContract.from_dict(response.semantic)
+            rebound = _bind_auth_evidence_aliases(
+                provider_contract,
+                alias_to_original,
+            )
+            if rebound.to_dict() != snapshot.contract.to_dict():
+                raise AnalyzerError(
+                    "LLM_RESPONSE_SCHEMA_INVALID",
+                    "Cached response does not match its typed Auth Contract.",
+                )
+        except AnalyzerError as exc:
+            rejection_code = exc.code
+        if rejection_code is not None:
+            snapshot = None  # type: ignore[assignment]
+            response = None
+            provider_contract = None
+            rebound = None
+            if rejection_code == "LLM_RESPONSE_SENSITIVE_CONTENT":
+                message = "Provider response contains sensitive content."
+            elif rejection_code == "LLM_RESPONSE_SCHEMA_INVALID":
+                message = "Cached response does not match its typed Auth Contract."
+            else:
+                message = "Cached Responses API envelope is invalid."
+            raise AnalyzerError(rejection_code, message) from None
+        assert rebound is not None
+        messages = (
+            initial_messages
+            if snapshot.accepted_prompt_variant == "initial"
+            else correction_messages
+        )
+        contract = rebound
+        response = None
+        provider_contract = None
+        rebound = None
+        self._last_audit = self._audit(
+            "auth",
+            messages,
+            snapshot.raw_response,
+            contract.to_dict(),
+            attestation,
+            cache_hit=cache_hit,
+            request_id=snapshot.request_id,
+            actual_model=snapshot.actual_model,
+        )
+        return contract
 
     def classify_auth(self, entry_id: str, facts: tuple[EntrySecurityFact, ...], config_facts: tuple[dict[str, object], ...] = ()) -> AuthContract:
         """Remote Auth Contract constrained to supplied security/configuration facts.
@@ -492,47 +926,353 @@ class DeepSeekClient:
         self._validate_remote_gate()
         attestation = self._verified_attestation()
         aliases = {fact.fact_id: f"security:{index}" for index, fact in enumerate(facts, 1)}
-        prompt_facts = [{"fact_id": aliases[f.fact_id], "kind": f.kind, "location": f.location, "line": f.line, "value": f.value, "coverage": f.coverage} for f in facts]
-        messages = build_auth_messages(entry_id, prompt_facts, list(config_facts))
-        auth_identity = {"kind": "auth", "provider": "rightapi_codex_responses", "protocol": "responses-v1", "prompt_version": AUTH_PROMPT_VERSION, "schema_version": AUTH_RESPONSE_SCHEMA_VERSION, "model": self._config.model, "temperature": self._config.temperature, "base_url": canonical_base_url(self._config.base_url), "text_format": "json_object", "messages": messages, "sha": attestation.source_commit_sha or ""}
+        alias_to_original = {alias: original for original, alias in aliases.items()}
+        owned_security_ids = frozenset(aliases)
+        security_locations = {
+            location: f"source/security/{index}"
+            for index, location in enumerate(dict.fromkeys(fact.location for fact in facts), 1)
+        }
+        prompt_facts = [{"fact_id": aliases[f.fact_id], "kind": f.kind, "location": security_locations[f.location], "line": f.line, "value": f.value, "coverage": f.coverage} for f in facts]
+        configuration_models = tuple(
+            ModeledConfigurationFact.from_dict(item) for item in config_facts
+        )
+        configuration_aliases = {
+            config_id: f"config:{index}"
+            for index, config_id in enumerate(
+                dict.fromkeys(fact.config_id for fact in configuration_models), 1
+            )
+        }
+        configuration_locations = {
+            source_file: f"source/config/{index}"
+            for index, source_file in enumerate(
+                dict.fromkeys(fact.source_file for fact in configuration_models), 1
+            )
+        }
+        prompt_configuration = [
+            {
+                "config_id": configuration_aliases[fact.config_id],
+                "key": fact.key,
+                "value": fact.value,
+                "source_file": configuration_locations[fact.source_file],
+                "source_line": fact.source_line,
+                "profile": fact.profile,
+                "provenance": fact.provenance,
+                "default_effective": fact.default_effective,
+                "status": fact.status,
+            }
+            for fact in configuration_models
+        ]
+        messages = build_auth_messages(entry_id, prompt_facts, prompt_configuration)
+        correction_messages = build_auth_correction_messages(entry_id, prompt_facts, prompt_configuration)
+        ownership_binding_hash = sha256_canonical_json(
+            {
+                "entry_id": entry_id,
+                "security_bindings": [
+                    {
+                        "alias": aliases[fact.fact_id],
+                        "fact_id": fact.fact_id,
+                        "semantic_identity": fact.semantic_identity(),
+                    }
+                    for fact in facts
+                ],
+                "configuration_bindings": [
+                    {
+                        "alias": configuration_aliases[fact.config_id],
+                        "config_id": fact.config_id,
+                        "semantic_identity": fact.semantic_identity(),
+                    }
+                    for fact in configuration_models
+                ],
+            }
+        )
+        auth_identity = {"kind": "auth", "provider": PROVIDER_ID, "protocol": "responses-v1", "auth_cache_format": AUTH_CACHE_FORMAT, "prompt_version": AUTH_PROMPT_VERSION, "schema_version": AUTH_RESPONSE_SCHEMA_VERSION, "model": self._config.model, "temperature": self._config.temperature, "base_url": canonical_base_url(self._config.base_url), "text_format": "json_schema_strict", "response_format_schema_hash": sha256_canonical_json(AUTH_CONTRACT_JSON_SCHEMA), "messages": messages, "sha": attestation.source_commit_sha or "", "ownership_binding_hash": ownership_binding_hash}
         identity = hashlib.sha256(json.dumps(auth_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
         persisted = self._cache.get_auth_record(identity, auth_identity)
         if persisted is not None:
             try:
-                contract = AuthContract.from_dict(persisted["contract"])
-                _reject_sensitive_response(persisted["raw_response"], None, self._config.api_key, self._extra_secret_patterns)
-                self._last_audit = self._audit("auth", messages, persisted["raw_response"], contract.to_dict(), attestation, cache_hit=True)
-                return contract
+                contract = _validate_auth_contract_ownership(
+                    AuthContract.from_dict(persisted["contract"]),
+                    owned_security_ids,
+                )
+                cached_snapshot = _AuthCacheSnapshot(
+                    contract,
+                    cast(str, persisted["raw_response"]),
+                    cast(str, persisted["accepted_prompt_variant"]),
+                    cast(str, persisted["actual_model"]),
+                    "",
+                )
             except (AnalyzerError, KeyError, TypeError):
-                pass
+                cached_snapshot = None
+            persisted = None
+            if cached_snapshot is not None:
+                try:
+                    accepted = self._accept_auth_snapshot(
+                        cached_snapshot,
+                        messages,
+                        correction_messages,
+                        attestation,
+                        alias_to_original,
+                    )
+                except BaseException:
+                    cached_snapshot = None
+                    raise
+                self._auth_cache[identity] = cached_snapshot
+                return accepted
         cached = self._auth_cache.get(identity)
         if cached is not None:
-            contract, prior = cached
-            _reject_sensitive_response(prior.raw_response, None, self._config.api_key, self._extra_secret_patterns)
-            self._last_audit = LlmAuditRecord("auth", prior.request_id, prior.normalized_prompt, prior.response_schema, prior.raw_response, prior.parsed_response, prior.settings, prior.attestation, True)
-            return contract
-        body = _encode_request(_responses_request(self._config.model, messages, self._config.temperature))
-        _scan_transmitted_request(body, self._config.api_key, self._extra_secret_patterns)
-        reply = self._post_with_retries(body, None)  # Attestation is checked by retry loop.
-        _reject_sensitive_response(reply.body, None, self._config.api_key, self._extra_secret_patterns)
-        content, actual_model, request_id = self._response_content(reply)
-        if not isinstance(content, str):
-            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Auth Contract content is invalid.")
-        _reject_sensitive_response(content, None, self._config.api_key, self._extra_secret_patterns)
+            cached_snapshot = cached
+            cached = None
+            try:
+                return self._accept_auth_snapshot(
+                    cached_snapshot,
+                    messages,
+                    correction_messages,
+                    attestation,
+                    alias_to_original,
+                )
+            except BaseException:
+                cached_snapshot = None
+                raise
+        state, owner = _join_auth_inflight(identity)
+        if not owner:
+            state.event.wait()
+            waiter_snapshot = state.snapshot
+            waiter_error = state.error
+            state = None  # type: ignore[assignment]
+            if waiter_snapshot is not None:
+                try:
+                    accepted = self._accept_auth_snapshot(
+                        waiter_snapshot,
+                        messages,
+                        correction_messages,
+                        attestation,
+                        alias_to_original,
+                    )
+                except BaseException:
+                    waiter_snapshot = None
+                    raise
+                self._auth_cache[identity] = waiter_snapshot
+                return accepted
+            if waiter_error is not None:
+                code, message, details = waiter_error
+                raise AnalyzerError(code, message, details)
+            return self.classify_auth(entry_id, facts, config_facts)
+        flight_finished = False
         try:
-            raw = json.loads(content)
-            if not isinstance(raw, dict): raise ValueError
-            contract = AuthContract.from_dict(raw)
-        except (ValueError, TypeError, AnalyzerError) as exc:
-            if isinstance(exc, AnalyzerError): raise
-            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Auth Contract response violates schema.") from exc
-        # Convert public aliases back before deterministic verification.
-        contract = AuthContract(contract.auth_context, tuple({v: k for k, v in aliases.items()}.get(item, item) for item in contract.evidence_ids), contract.assumptions, contract.confidence)
-        audit = self._audit("auth", messages, reply.body, raw, attestation, cache_hit=False, request_id=request_id, actual_model=actual_model)
-        self._cache.put_auth_record(identity, auth_identity, contract.to_dict(), reply.body)
-        self._auth_cache[identity] = (contract, audit)
-        self._last_audit = audit
-        return contract
+            with self._cache.single_flight(identity):
+                persisted = self._cache.get_auth_record(identity, auth_identity)
+                if persisted is not None:
+                    try:
+                        contract = _validate_auth_contract_ownership(
+                            AuthContract.from_dict(persisted["contract"]),
+                            owned_security_ids,
+                        )
+                        cached_snapshot = _AuthCacheSnapshot(
+                            contract,
+                            cast(str, persisted["raw_response"]),
+                            cast(str, persisted["accepted_prompt_variant"]),
+                            cast(str, persisted["actual_model"]),
+                            "",
+                        )
+                    except (AnalyzerError, KeyError, TypeError):
+                        cached_snapshot = None
+                    persisted = None
+                    if cached_snapshot is not None:
+                        _finish_auth_inflight(identity, state, snapshot=cached_snapshot)
+                        flight_finished = True
+                        state = None  # type: ignore[assignment]
+                        try:
+                            accepted = self._accept_auth_snapshot(
+                                cached_snapshot,
+                                messages,
+                                correction_messages,
+                                attestation,
+                                alias_to_original,
+                            )
+                        except BaseException:
+                            cached_snapshot = None
+                            raise
+                        self._auth_cache[identity] = cached_snapshot
+                        return accepted
+
+                with self._cache.capacity_reservation(
+                    identity,
+                    entry_prefix="auth-",
+                ):
+                    accepted_prompt_variant = "initial"
+                    cache_contract: AuthContract | None = None
+                    for response_attempt in range(2):
+                        reply: ProviderReply | None = None
+                        content: object = None
+                        actual_model: str | None = None
+                        request_id: str | None = None
+                        canonical: _CanonicalResponse | None = None
+                        parsed: object = None
+                        raw: dict[str, object] | None = None
+                        provider_contract: AuthContract | None = None
+                        contract: AuthContract | None = None
+                        current_messages = messages if response_attempt == 0 else correction_messages
+                        body = _encode_request(
+                            _responses_request(
+                                self._config.model,
+                                current_messages,
+                                self._config.temperature,
+                                contract_kind="auth",
+                            )
+                        )
+                        _scan_transmitted_request(
+                            body,
+                            self._config.api_key,
+                            (),
+                        )
+                        terminal_response_code: str | None = None
+                        try:
+                            reply = self._post_with_retries(body, None)
+                            canonical = self._canonical_response(
+                                reply,
+                                None,
+                                self._config.api_key,
+                                (),
+                            )
+                            content = canonical.content
+                            actual_model = canonical.actual_model
+                            request_id = canonical.request_id
+                            parsed = canonical.semantic
+                            if not isinstance(parsed, dict):
+                                raise AnalyzerError(
+                                    "LLM_RESPONSE_SCHEMA_INVALID",
+                                    "Auth Contract response violates schema.",
+                                )
+                            raw = parsed
+                            provider_contract = AuthContract.from_dict(raw)
+                            contract = _bind_auth_evidence_aliases(
+                                provider_contract,
+                                alias_to_original,
+                            )
+                        except AnalyzerError as exc:
+                            response_code = exc.code
+                            reply = None
+                            content = None
+                            actual_model = None
+                            request_id = None
+                            canonical = None
+                            parsed = None
+                            raw = None
+                            provider_contract = None
+                            contract = None
+                            cache_contract = None
+                            if response_code not in _CORRECTABLE_AUTH_RESPONSE_ERRORS:
+                                raise
+                            if response_attempt == 0:
+                                continue
+                            terminal_response_code = response_code
+                        if terminal_response_code is not None:
+                            raise AnalyzerError(
+                                terminal_response_code,
+                                _TERMINAL_AUTH_RESPONSE_MESSAGES[terminal_response_code],
+                            ) from None
+                        accepted_prompt_variant = (
+                            "initial" if response_attempt == 0 else "correction"
+                        )
+                        cache_contract = contract
+                        break
+                    else:  # pragma: no cover - both loop exits are explicit
+                        raise AnalyzerError(
+                            "LLM_RESPONSE_SCHEMA_INVALID",
+                            "Auth Contract correction failed.",
+                        )
+                    assert reply is not None and raw is not None and contract is not None
+                    assert cache_contract is not None
+                    assert actual_model is not None and request_id is not None
+                    accepted_snapshot: _AuthCacheSnapshot | None = None
+                    publication_failed = False
+                    published: object = None
+                    try:
+                        published = self._cache.put_auth_record(
+                            identity,
+                            auth_identity,
+                            cache_contract.to_dict(),
+                            reply.body,
+                            accepted_prompt_variant=accepted_prompt_variant,
+                            actual_model=actual_model,
+                        )
+                    except BaseException:
+                        publication_failed = True
+                    if published is not True:
+                        publication_failed = True
+                    if publication_failed:
+                        reply = None
+                        content = None
+                        actual_model = None
+                        request_id = None
+                        canonical = None
+                        parsed = None
+                        raw = None
+                        provider_contract = None
+                        contract = None
+                        cache_contract = None
+                        accepted_snapshot = None
+                        published = None
+                        body = None
+                        raise AnalyzerError(
+                            "LLM_CACHE_WRITE_FAILED",
+                            "Could not publish Auth Contract cache entry.",
+                        ) from None
+                    accepted_snapshot = _AuthCacheSnapshot(
+                        contract,
+                        reply.body,
+                        accepted_prompt_variant,
+                        actual_model,
+                        request_id,
+                    )
+                    _finish_auth_inflight(identity, state, snapshot=accepted_snapshot)
+                    flight_finished = True
+                    state = None  # type: ignore[assignment]
+                    reply = None
+                    content = None
+                    actual_model = None
+                    request_id = None
+                    canonical = None
+                    parsed = None
+                    raw = None
+                    provider_contract = None
+                    contract = None
+                    cache_contract = None
+                    published = None
+                    body = None
+                    try:
+                        accepted = self._accept_auth_snapshot(
+                            accepted_snapshot,
+                            messages,
+                            correction_messages,
+                            attestation,
+                            alias_to_original,
+                            cache_hit=False,
+                        )
+                    except BaseException:
+                        accepted_snapshot = None
+                        raise
+                    self._auth_cache[identity] = accepted_snapshot
+                    return accepted
+        except AnalyzerError as exc:
+            if not flight_finished:
+                if exc.code in _SHAREABLE_FAILURES:
+                    _finish_auth_inflight(
+                        identity,
+                        state,
+                        error=(
+                            exc.code,
+                            exc.message,
+                            _redact_mapping(exc.details, self._config.api_key),
+                        ),
+                    )
+                else:
+                    _finish_auth_inflight(identity, state, retry=True)
+            raise
+        except BaseException:
+            if not flight_finished:
+                _finish_auth_inflight(identity, state, retry=True)
+            raise
 
     def _validate_remote_gate(self) -> None:
         validate_provider_endpoint(self._config.base_url, allow_test_transport=self._transport is not None)
@@ -609,10 +1349,28 @@ class DeepSeekClient:
             raise
 
     def _response_content(self, reply: ProviderReply) -> tuple[object, str, str]:
-        if not isinstance(reply.body, str) or len(reply.body.encode("utf-8")) > _MAX_RESPONSE_BYTES:
-            raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote LLM response exceeds the safe size limit.")
+        body: str | None = None
+        encoded: bytes | None = None
+        envelope: object = None
+        model: object = None
+        output: object = None
+        messages: list[dict[str, object]] | None = None
+        parts: object = None
+        text_parts: list[str] | None = None
+        part: object = None
+        text: object = None
+        content: str | None = None
+        headers: dict[str, str] | None = None
+        request_id: object = None
+        malformed = False
         try:
-            envelope = _bounded_json(reply.body.encode("utf-8"))
+            body = reply.body
+            if not isinstance(body, str):
+                raise TypeError
+            encoded = body.encode("utf-8")
+            if len(encoded) > _MAX_RESPONSE_BYTES:
+                raise ValueError
+            envelope = _bounded_json(encoded)
             if not isinstance(envelope, dict) or envelope.get("status") != "completed":
                 raise TypeError
             model = envelope.get("model")
@@ -631,22 +1389,121 @@ class DeepSeekClient:
             for part in parts:
                 if not isinstance(part, dict):
                     raise TypeError
-                if part.get("type") == "refusal":
+                if part.get("type") != "output_text":
                     raise TypeError
-                if part.get("type") == "output_text":
-                    text = part.get("text")
-                    if not isinstance(text, str):
-                        raise TypeError
-                    text_parts.append(text)
+                text = part.get("text")
+                if not isinstance(text, str):
+                    raise TypeError
+                text_parts.append(text)
             content = "".join(text_parts)
             if not content:
                 raise TypeError
-            request_id = reply.headers.get("x-request-id", reply.headers.get("request-id", envelope.get("id", "")))
+            headers = reply.headers
+            request_id = headers.get("x-request-id", headers.get("request-id", envelope.get("id", "")))
             if not isinstance(request_id, str) or len(request_id.encode("utf-8")) > 512:
                 raise TypeError
-        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError, KeyError, TypeError) as exc:
-            raise AnalyzerError("LLM_RESPONSE_INVALID", "Remote Responses API envelope was malformed, incomplete, or has a mismatched model.") from exc
-        return content, model, request_id
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError, KeyError, TypeError):
+            malformed = True
+        if malformed:
+            reply = None
+            body = None
+            encoded = None
+            envelope = None
+            model = None
+            output = None
+            messages = None
+            parts = None
+            text_parts = None
+            part = None
+            text = None
+            content = None
+            headers = None
+            request_id = None
+            raise AnalyzerError(
+                "LLM_RESPONSE_INVALID",
+                "Remote Responses API envelope was malformed, incomplete, or has a mismatched model.",
+            ) from None
+        return cast(str, content), cast(str, model), cast(str, request_id)
+
+    def _canonical_response(
+        self,
+        reply: ProviderReply,
+        slice_: BoundedSlice | None,
+        configured_api_key: str,
+        extra_patterns: tuple[tuple[str, re.Pattern[str]], ...],
+    ) -> _CanonicalResponse:
+        """Parse and scan one decoded Responses envelope and its semantic JSON."""
+        content: object = None
+        actual_model: object = None
+        request_id: object = None
+        envelope: object = None
+        semantic: object = None
+        response: _CanonicalResponse | None = None
+        failure_code: str | None = None
+        try:
+            content, actual_model, request_id = self._response_content(reply)
+            envelope = _bounded_json(reply.body.encode("utf-8"))
+            _reject_sensitive_decoded_layer(
+                envelope,
+                slice_=None,
+                configured_api_key=configured_api_key,
+                extra_patterns=extra_patterns,
+                semantic=False,
+            )
+            _reject_sensitive_response(
+                content,
+                slice_,
+                configured_api_key,
+                extra_patterns,
+            )
+            try:
+                semantic = _bounded_json(cast(str, content).encode("utf-8"))
+            except (json.JSONDecodeError, RecursionError, UnicodeError, TypeError, ValueError):
+                semantic = None
+                failure_code = "LLM_RESPONSE_SCHEMA_INVALID"
+            if failure_code is None:
+                _reject_sensitive_decoded_layer(
+                    semantic,
+                    slice_=slice_,
+                    configured_api_key=configured_api_key,
+                    extra_patterns=extra_patterns,
+                    semantic=True,
+                )
+                _reject_sensitive_provider_id(
+                    cast(str, request_id),
+                    configured_api_key,
+                    extra_patterns,
+                )
+                if not re.fullmatch(r"[A-Za-z0-9._:-]*", cast(str, request_id)):
+                    failure_code = "LLM_RESPONSE_INVALID"
+            if failure_code is None:
+                response = _CanonicalResponse(
+                    cast(str, content),
+                    semantic,
+                    cast(str, actual_model),
+                    cast(str, request_id),
+                )
+        except AnalyzerError as exc:
+            failure_code = exc.code
+        except (json.JSONDecodeError, RecursionError, UnicodeError, TypeError, ValueError):
+            failure_code = "LLM_RESPONSE_INVALID"
+        if failure_code is not None:
+            reply = None  # type: ignore[assignment]
+            content = None
+            actual_model = None
+            request_id = None
+            envelope = None
+            semantic = None
+            response = None
+            if failure_code == "LLM_RESPONSE_SENSITIVE_CONTENT":
+                message = "Provider response contains sensitive content."
+            elif failure_code == "LLM_RESPONSE_SCHEMA_INVALID":
+                message = "The provider response does not match the contract schema."
+            else:
+                message = "Remote Responses API envelope was malformed, incomplete, or has a mismatched model."
+            raise AnalyzerError(failure_code, message) from None
+        assert response is not None
+        return response
 
 
 def _join_inflight(key: str) -> tuple[_InFlightState, bool]:
@@ -659,17 +1516,50 @@ def _join_inflight(key: str) -> tuple[_InFlightState, bool]:
         return state, True
 
 
-def _finish_inflight(key: str, state: _InFlightState, *, result: GrowthContract | None = None, error: tuple[str, str, dict[str, object]] | None = None, retry: bool = False) -> None:
+def _finish_inflight(key: str, state: _InFlightState, *, snapshot: GrowthCacheSnapshot | None = None, error: tuple[str, str, dict[str, object]] | None = None, retry: bool = False) -> None:
     with _INFLIGHT_LOCK:
         if _INFLIGHT.get(key) is state:
             del _INFLIGHT[key]
-        state.result = result
+        state.snapshot = snapshot
         state.error = error
         state.retry = retry
         state.event.set()
 
 
-def _responses_request(model: str, messages: object, temperature: object) -> dict[str, object]:
+def _join_auth_inflight(key: str) -> tuple[_AuthInFlightState, bool]:
+    with _AUTH_INFLIGHT_LOCK:
+        state = _AUTH_INFLIGHT.get(key)
+        if state is not None:
+            return state, False
+        state = _AuthInFlightState(threading.Event())
+        _AUTH_INFLIGHT[key] = state
+        return state, True
+
+
+def _finish_auth_inflight(
+    key: str,
+    state: _AuthInFlightState,
+    *,
+    snapshot: _AuthCacheSnapshot | None = None,
+    error: tuple[str, str, dict[str, object]] | None = None,
+    retry: bool = False,
+) -> None:
+    with _AUTH_INFLIGHT_LOCK:
+        if _AUTH_INFLIGHT.get(key) is state:
+            del _AUTH_INFLIGHT[key]
+        state.snapshot = snapshot
+        state.error = error
+        state.retry = retry
+        state.event.set()
+
+
+def _responses_request(
+    model: str,
+    messages: object,
+    temperature: object,
+    *,
+    contract_kind: str = "growth",
+) -> dict[str, object]:
     if not isinstance(messages, list) or len(messages) != 2:
         raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request requires exactly one system and one user prompt.")
     system, user = messages
@@ -678,7 +1568,28 @@ def _responses_request(model: str, messages: object, temperature: object) -> dic
     instructions, user_text = system.get("content"), user.get("content")
     if not isinstance(instructions, str) or not instructions or not isinstance(user_text, str) or not user_text:
         raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request prompt content is invalid.")
-    return {"model": model, "instructions": instructions, "input": [{"role": "user", "content": [{"type": "input_text", "text": user_text}]}], "temperature": temperature, "text": {"format": {"type": "json_object"}}, "store": False, "stream": False}
+    if contract_kind == "growth":
+        name, schema = "growth_contract", GROWTH_CONTRACT_JSON_SCHEMA
+    elif contract_kind == "auth":
+        name, schema = "auth_contract", AUTH_CONTRACT_JSON_SCHEMA
+    else:
+        raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request contract kind is invalid.")
+    return {
+        "model": model,
+        "instructions": instructions,
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": user_text}]}],
+        "temperature": temperature,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": name,
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "store": False,
+        "stream": False,
+    }
 
 
 def _encode_request(payload: dict[str, object]) -> bytes:
@@ -958,49 +1869,146 @@ def scan_slice_for_credentials(slice_: BoundedSlice, configured_api_key: str, ex
     _scan_transmitted_request(_encode_request(payload), configured_api_key, extra_patterns)
 
 
-def _restore_contract_aliases(contract: GrowthContract, aliases: dict[str, str]) -> GrowthContract:
-    try:
-        influences = tuple(AttackerInfluence(item.target, aliases[item.evidence_id]) for item in contract.attacker_influence)
-        required = tuple(aliases[item] for item in contract.required_static_evidence)
-    except KeyError as exc:
-        raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Growth Contract cites an unknown provider alias.") from exc
-    return replace(
-        contract,
-        attacker_influence=influences,
-        required_static_evidence=required,
+def _response_text_is_sensitive(
+    content: object,
+    configured_api_key: str,
+    extra_patterns: tuple[tuple[str, re.Pattern[str]], ...],
+    *,
+    include_pii: bool,
+) -> bool:
+    """Canonical response predicate shared by envelope, semantic and ID scans."""
+    if not isinstance(content, str):
+        return False
+    patterns = (
+        (*_RESPONSE_CREDENTIAL_PATTERNS, *_PII_PATTERNS, *extra_patterns)
+        if include_pii
+        else (*_RESPONSE_CREDENTIAL_PATTERNS, *extra_patterns)
+    )
+    return bool(
+        (configured_api_key and configured_api_key in content)
+        or _sensitive_java_assignment(content)
+        or any(pattern.search(content) for _, pattern in patterns)
     )
 
 
+def _reject_sensitive_envelope(content: object, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> None:
+    """Scan a Responses envelope for credentials, not generic metadata PII."""
+    if _response_text_is_sensitive(
+        content,
+        configured_api_key,
+        extra_patterns,
+        include_pii=False,
+    ):
+        raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
+
+
 def _reject_sensitive_response(content: object, slice_: BoundedSlice | None, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> None:
-    if not isinstance(content, str): return
-    if configured_api_key and configured_api_key in content: raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
-    meaningful_echo = slice_ is not None and any(len(excerpt.content.encode("utf-8")) >= 64 and excerpt.content in content for excerpt in slice_.source_excerpts)
-    if any(pattern.search(content) for _, pattern in (*_SLICE_CREDENTIAL_PATTERNS, *extra_patterns)) or re.search(r"eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]+\.", content) or re.search(r"[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@", content) or meaningful_echo: raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
+    if not isinstance(content, str):
+        return
+    meaningful_echo = slice_ is not None and any(
+        len(excerpt.content.encode("utf-8")) >= 64 and excerpt.content in content
+        for excerpt in slice_.source_excerpts
+    )
+    if _response_text_is_sensitive(
+        content,
+        configured_api_key,
+        extra_patterns,
+        include_pii=True,
+    ) or meaningful_echo:
+        raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
 
 
 def _reject_sensitive_provider_id(value: str, configured_api_key: str, extra_patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> None:
-    if not value:
-        return
-    if configured_api_key and value == configured_api_key:
+    if value and _response_text_is_sensitive(
+        value,
+        configured_api_key,
+        extra_patterns,
+        include_pii=False,
+    ):
         raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
-    if _sensitive_java_assignment(value) or any(pattern.search(value) for _, pattern in (*_SLICE_CREDENTIAL_PATTERNS, *extra_patterns)):
-        raise AnalyzerError("LLM_RESPONSE_SENSITIVE_CONTENT", "Provider response contains sensitive content.")
+
+
+def _reject_sensitive_decoded_layer(
+    value: object,
+    *,
+    slice_: BoundedSlice | None,
+    configured_api_key: str,
+    extra_patterns: tuple[tuple[str, re.Pattern[str]], ...],
+    semantic: bool,
+) -> None:
+    """Scan both decoded values and canonical key/value context."""
+    rendered = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    texts = (rendered, *_all_strings(value))
+    for text in texts:
+        if semantic:
+            _reject_sensitive_response(
+                text,
+                slice_,
+                configured_api_key,
+                extra_patterns,
+            )
+        else:
+            _reject_sensitive_envelope(
+                text,
+                configured_api_key,
+                extra_patterns,
+            )
 
 
 def _is_retryable_network_error(exc: BaseException) -> bool:
     if isinstance(exc, (TimeoutError, socket.timeout, InterruptedError, http.client.RemoteDisconnected, http.client.IncompleteRead)):
+        return True
+    if isinstance(exc, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
         return True
     if isinstance(exc, ssl.SSLError):
         return False
     if isinstance(exc, socket.gaierror):
         return exc.errno == getattr(socket, "EAI_AGAIN", None)
     if isinstance(exc, URLError):
-        return _is_retryable_network_error(exc.reason) if isinstance(exc.reason, BaseException) else False
+        return (
+            _is_retryable_network_error(exc.reason)
+            if isinstance(exc.reason, BaseException)
+            else _transient_network_message(exc.reason)
+        )
     if isinstance(exc, ConnectionError):
         return True
     if isinstance(exc, OSError):
-        return exc.errno in {errno.EINTR, errno.ETIMEDOUT, errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE}
+        return exc.errno in {errno.EINTR, errno.ETIMEDOUT, errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE} or (
+            exc.errno is None and _transient_network_message(exc)
+        )
     return False
+
+
+def _transient_network_message(value: object) -> bool:
+    """Recognize bounded proxy/gateway failures that urllib exposes without errno."""
+    try:
+        text = str(value).casefold()[:512]
+    except (TypeError, ValueError, RuntimeError):
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "timed out",
+            "timeout",
+            "temporar",
+            "connection reset",
+            "connection aborted",
+            "remote end closed",
+            "unexpected eof",
+            "tunnel connection failed: 408",
+            "tunnel connection failed: 425",
+            "tunnel connection failed: 429",
+            "tunnel connection failed: 500",
+            "tunnel connection failed: 502",
+            "tunnel connection failed: 503",
+            "tunnel connection failed: 504",
+        )
+    )
 
 
 def _all_strings(value: object) -> list[str]:

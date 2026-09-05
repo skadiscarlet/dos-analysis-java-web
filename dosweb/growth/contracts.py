@@ -5,7 +5,12 @@ from collections.abc import Mapping
 from typing import Literal, cast
 
 from dosweb.errors import AnalyzerError
-from dosweb.growth.models import AttackerInfluence, GrowthContract
+from dosweb.growth.models import (
+    AttackerInfluence,
+    BoundedSlice,
+    GrowthContract,
+    ProviderGrowthContract,
+)
 
 
 _CONTRACT_KEYS = frozenset(
@@ -14,6 +19,27 @@ _CONTRACT_KEYS = frozenset(
         "growth_kind",
         "resource_dimension",
         "attacker_influence",
+        "resource_effect",
+        "attacker_variable",
+        "attacker_value_space",
+        "growth_unit",
+        "growth_function",
+        "amplification_class",
+        "requests_to_pressure",
+        "concurrency_model",
+        "retention_window",
+        "failure_mechanism",
+        "failure_signal",
+        "required_static_evidence",
+        "contract_status",
+        "rejection_reason",
+        "confidence",
+    }
+)
+_PROVIDER_CONTRACT_KEYS = frozenset(
+    {
+        "is_resource_growth",
+        "attacker_evidence_ids",
         "resource_effect",
         "attacker_variable",
         "attacker_value_space",
@@ -133,21 +159,136 @@ def validate_growth_contract(payload: object) -> GrowthContract:
     )
 
 
-def parse_growth_contract_json(content: object) -> GrowthContract:
+def validate_provider_growth_contract(payload: object) -> ProviderGrowthContract:
+    if not isinstance(payload, Mapping) or set(payload) != _PROVIDER_CONTRACT_KEYS:
+        _schema_error()
+    attacker_evidence = payload["attacker_evidence_ids"]
+    required_evidence = payload["required_static_evidence"]
+    if (
+        not isinstance(attacker_evidence, list)
+        or len(attacker_evidence) > 16
+        or any(not isinstance(item, str) or len(item.encode("utf-8")) > 256 for item in attacker_evidence)
+        or not isinstance(required_evidence, list)
+        or len(required_evidence) > 32
+        or any(not isinstance(item, str) or len(item.encode("utf-8")) > 256 for item in required_evidence)
+    ):
+        _schema_error()
+    return ProviderGrowthContract(
+        is_resource_growth=cast(Literal["yes", "no", "unknown"], _enum(payload, "is_resource_growth", _GROWTH_VALUES)),
+        attacker_evidence_ids=tuple(attacker_evidence),
+        resource_effect=cast(object, _enum(payload, "resource_effect", _RESOURCE_EFFECT_VALUES)),
+        attacker_variable=_text(payload, "attacker_variable"),
+        attacker_value_space=cast(object, _enum(payload, "attacker_value_space", _VALUE_SPACE_VALUES)),
+        growth_unit=_text(payload, "growth_unit"),
+        growth_function=_text(payload, "growth_function"),
+        amplification_class=cast(object, _enum(payload, "amplification_class", _AMPLIFICATION_VALUES)),
+        requests_to_pressure=cast(object, _enum(payload, "requests_to_pressure", _REQUEST_PRESSURE_VALUES)),
+        concurrency_model=_text(payload, "concurrency_model"),
+        retention_window=cast(object, _enum(payload, "retention_window", _RETENTION_VALUES)),
+        failure_mechanism=cast(object, _enum(payload, "failure_mechanism", _FAILURE_VALUES)),
+        failure_signal=_text(payload, "failure_signal"),
+        required_static_evidence=tuple(required_evidence),
+        contract_status=cast(object, _enum(payload, "contract_status", _CONTRACT_STATUS_VALUES)),
+        rejection_reason=cast(object, _enum(payload, "rejection_reason", _REJECTION_VALUES)),
+        confidence=cast(Literal["high", "medium", "low"], _enum(payload, "confidence", _CONFIDENCE_VALUES)),
+    )
+
+
+def bind_provider_growth_contract(
+    provider: ProviderGrowthContract,
+    bounded_slice: BoundedSlice,
+    fact_alias_to_original: Mapping[str, str] | None = None,
+) -> GrowthContract:
+    """Bind provider-only semantics to digest-fixed local Growth shape."""
+    if not isinstance(provider, ProviderGrowthContract) or not isinstance(bounded_slice, BoundedSlice):
+        _schema_error()
+    aliases = dict(fact_alias_to_original or {})
+
+    def restore(value: str) -> str:
+        if not aliases:
+            return value
+        try:
+            return aliases[value]
+        except KeyError as exc:
+            raise AnalyzerError(
+                "LLM_RESPONSE_SCHEMA_INVALID",
+                "Growth Contract cites an unknown provider alias.",
+            ) from exc
+
+    attacker_ids = tuple(restore(value) for value in provider.attacker_evidence_ids)
+    required = tuple(restore(value) for value in provider.required_static_evidence)
+    facts = {fact.fact_id: fact for fact in bounded_slice.payload.static_facts}
+    if any(value not in facts for value in (*attacker_ids, *required)):
+        _schema_error()
+    sink_shape = {
+        "input_materialization": ("input_materialization", "bytes"),
+        "allocation": ("direct_allocation", "bytes"),
+        "container_write": ("container_growth", "entries"),
+        "async_submission": ("async_work_growth", "tasks"),
+    }
+    shapes = {
+        sink_shape[fact.kind]
+        for fact in facts.values()
+        if fact.relation == "sink" and fact.kind in sink_shape
+    }
+    if len(shapes) != 1:
+        _schema_error()
+    growth_kind, resource_dimension = next(iter(shapes))
+    target_by_flow: dict[str, set[str]] = {}
+    for fact in facts.values():
+        if fact.kind == "attacker_target" and fact.value_ref is not None and fact.normalized_value is not None:
+            target_by_flow.setdefault(fact.value_ref, set()).add(fact.normalized_value)
+    influences: list[AttackerInfluence] = []
+    for evidence_id in attacker_ids:
+        targets = target_by_flow.get(evidence_id, set())
+        evidence = facts[evidence_id]
+        if len(targets) != 1 or evidence.kind not in {"flow", "driver_origin"} or evidence.relation not in {"source", "flows_to"}:
+            _schema_error()
+        influences.append(AttackerInfluence(cast(object, next(iter(targets))), evidence_id))
+    return GrowthContract(
+        is_resource_growth=provider.is_resource_growth,
+        growth_kind=cast(object, growth_kind),
+        resource_dimension=cast(object, resource_dimension),
+        attacker_influence=tuple(influences),
+        resource_effect=provider.resource_effect,
+        attacker_variable=provider.attacker_variable,
+        attacker_value_space=provider.attacker_value_space,
+        growth_unit=provider.growth_unit,
+        growth_function=provider.growth_function,
+        amplification_class=provider.amplification_class,
+        requests_to_pressure=provider.requests_to_pressure,
+        concurrency_model=provider.concurrency_model,
+        retention_window=provider.retention_window,
+        failure_mechanism=provider.failure_mechanism,
+        failure_signal=provider.failure_signal,
+        required_static_evidence=required,
+        contract_status=provider.contract_status,
+        rejection_reason=provider.rejection_reason,
+        confidence=provider.confidence,
+    )
+
+
+def parse_growth_contract_json(content: object) -> ProviderGrowthContract:
     if not isinstance(content, str) or not content.strip():
         _schema_error()
+    parse_failed = False
     try:
         encoded = content.encode("utf-8")
         if len(encoded) > _MAX_CONTRACT_BYTES:
             raise ValueError("contract JSON exceeds safe size limit")
         payload = json.loads(encoded.decode("utf-8"), parse_constant=_reject_constant, object_pairs_hook=_unique_object)
         _check_json_bounds(payload)
-    except (json.JSONDecodeError, RecursionError, UnicodeError, ValueError) as exc:
+    except (json.JSONDecodeError, RecursionError, UnicodeError, ValueError):
+        # Do not retain JSONDecodeError.doc (the rejected provider body) in an
+        # AnalyzerError cause/context chain.
+        parse_failed = True
+        payload = None
+    if parse_failed:
         raise AnalyzerError(
             "LLM_RESPONSE_SCHEMA_INVALID",
             "The provider response content is not a strict JSON contract.",
-        ) from exc
-    return validate_growth_contract(payload)
+        )
+    return validate_provider_growth_contract(payload)
 
 
 def _check_json_bounds(value: object, depth: int = 0, nodes: list[int] | None = None) -> None:

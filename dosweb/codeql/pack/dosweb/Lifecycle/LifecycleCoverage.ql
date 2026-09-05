@@ -9,8 +9,9 @@ import java
 import FiniteQueueDomain
 import FrameworkLimitDomain
 
-// Bound coverage includes only exact StreamReadConstraints,
-// HttpObjectAggregator, MultipartConfig, and formdataUploadLimitInKB domains.
+// Bound coverage includes direct ByteBuffer demand (including exact numeric
+// clamps) plus exact StreamReadConstraints, HttpObjectAggregator,
+// MultipartConfig, and formdataUploadLimitInKB domains.
 
 predicate isInputStreamType(Type type) {
   type.(RefType).getASupertype*().hasQualifiedName("java.io", "InputStream")
@@ -358,7 +359,8 @@ predicate guardModeledDomain(Element growth) {
 }
 
 predicate boundModeledDomain(Element growth) {
-  exists(MethodCall call, Field field |
+  directByteAllocationModeledDomain(growth)
+  or exists(MethodCall call, Field field |
     growth = call and call.getMethod().getName() = "offer" and
     field = queueReceiverField(call) and finiteFieldQueueType(field)
   )

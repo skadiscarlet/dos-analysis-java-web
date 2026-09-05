@@ -34,6 +34,277 @@ class PipelineRecoveryTests(unittest.TestCase):
 
         return {stage: make(stage) for stage in STAGES}
 
+    def test_finalizer_runs_once_before_completed_is_persisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            observed_statuses: list[str] = []
+
+            def finalizer() -> None:
+                observed_statuses.append(
+                    json.loads((root / "run.json").read_text(encoding="utf-8"))["status"]
+                )
+
+            result = Pipeline(
+                root,
+                self._executors({stage: 0 for stage in STAGES}),
+                finalizer=finalizer,
+            ).run("entries")
+            self.assertEqual(observed_statuses, ["running"])
+            self.assertEqual(result["status"], "completed")
+
+    def test_finalizer_runs_on_stage_failure_and_failure_overrides_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = 0
+
+            def failing_finalizer() -> None:
+                nonlocal calls
+                calls += 1
+                raise AnalyzerError(
+                    "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+                    "Private CodeQL execution database snapshot failed.",
+                    {"stage": "cleanup", "reason": "UNSAFE_OR_UNREMOVABLE"},
+                )
+
+            with self.assertRaises(AnalyzerError) as raised:
+                Pipeline(
+                    root,
+                    self._executors({stage: 0 for stage in STAGES}),
+                    finalizer=failing_finalizer,
+                ).run("entries")
+            self.assertEqual(raised.exception.code, "CODEQL_EXECUTION_SNAPSHOT_FAILED")
+            self.assertEqual(calls, 1)
+            persisted = json.loads((root / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(
+                persisted["error"]["code"], "CODEQL_EXECUTION_SNAPSHOT_FAILED"
+            )
+
+            cleanup_calls = 0
+
+            def successful_finalizer() -> None:
+                nonlocal cleanup_calls
+                cleanup_calls += 1
+
+            with self.assertRaises(AnalyzerError) as stage_raised:
+                Pipeline(
+                    root / "stage-failure",
+                    self._executors(
+                        {stage: 0 for stage in STAGES}, fail="entries"
+                    ),
+                    finalizer=successful_finalizer,
+                ).run("entries")
+            self.assertEqual(stage_raised.exception.code, "LLM_LOCAL_FAILURE")
+            self.assertEqual(cleanup_calls, 1)
+
+    def test_finalizer_keyboard_interrupt_persists_path_free_failed_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private_marker = str(root / ".codeql-execution-private")
+
+            def interrupted_finalizer() -> None:
+                raise KeyboardInterrupt(private_marker)
+
+            with self.assertRaises(AnalyzerError) as raised:
+                Pipeline(
+                    root,
+                    self._executors({stage: 0 for stage in STAGES}),
+                    finalizer=interrupted_finalizer,
+                ).run("entries")
+
+            self.assertEqual(
+                raised.exception.code,
+                "ANALYSIS_FINALIZATION_FAILED",
+            )
+            self.assertEqual(
+                raised.exception.details.get("error_type"),
+                "KeyboardInterrupt",
+            )
+            self.assertNotIn(private_marker, repr(raised.exception.details))
+            persisted_text = (root / "run.json").read_text(encoding="utf-8")
+            self.assertNotIn(private_marker, persisted_text)
+            persisted = json.loads(persisted_text)
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(
+                persisted["error"]["code"],
+                "ANALYSIS_FINALIZATION_FAILED",
+            )
+
+    def test_stage_failure_is_cause_of_system_exit_finalization_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private_marker = str(root / ".codeql-execution-private")
+
+            def interrupted_finalizer() -> None:
+                raise SystemExit(private_marker)
+
+            with self.assertRaises(AnalyzerError) as raised:
+                Pipeline(
+                    root,
+                    self._executors(
+                        {stage: 0 for stage in STAGES}, fail="entries"
+                    ),
+                    finalizer=interrupted_finalizer,
+                ).run("entries")
+
+            self.assertEqual(
+                raised.exception.code,
+                "ANALYSIS_FINALIZATION_FAILED",
+            )
+            self.assertEqual(
+                raised.exception.details.get("error_type"),
+                "SystemExit",
+            )
+            self.assertIsInstance(raised.exception.__cause__, AnalyzerError)
+            self.assertEqual(
+                raised.exception.__cause__.code,
+                "LLM_LOCAL_FAILURE",
+            )
+            self.assertNotIn(private_marker, repr(raised.exception.details))
+            persisted_text = (root / "run.json").read_text(encoding="utf-8")
+            self.assertNotIn(private_marker, persisted_text)
+            persisted = json.loads(persisted_text)
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(
+                persisted["error"]["code"],
+                "ANALYSIS_FINALIZATION_FAILED",
+            )
+            self.assertEqual(
+                persisted["stages"]["entries"]["status"],
+                "failed",
+            )
+
+    def test_failure_write_base_exception_still_finalizes_and_repersists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage_marker = str(root / ".private-stage-interrupt")
+            write_marker = str(root / ".private-failure-write")
+            finalizer_calls = 0
+            write_failure_injected = False
+
+            def interrupted_stage(_context):
+                raise KeyboardInterrupt(stage_marker)
+
+            def finalizer() -> None:
+                nonlocal finalizer_calls
+                finalizer_calls += 1
+
+            pipeline = Pipeline(
+                root,
+                {"entries": interrupted_stage},
+                finalizer=finalizer,
+            )
+            real_write_run = pipeline._write_run  # noqa: SLF001
+
+            def interrupt_first_failure_write() -> None:
+                nonlocal write_failure_injected
+                if (
+                    pipeline._run.get("status") == "failed"  # noqa: SLF001
+                    and not write_failure_injected
+                ):
+                    write_failure_injected = True
+                    raise SystemExit(write_marker)
+                real_write_run()
+
+            with mock.patch.object(
+                pipeline,
+                "_write_run",
+                side_effect=interrupt_first_failure_write,
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    pipeline.run("entries")
+
+            self.assertTrue(write_failure_injected)
+            self.assertEqual(finalizer_calls, 1)
+            self.assertEqual(str(raised.exception), write_marker)
+            self.assertIsInstance(
+                raised.exception.__cause__,
+                KeyboardInterrupt,
+            )
+            persisted_text = (root / "run.json").read_text(encoding="utf-8")
+            self.assertNotIn(stage_marker, persisted_text)
+            self.assertNotIn(write_marker, persisted_text)
+            persisted = json.loads(persisted_text)
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(
+                persisted["error"],
+                {
+                    "code": "ANALYSIS_PIPELINE_FAILED",
+                    "message": "Pipeline execution failed.",
+                    "details": {"error_type": "KeyboardInterrupt"},
+                },
+            )
+
+    def test_resume_preflight_failure_replaces_completed_run_transactionally(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = {stage: 0 for stage in STAGES}
+            completed = Pipeline(root, self._executors(calls)).run("entries")
+            self.assertEqual(completed["status"], "completed")
+            original_attempt = completed["attempt"]
+
+            def unsafe_stale_preflight() -> None:
+                raise AnalyzerError(
+                    "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+                    "Private CodeQL execution database snapshot failed.",
+                    {
+                        "stage": "stale_cleanup",
+                        "reason": "UNSAFE_OR_UNREMOVABLE",
+                    },
+                )
+
+            with self.assertRaises(AnalyzerError) as raised:
+                Pipeline(
+                    root,
+                    self._executors({stage: 0 for stage in STAGES}),
+                    resume=True,
+                    preflight=unsafe_stale_preflight,
+                ).run("entries")
+            self.assertEqual(raised.exception.code, "CODEQL_EXECUTION_SNAPSHOT_FAILED")
+            persisted = json.loads((root / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(persisted["attempt"], original_attempt + 1)
+            self.assertEqual(
+                persisted["error"],
+                {
+                    "code": "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+                    "message": "Private CodeQL execution database snapshot failed.",
+                    "details": {
+                        "stage": "stale_cleanup",
+                        "reason": "UNSAFE_OR_UNREMOVABLE",
+                    },
+                },
+            )
+
+    def test_cleanup_failure_overrides_stage_failure_and_keeps_stage_as_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def cleanup_failure() -> None:
+                raise AnalyzerError(
+                    "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+                    "Private CodeQL execution database snapshot failed.",
+                    {"stage": "cleanup", "reason": "UNSAFE_OR_UNREMOVABLE"},
+                )
+
+            with self.assertRaises(AnalyzerError) as raised:
+                Pipeline(
+                    root,
+                    self._executors(
+                        {stage: 0 for stage in STAGES}, fail="entries"
+                    ),
+                    finalizer=cleanup_failure,
+                ).run("entries")
+            self.assertEqual(raised.exception.code, "CODEQL_EXECUTION_SNAPSHOT_FAILED")
+            self.assertIsInstance(raised.exception.__cause__, AnalyzerError)
+            self.assertEqual(raised.exception.__cause__.code, "LLM_LOCAL_FAILURE")
+            persisted = json.loads((root / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(
+                persisted["error"]["code"], "CODEQL_EXECUTION_SNAPSHOT_FAILED"
+            )
+            self.assertEqual(persisted["stages"]["entries"]["status"], "failed")
+
     def test_stage_order_and_exact_resume_reuse(self):
         with tempfile.TemporaryDirectory() as tmp:
             calls = {stage: 0 for stage in STAGES}
@@ -43,16 +314,16 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertEqual([calls[stage] for stage in STAGES], [1] * len(STAGES))
             self.assertEqual(set(json.loads((Path(tmp) / "run.json").read_text())["stages"]), set(STAGES))
 
-    def test_schema_26_reexecutes_every_schema_25_stage(self):
-        self.assertEqual("2.6", SCHEMA_VERSION)
-        self.assertEqual("0.5.0", TOOL_VERSION)
+    def test_schema_27_reexecutes_every_schema_26_stage(self):
+        self.assertEqual("2.7", SCHEMA_VERSION)
+        self.assertEqual("0.6.0", TOOL_VERSION)
         with tempfile.TemporaryDirectory() as tmp:
             initial_calls = {stage: 0 for stage in STAGES}
             Pipeline(
                 tmp,
                 self._executors(initial_calls),
-                schema_version="2.5",
-                tool_version="0.4.0",
+                schema_version="2.6",
+                tool_version="0.5.0",
             ).run()
             resumed_calls = {stage: 0 for stage in STAGES}
 
@@ -63,15 +334,15 @@ class PipelineRecoveryTests(unittest.TestCase):
             ).run()
 
             self.assertEqual([1] * len(STAGES), [resumed_calls[stage] for stage in STAGES])
-            self.assertEqual("2.6", result["schema_version"])
-            self.assertEqual("0.5.0", result["tool_version"])
+            self.assertEqual("2.7", result["schema_version"])
+            self.assertEqual("0.6.0", result["tool_version"])
             for stage in STAGES:
                 manifest = json.loads(
                     (Path(tmp) / ".stage-manifests" / f"{stage}.json").read_text(encoding="utf-8")
                 )
-                self.assertEqual("2.6", manifest["fingerprint"]["schema_version"])
+                self.assertEqual("2.7", manifest["fingerprint"]["schema_version"])
                 self.assertTrue(
-                    all(artifact["schema_version"] == "2.6" for artifact in manifest["artifacts"])
+                    all(artifact["schema_version"] == "2.7" for artifact in manifest["artifacts"])
                 )
 
     def test_resume_updates_root_run_identity_and_records_prior_identity_hash(self):

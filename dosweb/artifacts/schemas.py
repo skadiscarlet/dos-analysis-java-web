@@ -10,7 +10,7 @@ from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.errors import AnalyzerError
 
 
-SCHEMA_VERSION: Final = "2.6"
+SCHEMA_VERSION: Final = "2.7"
 _CONCRETE_RESOURCE_DIMENSIONS: Final = frozenset(
     {"entries", "bytes", "tasks", "connections", "objects"}
 )
@@ -36,6 +36,7 @@ _ID_PREFIXES: Final = {
     "evidence_id": "lifecycle-evidence:", "coverage_id": "lifecycle-coverage:", "summary_id": "lifecycle-summary:",
     "gap_id": "gap:", "interposition_id": "interposition:",
     "family_id": "family:",
+    "negative_proof_id": "negative_proof:",
 }
 _MAX_ARTIFACT_ID_BYTES: Final = 256
 
@@ -81,7 +82,8 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         required_fields=frozenset(
             {
                 "entry_id", "framework", "protocol", "handler", "registration",
-                "route_or_event", "auth_context", "attacker_inputs", "materialization_phase",
+                "registration_pattern_id", "route_or_event", "auth_context",
+                "attacker_inputs", "materialization_phase",
             }
         ),
         enum_fields={
@@ -97,8 +99,9 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         reference_fields={},
         field_kinds=_field_kinds(
             entry_id="string", framework="string", protocol="string", handler="object",
-            registration="object", route_or_event="string", auth_context="string",
-            attacker_inputs="list", materialization_phase="string",
+            registration="object", registration_pattern_id="string",
+            route_or_event="string", auth_context="string", attacker_inputs="list",
+            materialization_phase="string",
         ),
         record_validator=lambda record, artifact_name, line: _validate_entry(
             record, artifact_name, line
@@ -172,15 +175,30 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         enum_fields={"status": frozenset({"complete", "partial"})},
         reference_fields={"growth_id": ReferenceSpec("growth_id"), "entry_id": ReferenceSpec("entry_id")},
         field_kinds=_field_kinds(link_id="string", growth_id="string", entry_id="string", status="string", evidence_ids="list", reason_codes="list"),
+        record_validator=lambda record, artifact_name, line: _validate_candidate_entry_link(
+            record, artifact_name, line
+        ),
     ),
     "candidate_dispositions": ArtifactSchema(
-        id_field="disposition_id", required_fields=frozenset({"disposition_id", "growth_id", "status", "link_ids", "reason_codes"}),
-        enum_fields={"status": frozenset({"rejected", "verified_relevant", "dos_relevant_partial", "not_entry_reachable", "unresolved"})},
-        reference_fields={"growth_id": ReferenceSpec("growth_id"), "link_ids": ReferenceSpec("link_id", multiple=True, allow_empty=True)},
-        field_kinds=_field_kinds(disposition_id="string", growth_id="string", status="string", link_ids="list", reason_codes="list"),
+        id_field="disposition_id", required_fields=frozenset({"disposition_id", "growth_id", "status", "canonical_entry_id", "local_growth_status", "association_status", "link_ids", "evidence_ids", "negative_proof_ids", "reason_codes"}),
+        enum_fields={
+            "status": frozenset({"formal_eligible", "gap_eligible", "rejected", "inventory_unresolved"}),
+            "local_growth_status": frozenset({"complete", "partial", "rejected", "unknown"}),
+            "association_status": frozenset({"complete", "partial", "missing", "ambiguous"}),
+        },
+        reference_fields={"growth_id": ReferenceSpec("growth_id"), "link_ids": ReferenceSpec("link_id", multiple=True, allow_empty=True), "negative_proof_ids": ReferenceSpec("negative_proof_id", multiple=True, allow_empty=True)},
+        field_kinds=_field_kinds(disposition_id="string", growth_id="string", status="string", canonical_entry_id="string_or_empty", local_growth_status="string", association_status="string", link_ids="list", evidence_ids="list", negative_proof_ids="list", reason_codes="list"),
         record_validator=lambda record, artifact_name, line: _validate_candidate_disposition(
             record, artifact_name, line
         ),
+    ),
+    "candidate_negative_proofs": ArtifactSchema(
+        id_field="negative_proof_id",
+        required_fields=frozenset({"negative_proof_id", "growth_id", "kind", "evidence_ids", "reason_codes"}),
+        enum_fields={"kind": frozenset({"server_controlled_source", "non_retained_owner", "finite_keyspace", "generated_or_test_only", "guaranteed_synchronous_cleanup", "effective_local_bound", "false_entry_growth_flow", "not_entry_reachable"})},
+        reference_fields={"growth_id": ReferenceSpec("growth_id")},
+        field_kinds=_field_kinds(negative_proof_id="string", growth_id="string", kind="string", evidence_ids="list", reason_codes="list"),
+        record_validator=lambda record, artifact_name, line: _validate_candidate_negative_proof(record, artifact_name, line),
     ),
     "repeatability_decisions": ArtifactSchema(
         id_field="decision_id", required_fields=frozenset({"decision_id", "entry_id", "growth_id", "status", "evidence_ids", "reason_codes"}),
@@ -317,7 +335,7 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
             "kind": frozenset({"limit", "quota", "capacity", "backpressure", "rate"}),
             "resource_dimension": _RESOURCE_DIMENSIONS,
             "scope": _RESOURCE_SCOPES,
-            "behavior": frozenset({"reject", "block", "evict", "unknown"}),
+            "behavior": frozenset({"reject", "block", "evict", "clamp", "unknown"}),
             "coverage_status": frozenset({"complete", "partial"}),
         },
         reference_fields={},
@@ -556,6 +574,62 @@ def validate_references(
     validate_records(artifact_name, materialized)
     schema = _schema_for(artifact_name)
     for index, record in enumerate(materialized, start=1):
+        if artifact_name == "candidate_dispositions":
+            canonical_entry_id = record["canonical_entry_id"]
+            known_entries = known_ids.get("entry_id")
+            if canonical_entry_id and (
+                not isinstance(known_entries, (set, frozenset))
+                or canonical_entry_id not in known_entries
+            ):
+                raise _dangling_reference(
+                    artifact_name, index, "canonical_entry_id", canonical_entry_id
+                )
+            if record["status"] in {"formal_eligible", "gap_eligible"}:
+                link_id = record["link_ids"][0]
+                link_ownership = known_ids.get("link_ownership")
+                expected_ownership = (
+                    record["growth_id"],
+                    canonical_entry_id,
+                    record["association_status"],
+                )
+                if (
+                    not isinstance(link_ownership, Mapping)
+                    or link_ownership.get(link_id) != expected_ownership
+                ):
+                    raise _dangling_reference(
+                        artifact_name, index, "link_ids", record["link_ids"]
+                    )
+            proof_growth_ids = known_ids.get("negative_proof_growth_ids")
+            if record["negative_proof_ids"] and (
+                not isinstance(proof_growth_ids, Mapping)
+                or any(
+                    proof_growth_ids.get(proof_id) != record["growth_id"]
+                    for proof_id in record["negative_proof_ids"]
+                )
+            ):
+                raise _dangling_reference(
+                    artifact_name,
+                    index,
+                    "negative_proof_ids",
+                    record["negative_proof_ids"],
+                )
+        if artifact_name == "candidate_negative_proofs":
+            growth_fact_ids = known_ids.get("growth_fact_ids")
+            current_facts = (
+                growth_fact_ids.get(record["growth_id"])
+                if isinstance(growth_fact_ids, Mapping)
+                else None
+            )
+            if not isinstance(current_facts, (set, frozenset)) or any(
+                evidence_id not in current_facts
+                for evidence_id in record["evidence_ids"]
+            ):
+                raise _dangling_reference(
+                    artifact_name,
+                    index,
+                    "evidence_ids",
+                    record["evidence_ids"],
+                )
         if artifact_name == "auth_contracts":
             known_security = known_ids.get("security_fact_ids")
             entry_security = known_ids.get("entry_security_fact_ids")
@@ -700,6 +774,18 @@ def _validate_entry(record: Mapping[str, object], artifact_name: str, line: int)
         raise _error(
             "ARTIFACT_INVALID_ENUM", "Entry registration kind is invalid for its framework.",
             artifact_name, line, "registration",
+        )
+    from dosweb.entries.coverage import registration_coverage_pattern_ids
+
+    if record["registration_pattern_id"] not in registration_coverage_pattern_ids(
+        str(record["framework"]), str(registration_kind)
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Entry registration pattern identity does not match its exact framework and kind.",
+            artifact_name,
+            line,
+            "registration_pattern_id",
         )
 
 
@@ -1023,15 +1109,54 @@ def _validate_lifecycle_result(
         )
 
 
+def _validate_candidate_entry_link(
+    record: Mapping[str, object], artifact_name: str, line: int
+) -> None:
+    for field in ("evidence_ids", "reason_codes"):
+        values = record[field]
+        if (
+            not isinstance(values, list)
+            or not values
+            or any(not isinstance(value, str) or not value for value in values)
+            or values != sorted(set(values))
+        ):
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Candidate Entry link collections must be deterministic strings.",
+                artifact_name,
+                line,
+                field,
+            )
+    semantic = {key: value for key, value in record.items() if key != "link_id"}
+    if record["link_id"] != stable_identifier("candidate_link", semantic):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Candidate Entry link identifier is malformed.",
+            artifact_name,
+            line,
+            "link_id",
+        )
+
+
 def _validate_candidate_disposition(
     record: Mapping[str, object], artifact_name: str, line: int
 ) -> None:
     link_ids = record["link_ids"]
+    evidence_ids = record["evidence_ids"]
+    negative_proof_ids = record["negative_proof_ids"]
     reason_codes = record["reason_codes"]
     if (
         not isinstance(link_ids, list)
         or any(not isinstance(value, str) or not value for value in link_ids)
         or link_ids != sorted(set(link_ids))
+        or not isinstance(evidence_ids, list)
+        or not evidence_ids
+        or any(not isinstance(value, str) or not value for value in evidence_ids)
+        or evidence_ids != sorted(set(evidence_ids))
+        or not isinstance(negative_proof_ids, list)
+        or any(not isinstance(value, str) or not value for value in negative_proof_ids)
+        or negative_proof_ids != sorted(set(negative_proof_ids))
+        or any(not value.startswith("negative_proof:") for value in negative_proof_ids)
         or not isinstance(reason_codes, list)
         or not reason_codes
         or any(not isinstance(value, str) or not value for value in reason_codes)
@@ -1043,21 +1168,64 @@ def _validate_candidate_disposition(
             artifact_name,
             line,
         )
-    if record["status"] == "verified_relevant" and len(link_ids) != 1:
+    canonical_entry_id = record["canonical_entry_id"]
+    if record["status"] in {"formal_eligible", "gap_eligible"} and (
+        len(link_ids) != 1
+        or not isinstance(canonical_entry_id, str)
+        or not canonical_entry_id.startswith("entry:")
+    ):
         raise _error(
             "ARTIFACT_INVALID_RECORD",
-            "Verified relevant candidate requires one canonical Entry link.",
+            "Eligible candidate requires one canonical Entry link.",
             artifact_name,
             line,
             "link_ids",
         )
-    if record["status"] == "dos_relevant_partial" and len(link_ids) != 1:
+    if record["status"] == "formal_eligible" and (
+        record["local_growth_status"] != "complete"
+        or record["association_status"] != "complete"
+        or negative_proof_ids
+    ):
         raise _error(
             "ARTIFACT_INVALID_RECORD",
-            "DoS-relevant partial candidate requires one canonical Entry link.",
+            "Formal candidate evidence is incomplete.",
             artifact_name,
             line,
-            "link_ids",
+            "status",
+        )
+    if record["status"] == "gap_eligible" and (
+        record["local_growth_status"] not in {"complete", "partial"}
+        or record["association_status"] not in {"complete", "partial"}
+        or (
+            record["local_growth_status"] == "complete"
+            and record["association_status"] == "complete"
+        )
+        or negative_proof_ids
+    ):
+        raise _error("ARTIFACT_INVALID_RECORD", "Gap candidate evidence is invalid.", artifact_name, line, "status")
+    cited_negative_proofs = {
+        value for value in evidence_ids if value.startswith("negative_proof:")
+    }
+    if record["status"] == "rejected" and (
+        not negative_proof_ids
+        or set(negative_proof_ids) != cited_negative_proofs
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Rejected candidate must cite deterministic negative proof records.",
+            artifact_name,
+            line,
+            "status",
+        )
+    if record["status"] != "rejected" and (
+        negative_proof_ids or cited_negative_proofs
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Non-rejected candidate cannot carry negative proof records.",
+            artifact_name,
+            line,
+            "status",
         )
     semantic = {key: value for key, value in record.items() if key != "disposition_id"}
     if record["disposition_id"] != stable_identifier("disposition", semantic):
@@ -1067,6 +1235,43 @@ def _validate_candidate_disposition(
             artifact_name,
             line,
             "disposition_id",
+        )
+
+
+def _validate_candidate_negative_proof(
+    record: Mapping[str, object], artifact_name: str, line: int
+) -> None:
+    for field in ("evidence_ids", "reason_codes"):
+        values = record[field]
+        if (
+            not isinstance(values, list)
+            or not values
+            or any(not isinstance(value, str) or not value for value in values)
+            or values != sorted(set(values))
+        ):
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Candidate negative proof collections must be deterministic strings.",
+                artifact_name,
+                line,
+                field,
+            )
+    if any(not _valid_fact_id(value) for value in record["evidence_ids"]):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Candidate negative proof evidence must be source-backed Growth facts.",
+            artifact_name,
+            line,
+            "evidence_ids",
+        )
+    semantic = {key: value for key, value in record.items() if key != "negative_proof_id"}
+    if record["negative_proof_id"] != stable_identifier("negative_proof", semantic):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Candidate negative proof identifier is malformed.",
+            artifact_name,
+            line,
+            "negative_proof_id",
         )
 
 

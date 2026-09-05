@@ -12,8 +12,11 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 class JacksonBoundController {
+    private static final int LIMIT = 1024;
+
     @PostMapping("/json")
     void json(int jacksonSize) {
         StreamReadConstraints.builder().maxStringLength(1024).build()
@@ -25,6 +28,60 @@ class JacksonBoundController {
     void unboundJson(int unboundJacksonSize) {
         StreamReadConstraints.builder().maxStringLength(1024).build();
         ByteBuffer.allocate(unboundJacksonSize);
+    }
+
+    @PostMapping("/plain-allocation")
+    void plainAllocation(int requestedSize) {
+        ByteBuffer.allocate(requestedSize);
+    }
+
+    @PostMapping("/clamped-allocation")
+    void clampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, 1024));
+    }
+
+    @PostMapping("/hex-clamped-allocation")
+    void hexClampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, 0x400));
+    }
+
+    @PostMapping("/binary-clamped-allocation")
+    void binaryClampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000));
+    }
+
+    @PostMapping("/expression-clamped-allocation")
+    void expressionClampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, 512 + 512));
+    }
+
+    @PostMapping("/constant-variable-clamped-allocation")
+    void constantVariableClampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, LIMIT));
+    }
+
+    @PostMapping("/server-derived-clamped-allocation")
+    void serverDerivedClampedAllocation() {
+        ByteBuffer.allocate(Math.min(serverDerivedValue(), 1024));
+    }
+
+    private int serverDerivedValue() {
+        return 64;
+    }
+
+    @PostMapping("/zero-clamped-allocation")
+    void zeroClampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, 0));
+    }
+
+    @PostMapping("/negative-clamped-allocation")
+    void negativeClampedAllocation(@RequestParam int requestedSize) {
+        ByteBuffer.allocate(Math.min(requestedSize, -1));
+    }
+
+    @PostMapping("/constant-clamped-allocation")
+    void constantClampedAllocation() {
+        ByteBuffer.allocate(Math.min(-1, 1024));
     }
 }
 

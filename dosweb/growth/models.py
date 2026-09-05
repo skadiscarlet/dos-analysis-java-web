@@ -37,7 +37,7 @@ _STATIC_FACT_KINDS = frozenset(
         "async_submission", "flow", "guard", "bound", "release",
         "driver_origin", "value_space", "escape_scope", "retention", "amplification",
         "loop_multiplicity", "field_identity", "materialization_phase",
-        "known_limit_location",
+        "known_limit_location", "attacker_target",
     }
 )
 _STATIC_FACT_VALUES = {
@@ -70,6 +70,9 @@ _STATIC_FACT_VALUES = {
     ),
     "known_limit_location": frozenset(
         {"pre_growth", "post_growth", "configured_unknown_phase", "none", "unknown"}
+    ),
+    "attacker_target": frozenset(
+        {"size", "key", "value", "iteration_count", "submission_count", "unknown"}
     ),
 }
 _FLOW_NORMALIZED_VALUES = _STATIC_FACT_VALUES["driver_origin"]
@@ -176,7 +179,7 @@ class StaticFact:
         "container_write", "allocation", "input_materialization", "async_submission",
         "flow", "guard", "bound", "release", "driver_origin", "value_space",
         "escape_scope", "retention", "amplification", "loop_multiplicity", "field_identity",
-        "materialization_phase", "known_limit_location",
+        "materialization_phase", "known_limit_location", "attacker_target",
     ]
     location_ref: str
     relation: Literal["source", "sink", "flows_to", "guards", "bounds", "releases"]
@@ -345,6 +348,113 @@ class AttackerInfluence:
 
 
 @dataclass(frozen=True)
+class ProviderGrowthContract:
+    """Strict v5 provider response before local candidate-shape binding."""
+
+    is_resource_growth: Literal["yes", "no", "unknown"]
+    attacker_evidence_ids: tuple[str, ...]
+    resource_effect: Literal["materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"]
+    attacker_variable: str
+    attacker_value_space: Literal["stream", "unlimited", "large", "limited", "server_controlled", "unknown"]
+    growth_unit: str
+    growth_function: str
+    amplification_class: Literal["superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"]
+    requests_to_pressure: Literal["one", "few", "many", "implausible", "unknown"]
+    concurrency_model: str
+    retention_window: Literal["request", "session", "process", "until_release", "unknown"]
+    failure_mechanism: Literal["heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"]
+    failure_signal: str
+    required_static_evidence: tuple[str, ...]
+    contract_status: Literal["dos_relevant", "growth_not_dos_relevant", "unknown"]
+    rejection_reason: Literal["none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"]
+    confidence: Literal["high", "medium", "low"]
+
+    def __post_init__(self) -> None:
+        try:
+            attacker_evidence = tuple(islice(iter(self.attacker_evidence_ids), 17))
+            required = tuple(islice(iter(self.required_static_evidence), 33))
+        except (TypeError, ValueError, OverflowError, MemoryError, RecursionError) as exc:
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid provider Growth Contract.") from exc
+        object.__setattr__(self, "attacker_evidence_ids", attacker_evidence)
+        object.__setattr__(self, "required_static_evidence", required)
+        free_text = (
+            self.attacker_variable,
+            self.growth_unit,
+            self.growth_function,
+            self.concurrency_model,
+            self.failure_signal,
+        )
+        valid_text = all(
+            isinstance(value, str)
+            and bool(value)
+            and _utf8_bytes_at_most(value, _CONTRACT_TEXT_BYTES) is not None
+            and "\x00" not in value
+            and "\n" not in value
+            and "\r" not in value
+            and _CONTRACT_SECRET.search(value) is None
+            and _CONTRACT_SOURCE.search(value) is None
+            for value in free_text
+        )
+        valid_status = (
+            self.contract_status != "growth_not_dos_relevant"
+            or self.rejection_reason not in {"none", "unknown"}
+        ) and (
+            self.contract_status != "dos_relevant" or self.rejection_reason == "none"
+        ) and (
+            self.contract_status != "dos_relevant" or self.is_resource_growth == "yes"
+        ) and (
+            self.contract_status != "unknown"
+            or (self.rejection_reason == "unknown" and self.is_resource_growth == "unknown")
+        )
+        if (
+            self.is_resource_growth not in {"yes", "no", "unknown"}
+            or self.resource_effect not in {"materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"}
+            or self.attacker_value_space not in {"stream", "unlimited", "large", "limited", "server_controlled", "unknown"}
+            or self.amplification_class not in {"superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"}
+            or self.requests_to_pressure not in {"one", "few", "many", "implausible", "unknown"}
+            or self.retention_window not in {"request", "session", "process", "until_release", "unknown"}
+            or self.failure_mechanism not in {"heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"}
+            or self.contract_status not in {"dos_relevant", "growth_not_dos_relevant", "unknown"}
+            or self.rejection_reason not in {"none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"}
+            or self.confidence not in {"high", "medium", "low"}
+            or len(attacker_evidence) > 16
+            or len(set(attacker_evidence)) != len(attacker_evidence)
+            or not all(_id(value, "fact:") for value in attacker_evidence)
+            or len(required) > 32
+            or len(set(required)) != len(required)
+            or not all(_id(value, "fact:") for value in required)
+            or not valid_text
+            or not valid_status
+            or (
+                self.contract_status == "dos_relevant"
+                and (not attacker_evidence or not required)
+            )
+        ):
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid provider Growth Contract.")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "is_resource_growth": self.is_resource_growth,
+            "attacker_evidence_ids": list(self.attacker_evidence_ids),
+            "resource_effect": self.resource_effect,
+            "attacker_variable": self.attacker_variable,
+            "attacker_value_space": self.attacker_value_space,
+            "growth_unit": self.growth_unit,
+            "growth_function": self.growth_function,
+            "amplification_class": self.amplification_class,
+            "requests_to_pressure": self.requests_to_pressure,
+            "concurrency_model": self.concurrency_model,
+            "retention_window": self.retention_window,
+            "failure_mechanism": self.failure_mechanism,
+            "failure_signal": self.failure_signal,
+            "required_static_evidence": list(self.required_static_evidence),
+            "contract_status": self.contract_status,
+            "rejection_reason": self.rejection_reason,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass(frozen=True)
 class GrowthContract:
     is_resource_growth: Literal["yes", "no", "unknown"]
     growth_kind: Literal["input_materialization", "direct_allocation", "container_growth", "async_work_growth", "unknown"]
@@ -397,6 +507,8 @@ class GrowthContract:
             or self.rejection_reason not in {"none", "unknown"}
         ) and (
             self.contract_status != "dos_relevant" or self.rejection_reason == "none"
+        ) and (
+            self.contract_status != "dos_relevant" or self.is_resource_growth == "yes"
         ) and (
             self.contract_status != "unknown"
             or (self.rejection_reason == "unknown" and self.is_resource_growth == "unknown")

@@ -9,6 +9,7 @@ from dosweb.growth.completeness import (
     AmplificationDecision,
     CandidateDisposition,
     CandidateEntryLink,
+    CandidateNegativeProof,
     RepeatabilityDecision,
 )
 from dosweb.growth.models import (
@@ -18,6 +19,7 @@ from dosweb.growth.models import (
     CfgSummary,
     ConfigFact,
     GrowthContract,
+    ProviderGrowthContract,
     RegistrationFact,
     SourceExcerpt,
     StaticFact,
@@ -48,6 +50,7 @@ __all__ = [
     "AttackerInfluence",
     "CandidateDisposition",
     "CandidateEntryLink",
+    "CandidateNegativeProof",
     "BoundedSlice",
     "BoundedSlicePayload",
     "CfgSummary",
@@ -58,6 +61,7 @@ __all__ = [
     "EscapeScope",
     "GrowthCandidate",
     "GrowthContract",
+    "ProviderGrowthContract",
     "GrowthKind",
     "GrowthStaticEvidence",
     "RegistrationFact",

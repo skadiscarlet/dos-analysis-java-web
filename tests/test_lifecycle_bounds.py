@@ -52,6 +52,11 @@ class BoundEvaluationTests(unittest.TestCase):
                 f"fixture/{framework}/Handler.java",
                 8,
             ),
+            registration_pattern_id={
+                "spring_mvc": "entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",
+                "servlet": "entry-registration-coverage:servlet:annotation_mapping:servlet_annotation_mapping",
+                "netty": "entry-registration-coverage:netty:pipeline_registration:netty_pipeline_registration",
+            }[framework],
             route_or_event="/bounded",
             auth_context="unauthenticated",
             attacker_inputs=(
@@ -124,6 +129,24 @@ class BoundEvaluationTests(unittest.TestCase):
             ModeledConfiguration(()),
         )
         self.assertEqual("unknown", invalid.status)
+
+    def test_numeric_clamp_is_an_effective_literal_bound(self) -> None:
+        clamp = self._candidate(
+            kind="limit",
+            behavior="clamp",
+            configuration_key="literal",
+            configuration_value="1024",
+        )
+
+        decision = evaluate_bound(
+            self.entry,
+            self.growth,
+            self.flow,
+            (clamp,),
+            ModeledConfiguration(()),
+        )
+
+        self.assertEqual("effective", decision.status)
 
     def test_bound_requires_same_receiver_and_consistent_enabled_configuration(self) -> None:
         cases = (

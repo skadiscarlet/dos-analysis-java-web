@@ -90,7 +90,7 @@ def evaluate_bound(entry: EntryFact, growth: VerifiedGrowthResult, flow: Verifie
         else:
             local.extend(framework_reasons)
         if not candidate.product_bound: local.append("BOUND_MULTIPLICATIVE_DEMAND_UNCOVERED")
-        if candidate.phase not in {"before_growth", "inside_growth"} or not candidate.covers_flow or candidate.behavior not in {"reject", "block", "evict"}: local.append("BOUND_POSSIBLY_OVER_BUDGET")
+        if candidate.phase not in {"before_growth", "inside_growth"} or not candidate.covers_flow or candidate.behavior not in {"reject", "block", "evict", "clamp"}: local.append("BOUND_POSSIBLY_OVER_BUDGET")
         if candidate.configuration_key == "literal":
             try:
                 literal_capacity = int(candidate.configuration_value)

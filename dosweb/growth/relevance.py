@@ -41,6 +41,22 @@ _AMPLIFICATIONS = frozenset(
     }
 )
 _TOKEN = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+_REQUEST_LOCAL_CARDINALITY_PROVEN_NOTES = frozenset(
+    {
+        "request_local_container_write:key_driver_unclassified:"
+        "attacker_controlled_loop_cardinality_proven",
+        "request_local_container_write:attacker_value_driver:"
+        "attacker_controlled_loop_cardinality_proven",
+        "request_local_container_write:value_driver_unclassified:"
+        "attacker_controlled_loop_cardinality_proven",
+    }
+)
+_SERVER_CONTROLLED_ALLOCATION_NOTES = frozenset(
+    {
+        "direct_allocation:server_metadata_size",
+        "direct_allocation:server_controlled_fixed_size",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -151,12 +167,18 @@ def evaluate_candidate_relevance(
             "ANALYSIS_CANDIDATE_COMPLETENESS_INVALID",
             "Growth relevance links are invalid.",
         ) from exc
-    if len(materialized_links) > 64 or any(
-        not isinstance(link, CandidateEntryLink) for link in materialized_links
-    ):
+    if any(not isinstance(link, CandidateEntryLink) for link in materialized_links):
         raise AnalyzerError(
             "ANALYSIS_CANDIDATE_COMPLETENESS_INVALID",
             "Growth relevance links are invalid.",
+        )
+    # A high-fanout association is an unresolved candidate, not a target failure.
+    # Rebuild-class apps can emit hundreds of same-file source-order links.
+    if len(materialized_links) > 64:
+        return _decision(
+            "unresolved",
+            "unknown",
+            "RELEVANCE_LINK_FANOUT_EXCEEDED",
         )
     if _test_or_benchmark_path(candidate.site.file):
         return _decision(
@@ -168,7 +190,11 @@ def evaluate_candidate_relevance(
 
     # These facts are self-contained and can be rejected even without a
     # canonical Entry association.
-    if "server_metadata_size" in note_text:
+    if (
+        candidate.kind == "direct_allocation"
+        and bool(notes)
+        and notes <= _SERVER_CONTROLLED_ALLOCATION_NOTES
+    ):
         if candidate.coverage_status == "complete":
             return _decision(
                 "rejected",
@@ -197,20 +223,20 @@ def evaluate_candidate_relevance(
             "unresolved", "low_amplification", "RELEVANCE_FIXED_KEY_PARTIAL"
         )
     if any(
-        suffix in note_text
-        for suffix in (
-            "single_submission_no_enclosing_loop",
-            "single_operation_no_enclosing_loop",
+        marker in note_text
+        for marker in (
+            "finite_enum_keyspace",
+            "finite_class_keyspace",
+            "finite_keyspace_complete",
         )
-    ) and candidate.kind == "async_work_growth":
+    ):
         if candidate.coverage_status == "complete":
             return _decision(
-                "rejected", "low_amplification", "RELEVANCE_SINGLE_SUBMISSION"
+                "rejected", "low_amplification", "RELEVANCE_FINITE_KEYSPACE"
             )
         return _decision(
-            "unresolved", "low_amplification", "RELEVANCE_SINGLE_SUBMISSION_PARTIAL"
+            "unresolved", "low_amplification", "RELEVANCE_FINITE_KEYSPACE_PARTIAL"
         )
-
     link = _canonical_link(entry, candidate, materialized_links)
     if link is None or entry is None:
         return _decision(
@@ -286,6 +312,28 @@ def evaluate_candidate_relevance(
         )
 
     if candidate.kind == "container_growth":
+        if candidate.escape_scope == "request":
+            attacker_cardinality = not notes.isdisjoint(
+                _REQUEST_LOCAL_CARDINALITY_PROVEN_NOTES
+            )
+            if attacker_cardinality and not association_partial:
+                return _partial_or_eligible(
+                    candidate,
+                    "superlinear",
+                    "RELEVANCE_ATTACKER_CARDINALITY_REQUEST_LOCAL",
+                )
+            if attacker_cardinality:
+                return _decision(
+                    "dos_relevant_partial",
+                    "superlinear",
+                    "RELEVANCE_ATTACKER_CARDINALITY_REQUEST_LOCAL",
+                    "RELEVANCE_STATIC_EVIDENCE_PARTIAL",
+                )
+            return _decision(
+                "unresolved",
+                "unknown",
+                "RELEVANCE_REQUEST_LOCAL_CARDINALITY_UNPROVEN",
+            )
         if candidate.escape_scope == "session" and "fresh_session" in note_text:
             return _decision(
                 "unresolved",

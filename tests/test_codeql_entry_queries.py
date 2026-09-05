@@ -99,7 +99,13 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
         for column in SECURITY_COLUMNS:
             self.assertIn(f'"{column}"', security)
         for marker in (
-            "PermitAll",
+            'hasQualifiedName("javax.annotation.security", "PermitAll")',
+            'hasQualifiedName("jakarta.annotation.security", "PermitAll")',
+            'hasQualifiedName("com.vaadin.flow.server.auth", "AnonymousAllowed")',
+            'hasQualifiedName("javax.annotation.security", "RolesAllowed")',
+            'hasQualifiedName("jakarta.annotation.security", "RolesAllowed")',
+            'hasQualifiedName("org.springframework.security.access.annotation", "Secured")',
+            'hasQualifiedName("org.springframework.security.access.prepost", "PreAuthorize")',
             "isAuthenticated()",
             "ServletSecurity",
             "requestMatchers",
@@ -109,9 +115,23 @@ class CodeqlEntryQueryContractTests(unittest.TestCase):
             "conditional_property:",
             'value = "optional"',
             "dynamic_security_matcher_partial",
+            "simplePositiveProfile",
+            "spring_profile_expression_presence_unresolved",
+            "conditional_presence_default_distribution_unresolved",
+            "exactAdministrativeRole",
+            "role_requirement_not_proven_administrative",
+            'getStringValue("prefix")',
+            'getBooleanValue("matchIfMissing")',
+            "conditional_property_requires_static_name_value_prefix_and_absence_semantics",
         ):
             self.assertIn(marker, security)
+        self.assertNotIn("predicate namedAnnotation", security)
         self.assertNotIn("not hasConditionalDeployment", security)
+        self.assertNotIn(
+            'value = "optional" and coverageStatus = "complete"', security
+        )
+        self.assertNotIn('.matches("%hasRole%")', security)
+        self.assertNotIn('.matches("%hasAuthority%")', security)
 
     def test_security_decoder_has_an_independent_strict_contract(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -229,7 +249,6 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
             ),
             rows,
         )
-
     def test_local_generated_grpc_streaming_service_registration_is_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             rows, entries = self._entry_fixture_rows(
@@ -315,6 +334,175 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
             any(
                 row["handler_fqn"].endswith("SpringFixture.handle")
                 and row["kind"] == "deployment_gate"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith("SecuritySemanticsFixture.userRole")
+                and row["value"] == "security_matcher_unknown"
+                and row["coverage_status"] == "partial"
+                and row["coverage_note"] == "role_requirement_not_proven_administrative"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith("SecuritySemanticsFixture.adminRole")
+                and row["value"] == "privileged_annotation"
+                and row["coverage_status"] == "complete"
+                for row in rows
+            ),
+            rows,
+        )
+        for suffix in (
+            "substringAdminRole",
+            "mixedAdminRole",
+            "substringAdminExpression",
+            "userRoleExpression",
+        ):
+            self.assertTrue(
+                any(
+                    row["handler_fqn"].endswith(f"SecuritySemanticsFixture.{suffix}")
+                    and row["value"] == "security_matcher_unknown"
+                    and row["coverage_status"] == "partial"
+                    and row["coverage_note"]
+                    == "role_requirement_not_proven_administrative"
+                    for row in rows
+                ),
+                (suffix, rows),
+            )
+        for suffix in ("exactAdminExpression", "exactAdminAuthority"):
+            self.assertTrue(
+                any(
+                    row["handler_fqn"].endswith(f"SecuritySemanticsFixture.{suffix}")
+                    and row["value"] == "privileged_annotation"
+                    and row["coverage_status"] == "complete"
+                    for row in rows
+                ),
+                (suffix, rows),
+            )
+        for suffix in (
+            "conditionalBean",
+            "conditionalClass",
+            "conditionalExpression",
+            "conditionalGeneric",
+        ):
+            self.assertTrue(
+                any(
+                    row["handler_fqn"].endswith(f"SecuritySemanticsFixture.{suffix}")
+                    and row["value"] == "optional"
+                    and row["coverage_status"] == "partial"
+                    and row["coverage_note"]
+                    == "conditional_presence_default_distribution_unresolved"
+                    for row in rows
+                ),
+                (suffix, rows),
+            )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith("SecuritySemanticsFixture.negatedProfile")
+                and row["value"] == "profile:!prod"
+                and row["coverage_status"] == "partial"
+                and row["coverage_note"]
+                == "spring_profile_expression_presence_unresolved"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith("SecuritySemanticsFixture.simpleProfile")
+                and row["value"] == "profile:prod"
+                and row["coverage_status"] == "complete"
+                for row in rows
+            ),
+            rows,
+        )
+        for suffix in (
+            "conjunctionProfile",
+            "disjunctionProfile",
+            "multipleProfiles",
+        ):
+            matching_profiles = [
+                row
+                for row in rows
+                if row["handler_fqn"].endswith(f"SecuritySemanticsFixture.{suffix}")
+            ]
+            self.assertTrue(matching_profiles, (suffix, rows))
+            self.assertTrue(
+                all(
+                    row["coverage_status"] == "partial"
+                    and row["coverage_note"]
+                    == "spring_profile_expression_presence_unresolved"
+                    for row in matching_profiles
+                ),
+                (suffix, matching_profiles),
+            )
+        for suffix in ("prefixedProperty", "dottedPrefixedProperty"):
+            self.assertTrue(
+                any(
+                    row["handler_fqn"].endswith(
+                        f"SecuritySemanticsFixture.{suffix}"
+                    )
+                    and row["value"]
+                    == "conditional_property:feature.enabled=true"
+                    and row["coverage_status"] == "complete"
+                    and row["coverage_note"]
+                    == "explicit_conditional_property_gate"
+                    for row in rows
+                ),
+                (suffix, rows),
+            )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith(
+                    "SecuritySemanticsFixture.matchIfMissingProperty"
+                )
+                and row["value"] == "conditional_property_unknown"
+                and row["coverage_status"] == "partial"
+                and row["coverage_note"]
+                == "conditional_property_requires_static_name_value_prefix_and_absence_semantics"
+                for row in rows
+            ),
+            rows,
+        )
+        for suffix in ("customPermitAll", "customRolesAllowed"):
+            self.assertFalse(
+                any(
+                    row["handler_fqn"].endswith(
+                        f"SecuritySemanticsFixture.{suffix}"
+                    )
+                    and row["kind"] == "annotation"
+                    for row in rows
+                ),
+                (suffix, rows),
+            )
+        self.assertTrue(
+            any(
+                row["route_or_event"] == "/api/**"
+                and row["value"] == "low_privilege_filter"
+                and row["coverage_status"] == "complete"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["route_or_event"] == "/api/admin/**"
+                and row["value"] == "privileged_filter"
+                and row["coverage_status"] == "complete"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["route_or_event"] == "/api/user/**"
+                and row["value"] == "security_matcher_unknown"
+                and row["coverage_status"] == "partial"
                 for row in rows
             ),
             rows,

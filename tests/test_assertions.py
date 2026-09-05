@@ -44,10 +44,10 @@ class AssertionTests(unittest.TestCase):
         self.coverage = CandidateCoverage(
             framework=self.entry.framework,
             status="complete",
-            supported_patterns=(self.entry.registration.kind,),
+            supported_patterns=(self.entry.registration_pattern_id,),
             unsupported_patterns=(),
             effect_on_verdict="none",
-            registration_pattern=self.entry.registration.kind,
+            registration_pattern_id=self.entry.registration_pattern_id,
             entry_id=self.entry.entry_id,
             growth_id=self.growth.growth_id,
             path_id=self.flow.path_id,
@@ -164,7 +164,8 @@ class AssertionTests(unittest.TestCase):
             ordinary_reachability=True,
             growth_verified=True,
             flow_proven=True,
-            lifecycle_families_complete=True,
+            assertion_1_lifecycle_complete=True,
+            assertion_2_lifecycle_complete=True,
             candidate_relevant_gap_free=True,
         )
 
@@ -176,13 +177,14 @@ class AssertionTests(unittest.TestCase):
             self.growth, self.flow, self.no_bound, self.no_release
         )
         verdict = derive_verdict((matched, not_applicable), self.coverage)
-        complete = VerdictProofGate(True, True, True, True, True, True)
+        complete = VerdictProofGate(True, True, True, True, True, True, True)
         reasons = {
             "entry_complete": "VERDICT_ENTRY_COVERAGE_INCOMPLETE",
             "ordinary_reachability": "VERDICT_REACHABILITY_NOT_PROVEN",
             "growth_verified": "VERDICT_GROWTH_NOT_VERIFIED",
             "flow_proven": "VERDICT_FLOW_NOT_PROVEN",
-            "lifecycle_families_complete": "VERDICT_LIFECYCLE_COVERAGE_INCOMPLETE",
+            "assertion_1_lifecycle_complete": "VERDICT_ASSERTION_1_LIFECYCLE_COVERAGE_INCOMPLETE",
+            "assertion_2_lifecycle_complete": "VERDICT_ASSERTION_2_LIFECYCLE_COVERAGE_INCOMPLETE",
             "candidate_relevant_gap_free": "VERDICT_CANDIDATE_RELEVANT_GAP",
         }
 
@@ -195,6 +197,98 @@ class AssertionTests(unittest.TestCase):
                 self.assertEqual(gated.verdict, "static_unknown")
                 self.assertIn(reason, gated.reason_codes)
 
+    def test_positive_proof_gate_downgrades_bounded_candidate_gap(self) -> None:
+        guard = GuardDecision(
+            "effective", (), (), ("fact:guard",), (), ("guard:one",)
+        )
+        bounded = derive_verdict(
+            (
+                evaluate_assertion_1(self.growth, self.flow, guard, self.no_bound),
+                self.no_release_assertion(),
+            ),
+            self.coverage,
+        )
+        gate = VerdictProofGate(True, True, True, True, True, True, False)
+
+        gated = apply_positive_proof_gate(bounded, gate)
+
+        self.assertEqual("static_unknown", gated.verdict)
+        self.assertEqual(
+            ("VERDICT_CANDIDATE_RELEVANT_GAP",),
+            tuple(sorted(set(gated.reason_codes) - set(bounded.reason_codes))),
+        )
+        self.assertNotIn("STATIC_EVIDENCE_COVERAGE_COMPLETE", gated.assumptions)
+        self.assertIn("MODELED_DEFAULT_CONFIGURATION", gated.assumptions)
+        self.assertEqual(bounded.modeled_configuration_refs, gated.modeled_configuration_refs)
+
+    def test_positive_proof_gate_downgrades_bounded_applicable_lifecycle_gap(self) -> None:
+        guard = GuardDecision(
+            "effective", (), (), ("fact:guard",), (), ("guard:one",)
+        )
+        bounded = derive_verdict(
+            (
+                evaluate_assertion_1(self.growth, self.flow, guard, self.no_bound),
+                self.no_release_assertion(),
+            ),
+            self.coverage,
+        )
+        gate = VerdictProofGate(True, True, True, True, False, True, True)
+
+        gated = apply_positive_proof_gate(bounded, gate)
+
+        self.assertEqual("static_unknown", gated.verdict)
+        self.assertEqual(
+            ("VERDICT_ASSERTION_1_LIFECYCLE_COVERAGE_INCOMPLETE",),
+            tuple(sorted(set(gated.reason_codes) - set(bounded.reason_codes))),
+        )
+        self.assertNotIn("STATIC_EVIDENCE_COVERAGE_COMPLETE", gated.assumptions)
+        self.assertIn("MODELED_DEFAULT_CONFIGURATION", gated.assumptions)
+        self.assertEqual(bounded.modeled_configuration_refs, gated.modeled_configuration_refs)
+
+    def test_positive_proof_gate_downgrades_bounded_with_all_missing_reasons(self) -> None:
+        guard = GuardDecision(
+            "effective", (), (), ("fact:guard",), (), ("guard:one",)
+        )
+        bounded = derive_verdict(
+            (
+                evaluate_assertion_1(self.growth, self.flow, guard, self.no_bound),
+                self.no_release_assertion(),
+            ),
+            self.coverage,
+        )
+        gate = VerdictProofGate(False, False, False, False, False, False, False)
+
+        gated = apply_positive_proof_gate(bounded, gate)
+
+        self.assertEqual("static_unknown", gated.verdict)
+        self.assertEqual(
+            gate.missing_reason_codes,
+            tuple(sorted(set(gated.reason_codes) - set(bounded.reason_codes))),
+        )
+
+    def test_positive_proof_gate_keeps_unknown_and_records_missing_reasons(self) -> None:
+        matched = evaluate_assertion_1(
+            self.growth, self.flow, self.no_guard, self.no_bound
+        )
+        unknown = AssertionEvaluation(
+            "assertion_2",
+            "unknown",
+            ("A2_RELEASE_UNKNOWN",),
+            tuple(sorted((self.entry.entry_id, self.growth.growth_id, self.flow.path_id))),
+            ("release",),
+        )
+        verdict = derive_verdict((matched, unknown), self.coverage)
+        gate = VerdictProofGate(True, True, True, True, True, False, True)
+
+        gated = apply_positive_proof_gate(verdict, gate)
+
+        self.assertEqual("static_unknown", gated.verdict)
+        self.assertIn(
+            "VERDICT_ASSERTION_2_LIFECYCLE_COVERAGE_INCOMPLETE",
+            gated.reason_codes,
+        )
+        self.assertNotIn("STATIC_EVIDENCE_COVERAGE_COMPLETE", gated.assumptions)
+
     def test_coverage_gap_or_unknown_evidence_forces_static_unknown(self) -> None:
         matched = evaluate_assertion_1(self.growth, self.flow, self.no_guard, self.no_bound)
         gap = CandidateCoverage(
@@ -203,7 +297,7 @@ class AssertionTests(unittest.TestCase):
             supported_patterns=(),
             unsupported_patterns=("dynamic_registration",),
             effect_on_verdict="forces_unknown",
-            registration_pattern=self.entry.registration.kind,
+            registration_pattern_id=self.entry.registration_pattern_id,
             entry_id=self.entry.entry_id,
             growth_id=self.growth.growth_id,
             path_id=self.flow.path_id,
@@ -225,7 +319,7 @@ class AssertionTests(unittest.TestCase):
     def test_scoped_coverage_rejects_omitted_candidate_scope(self) -> None:
         self.assertFalse(self.coverage.relevant_to(
             framework=self.entry.framework,
-            registration_pattern=self.entry.registration.kind,
+            registration_pattern_id=self.entry.registration_pattern_id,
             entry_id=self.entry.entry_id,
             growth_id=self.growth.growth_id,
             path_id=None,
@@ -242,8 +336,10 @@ class AssertionTests(unittest.TestCase):
         ):
             scoped = CandidateCoverage(
                 framework=self.entry.framework, status="complete",
-                supported_patterns=(self.entry.registration.kind,), unsupported_patterns=(),
-                effect_on_verdict="none", **{field: value},
+                supported_patterns=(self.entry.registration_pattern_id,), unsupported_patterns=(),
+                effect_on_verdict="none",
+                registration_pattern_id=self.entry.registration_pattern_id,
+                **{field: value},
             )
             with self.subTest(field=field), self.assertRaises(Exception):
                 derive_verdict((matched,), scoped)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -13,6 +14,7 @@ _MAX_SOURCE_BYTES = 512 * 1024
 _DEPLOYMENT_VALUES = frozenset(
     {"default_enabled", "default_disabled", "optional", "unknown"}
 )
+_SIMPLE_POSITIVE_PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 def _bounded_source_text(source_root: Path, relative_file: str) -> str | None:
@@ -171,7 +173,8 @@ def _route_matches(matcher: str, route: str) -> bool:
         return False
     expected, actual = _route_path(matcher), _route_path(route)
     if expected.endswith("/**"):
-        return actual.startswith(expected[:-3].rstrip("/"))
+        prefix = expected[:-3].rstrip("/")
+        return actual == prefix or actual.startswith(prefix + "/")
     if expected.endswith("/*"):
         prefix = expected[:-2].rstrip("/")
         return actual.startswith(prefix + "/") and "/" not in actual[len(prefix) + 1:]
@@ -182,20 +185,23 @@ def bind_entry_security_rows(
     rows: Sequence[Mapping[str, object]],
     entries: Sequence[Mapping[str, object]],
 ) -> tuple[EntrySecurityFact, ...]:
-    """Bind typed security rows to one normalized Entry, never by proximity."""
+    """Bind typed security rows by route semantics or exact handler identity."""
 
     facts: dict[str, EntrySecurityFact] = {}
     for row in rows:
         route = row.get("route_or_event")
+        concrete_route = (
+            isinstance(route, str) and bool(route) and route != "dynamic_matcher"
+        )
         candidates: list[Mapping[str, object]] = []
-        if isinstance(route, str) and route and route != "dynamic_matcher":
+        if concrete_route:
             candidates = [
                 entry
                 for entry in entries
                 if isinstance(entry.get("route_or_event"), str)
                 and _route_matches(route, str(entry["route_or_event"]))
             ]
-        if not candidates:
+        else:
             handler_fqn = row.get("handler_fqn")
             handler_file = row.get("handler_file")
             handler_line = row.get("handler_start_line")
@@ -209,34 +215,52 @@ def bind_entry_security_rows(
                     and handler.get("start_line") == handler_line
                 ):
                     candidates.append(entry)
-        if len(candidates) != 1:
+            if len(candidates) != 1:
+                continue
+        if not candidates:
             continue
-        entry_id = candidates[0].get("entry_id")
         kind = row.get("kind")
         value = row.get("value")
         fact_file = row.get("fact_file")
         fact_line = row.get("fact_start_line")
         coverage = row.get("coverage_status")
-        if not all(isinstance(item, str) and item for item in (entry_id, kind, value, fact_file, coverage)):
+        if not all(
+            isinstance(item, str) and item
+            for item in (kind, value, fact_file, coverage)
+        ):
             continue
         if not isinstance(fact_line, int) or isinstance(fact_line, bool) or fact_line < 1:
             continue
-        fact = EntrySecurityFact(
-            str(entry_id), str(kind), str(fact_file), fact_line, str(value), str(coverage)
-        )
-        facts[fact.fact_id] = fact
+        for candidate in candidates:
+            entry_id = candidate.get("entry_id")
+            if not isinstance(entry_id, str) or not entry_id:
+                continue
+            fact = EntrySecurityFact(
+                entry_id,
+                str(kind),
+                str(fact_file),
+                fact_line,
+                str(value),
+                str(coverage),
+            )
+            facts[fact.fact_id] = fact
     return tuple(sorted(facts.values(), key=lambda fact: fact.fact_id))
 
 
 def _configuration_index(
     configuration_facts: Iterable[ModeledConfigurationFact | Mapping[str, object]],
 ) -> dict[str, object]:
-    result: dict[str, object] = {}
+    values_by_key: dict[str, dict[tuple[type[object], object], object]] = {}
     for raw in configuration_facts:
         fact = raw if isinstance(raw, ModeledConfigurationFact) else ModeledConfigurationFact.from_dict(raw)
         if fact.status == "known" and fact.default_effective:
-            result[fact.key] = fact.value
-    return result
+            typed_value = (type(fact.value), fact.value)
+            values_by_key.setdefault(fact.key, {})[typed_value] = fact.value
+    return {
+        key: next(iter(typed_values.values()))
+        for key, typed_values in values_by_key.items()
+        if len(typed_values) == 1
+    }
 
 
 def resolve_deployment_status(
@@ -255,6 +279,8 @@ def resolve_deployment_status(
             continue
         if fact.value.startswith("profile:"):
             required = fact.value.removeprefix("profile:").strip()
+            if _SIMPLE_POSITIVE_PROFILE.fullmatch(required) is None:
+                continue
             active = configuration.get("spring.profiles.active")
             if isinstance(active, str):
                 profiles = {item.strip() for item in active.split(",") if item.strip()}
