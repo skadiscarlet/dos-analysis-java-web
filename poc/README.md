@@ -2,7 +2,7 @@
 
 - Source JSON: `results/applications_dynamic_validation/binary_truth_collection.json`
 - Source Markdown: `results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`
-- Confirmed true positives: `29`
+- Confirmed true positives: `33`
 
 Each case directory contains:
 
@@ -42,3 +42,7 @@ Each case directory contains:
 | `WGCLOUD-APP-STATIC-0002` | `tianshiyeben__wgcloud` | `p1` | `verified_oom` | [目录](WGCLOUD-APP-STATIC-0002/) |
 | `XXL-JOB-APP-STATIC-0003` | `xuxueli__xxl-job` | `p1` | `confirmed_thread_exhaustion` | [目录](XXL-JOB-APP-STATIC-0003/) |
 | `XXL-JOB-APP-STATIC-0004` | `xuxueli__xxl-job` | `p1` | `verified_oom` | [目录](XXL-JOB-APP-STATIC-0004/) |
+| `grobidorg__grobid-GROBID-STATIC-001` | `grobidorg/grobid` | `new_confirmed_20260812` | `confirmed_oom` | [目录](grobidorg__grobid-GROBID-STATIC-001/) |
+| `grobidorg__grobid-GROBID-STATIC-002` | `grobidorg/grobid` | `new_confirmed_20260812` | `confirmed_oom` | [目录](grobidorg__grobid-GROBID-STATIC-002/) |
+| `jetlinks__jetlinks-community-JL-STAGEA-0001` | `jetlinks/jetlinks-community` | `new_confirmed_20260812` | `confirmed_oom` | [目录](jetlinks__jetlinks-community-JL-STAGEA-0001/) |
+| `walmartlabs__concord-fnd3` | `walmartlabs/concord` | `new_confirmed_20260812` | `confirmed_oom` | [目录](walmartlabs__concord-fnd3/) |

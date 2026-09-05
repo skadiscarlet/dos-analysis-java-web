@@ -1,0 +1,1 @@
+package org.springframework.boot.web.servlet; import javax.servlet.Filter; public class FilterRegistrationBean<T extends Filter> { public void setFilter(T f) {} public void addUrlPatterns(String p) {} public void setOrder(int n) {} }

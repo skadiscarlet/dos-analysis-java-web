@@ -1,4 +1,6 @@
 {
+  "status": "historical_superseded",
+  "superseded_by": "intel/applications/java_web_200_targets.json",
   "generated_at": "2026-06-23T06:10:03.232581+00:00",
   "criteria": {
     "source": "GitHub Search API plus replacement retry pool; final list filtered by successful CodeQL build-mode database creation",

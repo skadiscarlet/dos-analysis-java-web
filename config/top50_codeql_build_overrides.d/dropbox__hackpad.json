@@ -1,0 +1,13 @@
+{
+  "allow_compilation_failure": true,
+  "build_risks": [
+    "bounded_javac_is_extractor_coverage_only_and_may_continue_after_javac_errors",
+    "replaces_machine_specific_classpath_with_bounded_extractor_coverage"
+  ],
+  "command": "sh \"$CODEQL_BOUNDED_JAVAC_HELPER\" .",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk"
+  ],
+  "slug": "dropbox/hackpad"
+}

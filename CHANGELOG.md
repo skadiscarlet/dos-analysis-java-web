@@ -1,4321 +1,2626 @@
-# dos-analysis-web 变更日志
+## 2026-09-05
+
+- 三目标 canary 放行后的首个 APIBasis 21-target fresh formal full `results/java_web_dos_batch/poc33-apibasis-full-20260905_195253-full/` 在 HertzBeat attempt 1 已取得 15 条有效 Growth/Auth cache 后收到 provider-side `LLM_AUTHENTICATION_FAILED`；同一 owner-only credential 的紧随 source-free probe 仍返回 HTTP 200、`status=completed` 与有效 `grok-4.6` strict-schema envelope，排除缺 key、全局凭据失效与请求格式错误，确认 provider 认证拒绝可呈非确定性。该错误原本不在 target requeue allowlist，HertzBeat 因而 terminal failed；批次随即人工中断封存为 1 failed、20 interrupted，不 resume、不聚合、不验收。TDD 先将真实 error code 加入 provider-failure regression 并得到 `1 failed, 1 passed, 4 subtests passed`，最小修复仅将 `LLM_AUTHENTICATION_FAILED` 加入既有 `--retry-failed --max-attempts 2` bounded target allowlist；focused runner/acceptance 门为 `37 passed, 5 subtests passed`。401/403 仍立即终止当前 provider call，missing local credential 仍不可重试，只有同一 fresh invocation 的一次 non-resume target attempt 可重试，第二次失败仍 terminal；下一轮 21-target 必须使用全新 run ID，178/205 rollout 继续暂停。
+- 按用户明确指示将 `grok-4.6` formal provider 从 RightAPI 切换为 APIBasis：唯一生产 base URL 现为 `https://apibasis.com/v1/`，协议保持非流式 `POST /responses`，provider/cache/audit identity 改为 `apibasis_responses`，旧 RightAPI URL 在 production endpoint gate 中被拒绝。base URL 已进入既有 model/stage identity，base URL/provider identity 已进入 Growth/Auth cache identity；新凭据同时轮换 cache HMAC，因此 fresh APIBasis run 不 resume 或复用任何 RightAPI stage/cache。PoC-33 immutable plan 与 README 现统一明确 digest-bind `model`、`base_url`、`timeout_seconds`、`max_retries`、`allow_remote_llm` 五字段。API key 只写 owner-only、gitignored `config/local_secrets.json`，不得进入命令、日志、报告、回复或提交。source-free live canary 已获 HTTP 200、`status=completed`、有效 strict `json_schema` 合约；fresh formal v32 三目标 canary `results/java_web_dos_batch/poc33-apibasis-v32-20260905_165938-provider-canary/` 已 3/3 completed（HertzBeat、ThingsBoard attempt 1；WGCLOUD bounded attempt 2），六 stage fingerprints、24/24 Entry queries、0 diagnostics/skipped、61 条 0600 private audit/cache provider/base URL/model identity 与公开 artifact secret/header 零命中均通过独立门禁。PoC-33 21-target formal full 必须使用全新 run ID，178/205 rollout 继续暂停。
+
+## 2026-09-04
+
+- source-free RightAPI health gate 在连续 8 次 HTTP 500 后执行一次不含源码的脱敏错误体诊断，远端明确返回 `api_error: Grok requires Postgres (DATABASE_URL)`。这把当前 blocker 收敛为 `rightapi.ai/grok/v1` 服务端缺失数据库配置，而非本地 API key、请求格式、bounded-source payload、strict schema、CodeQL 或 batch requeue；12 小时轮询已停止，预留的 fresh 输出 `poc33-handler-v32-healthgate-20260904_190500-full/` 未创建，任何 formal target 源码均未由该健康门发送。待远端修复后仍须使用全新 run ID 执行 21-target full，既有 failed/interrupted 批次不 resume，178/205 rollout 继续暂停。
+- 修复 Growth v32 route-free same-handler association 的 canonicalization 落穿：Netty handler-base 专用分支已要求所有 link status 一致，但 mixed complete/partial rows 此前会继续进入 generic duplicate-registration canonicalizer，并在 route aliases 上错误强选或抛出 `ANALYSIS_GROWTH_ENTRY_AMBIGUOUS`。通用 canonicalization 现同样要求 uniform link status；状态不一致时保留全部 links，固定输出 `inventory_unresolved/ambiguous` 与空 canonical Entry，禁止 partial-status averaging。该修复使实现符合唯一规范既有第 21.2 节及 growth-v32 identity，不改变 schema/tool、stage fingerprint、provider contract 或 formal retry 边界。
+- 修复后全新 PoC-33 v32 formal run `results/java_web_dos_batch/poc33-handler-v32-requeue2-20260903_203522-full/` 已自然终止为 `completed_with_failures`，不 resume、不聚合、不验收：10/21 targets completed、11/21 targets 在 attempt 2 仍以 `LLM_RETRIES_EXHAUSTED` 失败。21/21 Entries 均完成正式 8-query coverage、0 diagnostics/skipped；10 个 completed targets 具备六 stage 与固定 fingerprints entries-v17/growth-v32/flows-v21/lifecycle-v14/conclude-v5/report-v1，11 个 failed targets 只发布 Entries。10 个正式 private audit 均为 0600（95 records，3 个无需 LLM 的 completed target 合法为空）；443 个非隐藏、非 cache/private 公开文件中实际 provider key、`Authorization:`、`Bearer ` 命中均为 0，acceptance/aggregate 不存在。失败集中于 Dependency-Track、ThingsBoard、WGCLOUD、Concord、XXL-JOB、RuoYi-Vue-fast、Citrus、Druid、Solr、Presto、DataCompare，并在次日 source-free health probes 继续表现为 HTTP 500 与 TLS EOF，确认当前阻塞是持续 provider outage，而不是本地死循环、CodeQL gap 或 target-requeue 缺口。新的 fresh full 仅在 provider 健康门恢复后启动；178/205 rollout 继续暂停。
+
+## 2026-09-03
+
+- fresh 21-target v32 requeue run `results/java_web_dos_batch/poc33-handler-v32-requeue-20260903_181500-full/` 在 4 个目标 completed 后，Rebuild attempt 1 的第 18 个 Growth contract 遇到 malformed/incomplete/mismatched Responses envelope 并以 `LLM_RESPONSE_INVALID` 原子失败；该 error 对单 provider call 按协议永久失败、无 safe correction/cache/audit，但遗漏在同 invocation target-retry allowlist，故 Rebuild 不会重新入队，批次已在 GROBID 启动后立即中断封存为 4 completed、1 failed、16 interrupted，不 resume/聚合/验收。TDD 先把 fresh single-invocation regression 改为该真实错误并稳定得到 `completed_with_failures`，最小修复仅把 `LLM_RESPONSE_INVALID` 加入既有 bounded target allowlist；单调用协议、strict schema/sensitive gates、无 rejected-response reuse、第二 target attempt terminal、stage fingerprints 均不变。README 与唯一规范同步明确“permanent”是 provider-call 边界，新的 non-resume target attempt 才可重试；下一轮仍必须使用全新目录，178/205 rollout 继续暂停。
+- Rebuild owner-only provider capture `results/java_web_dos_batch/poc33-rebuild-handler-v32-schema-debug-20260903_171702/` 以与 formal full 相同的 v32/fail-closed/non-resume/provider 设置完成终态诊断：13 个 unique Growth slices 共收到 20 条 Growth responses，其中 7 次 initial 违反空 attacker-options alias binding 或 unknown-status consistency 并进入唯一 safe correction，前 6 次 correction 恢复合法，第 7 次 correction 再次返回空 options 域外 attacker alias，目标因此按 `LLM_RESPONSE_SCHEMA_INVALID` 原子失败且只发布 Entries stage。另有 10 条 Auth transport responses；原始 30-record capture 仅保存在 `/tmp/dosweb-rebuild-v32-schema-debug.private.jsonl` 且 mode 0600，不进入公开 artifacts。16 个非隐藏、非 cache/private 的公开文件中实际 provider key、`Authorization:`、`Bearer ` 命中均为 0。该 fresh debug 不用于 acceptance/resume/aggregate；它稳定证明 Rebuild 的终止来自 provider 非确定性 schema/binding 违约，而不是本地死循环，并直接验证同一 fresh batch invocation 内 bounded target requeue 的必要性。PoC-33 正式 full 仍必须使用全新目录，第二次 target attempt 失败即 terminal；178/205 rollout 继续暂停。
+- PoC-33 v32 21-target `retry1` fresh full `results/java_web_dos_batch/poc33-handler-v32-retry1-20260903_151934-full/` 在 4 个目标 completed 后由 Rebuild 的 `LLM_RESPONSE_SCHEMA_INVALID` 失去 21/21 资格并被立即中断封存，未 resume/聚合。连续两次 whole-batch fresh 重启分别被 Dependency-Track 与 Rebuild 的非确定性 provider schema failure 提前终止，暴露出既有 batch retry 的编排缺口：runner 已把 schema/sensitive/一次性 network/provider failure 定义为可由新 target attempt 重试，但单次 invocation 的目标迭代器不会重新入队，因而只能依赖另一次 `--resume --retry-failed`，与本轮“不复用失败批次”门禁冲突。runner 现使用 bounded deque，在同一个 fresh invocation 内仅将仍满足既有 error allowlist 与 attempt ceiling 的目标重新入队；PoC-33 acceptance 显式使用 `--no-resume --retry-failed --max-attempts 2`，第二次 target attempt 仍为 non-resume、不会接受/复用 rejected response，只允许正常 HMAC-authenticated schema-valid cache replay。full archive validator 要求每目标 attempt 为 1..2 并输出 `retried_targets`；non-retryable 或第二次失败仍 terminal。TDD RED 为 2 个目标失败，最小修复后 batch/acceptance focused gate 为 `37 passed, 3 subtests passed`；stage artifacts/fingerprints、strict schema、binding、positive gate、CodeQL fail-closed 与 per-request retries 均不变，178/205 rollout 继续暂停。
+- v32 canary 放行后的首个 21-target fresh formal full `results/java_web_dos_batch/poc33-handler-v32-20260903_135529-full/` 在完成 HertzBeat、jMQTT 后，Dependency-Track 首个 Growth contract 的 initial 与唯一 safe correction 均未通过 strict schema，目标以 `LLM_RESPONSE_SCHEMA_INVALID` 原子失败；该批已立即中断并封存为 2 completed、1 failed、18 interrupted，顶层 `running` 是中断后的 stale 字段，不 resume、不聚合、不用于 acceptance。随后 fresh 单目标 owner-only capture `results/java_web_dos_batch/poc33-dependencytrack-handler-v32-schema-debug-20260903_145221/` 以相同 formal/fail-closed/provider 设置 1/1 completed、六 stage 完整、entries-v17/growth-v32/flows-v21/lifecycle-v14/conclude-v5/report-v1、0600 audit 12 records、6 个 exact `static_unknown` findings；13 条私有 transport responses 中 6 条为 Auth、7 条为 Growth，唯一 Growth 初答在空 attacker options 下错误输出 positive，安全 correction 返回合法非 positive contract，其余 Growth 直接通过，故原终止错误未稳定复现，归类为 provider 非确定性而非确定性本地实现缺陷。107 个公开文件中 provider key、`Authorization:`、`Bearer ` 均为 0；严格 schema、evidence binding、positive gate 和 exactly-one correction 均未放宽。下一次 21-target 必须使用全新目录，178/205 rollout 继续暂停。
+- fresh v32 三目标 formal provider canary `results/java_web_dos_batch/poc33-schema27-handler-strict-v32-20260903_114332-provider-canary/` 通过：HertzBeat、ThingsBoard、WGCLOUD 均在 attempt 1 completed，batch 为 `completed`；每目标 Entries/Growth/Flows/Lifecycle/Conclude/Report 六 stage 完整，fingerprints 精确为 entries-v17、growth-v32、flows-v21、lifecycle-v14、conclude-v5、report-v1，每目标 6 条 framework coverage、8 条 selected CodeQL queries、0 diagnostics、0 skipped。0600 `llm_audit.private.jsonl` 分别为 19/25/17 records；307 个公开文件中实际 provider key、`Authorization:` 与 `Bearer ` 命中均为 0。三库共输出 45 个 exact findings（HertzBeat 11、ThingsBoard 19、WGCLOUD 15），均为 `static_unknown`，聚合为 43 个 finding families；这只放行全新 PoC-33 21-target formal full，不表示安全、动态确认或 recall/precision 通过，178/205 rollout 继续暂停。
+- 接管第二次 PoC-33 21-target fresh v31 formal full `results/java_web_dos_batch/poc33-flat-v31-retry1-20260903_081700-full/` 后确认 acceptance/batch 子进程均已退出；中断后的 `batch_state.json.status=running` 是顶层 stale 字段，目标状态已持久化为 3 completed、2 `LLM_RETRIES_EXHAUSTED`、1 `ANALYSIS_FLOW_INVALID`、1 running-at-interrupt 与其余 interrupted。该目录不 resume、不聚合、不作为 formal acceptance。GROBID 本地重放 6 条 Flow raw rows（4 条与正式 E/G 域相交）定位到 `FLOW_CANONICAL_ENTRY_MISMATCH`：POST line 484 与 PUT line 522 两个不同 JAX-RS handler 共用 Dropwizard Guice application registration line 44，Growth 仅按 registration identity 将两条 partial association 错合并为 line 522 canonical Entry，Flow 随后遇到 line 484 的真实路径而 fail closed。TDD 回归先稳定失败，再把 generic duplicate-registration canonicalization 收紧为完整 same-handler registration-site/Auth/input/materialization identity；相同真实 CodeQL Association/Flow rows复验得到 2 links、`inventory_unresolved/ambiguous`、空 canonical Entry，GROBID 冲突候选不再进入 LLM/Flow。Growth production fingerprint 轮换为 v32，formal resume 禁止复用 growth-v5..v31；schema/tool、entries-v17、flows-v21、lifecycle-v14、conclude-v5 不变。
+- 两轮 v31 full 的 provider 失败均发生在目标已成功缓存多次 Growth/Auth 调用之后（第二轮 Dependency-Track 15 个、Rebuild 36 个 cache records），结合首轮后 10/10 source-free health probe，确认是单调用间歇 transport/provider 窗口而非持续 key/DNS 失效。PoC-33 formal plan 继续固定 180 秒超时、fresh/no-resume、`max_workers=1`、sole safe schema correction 与全部本地 typed/binding/positive gates，仅将已有合法 transport attempt 上限从 3 提至 5，并把该值纳入 immutable plan/archive validation；目标 acceptance 测试先红后绿。用户已明确批准 HertzBeat、ThingsBoard、WGCLOUD 及 canary 通过后的 PoC-33 21 库 bounded 源码发送至 `rightapi.ai/grok-4.6`。必须先执行 fresh v32 三目标 canary，21-target/open discovery 仍暂停，178/205 rollout 始终暂停。
+- v31 三目标 canary 通过后执行首轮 PoC-33 21-target fresh formal full：`results/java_web_dos_batch/poc33-flat-v31-20260903_000500-full/`。batch 最终 `completed_with_failures`，13/21 completed、8/21 failed；全部目标 formal Entries coverage 均为 6 rows、0 diagnostics/skipped。失败由 1 个 `LLM_RESPONSE_SCHEMA_INVALID`（Dependency-Track）与 7 个 `LLM_RETRIES_EXHAUSTED`（Rebuild、GROBID、JetLinks、Zipkin、WGCLOUD、Concord、XXL-JOB）构成，失败目标仅保留 completed Entries stage，未发布伪造下游结果；13 个 completed 目标均有完整六 stage 和 0600 private audit，但总 finding 为 0，acceptance/aggregate 未生成。因此该批不满足 formal full 验收，open discovery、178/205 rollout 继续暂停。结束后以 10 个不含源码的极小 RightAPI health 请求复测，10/10 HTTP 200、Responses `completed`、model `grok-4.6`，说明七个 retry exhaustion 更符合运行时段的间歇 transport/provider 故障，而不是持续配置或 DNS 失败。
+
+## 2026-09-02
+
+- 第二次 fresh v31 formal canary `results/java_web_dos_batch/poc33-schema27-flat-strict-v31-retry1-20260902_213817-provider-canary/` 通过：HertzBeat、ThingsBoard、WGCLOUD 均 attempt 1 completed，batch `completed`；每目标 Entries/Growth/Flows/Lifecycle/Conclude/Report 六 stage 完整，fingerprints 精确为 entries-v17、growth-v31、flows-v21、lifecycle-v14、conclude-v5，每目标 6 条 coverage、0 diagnostics、0 skipped，0600 `llm_audit.private.jsonl` 分别 19/25/17 records。公开 artifacts 中实际 provider key、`Authorization:` 与 `Bearer ` 命中均为 0。三库本轮均未产生 finding，因此该 canary 只证明 formal provider/protocol/stage/私有审计链可完成，不等同 PoC-33 recall/precision 通过；21-target fresh formal full 现可按门禁放行，178/205 rollout 继续暂停。
+- 获得当前线程对三目标及后续 PoC-33 21 库 bounded 源码发送至 `rightapi.ai/grok-4.6` 的显式授权后，执行 fresh v31 canary `results/java_web_dos_batch/poc33-schema27-flat-strict-v31-20260902_182102-provider-canary/`：HertzBeat 与 ThingsBoard 均在 attempt 1 formal completed，六个 stages 完整、各 6 条 Entry coverage、0 diagnostics/skipped，0600 private audit 分别 19/25 records；WGCLOUD 在 Growth 以 `LLM_RESPONSE_SCHEMA_INVALID` 原子失败，batch 为 `completed_with_failures`，21-target 未启动。随后用独立 0600 本地 capture 对 WGCLOUD 做一次 fresh 单目标诊断 `poc33-schema27-wgcloud-flat-debug-v31-20260902_204803`，该次 1/1 completed、六 stages 完整、0 diagnostics/skipped、0600 formal audit 17 records；脱敏诊断显示 flat schema 始终返回完整 17 keys，但 provider 偶发违反 `unknown => is_resource_growth=unknown` 或在空 `attacker_evidence_options` 时返回非空 alias，sole safe correction 在本次诊断中均恢复合法，说明 canary 失败是 provider cross-field/alias correction 的非确定性而非缺键或网络根因。诊断原文仅保存在 `/tmp/dosweb-wgcloud-flat-v31-debug.private.jsonl`（0600），未进入公开 artifacts；21-target 与 178/205 rollout 继续暂停。
+- 接管旧 session 后独立复验 flat strict Growth schema 修复：8 项版本/schema/resume 定向门为 `8 passed, 6 subtests passed`，无 localhost focused 门为 `182 passed, 30 subtests passed`，宿主侧仅绑定 `127.0.0.1` 的 provider/client focused 门为 `303 passed, 2 warnings, 181 subtests passed`；`compileall`、`git diff --check` 与 24 个 direct/embedded CodeQL mirror 均通过。已创建全新 formal/fail-closed/no-resume 三目标 v31 canary 计划 `results/java_web_dos_batch/poc33-schema27-flat-strict-v31-20260902_182102-provider-canary/`，目标仍为 HertzBeat、ThingsBoard、WGCLOUD，`max_workers=1`、provider timeout 180 秒/3 retries。当前线程的远程执行审批因缺少本线程内对 bounded 源码发送至 `rightapi.ai/grok-4.6` 的显式授权而被拒；未发出源码、未调用 provider、未启动 batch，PoC-33 21-target 与 178/205 rollout 继续暂停。
+
+- 修复 strict Growth JSON Schema 在 RightAPI/grok-4.6 上的 provider-compatibility 根因。fresh formal v30 三目标 canary `results/java_web_dos_batch/poc33-schema27-jsonschema-strict-v30-20260902_163604-provider-canary` 为 0/3：HertzBeat、ThingsBoard、WGCLOUD 均完成 formal Entry extraction，但 Growth stage 以 `LLM_RESPONSE_SCHEMA_INVALID` 原子失败，batch 为 `completed_with_failures`，未进入 PoC-33 21-target。脱敏 owner-only diagnosis 证明 Auth strict schema 返回完整四键，而 Growth initial/correction 在请求确实携带 `type=json_schema`、17 required、`additionalProperties=false`、三分支 `oneOf` 时仅返回分支少数字段；不含源码的 RightAPI A/B 又证明相同 17 字段 schema 带 `oneOf` 只返回 5 键，移除 composition 的 flat schema 返回全部 17 键且 unknown 三元组一致。Growth wire schema 现保留 exact 17 keys、enum/pattern、unique/maxItems、bounded text 与 `additionalProperties=false`，移除 wire `oneOf`/`const`；prompt 与本地 typed cross-field/evidence ownership/binding/safe correction/positive gate 均保持 fail closed。Growth prompt/cache/HMAC domain/production fingerprint 轮换为 v9/v14/v14/v31，response schema 保持 growth-v5；Auth v5/v5/auth-v3 与 entries-v17/flows-v21/lifecycle-v14/conclude-v5 不变，formal resume 不复用 growth-v5..v30，Growth v13 及更早 cache 为 cold miss。TDD RED 为 `7 failed, 1 passed, 6 subtests passed`，最小修复后目标 GREEN 为 `8 passed, 6 subtests passed`；不含 localhost server suite 的 focused gate 为 `182 passed, 30 subtests passed`。完整指定 focused 命令的 `tests/test_deepseek_client.py` 因当前 sandbox 禁止绑定 `127.0.0.1` 而在 94 个 class setup 中触发 `PermissionError`，不是断言回归；`compileall`、24 个 direct/embedded CodeQL mirror 与 `git diff --check` 通过。本轮未调用远程 provider、未启动 batch、未 commit；fresh v31 canary、PoC-33 21-target 与 178/205 rollout 继续暂停。
+- 将正式 Growth/Auth Responses wire contract 从 best-effort `json_object` 收紧为 strict JSON Schema structured output。首轮真实 provider canary `results/java_web_dos_batch/poc33-schema27-provider-canary-v17-t180-20260902_134913-provider-canary` 中 ThingsBoard completed，HertzBeat 因 `LLM_RESPONSE_SCHEMA_INVALID`、WGCLOUD 因 `LLM_NETWORK_FAILED` 失败，batch 为 `completed_with_failures`，因此没有进入 PoC-33 21-target。HertzBeat 的 owner-only private diagnosis 证明 `json_object` 不强制 exact keys/enums/cross-field invariants：初答违反 unknown-status consistency，唯一 correction 又漏 mandatory `confidence`；两个不含源码的 RightAPI live probe 则分别确认 `text.format.type=json_schema` 支持 enum 以及 `oneOf` + `const`。Growth/Auth 请求现在提交 exact required keys、`additionalProperties=false`、enum 与 Growth status `oneOf`/`const` 的 strict schema，同时继续执行本地 schema、cross-field 与 evidence-binding 二次验证；Growth prompt/cache/HMAC domain 轮换为 v8/v13/v13，Auth prompt/cache 轮换为 v5/v5，response schema 仍分别为 growth-v5/auth-v3，Growth production fingerprint 轮换为 v30，entries-v17/flows-v21/lifecycle-v14/conclude-v5 不变。网络重试新增 TLS EOF、无 errno 的 transient proxy/tunnel 408/425/429/500/502/503/504，以及 timeout/temporary/reset/aborted/remote EOF；DNS `EAI_NONAME`、certificate verification、permission 与 `EINVAL` 仍永久失败。定向门为 `123 passed`，宽门为 `333 passed, 2 warnings, 181 subtests passed`。fresh 三目标 canary 尚未重跑，PoC-33 21-target 与 178/205 rollout 继续暂停；本轮文档同步未调用 provider、未启动 batch、未 commit。
+- 收紧正式 P0 artifact acceptance：`candidate_entry_links.jsonl` 现在在 schema 边界验证与 production `CandidateEntryLink` 完全同构的 semantic identity。`evidence_ids` 与 `reason_codes` 必须为非空、排序、去重字符串，`link_id` 必须等于除自身外完整 record 的 `stable_identifier("candidate_link", semantic)`；因此篡改 status/evidence/reason 后即便同步重建 disposition ID，也会在 aggregate 前被标为 malformed，合法 link 保持通过。该 artifact-acceptance 变更轮换所有 formal resume fingerprints 为 entries-v17、growth-v29、flows-v21、lifecycle-v14、conclude-v5，并冻结 entries-v16、growth-v28、flows-v20、lifecycle-v13、conclude-v4 及更早产物。新增 aggregate status/evidence/reason tamper（含重建 disposition）与合法 link 回归；本轮未调用 provider、未启动 batch、未 commit、未清理保留资产。
+- 修复 P0 aggregator 只对 eligible disposition 校验 canonical link、因而可能把 noneligible 旁的 orphan/cross-owned link 错记为 completed 的最后一个 quality Important。聚合边界现在对完整 raw Growth/disposition/link domain 做与 production 同构的 reconciliation：每个 link 必须属于 raw Growth、引用现有 Entry，并被同 Growth disposition 精确引用一次；complete/partial 只允许 sole canonical link 且 Entry/status 一致，missing 不得有 link/canonical Entry，ambiguous 不得有 canonical Entry 或 sole-link canonical shape。unresolved/rejected 旁的 orphan、wrong growth/entry/status 与 duplicate ownership 全部使 target `malformed`。这是独立 aggregate acceptance 收紧，不改变 formal stage artifact，故 production fingerprints 保持 entries-v16、growth-v28、flows-v20、lifecycle-v13、conclude-v4。目标 RED 为 `5 failed, 1 passed`，GREEN 后 batch+production focused gate 为 `114 passed, 42 subtests passed in 9.57s`；`compileall`、unchanged-fingerprint check 与 `git diff --check` 通过。本轮未调用 provider、未启动 batch、未 commit。
+- 闭合 static-unknown root-cause 后续 review 的 `RETURN_VALUE` opcode 窗口与 Python 首 opcode 语言边界。execution-snapshot factory 在 owner callback/parent transfer 前为 owned `DatabaseInfo` 注册 non-cyclic `weakref.finalize`，callback 只捕获 persistent `ExecutionDatabaseBinding` 且禁用 interpreter-exit 执行；`factory_succeeded=true` 与后续 return 不再宣称 source-line atomic，flag 后、`RETURN_VALUE` 前的 opcode trace/真实 `SIGINT` 在无外部 owner 时由 GC finalizer 清理，在 production owner 已接管时由 owner/finalizer caller pair 清理。正常显式 cleanup 消费同一 close-once transaction，随后 GC finalizer no-op，不会重关 ABA 复用 fd。standalone cleanup 拆成 public paired wrapper 与 internal reacquiring core；`dis.Bytecode` 回归固定 public 首个 traceable `NOP` offset 2 位于 exception-table start 4 之前，因此 call-entry must-reach 明确由 formal caller lexical pair 承担，callee 只保证进入 protected body 后的双 reacquire。新增全 `dosweb/**/*.py` direct formal cleanup caller 审计；production fingerprints 轮换为 entries-v16、growth-v28、flows-v20、lifecycle-v13、conclude-v4，formal resume 冻结 entries pre-v16、growth v5-v27、flows v3-v19 与 lifecycle pre-v13。最终 focused gate 为 `336 passed, 5 skipped, 157 subtests passed in 14.11s`；24 个 direct/embedded query mirror 为 `2 passed, 22 subtests passed`；ownership/formal-caller/fingerprint AST gate 为 `11 passed, 6 subtests passed`；最小真实 JAX-RS CodeQL 为 `1 passed in 25.40s`，`compileall`、active fingerprint check 与 `git diff --check` 通过。本轮未调用远程 provider，未启动 PoC-33/178/205 batch，未重复 Netty 长测，未 commit，未删除 `.test-tmp/`、隐藏 CodeQL 临时文件或其他保留资产。
+- 闭合 static-unknown root-cause spec review2 的两个 Important。execution-snapshot success action 现在只 transfer parent structural owner 并返回 binding，整个 action、`run_with_deferred_interrupts` restoration 与异常 handler 期间 `factory_succeeded` 始终为 false；只有 helper 完全正常返回后，inner `try/except BaseException` 内同一 source line 才提交 true 并立即 return，删除了“action 先置 true、handler 再 reset”窗口。helper restoration `OSError`、handler-line `KeyboardInterrupt`、next/return-line trace 在 owner callback 有/无六种组合均由 outer cleanup 通过 transferred binding 删除 snapshot 并消费 parent fd。standalone cleanup 删除 outer `try` 前的 `binding=None`，函数第一结构即 owning `try/finally`，两个 nested attempt 都直接从输入 `DatabaseInfo.execution` reacquire，不读取可能未赋值的 local；first owned-line trace 同次归零。production finalizer 又把 `snapshot_cleanup(database)` 展开为同参数 caller-local lexical pair，cleanup call-entry/profile 或 first-line/trace 逃逸仍执行第二次，之后才清 `owned_database`/`validated_database`。目标 RED 为 `5 failed, 1 passed, 4 subtests passed` 与 `3 failed, 1 passed`，GREEN 后 focused gate 为 `332 passed, 5 skipped, 155 subtests passed in 13.83s`；最小真实 JAX-RS CodeQL 为 `1 passed in 24.78s`。production fingerprints 轮换为 entries-v15、growth-v27、flows-v19、lifecycle-v12、conclude-v4；formal resume 冻结 entries pre-v15、growth v5-v26、flows v3-v18 与 lifecycle pre-v12。按 review 决策，本轮仅 cleanup/finalizer 变化，不重复 Netty 长测；未调用远程 provider，未启动 PoC-33/178/205 batch，未 commit，未删除共享 `.test-tmp/`、隐藏 CodeQL 临时文件或其他保留资产。
+- 闭合 static-unknown root-cause review3 的三个 Important ownership escape。execution-snapshot factory 的 deferred success helper 与紧随其后的 return line 现在位于显式 `try/except BaseException` 中；helper restoration、return-event 或 next-line trace 在 parent owner transfer 后逃逸时会先恢复 `factory_succeeded=false`，再由最外 cleanup 通过 transferred binding 删除 snapshot 并消费 parent fd，owner callback 有/无四个组合均覆盖。standalone `cleanup_execution_database_snapshot()` 的 outer `finally` 不再信任一次 caller-local assignment：两个 nested cleanup attempt 都只接受 schema-valid binding，否则从输入 `DatabaseInfo.execution` 重新取得，assignment-line trace 逃逸在同一次调用内完成清理。fixture classes factory 在 return 前通过 deferred transfer 把完整 pinned object 放入 `_build_database()` 预建的 caller owner slot；callee transfer 后不再本地 cleanup，caller 验证 slot/object identity，并用幂等 lexical pair 消费 exact classes name、两个 fd transaction 与 owner slot，因此 profile return event 不能越过 caller assignment 泄漏 2 fd 或留下合法 `.classes.tmp-*` 终态。三组目标 RED 分别为 `4 subtests failed`、`1 failed`、`1 failed`，修复后 focused gate 为 `329 passed, 5 skipped, 151 subtests passed in 12.98s`；最小真实 JAX-RS CodeQL 为 `1 passed in 24.18s`；全新 project-local TMPDIR 强制重建 classes/DB 的 Netty formal full（real CodeQL + bounded in-memory mock Responses transport）为 `1 passed in 670.59s`。production fingerprints 轮换为 entries-v14、growth-v26、flows-v18、lifecycle-v11、conclude-v4；formal resume 冻结 entries pre-v14、growth v5-v25、flows v3-v17 与 lifecycle pre-v11。24 对 direct/embedded query mirror、database/runner/production/fixture acquisition-handoff-release AST、`compileall`、active/stale fingerprint gate 与 `git diff --check` 通过。本轮未调用远程 provider，未启动 PoC-33/178/205 batch，未删除共享 `.test-tmp/`、隐藏 CodeQL 临时文件或其他保留资产。
+- 闭合 static-unknown root-cause re-review 后续的两个 Important 与一个 Minor。execution-snapshot factory 现在从 parent acquisition 前即进入最外 lexical cleanup，standalone cleanup 也把 binding acquisition 放入 outer `try/finally`；handler/prologue 的 profile、trace 或真实 `SIGINT` 不能越过 snapshot removal、parent release 与 consumed 后的 closed commit。production query workspace 新增 persistent reverse-order descriptor-chain owner，典型 ancestry/output/workspace/results 六 fd 在 `_WorkspaceDescriptorOwner.close()`、四处 `_release_workspace_descriptors()` caller 与 family/Entry 最终 cleanup 中均由同参数 lexical pair 接管；首调用未进入、first-success/second-call 中断、actual-close 后异常与 fd-number ABA 均不会泄漏或重关 replacement。fixture classes 的 cache-root 与 classes-leaf acquisition 均改为 `open_owned_descriptor`，在打开前建立 structural owner 与 persistent `DeferredCloseFdOnceOutcome`，factory failure/normal cleanup 使用 nested caller-local release pairs；补测又捕获并修复了 release-helper return event 已消费 transaction 后仍二次 close ABA fd 的 blocker。production fingerprints 轮换为 entries-v13、growth-v25、flows-v17、lifecycle-v10、conclude-v4；formal resume 冻结 entries pre-v13、growth v5-v24、flows v3-v16 与 lifecycle pre-v10。最终 focused gate 为 `326 passed, 5 skipped, 147 subtests passed in 12.83s`；最小真实 JAX-RS CodeQL 为 `1 passed in 26.47s`；全新 project-local TMPDIR 强制重建 classes/DB 的 Netty formal full（real CodeQL + bounded in-memory mock Responses transport）为 `1 passed in 663.88s`。24 对 direct/embedded query mirror、database/runner/production/fixture release AST、`compileall` 与 `git diff --check` 通过。本轮未调用远程 provider，未启动 PoC-33/178/205 batch，未删除共享 `.test-tmp/` 或其他保留资产。
+- 闭合本轮 static-unknown root-cause re-review 的四个 Important。execution snapshot factory/standalone cleanup 不再在 tree-cleanup 与 parent-release `finally` 建立前提交 `cleanup_state.closed`：factory 统一为 binding-lock 内的 cleanup-failure capture + parent owner/transferred binding lexical release pair，parent-release `finally` 在任何残留 snapshot-root release retry 前建立，private-tree cleanup 又嵌入该 retry 的 `finally`；仅在 persistent transaction consumed 后以 duplicated deferred commit 标记 closed，保持 cleanup failure precedence；database owner/direct AST 相应收敛为 20/2 个 caller-local pair。runner 的 10 个 `_release_descriptor_owners_or_raise` 外部调用点全部显式展开同参数 caller-local `try/finally`，新增 query-source profile/trace call-entry、first-success/second-call、actual-close ABA 与精确 caller-distribution AST gate。Flow reconciliation 现在要求完整 raw `growth_candidates` 与 `candidate_dispositions` 精确双射：missing/duplicate 为 `ARTIFACT_UPSTREAM_INVALID`，phantom 为 `ANALYSIS_DANGLING_FACT_REFERENCE`。fixture classes 目录在 pinned cache-root dirfd 内创建后以 `O_DIRECTORY|O_NOFOLLOW` pin/rebind，只允许 `fchmod(fd)`；javac `-d` 使用仍存活的 `/proc/<helper-pid>/fd/<classes-fd>` capability，source/classes fd 同时进入 `pass_fds`，build 前后和 cleanup 均验证 captured identity，swap substitute 的 mode/bytes 保持不变。四个核心文件门为 `272 passed, 1 skipped, 133 subtests passed`，合并 focused 门为 `316 passed, 5 skipped, 138 subtests passed`；最小真实 JAX-RS CodeQL 为 `1 passed in 24.91s`，全新 project-local TMPDIR 强制重建 classes/DB 的 Netty formal full（real CodeQL + bounded in-memory mock Responses transport）为 `1 passed in 663.59s`。24 对 direct/embedded query mirror、`compileall`、release AST 与 `git diff --check` 通过。production fingerprints 轮换为 entries-v12、growth-v24、flows-v16、lifecycle-v9、conclude-v4；formal resume 冻结 entries pre-v12、growth v5-v23、flows v3-v15 与 lifecycle pre-v9。本轮未调用 provider，未启动 PoC-33/178/205 batch。
+- 闭合 transferred long-lived `ExecutionDatabaseBinding.parent_descriptor` 的最后三处 direct release caller-entry 中断窗口：factory exception 的 cleanup-success/cleanup-failure 两个分支与 `cleanup_execution_database_snapshot()` 最终释放均显式展开同参数 `_release_database_descriptor_must_reach` lexical `try/finally` pair。即使 `cleanup_state.closed` 已先置 true，profile/trace/helper-call 或真实 `SIGINT` 在首调用入口打断，第二调用仍消费 persistent transaction；first-success 或 actual-close-then-exception 后第二调用不重关 ABA 复用 fd。新增 direct-release 3 pair/6 call AST gate、cleanup call-entry profile/trace、SIGINT+repeat cleanup、两条 post-transfer factory exception 与 ABA 回归；目标 RED 为 `7 failed`，最小 GREEN 为 `6 passed`。snapshot suite 为 `100 passed, 90 subtests passed`，focused gate 为 `213 passed, 115 subtests passed`，最小真实 JAX-RS CodeQL 为 `1 passed in 27.71s`；24 对 mirror、module AST、`compileall` 与 `git diff --check` 通过。production fingerprints 轮换为 entries-v11、growth-v23、flows-v15、lifecycle-v8、conclude-v4；formal resume 冻结 entries pre-v11、growth v5-v22、flows v3-v14 与 lifecycle pre-v8。未调用 provider，未启动 PoC-33/178/205 batch，未重复 Netty 长测。
+- 闭合 database descriptor owner-release helper 的 caller 入口异步中断窗口。`dosweb/codeql/database.py` 全部 21 个 owner release 点都在持有 owner/transaction 的 lexical layer 显式展开同参数 `try/finally` 双调用；双 fd 路径继续以 peer nested `finally` 为外层、每个 owner lexical pair 为内层。第一次 helper call/first-line 被 profile、trace 或真实 `SIGINT` 打断时，第二次调用仍释放 owner；第一次已成功或 actual-close 后抛异常时，persistent transaction/空 owner 使第二次调用不重关 ABA 复用 fd。新增 call-entry、SIGINT、first-success/second-call、actual-close ABA 与全模块 AST pair gate；目标 RED 为 `6 failed`，最小 GREEN 为 `5 passed`。snapshot suite 为 `94 passed, 88 subtests passed`，focused gate 为 `207 passed, 113 subtests passed`，最小真实 JAX-RS CodeQL 为 `1 passed in 25.69s`；24 对 mirror、module AST、`compileall` 与 `git diff --check` 通过。production fingerprints 轮换为 entries-v10、growth-v22、flows-v14、lifecycle-v7、conclude-v4；formal resume 冻结 entries pre-v10、growth v5-v21、flows v3-v13 与 lifecycle pre-v7。未调用 provider，未启动 PoC-33/178/205 batch，未重复 Netty 长测。
+- 将 `dosweb/codeql/database.py` 的 descriptor ownership 全域收口，不再只修 factory 两个 fd。metadata bounded read/hash、`_tree_root_identity`、`_validate_safe_tree` root/递归 file+directory child、private binding、reflink file/root/递归 source+destination，以及 stale/private cleanup parent/root/child 全部改为 `open_owned_descriptor` + open 前预分配 `DeferredCloseFdOnceOutcome` + must-reach owner release；双 fd 路径使用 nested `finally`，一个 release 失败也不会跳过 peer。binding 路径复用既有 capability，standalone 入口在首个 fd 前 probe；shared owned-open primitive 新增 `mode` 透传以支持 `O_CREAT` reflink destination。`database.py` AST 现为 direct `os.open/os.close` 0，真实 syscall 仅保留在 `dosweb/filesystem.py`。root identity profile/trace/SIGINT、validation/clone recursive child 与 cleanup child RED 为 `6 failed, 2 passed, 3 subtests passed`，目标 GREEN 为 `5 passed, 6 subtests passed`；迁移后 snapshot suite 为 `89 passed, 86 subtests passed`。production fingerprints 轮换为 entries-v9、growth-v21、flows-v13、lifecycle-v6、conclude-v4；formal resume 冻结 entries pre-v9、growth v5-v20、flows v3-v12 与 lifecycle pre-v6。最终 focused gate 为 `192 passed, 1 skipped, 111 subtests passed`；最小真实 JAX-RS CodeQL 为 `1 passed in 24.59s`；24 对 mirror、module/factory AST、runner absence、`compileall` 与 `git diff --check` 通过。未调用 provider，未启动 PoC-33/178/205 batch，未重复 Netty 长测。
+- 闭合 execution-snapshot spec re-review 的两个 owner gap。descriptor owner release 不再先 `owner.pop()`：先保留 slot 读取 fd，执行 persistent close transaction，只有 transaction 明确 consumed/released 后才在独立 deferred-interrupt window 校验并清 slot；clear setup/restoration 逃逸后，outer cleanup 复用同一 committed transaction 只清 owner，绝不重关已 ABA 复用的 fd number。factory 也删除 capability/owner 之前的 `_tree_root_identity(output)` 裸 open：第一个 output-root open 现在就是 retained-parent `open_owned_descriptor`，其 `fstat` 为 authoritative identity，并与 no-follow lexical `lstat` 绑定；stale cleanup 继续复用同一 parent fd。profile/trace、真实 SIGINT、clear-before/after escape 与 ABA、AST/runtime RED 为 `8 failed, 3 passed, 4 subtests passed`，目标 GREEN 为 `9 passed, 14 subtests passed`，完整 snapshot suite 为 `84 passed, 80 subtests passed`。production fingerprints 轮换为 entries-v8、growth-v20、flows-v12、lifecycle-v5、conclude-v4；formal resume 冻结 entries pre-v8、growth v5-v19、flows v3-v11 与 lifecycle pre-v5。最终 focused gate 为 `187 passed, 1 skipped, 105 subtests passed`；最小真实 JAX-RS CodeQL 为 `1 passed in 25.29s`；24 对 direct/embedded mirror、factory AST、runner absence、`compileall` 与 `git diff --check` 通过。未调用 provider，未启动 PoC-33/178/205 batch，按 review 决策未重复 Netty 长测。
+- 闭合 execution-snapshot factory 的 `os.open` C-return→caller assignment descriptor leak：retained parent 与 snapshot-root 两个 acquisition 都在打开前预留 structural owner slot，并复用 shared `open_owned_descriptor` 在 trace/profile 与 `SIGINT` deferred window 内完成 slot 写入；完整 binding/owner callback 建立后才原子转移 parent ownership。profile/trace、真实 SIGINT、actual-close-then-exception 与 fd-number ABA 回归先为 `3 failed, 1 passed, 1 subtest passed`，修复后 snapshot suite 为 `80 passed, 76 subtests passed`；factory AST gate 确认 0 个 direct `os.open`、2 个 owned acquisitions。相邻 stale-cleanup/private-tree walkers 不参与 factory pre-return 的长期 binding ownership transfer，且其递归删除不变量需要独立 RED，故本轮未做无测试的全域重构。production fingerprints 轮换为 entries-v7、growth-v19、flows-v11、lifecycle-v4、conclude-v4；formal resume 冻结 entries pre-v7、growth v5-v18、flows v3-v10 与 lifecycle pre-v4。
+- 闭合 P0 batch maturation 的全域一致性缺口：aggregation 现在要求完整 raw `growth_candidates` 与 `candidate_dispositions` 精确一一对应；missing、duplicate、phantom disposition 均将 target 标为 malformed，不再允许未处置 raw Growth 或脱离 raw domain 的处置记录进入 aggregate。对应 RED/GREEN 覆盖三类异常与正常 exact bijection。
+- 闭合 fixture source capture 的无界排序与 cache-root chmod TOCTOU：`_bounded_java_sources()` 先 streaming 消费 `os.scandir(fd)` 并执行全局 65,536-entry bound，再只对已 bounded entries 按 encoded name 排序；`_prepare_cache_root()` 改为 lexical parent dirfd 上的 `mkdirat/statat/openat(O_DIRECTORY|O_NOFOLLOW)`，验证 type/uid/link/inode 后仅 `fchmod` pinned root fd，并最终重绑 fd、parent-relative name、lexical name 与 parent。外部 substitute inode 的 bytes/mode 保持不变。
+- 闭合 runner `.generations`、query snapshot、BQRS/decoded output 的 path-chmod TOCTOU：共同 helper 通过 parent dirfd + `O_NOFOLLOW` pin leaf，校验 type/uid/link/inode/size 后只执行 fd-relative `fchmod`，并重绑 fd/name/lexical/parent；`dosweb/codeql/runner.py` 不再存在 direct `os.chmod`/`Path.chmod`。失败统一 fail closed 为 `CODEQL_QUERY_FAILED`。
+- 闭合 query/execution-snapshot descriptor async close must-reach：`run_query()` 在任何 query-source/output owned fd 前探测 close-once capability；runner local owners、snapshot root 与长期 snapshot-parent fd 使用预分配 mutable transaction、deferred-interrupt release、post-action close commit 与 no-retry ABA 语义。`ExecutionDatabaseBinding` 持有 `close_capability`/`parent_release`，重复或并发 cleanup 不会再次关闭已消费或复用的 fd number。该轮 fingerprints 曾轮换为 entries-v6、growth-v18、flows-v10、lifecycle-v3、conclude-v4；已由本日更晚的 structural-acquisition 修复再次轮换。
+- I1-I5 focused gate：`180 passed, 1 skipped, 97 subtests passed in 3.05s`。本轮未调用 RightAPI provider，未启动 PoC-33/178/205 batch，未删除共享 `.test-tmp/` 或任何保留资产。
+- 当前 worktree 的网络无关宽门在允许 `127.0.0.1` mock HTTP、排除 linked worktree 未挂载的四个保留资产测试文件后为 `1258 passed, 36 skipped, 792 subtests passed in 69.24s`；从主仓库读取这些未修改测试/保留资产并强制 import 当前 worktree 代码的补充门为 `37 passed, 2 failed in 625.44s`。两项剩余失败分别是历史 schema-2.0 Entry archive 使用当前 exact registration-pattern `FrameworkCoverage` 解析，以及 query-pack/fingerprint 轮换后仍断言旧 PoC-29 plan digest；按 v2 禁止恢复 legacy compatibility 的边界未盲修。最小真实 JAX-RS CodeQL query 为 `1 passed in 25.83s`；fresh project-local TMPDIR 的 Netty production E2E（real CodeQL + bounded in-memory mock Responses transport）为 `1 passed in 641.81s`。`compileall`、24 对 direct/embedded query byte identity、runner 无 direct path chmod/`os.close`、`git diff --check` 均通过。
+
+## 2026-09-01
+
+- 消灭 fixture snapshot/DB 的 conditional directory publication。reviewer 在 source identity check→`renameat2` 窗口把 checked temporary root 换成 current-uid substitute，旧实现确实让 substitute 短暂获得共享 `<digest>.sources` 正式名，post-check 只能事后 retention；source/DB alias hook 与 fresh-process RED 初始为 `3 failed`，candidate invalid/count/root-scan RED 为 `4 failed`，unbounded sorted candidate-tree validation RED 为 `1 failed`，legacy alias/staging cleanup-name RED 为 `2 failed, 1 passed, 2 subtests passed`。cache domain 升至 v5：source 从首次创建即使用 `<digest>.sources-<128-bit-nonce>` 最终唯一名，pin/materialize/validate/chmod 后永不 rename；CodeQL 直接创建 `<digest>.db-<128-bit-nonce>` 且移除 `--overwrite`，DB 同样永不 rename 到 digest alias。digest lock 内以 pinned streaming cache-root scan 限制 4,096 entries/每 digest 8 candidates，source full-tree validation 改为 65,536-entry 两遍 streaming count+validation；全部 exact candidate 与 DB provenance 均验证，invalid/malformed 不 mutate，多个 valid 按 lexical bytes 稳定选择；旧 `<digest>.sources`/`<digest>.db` alias 与 `.sources.tmp-*`/`.db.tmp-*` staging names 连 cleanup legal-name 都不再接受。两个 fresh Python process 复用同一随机 source/DB path 且只 build 一次；fixture GREEN 为 `31 passed, 4 subtests passed`，focused 为 `185 passed, 12 skipped, 133 subtests passed in 8.64s`。fresh project-local TMPDIR 的真实 Netty production E2E（real CodeQL、mock Responses transport）为 `1 passed in 678.84s`；随后第三个 fresh process 在零新增 DB candidate 下复用同一随机 source/DB path。`compileall`、24 对 direct/embedded mirror、no-publication/`--overwrite`/legacy-alias absence gate 与 `git diff --check` 通过。failure cleanup 的 no-delete retention 仍保留，但正常消费路径不再创建 `<digest>.sources`/`<digest>.db` alias；formal artifacts 与 production fingerprint 不变。
+- 收紧 final quality review 修复的保证边界：snapshot 只保证 root/descendant 成功 pin/rebind 后的 authoritative mutation/materialization 为 descriptor-relative，附加 lexical validation 可 `O_NOFOLLOW` reopen 后重新绑定；不再声称原子捕获 `mkdtemp` 创建 inode，也不把 same-uid `mkdtemp→pin`、`mkdirat→openat` substitution window 包装成 hard creation-identity guarantee。digest lock 的 post-`flock` rebind 只关闭进入 critical section 前的 name-substitution window；named flock 只串行 cooperating helpers，不保证抵御 same-uid post-entry lock-name replacement。对应 hard guarantee 需要 credential/mount isolation 或更强 filesystem primitive；实现与测试未改变。
+- 闭合 final quality review 的五个 Important。fixture snapshot/DB publication 由普通覆盖式 `os.rename` 改为 pinned cache-parent dirfd 上的 `renameat2(RENAME_NOREPLACE)`；snapshot 与 DB 两条 racing empty-directory held-fd RED 均证明旧实现把 unknown inode `nlink 2→0`（`2 failed`），现 `EEXIST` 只允许 strict revalidate/reuse 或 fail closed，GREEN 为 `2 passed`。`mkdtemp` snapshot root 在成功 `O_DIRECTORY|O_NOFOLLOW` pin/rebind 后，authoritative materialization/chmod/publication binding 改为 pinned/root-relative fd，附加 lexical validation 可 no-follow reopen/rebind；mode-`0000` post-pin substitute RED 证明旧实现把 unknown root 改成 `0500` 并写入，现该 substitute 保持 `0000`/empty（`1 passed`）。digest lock 改为 pinned parent-dirfd `O_EXCL` create-or-open：existing inode 必须预先通过 type/uid/nlink/`0600` gate，仅新建已验证 inode允许 fchmod，`flock` 后重验 lexical name→locked inode；pre-entry nested-second-lock swap RED 从 `1 failed` 变为 `1 passed`。Flow 对 links/dispositions/growth candidates/verified Growth 全部先做 strict `validate_records`，inventory/rejected 也必须属于完整 raw Growth domain，formal/gap 继续额外要求 retained Growth；unexpected-field/phantom RED 为 `3 failed, 1 passed, 2 subtests passed`，GREEN 为 `2 passed, 4 subtests passed`。`normalize_flow_rows()` 对任意重复 `path_id`（含 byte-identical）在 map insertion 前稳定 fail closed，正反 CodeQL 行序 RED 为 `4 failed`、GREEN 为 `1 passed, 3 subtests passed`。flows fingerprint 升至 v9并冻结 v3..v8；README、唯一 spec 与 version test 已同步。fixture 为 `22 passed`，focused 为 `176 passed, 12 skipped, 129 subtests passed in 8.31s`；fresh project-local TMPDIR 的真实 Netty production E2E（real CodeQL、mock Responses transport）为 `1 passed in 646.09s`。
+- 闭合 deliberate-retention cleanup 的 cache-root namespace inventory 漂移缺口。独立 reviewer 指出 global flock 只串行 cooperating helper cleanup，不能阻止其他 cooperating helper 在 `_retained_cleanup_usage()` 的 `scandir(fd)` 期间改变 cache-root namespace；deterministic transient add/remove RED 为 `1 failed`，旧实现会接受可能漏项的 observed count budget。helper 现在在完整 cache-root inventory 前后比较 pinned dirfd 的 stable identity，任何 namespace/metadata drift 均以 `fixture cleanup cache root changed during retention inventory` fail closed；目标 GREEN 为 `1 passed`，完整 fixture 为 `18 passed`，focused 为 `169 passed, 12 skipped, 122 subtests passed in 8.40s`。README 与唯一 spec 已同步；不改变 build/query 路径、formal artifacts 或 production fingerprint。
+- 闭合 final fixture cleanup 两轮 re-review 的 root/child/final-delete TOCTOU。第一条 deterministic RED 在 `_make_helper_tree_writable()` final check 返回后把 original root 移到 held path、让 outside tree 占据合法名称，证明旧裸 `shutil.rmtree(path)` 会删除 substitute（`1 failed`）。改为 root quarantine 后，独立 reviewer 又在 child current-stat→`unlink` 与 final root rebind→`rmdir` 窗口稳定换入 outside inode：删除 syscall 已使 outside `nlink 1→0`/directory `nlink 2→0`，事后 fstat 只能报错，不能撤销；新增 child destructive-call、retention count/aggregate-size、final cache-fstat fd-leak 四条真实 RED 为 `4 failed`；另以 quarantine-before-root-hardening 顺序门证明旧次序仍在合法名上遍历（`1 failed`）；reviewer 随后把 outside `0400` inode 在 retained-root scan 窗口注入，旧 descendant `fchmod(fd,0600)` 已把 unknown inode 改成 `0600` 才因 directory drift 报错，injected-mode 与 global-lock 两条 RED 各为 `1 failed`；最后用 preexisting legal-name outside substitute root 锁定 root-only fchmod 仍会把 unknown root `0500→0700`（`1 failed`）。同 uid 持有 parent/root dirfd 的模型下不存在 inode-conditional unlink/rmdir，故最终实现彻底移除 cleanup 的 `unlink`、`rmdir`、destructive recursive traversal/deletion 与 lexical `shutil.rmtree`。helper pin owner-only cache-root dirfd，先以 `renameat2(RENAME_NOREPLACE)` 把 exact current legal root 原子隔离为可审计 `.<legal>.retained-<dev>-<ino>-<nonce>`；identity mismatch 仅在无歧义时 no-replace 回滚 substitute，否则保留 private quarantine并失败；exact quarantine 与 descendants 全部 no-follow read-only inventory、final file/name/root recheck，任何 mode 均保持不变，然后 deliberate retain the subtree behind the owner-only `0700` cache-root boundary，释放原 legal name 供后续 build 使用。`0600` global cleanup flock 串行 cooperating helper cleanup；no-follow inventory 的 observed admission budget 为 64 tombstones、1 GiB aggregate logical `st_size`、65,536 entries/depth，达到 count 或超过 size/entry/identity/type/owner/link contract 时 fail closed，新隔离 exact root 只有无歧义时才回滚。该 budget 明确不是对 same-uid held-fd/name mutation 的 filesystem hard quota；自动路径不 mutate/delete unknown inode；人工回收仅允许全部 fixture process 退出后从 dedicated TMPDIR 的外部 quiescent boundary 删除整个 cache root。final cache-root fstat 即使异常也由嵌套 finally 关闭 fd。fixture 为 `17 passed`，focused 为 `168 passed, 12 skipped, 122 subtests passed in 8.38s`；README 与唯一 spec 已同步；该 cache 只含 artificial fixtures、不含 formal target bounded slices，不改变 formal artifacts 或 flows-v8 fingerprint。此前 retention 前 fresh Netty production E2E 已以全新 project-local TMPDIR 强制重建 DB/classes 并通过（`1 passed in 637.40s`）；本轮只改变失败 cleanup 的 no-delete retention，不改变构建/query 路径，按 review 决策不重复第三次长测。`compileall`、24 对 direct/embedded mirror、no-delete/retained-tree-chmod absence gate 与 `git diff --check` 通过。
+- 闭合 final fixture cleanup spec re-review 的 symlink-swap Important。旧 `_make_helper_tree_writable()` 在 `entry.stat(follow_symlinks=False)` 后调用 `child.chmod()` 重新解析路径；deterministic RED 在两者之间把合法 `Fixture.java` 换成 outside symlink，outside bytes 未变但 mode 从 `0400` 被错误改为 `0600`（`1 failed`）。cleanup 现从 exact helper root 开始全程使用 pinned dirfd：每级 directory 以 parent dirfd + `O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC` 打开，文件以 parent dirfd + `O_NOFOLLOW` 打开，并在 `fchmod(fd,0600)` 前验证 discovered/opened identity、current uid、regular type 与 `nlink=1`；child directory/root 仅通过已打开 fd postorder `fchmod(0700)`，lexical root 最后必须仍绑定 pinned inode。symlink、identity drift、foreign/special/hardlink node 只会安全失败，绝不 follow 或 chmod target；RED 现 GREEN，fixture 为 `8 passed`。README、唯一 spec 已同步；仅 test-cache cleanup 变化，formal artifacts 与 flows-v8 fingerprint 不变。最终 focused 为 `159 passed, 12 skipped, 122 subtests passed in 8.31s`；使用全新 project-local TMPDIR 强制重建 fixture DB/classes 的 Netty production E2E 为 `1 passed in 654.53s`。
+- 闭合 fixture immutable snapshot spec re-review 的最后一个 Important。shared `.sources` 旧实现虽然复制了 bytes，却以 `0700/0600` 可写发布，CodeQL build 仍使用 mutable lexical path；published root A→B→A 与 transient `Missing.java` add/remove 两个真实 RED 均被旧实现 accepted（`2 failed`）。snapshot cache domain 升至 v4，发布前把 dirs/files 降为 owner-only read-only `0500/0400`；build 以 `O_DIRECTORY|O_NOFOLLOW` root fd pin 住 capability，subprocess 使用 `/proc/self/fd/<fd>` cwd + `pass_fds` + `--source-root=.`。build 前、subprocess 后与 final publication 逐次要求 lexical binding、pinned root 及 exact full-tree inode/owner/mode/size/mtime/ctime/bytes/no-extra state 不变；中途关闭原 fd 后先验证 DatabaseInfo provenance，再 reopen/rebind 同一 state，排除持久 metadata 依赖活跃 `/proc` alias。任一 drift 清理 temp/final DB 与 classes；read-only source cleanup 先 owner chmod、拒绝 foreign node、再无 symlink-follow 删除。fixture GREEN 为 `7 passed`。真实 CodeQL v4 build 将 `sourceLocationPrefix` 固化为 stable `.sources` absolute path，关闭 fd 后跨进程复用仍通过且模式保持 `0500/0400`。这是 test harness/cache 修复，不改变 formal artifacts，production flows-v8 fingerprint 保持不变。最终 focused 为 `158 passed, 12 skipped, 122 subtests passed in 8.39s`；fresh Netty production E2E 为 `1 passed in 635.66s`。
+- 闭合 final re-review 剩余两个 Important。fixture helper 旧实现虽然重算 source identity，却仍以原 fixture root 作为 CodeQL/javac `cwd` 与 `--source-root`，subprocess 窗口内整树 A→B→A 或 transient `*.java` add/remove 仍可能污染数据库；两个真实 RED 为 `2 failed, 1 passed`。helper 现在通过 root/dir/file descriptor、`O_NOFOLLOW` 与前后 stable identity 捕获最多 4096 文件、单文件 4 MiB/总计 64 MiB 的冻结 bytes snapshot，限制 tree/path bytes/parts，只向跨进程复用的 owner-only content-addressed `.sources` 原子发布 exact Java tree；per-digest `0600` flock 串行化 snapshot/DB reuse，复用前严格校验 owner/mode/bytes/无额外节点，CodeQL/javac 仅消费 private snapshot，temp source/DB/classes 失败清理，production E2E provenance 改用 `database.source_root`。后续自审又以两条独立真实 RED 锁定 source/DB rename 后 publication validation 失败的残留，失败路径现同时删除 helper-owned final/temp source、DB 与 classes；fixture GREEN 为 `5 passed`。Flow loader 原先对同一 `growth_id` 的多条 `verified_growth` last-write-wins；正序、反序和 byte-identical duplicate RED 为 `3 failed, 1 passed`，现在 materialize 后先检查 Growth ownership 唯一性，统一以 `ARTIFACT_UPSTREAM_INVALID` fail closed。flows fingerprint 升至 v8，formal resume 冻结 flows-v3..v7，README、唯一 spec 与 version test 同步。最终 focused 为 `156 passed, 12 skipped, 122 subtests passed in 8.35s`；fresh shared-cache/private-snapshot Netty production E2E 为 `1 passed in 650.26s`。
+- 闭合 final quality re-review 的 fixture build-window TOCTOU 与 non-retained Flow disposition 缺口。fixture cache 虽已 content-addressed，但 CodeQL subprocess 期间源码 A→B→A 时，旧实现会把 B 构建的 DB 以 A key validate/缓存；恢复时序真实 RED 为 `1 failed`。bounded snapshot 现在除 relative path+bytes 外还绑定 dev/inode/mode/size/mtime/ctime，单文件读取前后校验 stable identity；新建 DB 在 validate 前和 return 前均重算 exact snapshot，任何变化都安全删除该 helper-owned DB/classes 并 fail，不进入 LRU。Flow v6 又仅对 retained candidates 比对 association/link status，会放过 non-retained inventory one-link status mismatch，也会忽略不在 `verified_growth` 的额外 formal/gap disposition；真实 RED 为 `3 failed, 1 passed`。reconciliation 现先对全部 disposition 强制 complete/partial 唯一 link status/Entry 一致、missing 无 link/canonical Entry、ambiguous 无 canonical single-link shape，然后要求全部 formal/gap Growth 必须在 retained results；inventory/rejected 可不 retained，但 ownership/status 仍必须完整一致。flows fingerprint 升至 v7，formal resume 冻结 flows-v3..v6，README、唯一 spec、version tests 同步。mutation cache 回归为 `2 passed`，full reconciliation 定向门为 `4 passed, 4 subtests passed`，focused 为 `152 passed, 12 skipped, 119 subtests passed in 8.20s`，重建稳定身份 DB 后的真实 Netty production E2E 为 `1 passed in 670.18s`。
+- 闭合 final quality review 的 stale fixture DB 与 Netty canonical Flow 两个 Important。`tests/support/fixture_database.py` 原先仅以 PID+源码路径命名并以路径作 `lru_cache` key，同进程修改 fixture 后仍复用 stale CodeQL DB；source-mutation 真实 RED 为 `1 failed`。fixture helper 现在受限地读取最多 4096 个 Java 文件、单文件 4 MiB/总计 64 MiB，cache identity 绑定 resolved source root、sorted relative paths+bytes 与 CodeQL/javac file identity；源码变化必然选择新 DB path，旧 DB 不会复用。Flow 阶段原先把 Growth 已 canonicalize 的 Netty handler-base 或 route-specific link 按 raw source location 重新展开为 base/`/beat`/`/trigger` 三条 partial；完整 executor 真实 RED 为 `3 failed, 1 passed`。新 generic reconciliation 先对 authenticated `candidate_entry_links`/`candidate_dispositions` 的 eligible 与 non-eligible 所有 ownership 做 duplicate/dangling/Growth/Entry/status 严格校验，再以唯一 `growth_id -> canonical_entry_id` 约束 formal 与 gap Flow normalization；route-qualified 保留 exact alias，handler-base 只发布 base pair，不得先扩 alias 再过滤。flows fingerprint 升至 v6，formal resume 冻结 flows-v3..v5，README、唯一 spec 与 version test 同步。定向 GREEN 为 `14 passed, 4 subtests passed`，focused 为 `149 passed, 12 skipped, 117 subtests passed in 8.34s`，全新 content-addressed DB 的真实 Netty production E2E 为 `1 passed in 638.44s`。
+- 闭合 strict loop witness 第三轮审查、G3/G4 proof-carrying demand 缺口与第四轮 shared witness 测试合同归属问题。第三轮真实 RED 证明旧 `growth.getEnclosingStmt()` 逻辑会把 argument、return、throw、conditional RHS 与 body 内 bound mutation 五类 shape 错标为 complete multiplicity；shared `LoopAmplification.qll` 现采用正向白名单：Container/Async 只接受 sole top-level `ExprStmt` 且整个 expression 就是 Growth，Direct 仅额外接受 simple `AssignExpr` 且 RHS 精确等于 allocation，同时禁止 body 对 induction 或 attacker bound 的 assignment/`++`/`--`。request-local exact Map/List candidate 新增同 site `iteration_count` driver，async exact loop 以 receiver `getASourceSupertype*()` 同时识别声明于 `Executor` 的 `execute` 与 generic `ArrayBlockingQueue<byte[]>`，并输出 complete `submission_count`；Flow domain 复用同一 canonical witness 携带两类 count demand。真实 Growth→Association→Flow→candidate association→relevance→maturation 链对 G3/G4 均达到 complete/formal-eligible，未手造 link。Growth/flows fingerprints 升至 v17/v5，formal resume 冻结 growth-v5..v16 与 flows-v3..v4；README、唯一 spec、version tests 和 direct/embedded mirrors 同步。第四轮精确 RED 为 `3 failed, 1 passed, 36 subtests passed`：`tests/test_codeql_growth_queries.py` 错把 induction `int`、`PostIncExpr` 与 `PreIncExpr` 三个 shared witness 实现 marker 归给 `ContainerGrowth.ql`；测试合同现改为在 `LoopAmplification.qll` 断言这三个 marker，Container query 仅断言 `import LoopAmplification` 及 canonical/shared witness 调用。精确 GREEN 为 `1 passed, 40 subtests passed in 0.14s`，第四轮 focused 为 `65 passed, 12 skipped, 105 subtests passed in 0.27s`。fresh Direct shape gate 为 `2 passed, 9 subtests passed in 41.14s`，完整 Direct edge 为 `5 passed, 11 subtests passed in 221.50s`，最终 G3/G4 真链为 `1 passed, 2 subtests passed in 179.34s`，G1–G4 为 `1 passed, 9 subtests passed in 387.46s`，focused contract/version 为 `65 passed, 12 skipped, 105 subtests passed`，P0 exact E2E 为 `1 passed, 2 subtests passed in 657.72s`；`compileall`、direct/embedded mirrors、`git diff --check` 与 fingerprint/stale-semantics 门通过。
+- 闭合 DirectAllocation 第二轮 spec re-review 的 Critical+Important。`Flows/EntryGrowthDomain.qll` 原先仍只读 `getDimension(0)` 且没有 loop-count demand，导致 Growth 已识别 `width/count`，真实 Association/Flow 却各为 0 matching row，candidate 只能靠 source-order partial，不能形成 formal link；旧 `attackerControlsLoop` 又只证明条件受输入影响，会把带 `break` 的 canonical-header loop 误标 complete，并漏掉 nested lambda/anonymous-callable 的 multiplicity gap。新增真实 RED 覆盖 multi-dimensional size、fixed allocation loop iteration count、break、server cap、nested lambda 与 nested callable，并把完整链锁为真实 Growth→Association→Flow→`_candidate_association`→`_mature_disposition`，测试禁止手造 complete link。`Growth/LoopAmplification.qll` 现集中定义 strict shared witness：仅接受 exact `for (int i = 0; i < directAttackerIntParameter; i++|++i)`、zero init、唯一 update、body 不写 induction、same-callable 且唯一 top-level unconditional growth statement；其他 attacker-dependent/lexically enclosing loop 一律 partial/unmodeled。Direct/Container/Async Growth 与 Flow 共用该 witness；Flow 同时以 `getADimension()` 携带全部 array-size demand，并以 exact bound access 携带 `iteration_count`。Growth/flows fingerprints 分别升至 v16/v4，formal resume 冻结 growth-v5..v15 与 flows-v3；README、权威 spec、version tests 和 direct/embedded mirrors 同步。真实 unsafe edge 为 `1 passed, 4 subtests passed in 14.93s`，真实 proof-carrying maturation 为 `1 passed, 2 subtests passed in 131.36s`，既有 multi-dimension/safe-loop/unmodeled-loop 为 `3 passed in 46.63s`，G1–G4 为 `1 passed, 9 subtests passed in 234.21s`，focused 为 `74 passed, 9 skipped, 95 subtests passed`，P0 exact E2E 为 `1 passed, 2 subtests passed in 649.21s`；`compileall`、七个 direct/embedded query mirrors、`git diff --check` 与 fingerprint/stale-semantics 门均通过。
+- 修复 DirectAllocation 对多维数组与 loop multiplicity 的两类 false negative。真实 edge fixture 的初始 RED 为 `3 failed in 49.47s`：query 只读 `getDimension(0)`，会把 `new byte[1][width]` 错归为 fixed；loop 内 `new byte[1]` 又因 expression-parent containment 无法跨到 statement body，既不输出 attacker-controlled iteration witness，也不标记 unresolved loop gap。direct/embedded query 现用 `getADimension()` 枚举全部显式维度，并以 `loop.getBody().getAChild*() = allocation.getEnclosingStmt()` 建立 enclosing-loop 关系：exact attacker bound 输出 complete `allocation_loop_multiplicity` / `direct_allocation:attacker_controlled_loop_multiplicity_proven`，未建模 bound 输出 partial `direct_allocation:loop_multiplicity_unmodeled`。fixed/server-metadata hard negative 仅在全部 normalized drivers 均属已建模 server-controlled domain 且无 multiplicity obligation 时成立；amplification 对 exact witness 为 `proven`、对 loop gap 为 `unknown`。Growth fingerprint 升至 v15，README、权威 spec、resume tests 与 direct/embedded mirror 同步。fresh 真实 edge query 为 `3 passed in 134.73s`，focused regression 为 `68 passed, 7 skipped, 41 subtests passed`，真实 P0 E2E 为 `1 passed, 2 subtests passed in 676.57s`。
+- 修复真实 CodeQL production fixtures 的两个 candidate maturation 断点。Netty source-switch Entry 先用 `entry>netty_json_switch>async>service>growth` call path 中的 exact route 过滤 alias，普通 same-handler path 则只在 handler/installation/security/input identity 全等且状态一致时收敛到 exact `netty_pipeline_registration` base Entry；`request.content().toString(...)` 与 `/trigger` service-chain field growth 不再因 generic/`/beat`/`/trigger` 三路 Entry fanout 降为 inventory。DirectAllocation direct/embedded query 将 `CompileTimeConstantExpr` size 建模为 complete `server_controlled_fixed_size`，relevance 以 typed server-controlled source negative proof 在 finding 前拒绝 P0 fixture 的 `new byte[1]`，不再把确定性常量 allocation 留作 `size_origin_unclassified`。Growth fingerprint 升至 v14。最小 RED 为 Netty association `2 failed`、fixed relevance `1 failed`、query marker `1 failed`；GREEN 分别为 `2 passed`、`1 passed`、`1 passed, 32 subtests passed`，真实 P0 DirectAllocation query 证明 lines 36/115 均为 complete fixed-size negative，direct/embedded query byte-identical。真实 P0 E2E 还暴露旧 expected set 未同步 one-shot async relevance 语义；fixture 现精确保留 `/executor`、`/finite`、`/async-consumer` 的 `async_work_growth` finding，并断言在 capacity/synchronous-release proof 未闭合时只能为 `static_unknown`，不得为追求旧结果而删掉新增候选。最终真实 Netty fixture 通过，修正后的 P0 fixture 为 `1 passed in 661.55s`；相关单元门为 `29 passed, 3 skipped, 10 subtests passed`，`compileall`、query mirror 与 `git diff --check` 均通过。
+- 闭合上述 fixture 修复的 spec review。DirectAllocation 多维 rows 会按同一 site/resource 归一，fixed/server-metadata hard negative 现仅在 complete candidate 的全部 normalized notes 都属于已建模 server-controlled domain 时成立；`new BufferedImage(width, 1, ...)` 的 attacker-controlled width 不再被 fixed height note 吞掉，任何 attacker-backed、unclassified、partial 或 attacker-controlled multiplicity note 都禁止生成 `server_controlled_source` proof。真实临时 CodeQL fixture 证明 width/fixed 两 rows 归一后仍为 `contract_eligible`。Netty base canonicalization 新增 handler、registration site、Auth、input、materialization 与 link-status 六维负向回归，任一不一致均保持 ambiguous inventory。README、权威 spec 两处及 resume-version tests 同步 growth-v14；P0 真实 E2E 新增 lines 36/115 的 exact complete note、rejected disposition、typed proof kind/reason 与 candidate-evidence ownership 断言。Critical RED 为 mixed dimensions 与 multiplicity 两条 `rejected` 误判，最小修复后 focused 为 `65 passed, 4 skipped, 38 subtests passed`；真实 mixed-dimension CodeQL 为 `1 passed in 21.65s`，P0 production E2E 为 `1 passed, 2 subtests passed in 685.23s`。
+- 闭合第五轮 LLM cache cleanup window re-review 的两个 Important，并把同构动作收敛到 centralized retirement。hierarchy walker 的 previous handoff、child unwind、outer finally 与 unsafe regular-file rejection 不再裸 `os.close` unregistered fd，全部走 `_close_unregistered_descriptor()`：显式 PRE close 只执行一次 `closerange(fd, fd+1)`，POST/ambiguous 不重试；四条 production-path RED 均显示 registry 已空但 `fd_delta=1`，GREEN 为 `4 passed`，并验证后续 hierarchy/file open 正常。后续补齐 unsafe regular-file POST/ABA regression：真实 close 后立即复用同一 fd number 并抛 `KeyboardInterrupt`，replacement 保持可 `fstat`、`closerange` 零调用，清理 replacement 后回到 fd baseline；PRE/POST focused 为 `2 passed`，生产实现无需改动。Growth/Auth publication temporary name 新增 one-shot structural owner，destructive unlink 前先退休 name ownership；成功 link 后 unlink 实际完成再异步逃逸时，outer cleanup 不会按已复用的 mutable name 二次删除竞争 substitute，已发布 authenticated destination 仍可被后续 lookup 消费，ambiguous owner-only temporary 保留并计入容量。两路真实 link+unlink POST/ABA RED 为 `2 failed`，GREEN 为 `2 passed`；最终 path focused 为 `43 passed, 7 warnings`。
+- 闭合 LLM cache spec re-review 的两个 cleanup must-reach Important。capacity cleanup 现在把 `_active_flock_is_owned()` 与 unlock 包在 flock retirement 的外层 `finally` 内，即使 ownership predicate 在动作前/后收到异步 `BaseException`，flock PID/token、fd、pinned directory 与 thread-local state 仍全部退休，后续 reservation 可正常执行。Growth/Auth publication outer cleanup 现在用 nested `try/finally` 保证 link 失败后的 temporary-name unlink 在动作前/后被异步打断时，duplicated/opened directory transient owner 仍必达 one-shot retirement；post-close 异常会退休 token 且绝不重试已复用的 fd number。production-path RED 分别为 `2 failed` 与 `4 failed`，最小修复后分别为 `2 passed` 与 `4 passed`；最终 path focused 为 `36 passed, 7 warnings`。
+- 闭合 LLM cache code-quality review 的两个 descriptor lifecycle Important。其一，capacity/stripe cleanup 改为 nested must-reach 链：LOCK_UN 的 `BaseException` 仍必达 flock one-shot retirement，flock close 的 PRE/POST 异常仍必达 pinned directory retirement；PID/object token 保持登记到 close action 完成，显式 `CloseRangePreActionError` 仅在 fork guard 内执行一次 `closerange(fd, fd+1)` fallback，post/ambiguous close 异常退休 token 后绝不重试可能复用的 fd number。其二，新增 process-global `_ACTIVE_TRANSIENT_FDS`，把 transaction 内 cache-directory duplicate/open、Growth/Auth entry 与 publication temporary fd 全部纳入 fork guard 下 acquire→register / unregister→close；temporary publication 改为 tracked descriptor + bounded `os.write`，不再把 ownership 转给未登记 file object。child reset 现在关闭所有父线程 inherited active/transient cache capabilities，parent 继续完成真实 Growth/Auth lookup/publication。cleanup fault injection RED 为 `5 failed, 1 passed`、GREEN 为 `6 passed`；duplicate/entry/temporary cross-thread fork production-path RED 为 `3 failed`、GREEN 为 `3 passed`；最终 path focused 为 `30 passed, 7 warnings`。
+- 修复 LLM cache spec review 的 fork-child fd ABA 与 relative-path cwd drift 两个 Important，并闭合自审发现的 cross-thread fork lifecycle 及 register/retire window。flock active ownership 现在绑定 allocating PID 与唯一 token；capacity/stripe finally 只有在 current PID registry 仍以同一 token 持有 fd 时才 unlock/close，因此 at-fork reset 后 parent context 的 child-side unwind不会误关复用旧 fd number 的无关文件。active directory state 除 thread-local authority 外同时进入 process-global PID/state-token lifecycle registry，使非持锁线程调用 `fork()` 时 child reset 也能关闭所有已消失 parent threads 的 pinned directory fd；normal end 只退休同 PID、同 state token 的 ownership。统一 fork lifecycle guard 覆盖 directory/flock 的 open→register 与 unregister→close，at-fork before/parent/child hooks 分别 acquire/release/reset，fork 不再能落入未登记已打开或已退登记未关闭窗口。`ContractCache` 构造时只做一次 lexical absolute freeze（不 `resolve` symlink），path key、no-follow walker 与 entry transaction 后续只使用固定路径；事务中切换 cwd、原 cwd 祖先改名后 nested lookup 仍复用 A 的 pinned inode，事务后缺失 frozen path fail closed，不会读取 cwd 下同名 B。原始四条 capacity/stripe fork child unwind+fd reuse 与 cwd-switch+ancestor-rename nested Auth lookup 回归 RED 为 `4 failed`、GREEN 为 `4 passed`；cross-thread stable-state capacity/stripe fork RED 为 `2 failed`、GREEN 为 `2 passed`；capacity/stripe acquire-transfer 与 retire-close 四窗口 RED 为 `4 failed`、GREEN 为 `4 passed`，最终 path 门为 `21 passed, 4 warnings`。review 前 LLM cache/deepseek/Auth/Growth 门为 `236 passed, 2 warnings, 149 subtests passed`；最终 `compileall` 与 `git diff --check` 通过。
+- 修复 cross-cache nested capacity 的确定性 self-deadlock Important：`capacity_reservation()` 原先只检查当前 cache path 的 active state；同线程持有 cache A reservation 后请求 cache B 时看不到 A，继而再次 acquire 全局非重入 `_CAPACITY_LOCK` 并永久自锁。现在进入全局锁前枚举当前线程全部 active directory states；只有请求 path 的唯一 reserved state 且 reservation 集合精确等于当前 reservation 时允许 nested 复用，任何其他非空 reservation（包括另一 cache path）立即以 `LLM_CACHE_LOCK_FAILED` fail closed。新增两个不同 `ContractCache` path 与可探测 non-reentrant lock 的 RED，旧实现抛 `WOULD_SELF_DEADLOCK`；GREEN focused 为 `1 passed`，path 门为 `11 passed`，deepseek/cache 门为 `120 passed, 2 warnings, 149 subtests passed`，并断言只 acquire/release 全局锁各一次、active state 与 fd 回到 baseline。
+- 修复 active cache transaction nested `dup` metadata/identity validation failure 的 close-once Important：`_open_cache_dir` 原先在 drift 分支显式 `os.close(duplicate)` 后直接 `return`，但 `finally` 仍把同一非空 owner 再 close，一旦 fd number 被复用就可能误关无关 descriptor。失败分支现在只返回，唯一 `finally` owner 负责一次 close；active pinned directory fd 仍由 transaction end 独立关闭一次。新增 post-dup mode drift RED，精确记录 duplicate 与 pinned descriptor 的 close call 数；RED 为 `1 failed`（duplicate `2` 次），GREEN focused 为 `1 passed`，path 门为 `10 passed`，deepseek/cache 门为 `120 passed, 2 warnings, 149 subtests passed`。
+- 修复 cache path spec 二次复审的 transaction-directory identity Important：capacity reservation 或 stripe single-flight 原先只在局部持有 directory fd/lock，nested `put`/Auth publication 仍靠 thread-local 字符串 marker 跳过锁后重新 walker；foreign owner 可在锁后把 safe anchor 换成另一 current-owned safe anchor，造成 lock 留在 original、entry 写入 redirect，或不必要 fail closed。现在 active state 结构化保存 thread owner、pinned directory fd、device/inode 与该 inode 上的 reservation membership；同一事务的 Growth/Auth lookup、nested capacity 与 publication 仅使用 pinned fd 或经 metadata+identity 复核的 `dup`，不再把 path/key marker 当 authority。nested same-entry reservation复用同一 state，异 key/stripe 错序拒绝，其他线程不可借用；normal/exception exit 唯一关闭 fd，fork child reset 同时关闭继承的 flock 与 pinned directory fd。新增 capacity-lock 后 Auth anchor substitution、stripe-lock 后 Growth substitution RED，证明 redirect 零 entry/lock且 original lock/entry identity一致；新增 capacity/stripe exception close-once、fork inherited directory fd 与既有并发/process single-flight 回归。RED 为 `2 failed`，GREEN focused 为 `2 passed`，最终 path+cache/deepseek 为 `129 passed, 2 warnings, 149 subtests passed`。
+- 修复 foreign readonly ancestor 放宽后的首次 spec review Important：`_create_private_hierarchy` 原先验证 root-to-leaf 后关闭 final fd、只返回 bool，`_open_cache_dir` 随即用 absolute `lstat/open` 重走可变路径，foreign `0755` owner 可在窗口中 swap current-owned anchor 或插入 intermediate symlink，将 `single_flight` lock/create/read 重定向到另一安全外观目录。现在 create 与 read/open 统一走同一 descriptor-relative、逐层 `O_DIRECTORY|O_NOFOLLOW` walker；final exact current-uid `0700` fd 在验证后直接结构化转交 caller，绝不 absolute reopen。新增 create/read intermediate-anchor swap RED，分别证明 redirect 目录不产生 lock、redirect cache/lock 不被读取，并新增 validation exception parent/child fd 零泄漏回归；并发 hierarchy 测试显式验证并释放 transferred fd。RED 为 `2 failed, 6 passed`，GREEN path-focused 为 `9 passed`，沙箱外 loopback cache/deepseek 门为 `126 passed, 2 warnings, 147 subtests passed`；真实 `/home/.../results/java_web_dos_batch` formal cache path smoke、`compileall` 与 `git diff --check` 通过。production 五文件门仍为 `234 passed, 5 skipped, 114 subtests passed, 1 failed`，唯一失败仍是独立的 CodeQL rollback-slot retirement hook 未触发。
+- 修复 sandbox 映射下 `/home` 等 foreign-owned `0755` 祖先导致 formal LLM `single_flight` 错报 `LLM_CACHE_UNSAFE`。cache hierarchy 继续 descriptor-relative/`O_NOFOLLOW` 遍历：foreign-owned 且 group/world 不可写的非 target 只允许只读穿越，遇到缺失层前必须先进入现有 current-uid、group/world 不可写 anchor；foreign sticky 仍要求现有 current-uid exact `0700` private anchor。foreign writable non-sticky、symlink、unsafe target 继续 fail closed，target 与 lock/entry 仍分别要求 current-uid exact `0700`/`0600`。新增精确单层 `fstat` owner 模拟、只读祖先 direct-create 拒绝/anchor 后 single-flight 成功、foreign writable/symlink/unsafe target/sticky anchor 回归。RED 为 `1 failed, 5 passed`，GREEN path-focused 为 `6 passed`；沙箱外 loopback cache/deepseek 门为 `123 passed, 2 warnings, 147 subtests passed`，真实 `/home/.../results/java_web_dos_batch` 临时 formal cache path smoke 通过，`compileall` 与 `git diff --check` 通过。production 五文件门当前为 `234 passed, 5 skipped, 114 subtests passed, 1 failed`；唯一失败是共享工作区既有 CodeQL rollback-slot retirement hook 未触发，与本次 LLM cache path 改动独立，未改动该子系统。
+- 修复 generic `RENAME_NOREPLACE` capability probe 的 descriptor ownership 与 mutable-name ABA 两个 Important。probe source 创建后立即以 no-follow fd 进入 publication-scope structural owner，正常路径及 PRE/POST release failure 统一走 shared one-shot/local fallback；local 两层 setup 均逃逸时，未退休 slot 继续由 outer `release_owned_state`、unassigned-owner safety tuple 与 allocation-free emergency drain 接管，且不截断其余 publication owners 或 execution lock。probe 成功、pre-action 与 post-action cleanup 均复用 pinned empty-directory cross-dirfd tombstone helper，不再对 mutable source/target 执行 `rmdir`/`unlink`；target stat 后若 original 被移到 competitor、同名空 substitute 被装回，则 original/substitute inode 与 xattr 全部保留并 fail closed，绝不删除或覆盖。新增 descriptor PRE/POST/persistent setup escape 与 target-name ABA RED/GREEN；新鲜 focused 为 `2 passed, 3 subtests passed`，execution snapshot 为 `68 passed, 72 subtests passed`，adapter+production 为 `120 passed, 1 skipped, 26 subtests passed`，五文件门为 `235 passed, 5 skipped, 114 subtests passed`；`compileall`、`git diff --check`、AST publication-owner/tombstone、mutable-name destructive-call 与 raw-close gates 通过，fresh reviewer 对 Critical/Important/Minor 均无发现并批准。
+- 修复 exchange-probe descriptor release 的三层连续 setup escape、成功 publication 后最外 entry escape 残留 normal generation，以及 outer action 已完整执行后 restoration exception 又把 valid commit 错翻成失败的后续 Important。probe/generations descriptor 均有 publication-scope structural owner；local 两层均逃逸时 slot 留给最外 finalizer。最外 entry failure 不叠第四个 deferred helper，而先用 live final rollback/rollback-directory/generations anchor 执行 normal rollback、independent recovery 与 force isolation，证明 normal `Entries-*` 不再可消费，再对 probe、decoded/private binding、rollback、pending、generations owners 逐项退休并唯一 raw `closerange`；owner group 以嵌套 `finally` 继续，lock 位于 ultimate `finally`，已消费 owner 不重触 ABA 号。`release_owned_state_completed` 仅在全部 owner/private-binding 决策结束且 lock 已释放后提交；只有它与完整 transaction、clean housekeeping、valid commit、零 release/rollback failure 同时成立时，随后 restoration exception 才分类为 post-action，不再产生“API 失败 + normal consumable generation”。新增 `outermost_setup_escape`、action-before `outermost_post_publication_escape`、action-completed `outermost_post_action_escape` RED/GREEN，并保留双层 persistent、direct trace/fallback/ABA 回归。纯 Python 下不声称持续任意 trace/profile bytecode 原子性。新鲜 focused 为 `2 passed, 10 subtests passed`，execution snapshot 为 `66 passed, 69 subtests passed`，adapter+production 为 `120 passed, 1 skipped, 26 subtests passed`，五文件门为 `233 passed, 5 skipped, 111 subtests passed`；`compileall`、`git diff --check`、structural completion、emergency recovery/drain 与 scoped raw-close gates 通过。
+- 修复 internal exchange-probe fd 绕开 deferred one-shot release 的最终 Important。旧 `_isolate_bound_empty_directory_no_replace` 在未传 fd 时自行 `_open_owned_descriptor`，`finally` 却直接 `os.close`；profile/trace 在 close action 前打断会让已移入 pending-generation tombstone 的 probe fd 永久泄漏。probe 目录现在创建后立即进入 structural owner/pin，slot isolation 复用 caller-owned slot fd；empty-directory isolation helper 强制接收 pinned fd，自身不再 acquire/release。全部 probe-local owners 由完整 `run_with_deferred_interrupts` batch 逐项执行 `release_owned_descriptor_once`，PRE_ACTION 只做一次 fd-range fallback，actual-close-then POST_ACTION 不重试 fd number，首个 release failure 记录后仍由 outer transaction 释放后续 generation owners 与 execution lock。新增 pre-action、post-action 与 first-failure-continues release RED/GREEN，断言 fd baseline、lock、无 normal generation 及 path-free error。新鲜 release focused 为 `1 passed, 2 subtests passed`，probe/ABA focused 为 `5 passed, 9 subtests passed`，execution snapshot 为 `65 passed, 61 subtests passed`，adapter+production 为 `120 passed, 1 skipped, 26 subtests passed`，五文件门为 `232 passed, 5 skipped, 103 subtests passed`；`compileall`、`git diff --check`、AST owner/release、helper raw acquisition/release 与 scoped raw-close gates 通过。
+- 将 rollback-slot 的 non-destructive contract 从 successful retirement 扩展到 exchange-probe failure 与 post-probe/pre-publication failure。旧 `_probe_rename_exchange` failure cleanup 和 outer pre-publication cleanup 都会在 check 后对 mutable `.rollback-slot-*` 执行 `rmdir`，同名 ABA 可让 original 被攻击者改名保留后再删除 substitute。现在 exchange probe 的 slot/probe 与 early rollback slot 均通过 pinned pending-generation identity、pinned empty-directory fd 和 cross-dirfd `renameat2(RENAME_NOREPLACE)` 进入 internal tombstone/retained quarantine；source/destination 按 inode 分类，若搬走 substitute 只允许反向 no-replace 恢复 exact source name，original/competitor/substitute 均不删除、不覆盖。新增 probe failure 与 post-probe/pre-publication 两窗口、retain=false/true 四个 inode+xattr RED/GREEN 子用例，并显式禁止 rollback-slot `rmdir` 调用。新鲜 early-window RED/GREEN 为 `2 passed, 4 subtests passed`，exchange-probe+retirement focused 为 `14 passed, 13 subtests passed`，旧 exchange-probe/final-anchor focused 为 `6 passed, 7 subtests passed`，execution snapshot 为 `64 passed, 59 subtests passed`，adapter+production 为 `120 passed, 1 skipped, 26 subtests passed`，五文件门为 `231 passed, 5 skipped, 101 subtests passed`；`compileall`、`git diff --check`、exchange/early-slot destructive-call gate 与 scoped raw-close gate 通过。
+- 撤销 2026-08-31 successful-publication retirement 中 destructive `rmdir`/`st_nlink==0` 叙事并修复 re-review 的两个 fail-closed 缺口。mutable `.rollback-slot-*` 名称现在永不执行 `unlink`/`rmdir`；exact slot 通过跨 dirfd `renameat2(RENAME_NOREPLACE)` 移入 normal generation 内部的 `.rollback-slot-tombstone-*`，因此 `.generations` 根 inventory 仍只含 normal generations。若 namespace ABA 导致 substitute 被搬走，runner 以 source/destination inode 分类并只用反向 `RENAME_NOREPLACE` 恢复其 exact dynamic slot name，原 slot 与 substitute 的 inode/xattr 均不得删除或覆盖；任何恢复歧义都会 force quarantine normal generation。rollback-slot fd release 的 `PRE_ACTION_FAILURE` 现在通过 `before_fallback` 在 descriptor 仍存活时 recovery，`POST_ACTION_EXCEPTION` 通过结构化 release outcome 触发相同的 identity+parent recovery；retain=false/true 都不得留下 normal consumable generation。同步新增 direct/retained namespace ABA、post-isolation fsync/verification、cleanup-anchor PRE_ACTION、published mode drift，以及 slot release PRE/POST RED/GREEN 回归。新鲜 retirement focused 为 `10 passed, 6 subtests passed`，旧 final-anchor focused 为 `4 passed, 4 subtests passed`，execution snapshot 为 `64 passed, 59 subtests passed`，adapter+production 为 `118 passed, 1 skipped, 22 subtests passed`，五文件门为 `229 passed, 5 skipped, 97 subtests passed`；`compileall`、`git diff --check` 与 scoped raw-call gate 通过。
+
+## 2026-08-31
+
+- 修复 successful publication 遗留 `.rollback-slot-*` 及其 quality review 的三个 retirement 缺口。根因一是早期 cleanup 只接受 `publication_state.resolved`，而正常 commit 按契约保持 `committed=True`、`rollback_required=False`、`resolved=False`；根因二是 slot 只有 stat snapshot，`stat→rmdir→absence` 可被同名空目录 ABA 欺骗；根因三是 slot 删除后 generation identity 已释放、rollback 仍假定 slot 可 exchange，且 published cleanup 前后只比 inode。`resolved` 继续只表示 rollback/recovery 完成；slot 现在于 exchange probe/publication 前以 no-follow exact fd pin，retain=false 使用独立 `.generations` cleanup anchor，retain=true 复用 private binding generations fd，并把 exact generation identity fd 延寿穿过 retirement 与 cleanup-anchor transaction。final rollback anchor 结构化 `RELEASED` 后，retirement 同时验证 parent、published fd+name、slot fd+name 的 exact inode/DIR/current uid/`0700`，要求 slot fd-relative empty；`rmdir` 后立即 commit 显式 `slot_retired` 相位，再执行 parent `fsync`、pinned slot `st_nlink==0`、name absent 与 parent/published 双绑定复验。slot 已由本事务删除后的 fsync/verification/cleanup-anchor PRE_ACTION failure 改用 live generation identity + cleanup anchor 执行 `RENAME_NOREPLACE` hidden quarantine/force recovery，不覆盖竞争者、不留下 normal consumable generation。新增 direct/retained namespace ABA、post-rmdir fsync、post-rmdir verification、cleanup-anchor PRE_ACTION、published mode drift，以及原单次/多 query/cleanup failure RED/GREEN；新鲜 execution snapshot 门为 `64 passed, 59 subtests passed`，adapter+production 门为 `117 passed, 1 skipped, 18 subtests passed`，五文件门为 `228 passed, 5 skipped, 93 subtests passed`。
+- 归一 runner/production 全部 descriptor release transaction，修复 shared helper 的 Python return-event 仍可在首个 fd 后打断三 fd loop，以及 close 已实际完成、随后 outcome 分配失败会把空 holder 误当 pre-action并对 ABA 复用 fd 执行 fallback 的复审 blocker。`dosweb.filesystem.release_owned_descriptor_once` 现在要求 caller 在 primary action 前传入预分配 mutable state，raw close 后只做 allocation-free `RELEASED`/`PRE_ACTION_FAILURE`/`POST_ACTION_EXCEPTION` assignment；只有 action 前 setup escape 或 proved `PRE_ACTION_FAILURE` 才允许唯一 `closerange` fallback。caller-side wrapper 的 transaction allocation 也位于外层 batch；若分配本身抛 `MemoryError`，仍由唯一 local descriptor owner直接执行 fallback、记录失败并继续剩余 fd，不再因字段已退休而永久泄漏。runner binding、execution-query source/destination、pending/generations/identity/final anchors、production binding/workspace/ancestry 均把 owner retirement、shared-helper call、result commit、完整 descriptor loop 与 execution-lock release包进同一外层 deferred transaction；helper return-event 只能在全部 fd/lock 清理后恢复，primary/transaction/callback/fallback exception 逐项收集且不截断后续 owner。runner/production 已删除所有裸 `close_fd_once(_outcome)` call site；新增 binding/workspace 三 fd helper-return、transaction-allocation 首次失败仍全量释放、final anchor+execution lock、post-close `MemoryError`+同号 fd reuse RED/GREEN，并将 final-anchor post-close异常固定为 path-free `CODEQL_QUERY_FAILED`。新鲜 adapter+production 门为 `110 passed, 1 skipped, 16 subtests passed`，五文件门为 `221 passed, 5 skipped, 91 subtests passed`；`compileall`、`git diff --check` 与 scoped raw-call gate 通过。
+- 修复 execution-query tempfile 在 source/destination close 已实际完成后抛 `BaseException` 时阻断 return、遗留 `.Q.dosweb.*.ql` 的最终复审边角：helper 现在在任何 fd acquisition 前 probe one-shot close capability，完整 copy+fsync 后两个 fd 都以 explicit outcome 释放；outcome call 与 holder assignment 进入同一 deferred transaction，只有显式存入的 `RELEASED`/`POST_ACTION_EXCEPTION` 才 commit path transfer，pre-call escape 必须对仍 owned fd 执行唯一 fallback、传播原异常并清理未转交 exact path。`POST_ACTION_EXCEPTION` 不 retry fd number且继续把 exact path 转交 caller cleanup，proved `PRE_ACTION` 才走已知-owner fallback。新增 source/destination actual-close-then-`KeyboardInterrupt` 以及 outcome pre-call `KeyboardInterrupt` 回归，caller 收尾后 query 目录严格不含任何额外 leaf、fd 回 baseline，不靠改前缀 quarantine 隐藏残留；修后新鲜 adapter+production 门为 `103 passed, 1 skipped, 16 subtests passed`，五文件门为 `213 passed, 5 skipped, 91 subtests passed`，`compileall`、`git diff --check` 与 scoped raw acquisition gate 通过。
+- 收口 decoded content identity 与 descriptor ownership 复审：`bqrs decode` 后 decoded leaf 只执行一次 reserve/deferred owned-open，首次 name/inode/mode 验证、bounded `pread`、schema/query contract、fd fsync、publication 与 retained binding 全部复用同一 descriptor；transaction 固化 immutable bytes、exact size 与 SHA-256，并在 fsync、replace 前后、binding capture 前以及 JSON parse 后/decoder 前复核 live fd/name/digest。production 与 injected fixture boundary 只解析 snapshot bytes，等长同 inode 原地覆盖在 family 与 formal Entry/Pipeline 均固定 `CODEQL_QUERY_FAILED`、decoder 不调用、`run.json=failed`、无 stage artifact/manifest且 resume 重跑。所有 runner/production `os.open`、`os.dup` 与 `tempfile.mkstemp` acquisition 分别统一到共享预留 holder + trace/profile/SIGINT deferred transaction，tempfile fd 与 exact cleanup path 在 factory return 前共同 owned；setup 的 `setprofile(None)`、`settrace(None)`、`SIG_BLOCK` 均在动作前建立对应恢复 `finally`，post-action exception 仍恢复完整进程状态。binding 三 fd release、decoded owner、rollback anchors 与 execution lock 现在逐项收集 outcome；pre-action fallback `closerange` 的 actual-close-then-`BaseException` 不外溢、不 retry fd number且不跳过后续 owner。新增 decoded leaf exchange、open/dup/mkstemp return-event、binding/fallback release post-action、三类 deferral setup/restore 与 family parse-time/formal pre-read 等长覆盖 RED/GREEN；新鲜 adapter+production 门为 `101 passed, 1 skipped, 14 subtests passed`，五文件门为 `211 passed, 5 skipped, 89 subtests passed`，`compileall`、`git diff --check` 与 raw acquisition 单入口检查通过。
+- 收口 query-output/workspace ownership 二轮复审的 3 Critical + 1 Important：publication 后不再按 mutable decoded name 重新开文件，而是把已完成内容验证的 decoded fd/info 直接转交 retained binding；binding holder 的 post-action exception 以结构性 membership 判定唯一 owner，production 仅在 workspace list 实际完成注册后设置 `attached=True`，registration 前中断仍由 local transaction one-shot 释放。Lexical ancestry 改由 factory holder transaction 管理，完整 tuple 在 helper return 前进入 caller holder；holder append→membership 窗口临时关闭 trace/profile 并阻塞 `SIGINT`，output/workspace/results 三个后续目录同样先预留 owner slot再执行 `os.open`，所有异常只从唯一 owner 逆序释放，避免 fd-number reuse 后二次关闭。完整 workspace 也在 factory return 前注册到 formal executor holder，family/Entry caller 从 `CALL` 前即进入 cleanup transaction，factory-return event 中断不再遗漏 ancestry/output/workspace/results fd。instrumentation 恢复使用嵌套 `finally`，profile restore 失败也不会跳过 signal-mask 恢复。新增 decoded-leaf exchange、holder post-action、attachment pre-registration、ancestry append/open/helper-return、workspace factory-return 与 signal restore RED/GREEN；最终新鲜门统一记录于上一条。
+- 修复 post-publication/pre-binding 仍可交换并采纳 forged `.generations` 的 Critical：`run_query` 现在在原 publication anchors 释放前，从仍存活的原 `.generations` fd 复制 retained descriptor，并同时要求 named root 等于初始 generations inode、published generation 等于 publication expected inode；binding factory 在返回前通过 owner callback 进入本地 transaction holder，后续 housekeeping/rollback/release 任一失败均 one-shot 释放 partial/complete binding。新增真实 adapter exchange RED/GREEN，replacement 不再成为可信根或返回 `QueryResult`。
+- 修复只绑定 output leaf/direct parent、替换更高祖先仍可通过的 Critical：query workspace 现在从 filesystem `/` 起逐 component `O_NOFOLLOW` 打开并保存完整 lexical ancestry，runner/decode/finalization 复验每层 parent/name/inode/uid/mode 后才接受 output/workspace/results；ancestor rename+replacement 在 decode 前固定 path-free `CODEQL_QUERY_FAILED`。所有 ancestry fd 纳入 one-shot reverse-order release，component open 后/fstat 前异常的 unbound fd 也有独立 RED/GREEN 验证回到基线。
+- 收口 private result ownership transfer Important 与 serialization Minor：production 向真实 runner 传 pre-return `result_owner_callback`，callback 内 capture、验证并注册 binding；`run_query` return-event `KeyboardInterrupt` 时 workspace 已拥有全部 fd。非协作 injected runner 的 unattached `QueryResult` 仅由 private finalizer兜底回收。result registry 现强引用 `(QueryResult, binding)`，避免 Python `id()` 重用把新 query 错绑到旧 decoded fd；pickle 只保存六个 public fields，round-trip 明确恢复 `_output_binding=None`。新增真实 runner return-event、非协作 injected return-event、id-reuse 全图回归与 pickle RED/GREEN；五文件门为 `193 passed, 5 skipped, 87 subtests passed`。
+- 修复 runner 已返回 private `_QueryOutputBinding`、但 output-root 在 production boundary 复验前已被换名时的 fd ownership Important：`_run_workspace_query` 现在先 capture/验证返回 binding，再执行独立 workspace 复验；失效 binding 会立即进入 one-shot decoded/generation/`.generations` release，不再因先抛 workspace binding error 而遗漏在最终 close transaction 之外。新增带真实 pinned private binding 的 output-root swap RED/GREEN，验证三个 binding fd 全部置为 `-1`、decoder 不调用且 fd 回到仅含测试持有锚点的基线。
+- 修复首次 inventory 后、decoded JSON 读取前交换 `.generations` 仍可消费 forged result 的 Critical：formal `run_query` 返回前建立仅内存 private result binding，持续 pin 最初 `.generations` fd/inode、published generation fd/name/inode 与 decoded regular-file fd/name/inode/uid/mode；该 binding 不属于 `QueryResult` dataclass serialization/repr/equality/hash/artifact/path identity。production 对 injected runner 同样立即 capture binding，decoded bytes 只从 pinned file fd bounded `pread`，读取前后复验 results→original generations→generation→file 全链；final inventory 复用首次 expected generations inode，绝不重新打开 replacement 并把它当可信 root。post-inventory/pre-read exchange 现在保留 original/competitor/workspace，固定 path-free `CODEQL_QUERY_FAILED`，不调用 decoder、不发布 artifact，formal Entry `run.json=failed` 且 resume 重跑。所有 retained decoded/generation/generations fds 纳入既有 outcome release transaction。新增 family、formal Entry/Pipeline exchange-forged-JSON 与 private serialization surface RED/GREEN；五文件门为 `186 passed, 5 skipped, 87 subtests passed`。
+- 收口 query workspace 的 lexical output-root replacement 与 fd-release Critical/Important：workspace 现在先 probe `close_range`，再 pin output parent fd，并以 parent-relative no-follow 打开 output leaf，保存 parent/name/device/inode/uid/mode binding；runner 调用前后、decoded JSON 读取前后与 finalization 全部复验 lexical leaf。结果接口改为 descriptor-stable `/proc/self/fd/<results-fd>`，`run_query(output_descriptor=...)` 强制 path/fd/inode/mode 配对，并向 query/decode 两个 CodeQL subprocess 传 `pass_fds`；output root rename 后重建 replacement 及伪造 JSON 只能得到 path-free `CODEQL_QUERY_FAILED`，不再解码或发布伪造 artifact，formal Entry 保持 `run.json=failed` 且 resume 重跑。`.generations`、results、workspace、output 与 output-parent fd 全部改用 `close_fd_once_outcome` transaction；PRE_ACTION 仅单次 `os.closerange(fd, fd+1)` 收尾，POST_ACTION 禁止 retry，单 fd 失败不跳过其余释放并固定失败。新增 family/Entry root-swap、subprocess fd inheritance、generation PRE_ACTION 与 results actual-close-then-exception RED/GREEN；五文件门为 `183 passed, 5 skipped, 87 subtests passed`。
+- 继续收紧 formal query workspace cleanup 的两层 substitution window：target output、workspace、`results` 与 `.generations` 全部改为 no-follow fd + inode/current-uid/mode binding，generation inventory 只用 bounded `os.scandir(fd)`，scan 后重验全部 descriptor/name binding；`.generations` 扫描窗口换 inode、hidden/unsafe/drift/enum error 均只保留 workspace。无 hidden 的成功 workspace 也不再进入 lexical check-then-`rmtree`，而是经 pinned output dirfd 的 fresh `RENAME_NOREPLACE` 隔离到 `.dosweb-<family>-quarantine-*`、复验 expected inode/source absent、fsync 后保留；workspace name 在 isolation 前被 competitor 交换时重建为 ambiguous 并固定失败，original/competitor name/inode/nlink/marker 均不删除。`_run_codeql_family` finalization 返回非 proved-isolated success 时现在固定 path-free `CODEQL_QUERY_FAILED`，Entry formal 路径保持相同；新增 generation fd-scan exchange 与 workspace pre-isolation exchange RED/GREEN、late final-scan `run.json=failed`/无 artifact/resume 重跑/retained unchanged 回归。focused production `50 passed, 12 subtests passed`。
+- 修复 formal executor 外层 lifetime 重新删除 retained quarantine：Entry executor 与 `_run_codeql_family` 的 query results 改为 target output 内 owner-only hidden `.dosweb-<family>-queries-*` workspace，query-pack temporary 与 results ownership 分离。异常展开和正常收尾都先 streaming 检查 `.generations`；只要存在 hidden generation、binding/枚举异常或超界，就 detach 并完整保留受信 workspace，禁止 outer `rmtree`，固定让 formal stage/run 保持 failed、无 `QueryResult` artifact，resume 必须重跑而不能消费 hidden output；仅无 retained hidden output 的已消费 workspace允许普通清理。新增真实 `run_query`→formal Entry→Pipeline 集成 RED/GREEN和 family helper 回归，持有 original/competitor fd 跨 executor unwind/retry 复验 name/inode/nlink/marker，确认 `run.json=failed`、无 stage artifact、fd/lock baseline，并显式断言 retained workspace 上零 recursive cleanup 调用。
+- Publication rollback Quality Final TOCTOU 修正：删除所有针对 mutable normal `Entries-*` name 的 direct `rmdir`/raw `unlinkat(AT_REMOVEDIR)` fallback，并移除不再合法的 filesystem raw-unlink primitive。Actual generation 必须先经 fresh `.rollback-final-*` `RENAME_NOREPLACE` 原子隔离，exchange 后的 empty placeholder 也必须先经 fresh `.rollback-placeholder-*` 隔离；expected output inode 一旦在 hidden rollback/pending name 下完成复验，就只保留 quarantine，禁止继续枚举、`unlink` children 或 `rmdir` hidden root，避免 hidden namespace substitution 误删 competitor。所有 rename `BaseException`（包括 `FileExistsError`）统一从双 name/inode 重建；只有 source 仍为 expected、destination 为 unrelated inode 才视为真实 collision 重试，source substitution 把 competitor 移入 fresh hidden 时先 NOREPLACE 恢复 competitor 原名再固定失败。所有 cleanup/rename primitive 持续不可用时优先 source integrity：安全保留 hidden pending/actual/placeholder、固定 path-free `CODEQL_QUERY_FAILED`、不返回/消费 `QueryResult`，formal run 保持 failed 且 hidden output 不可 resume，同时全部 owned fds 与 execution lock 回 baseline。新增 primitive-outage actual/placeholder 安全保留及 normal/hidden root/hidden child substitution RED/GREEN，验证 competitor name/inode/nlink/marker 不变；旧“失败后 `.generations` 必须为空”断言改为“无可消费 normal generation、允许且要求 retained hidden quarantine”。
+- Exchange capability probe Quality Final 收口：probe 新增显式双 name/双 inode transaction state 与 exchange/restore attempted/committed 相位；first exchange 真正完成后抛 `OSError` 或 `KeyboardInterrupt` 均从两侧 `stat` 重建 exchanged pairing，restore 持续 pre-action failure 不再强求第二次 exchange，而是按当前 pairing 经 pinned no-follow descriptors 清理两个空 transaction dirs。正常 probe 只删除 probe 并保留 rollback slot，失败 probe 无条件关闭自身打开的 descriptors，outer publication cleanup 继续释放全部 owned generation fds；调用边界捕获全部 `BaseException` 并固定规范化为 path-free `CODEQL_QUERY_FAILED`。新增 post-action/interrupt/restore-persistent 三态 RED/GREEN，验证零 probe dir、零 fd/lock 泄漏。
+- Actual-generation fd release window 收口：pending root 建立后立即打开第二个同 inode `pending_identity_anchor`，primary pending fd 的 one-shot release 始终发生在 identity + final parent anchors 仍存活时。即使 primary `close_range` 已实际关闭后再抛 `OSError`/`KeyboardInterrupt`，同时普通 `_publication_replace_completed` 持续 `EIO`，direct recovery 仍从独立 actual-generation fd `fstat` expected inode并经 parent anchor隐藏 normal generation；rollback决策完成后 identity anchor 再以明确 release outcome 单次释放。新增精确组合 RED/GREEN，覆盖两类 `BaseException`、无正常 `Entries-*`、所有 primary/identity/parent descriptors 回到 baseline 及 execution lock 释放。
+- Pending/publication ownership final 收口：彻底移除 `shutil.rmtree(pending)`，pending generation 改为 pinned `.generations` dirfd 下创建并从创建后一直保留 owner-only directory fd/expected inode。replace 未完成时只经 pending fd bounded 枚举、no-follow 复验并 dirfd-relative unlink/rmdir expected inode；replace 已完成时只双重验证旧 pending name 不存在，absence check 后重建的 competitor 原 inode/link/marker 全部保留并固定失败。final rollback anchor 新增不调用 `_publication_replace_completed` 的独立恢复：直接复验 actual generation fd 与 known pending/published names，persistent caller rebuild `EIO` 时仍将 expected normal generation 移入 hidden quarantine；只有两次证明 normal name 不含 expected inode后才释放 pending/anchor ownership。新增 pending-name competitor 与 persistent rebuild + quarantine-cleanup failure RED/GREEN，验证 competitor 不被误删、失败最多留下 hidden `.rollback-*`、无正常 `Entries-*`/`QueryResult`、零 fd/lock 泄漏。
+- Publication `os.replace` assignment window 收口：新增 `_PublicationReplaceState`，在 dirfd replace 前绑定 pending/published name 与 expected inode，并预登记 `attempted + rollback_required`；replace return-event 的 `KeyboardInterrupt` 不再依赖 caller-side `publication_visible=True` 才触发 rollback。publication/housekeeping/fd release/final anchor 统一从 pinned names 重建 replace 结果；首次 rebuild `EIO` 保持 unresolved，由最终 anchor 重试。rollback 一旦启动则直接恢复 inode-bound exchange/quarantine state，避免 generation 已移入 hidden slot 后再按 pending/published 二元状态误判；只有证明 replace 未完成或 rollback 完成后才允许清理 pending/slot。新增 `sys.setprofile` replace-return interrupt 与首次 state rebuild failure RED/GREEN，验证无正常 `Entries-*`、零 fd 泄漏且 execution lock 释放。
+- Private snapshot/publication failure-window final 收口三项：published generation rollback 继续优先对 fresh hidden UUID 执行 `renameat2(RENAME_NOREPLACE)` 并仅对 destination collision 重试；发布前新增 inode-bound empty `.rollback-slot-*` 与 `renameat2(RENAME_EXCHANGE)` exchange/restore capability probe，NOREPLACE 持续非 collision `EIO` 时把正常 generation 与预绑定 slot 原子交换、复验双 inode、fsync 并删除正常名下的空 placeholder，再从 hidden slot 做 descriptor-safe cleanup。Exchange rollback 现在显式保存 normal generation/empty slot 两侧 expected inode 与 `exchange_committed`/`placeholder_removed` 相位；每次 retry 都从两侧 dirfd name 重新恢复唯一合法状态，post-exchange inode check、fsync、placeholder `rmdir` 任一单次异常都不会再把 normal 侧 empty slot 误当 generation，恢复后清空真实 hidden generation 且不留 `Entries-*`。彻底删除 dirfd `os.replace` check-then-overwrite fallback，竞争者在 absence check 后创建的 leaf 保持原 inode/link，不使用 `os.rename`；cleanup 失败最多留下 hidden quarantine，不再留下正常 `Entries-*`。Snapshot factory 新增 return 前 `owner_callback`：完整 binding 在 factory transaction 内注册到 finalizer holder，factory-return profile event 的 `KeyboardInterrupt` 已无法抢在 ownership 前；callback 自身 `BaseException` 由 factory 删除 tree、关闭 parent fd并将 binding 标记为已清理。Pipeline failure persistence 与 finalizer 改为真正外层 `finally` transaction：首次 failed-state `_write_run()` 即使抛 `KeyboardInterrupt`/`SystemExit` 也必定恰好 finalization 一次，finalizer 后重试 path-free `failed` 元数据，并保持 finalizer > failure-write > stage 的异常优先级及 cause chain。新增 persistent rollback EIO + destination race、exchange capability preflight、post-exchange inode-check/fsync/rmdir fault、owner-callback interruption、factory-return `sys.setprofile` interruption、stage interrupt + failure-write interrupt 的 RED/GREEN，验证无正常 generation、竞争者不被覆盖、零 fd/lock 泄漏、snapshot tree/parent fd 回收及最终 `run.json=failed`。
+- Pipeline finalizer 现在覆盖全部 `BaseException`，不再让 private snapshot cleanup 中的 `KeyboardInterrupt`/`SystemExit` 绕过 failure persistence 并将 `run.json` 停在 `running`。非 `AnalyzerError` finalization 中断统一转为 path-free `ANALYSIS_FINALIZATION_FAILED`，只持久 bounded `error_type`；成功 stage 后 cleanup 中断固定落盘 `failed`，已有 stage/preflight 原始失败时继续以 finalization failure 为优先语义，并将原始 `AnalyzerError` 保留为 cause。新增成功路径 `KeyboardInterrupt` 与 stage failure + finalizer `SystemExit` RED/GREEN，验证 exception details/持久元数据均不含 private path。
+- Private snapshot/publication final Quality 四项 Important 收口：新增显式 `publication_rollback_required` transaction state，initial rollback/quarantine 首次 rename `EIO` 后即使 primary/rollback fd 都正常释放，finalizer 也必须用仍 pinned 的 final anchor 重试并完成隐藏，失败不得遗留正常 `Entries-*`。primary/rollback generation fd 与 snapshot root fd 遇到明确 `CloseRangePreActionError` 时，由于 ownership 仍可证，先完成必要 rollback/tree cleanup，再以单次 noexcept `os.closerange(fd, fd+1)` 释放，不再将注入错误合理化为 fd `+1` 泄漏。`CloseRangeCapability` 现同时绑定 `sys.platform == linux`、`platform.system() == Linux` 与 supported architecture；Darwin/FreeBSD/Windows 即使同为 `x86_64` 也在调用 syscall 436 前以 `ENOSYS` fail closed。新增 initial rollback 单次 EIO 重试、generation/snapshot pre-action 零 fd 泄漏与非 Linux 同架构平台矩阵 RED/GREEN，同时验证无正常 generation 残留且 execution lock 释放。
+- Private snapshot/publication final Quality re-review 否定了 failed `close()` 后以 `kcmp(KCMP_FILE)` 检查再 retry 的方案：identity check 与第二次 close 之间仍存在 fd-number ABA，可误关同 inode 或任意 replacement。新增共享 `CloseRangeCapability`，snapshot root 与 generation publication 在创建 owned fd 前都先以空高位区间 probe 并绑定 Linux `close_range` syscall，释放时只执行一次 `close_range(fd, fd, 0)`。raw syscall `rc<0` 现在以专用 `CloseRangePreActionError` 显式表示动作前失败；成功返回后观察到的其他 `BaseException` 与正常释放分别记录为 `POST_ACTION_EXCEPTION` / `RELEASED`，不再无条件吞掉 pre-action error。snapshot 删除 identity anchor；generation 只保留 rollback duplicate/anchor 用于隐藏失败 publication，不用于 retry close。primary/rollback descriptor 的所有失败都在 final anchor 释放前完成 rollback 决策；final anchor 若明确 pre-action failure，仍用确定存活的 anchor 隐藏 publication，再以单次 noexcept `os.closerange(fd, fd+1)` 释放并固定 `CODEQL_QUERY_FAILED`；若是 actual-close-then-`OSError|KeyboardInterrupt`，则 durable commit 保持成功，不再触碰该 fd number，返回 `QueryResult` 并保留唯一正常 generation。新增 kcmp-check→retry 窗口中强制 fd reuse、primitive unavailable/error/errno、preflight、primary/rollback pre-action failure、final-anchor raw pre-action 与 post-action 异常的 RED/GREEN；replacement 保持可用，失败 publication 无正常 generation，execution lock 必定释放。
+- Private snapshot cleanup finalization re-review 补齐 quarantine 首次复验后的同 inode mode race：`remove_contents()` 完成后、root `rmdir` 前同时重验 quarantine name 与 pinned root fd 的 inode/current uid/exact `0700` mode，删除后继续以 pinned fd 验证相同 uid/mode/inode 及零 link count；递归删除起点或 `rmdir` 内发生的 `fchmod(0755)` 均固定 finalization failure，不再静默成功。新增 remove-contents-start 与 root-rmdir 两个确定性 RED/GREEN checkpoint。
+- Private snapshot cleanup Important re-review 补齐两个剩余 lifetime race：root fd 打开后重新绑定 snapshot inode/current uid/exact `0700` mode，quarantine rename 后、递归删除前再同时通过 pinned root `fstat()` 与 quarantine-name `stat(..., follow_symlinks=False)` 复核相同 inode/uid/mode，任一同 inode `chmod` 漂移均 fail closed 且 victim 保留。`ExecutionDatabaseBinding` 新增 lock-protected one-shot cleanup closed state，并在首次访问/关闭持久 parent fd 前消费；重复、并发 cleanup 直接 no-op，不再把复用的 fd number 当 parent fd访问或关闭。新增 before-open/after-quarantine mode drift、fd reuse、并发与串行重复 cleanup 的确定性 RED/GREEN。
+- Private snapshot transaction re-review 再收口四个 failure window：stale scan 不再只保存 leaf name，而是把 `st_dev/st_ino/st_uid/st_mode` binding 传到同一 parent-fd quarantine/delete，scan 后同名换 inode 固定 `stale_cleanup` fail closed 且 replacement victim 不动。runner 新增显式 `publication_visible` transaction state；dirfd `os.replace` 抛出任何 `BaseException` 后以 pinned fd 核对 pending/destination inode，已完成 replace 必须先 rollback/quarantine，覆盖普通异常与 `KeyboardInterrupt`。run-query housekeeping 改为嵌套 cleanup stack：execution query unlink 失败会在 generation fd 关闭前回滚已发布 generation，generation fd 与 execution lock 无条件恰好释放，随后以固定 publication error 失败。final snapshot cleanup 无论 quarantine/delete 成败都在 locked 出口关闭持久 parent fd；失败残留由下一次 stale cleanup 以新 bound fd 回收，连续故障不再增长 `/proc/self/fd`。新增 stale same-name inode race、replace-then-raise、post-publication unlink failure 与 repeated cleanup-fd 四组 RED/GREEN。
+- Private snapshot Important re-review 收口三类 alias/parent-swap 缺口：execution tree 的 regular file 现在强制 `st_nlink == 1`，clone 后与每次 execution validation 都拒绝指向 canonical/out-of-tree inode 的 hardlink，canonical read-only tree 仍由原 identity/checkpoint 合同验证；回归证明 query subprocess 在 validation 前置失败后零调用且 canonical bytes 不变。`ExecutionDatabaseBinding` 现在持有创建时验证的 output parent fd/device/inode/uid，final cleanup 不再重开 lexical parent；stale scan、candidate quarantine rename、递归删除与 parent fsync 全程共用同一 output fd，parent swap 只能清理原 snapshot，replacement victim 原样保留。runner 在 publication 前 pin `.generations` fd/inode，capability probe、dirfd-relative `os.replace`、fsync、path-binding recheck 与 drift rollback/quarantine 全部复用该 fd；post-replace `.generations` 换父不再遗留正常 `Entries-*`。新增 hardlink write、final/stale parent swap 与 generation parent swap 确定性 RED/GREEN，继续禁止 `os.rename` 覆盖 fallback。
+- Private DB final spec re-review：所有 canonical `_validate_safe_tree()` 结果现在都把 descriptor-validated root `st_dev/st_ino` 重新绑定到 `DatabaseInfo.canonical_device/canonical_inode`；即使 identity 校验与 tree validation 之间被替换成 current-uid、owner-only、不同 fingerprint 的新 root，也固定 `CANONICAL_DATABASE_CHANGED`。正常 generation publication 现在先在当前 `.generations` filesystem 上以随机隐藏 source/target、dirfd-relative `renameat2(RENAME_NOREPLACE)` 完成 capability probe、绑定清理与 fsync；`ENOSYS`、`EINVAL`、`EOPNOTSUPP` 均在 `os.replace` 前 fail closed，使正常 `Entries-<uuid>` 从未出现，且绝无 `os.rename` fallback。rollback 不再保留 unsupported 时直接删除正常 generation 的危险分支。新增 canonical 两阶段换根 race 与三类 no-replace fault-injection RED/GREEN；`ENOSYS` case 同时注入 rollback cleanup failure，证明 publication 前置失败不依赖 rollback cleanup。
+- Private DB spec re-review Important 收口：新增共享 Linux `renameat2(RENAME_NOREPLACE)` dirfd primitive，snapshot cleanup 不再使用“precheck + overwriting rename”；`EEXIST`/`ENOSYS` 固定 cleanup failure且无 fallback。quarantine 删除完成后若同 uid 重建原 `.codeql-execution-*` 名，replacement 原样保留，但 cleanup/Pipeline 固定失败并将 `run.json` 持久化为 `failed`。execution binding 下 `run_query` 在创建输出或启动 subprocess 前拒绝 resolved `output_dir` 等于/位于 execution root，确保 `QueryResult.query_path/bqrs_path/decoded_path` 均不含随机 snapshot。post-replace drift rollback 先以 no-replace 将正常 generation 隐藏到 `.rollback-*`、验证 inode 并 fsync `.generations`，再做 dirfd/no-follow inode/link-count cleanup；目标竞态以新 hidden name 重试，cleanup `OSError` 也只能留下不可识别 quarantine，绝不留下正常 `Entries-*` generation 或返回 `QueryResult`。新增 replacement→Pipeline failed、unsupported/raced no-replace、output containment、rollback cleanup failure/target race RED/GREEN。
+- Private CodeQL DB critical re-review：Pipeline 现在先原子持久化递增 attempt 的 `running`，再执行 preflight，并在 preflight identity 完成后再次落盘；preflight/stale failure 不再保留旧 `completed`。snapshot factory 对 `KeyboardInterrupt`/`SystemExit` 等全部 `BaseException` 清理 partial clone，cleanup error 优先，既有 fixed `stale_cleanup` error 保持原 stage/reason。canonical root 与全部 nested entries 强制 current uid。clone/validation/stale/cleanup 枚举改为 bounded streaming `os.scandir(fd)`；cleanup 先同 parent 原子 quarantine rename，再以 dirfd/no-follow 删除并用 open-fd inode/link-count 验证 file/directory/root removal，root replacement 不会被误删。runner 在 publication hash、file/pending fsync、replace 前后及 generation fsync 后重验 canonical/private binding；post-replace drift 删除刚发布 generation并 fsync `.generations`，固定 path-free `CODEQL_QUERY_FAILED`。新增真实 default `FICLONE` 独立性/cleanup integration、late-publication 五 checkpoint、foreign-owner、BaseException、stale-error、streaming bound 与 quarantine race RED/GREEN；finalizer cleanup failure 持久化并覆盖 stage error，后者仅作 cause。
+- 修复 `codeql query run` 修改 canonical CodeQL DB（包括 `db-java/default/strings/`）后破坏 fingerprint/resume 的生产隔离缺口：locked preflight 现在为每 target pipeline 在正式 output root 内只创建一次隐藏 0700 private execution DB，全部 selected queries 共用，clone 强制 Linux `FICLONE` reflink-only 且不允许 full-copy fallback；canonical `DatabaseInfo.path/source_root/fingerprint` 仍是 stage/run/batch/resume 的唯一身份。clone 前后、query 提交检查点及 pipeline finalizer 验证 canonical exact identity 与 private path/inode/uid/mode/source-root/无 symlink-special-file，允许 CodeQL 仅改变 private fingerprint；canonical mutation 终止 publication 并在 replace 后按需回滚 generation。新增 completed 落盘前 finalizer，成功、stage/preflight/exception、全量 resume reuse 均验证并以 no-follow bounded cleanup 删除 snapshot；安全 stale root 可回收，unsafe/foreign/mode/inode/cleanup/reflink/capacity failure 统一固定 path-free `CODEQL_EXECUTION_SNAPSHOT_FAILED`，cleanup failure 不得留下 completed run。新增 snapshot、Pipeline finalizer 与 production one-clone/resume/stage-failure RED/GREEN，并保证随机 snapshot path 不进入 QueryResult、diagnostics、run/artifacts/manifests/report。
+- 收紧 Responses assistant content-part 协议边界：exact allowlist 现在只接受 `type=output_text` 且每项 `text` 为 string；`refusal`、缺失 type 或任何 unknown/future part type 一律作为 permanent `LLM_RESPONSE_INVALID`，即使旁边存在合法 schema contract 也不进入 Growth/Auth safe correction、不缓存、不审计。新增 Growth/Auth 端到端与 parser RED/GREEN，覆盖 unknown part 内的 email PII、Growth source echo 与普通 marker，固定一次 provider call，并验证 cache/audit/exception context/traceback locals 无残留。
+- 修复 Responses inner contract 以 JSON `\\uNNNN` 转义绕过 semantic sensitive scan 与 cache replay raw/typed 分裂：Growth/Auth 现在在 typed construction 前执行唯一 bounded canonical pass，依次解析并扫描 decoded outer envelope（fixed credential-only）、decoded inner semantic object/canonical key-value context（fixed credential + email/phone/SSN，Growth 另含 source echo）及 provider request ID（fixed credential-only）。immutable snapshot acceptance 再按 caller API key/`extra_secret_patterns` 重扫相同 decoded layers，并从 raw semantic 重新执行 Growth slice/fact-alias binder 或 Auth `security:<ordinal>` alias binder，要求 rebound `to_dict()` 与 authenticated typed snapshot及 raw/snapshot actual model 精确一致后才允许 audit；cache replay mismatch/escaped sensitive 固定零回源、零 audit，strict-owner/lax-waiter 仍共享一次已完成 flight。Growth cache/HMAC 升至 v12、Auth cache/HMAC 升至 v4、Growth production fingerprint 升至 v13；DeepSeek Auth identity 显式加入来自 cache 模块单一常量的 `auth_cache_format=auth-contract-cache-v4`，使真实 HMAC-valid v3 旧记录与 v4 使用不同 immutable key，旧文件原样保留且不再阻塞 provider call/v4 publication；Growth v11/Auth v3 及更早记录 cold miss。新增 fresh/correction、semantic credential/JWT/URI/PII/source-echo、per-waiter extra、HMAC-valid escaped replay 与 raw/typed mismatch RED/GREEN。
+- 修复 response-side `extra_secret_patterns` 错误扫描 outbound Growth/Auth initial/correction prompt：DeepSeek client 的全部发送前扫描现在只运行 fixed request credential policy，caller extra 仅在 immutable response snapshot 已 publication 且 shared flight 已完成后检查 raw body/request ID。新增 initial-prompt-only 与 correction-prompt-only pattern 的 strict-owner→lax-waiter 并发 RED/GREEN；正常响应保持一次 provider flight，首轮 schema-invalid + safe correction 保持整条共享 flight 恰好两次 provider call，不再由 lax waiter 重跑成三次。
+- 修复真实 Responses envelope metadata 中 phone-like provider ID 被 generic phone PII regex 误报：raw envelope 与 request ID 现在只执行 configured key、credential assignment/Bearer/API-key/private-key、JWT、credential URI 及 caller `extra_secret_patterns`，parsed assistant semantic `content` 继续执行完整 credential + email/phone/SSN + Growth source-echo gate。fixed universal policy 仍在 publication 前，caller extra policy 仍在 immutable snapshot publication/flight completion 后执行，未污染 strict-owner/lax-waiter single-flight 次序；新增 Growth/Auth phone-like ID `0600` audit/cache、semantic phone terminal、各层 fixed/extra credential 与 universal failure 回归。
+- Quality re-review 收紧 Auth ownership/alias/publication 与 Growth publication：Auth cache/single-flight identity 新增不外传的 SHA-256 ownership digest，绑定 original Entry 与有序 security/configuration semantic bindings；同形不同 owner 不再复用，disk replay 对 de-aliased evidence 执行 current-fact ownership 校验。provider evidence 仅允许当前 exact `security:<ordinal>` alias，未知 alias 首次进入唯一 safe correction、二次 terminal。Auth 在 provider 前持有 `auth-<identity>` capacity reservation，容量失败零调用；Auth/Growth cache put 异常或 false return 均先清空 response/parsed/request/model/contract/snapshot locals，再以固定 unchained `LLM_CACHE_WRITE_FAILED` 失败，且 publication failure 优先于 caller custom policy。新增 ownership/config binding、foreign signed replay、unknown alias、preflight capacity、publication traceback 与确定性双向 single-flight 回归。
+- 收口 Auth provider strict-schema/sensitive-response failure：`auth-contract-v4` / `auth-contract-schema-v3` 在首次 `LLM_RESPONSE_SCHEMA_INVALID` 或 `LLM_RESPONSE_SENSITIVE_CONTENT` 时仅允许一次 safe correction，只重发 unchanged aliased security/configuration facts，并明确 exact four keys、`evidence_ids`/`assumptions` JSON arrays（可空）及 `confidence=high|medium|low`；不携带 rejected body/request ID，不做 scalar-to-array normalization，第二次失败保持原错误码 terminal。
+- Auth rejected-response 清理达到 Growth 同级边界：response envelope/content/parsed object、request ID、actual model 与 typed contract 在 retry/terminal 路径清空，拒绝原文不进入 cache、audit、exception cause/context 或 traceback frame locals。新增独立 Auth thread single-flight；owner/waiter 共享 policy-neutral immutable snapshot，但每个 client 重新执行自身 raw-body/request-ID policy，policy rejection 不回源、不污染其他 waiter，same identity 仅一次 provider flight。
+- Auth authenticated cache/HMAC domain 升至 v3，并认证 `accepted_prompt_variant=initial|correction` 与 bounded actual provider model；disk replay 对 requested model alias fail closed，并在 fresh/cache-hit audit 中保留实际 alias、确定性重建 exact accepted prompt，Auth v2 及更早缓存 cold miss。Growth-stage production fingerprint 升至 `production-v2.7-open-world-maturation-growth-v12`，阻止 formal resume 复用修复前 Auth 产物；同步唯一设计规范、README 与回归测试。
+- 修复 Growth/Auth policy-neutral single-flight 的 strict-owner 反向顺序缺口：live flight 在共享 snapshot 前只执行固定 built-in credential/PII/source-echo gate 与实际 owner transport API-key 检查；`extra_secret_patterns` 仅在 snapshot accept 阶段按 caller 执行。snapshot/cache/flight 先完成，再生成 owner `cache_hit=false` audit；strict owner 本地拒绝不会进入 correction、二次覆盖 shared state、删除 cache 或迫使 lax waiter 回源。universal 两次 sensitive failure 作为同一 terminal flight failure 共享，strict-owner→lax-waiter 的 Growth/Auth 回归均保持一个 provider request。
+- Auth content 从普通 `json.loads` 改为 bounded unique-key strict parser，duplicate members、non-finite/depth/node/string bounds 首次失败进入唯一 safe correction，第二次保持 terminal/no-cache/no-audit，并清理 rejected traceback locals。Auth prompt 同时确定性 alias Entry、security fact ID/location、modeled configuration ID/source path；configuration 先经过 exact `ModeledConfigurationFact` schema，仅发布 allowlisted key/typed-value/source-line/profile/provenance/default/status 语义，initial/correction payload 完全一致且 cache replay exact。上述修复仍属于本轮未发布的 Auth v4/schema-v3/cache-v3 与 growth-v12 identity baseline，无额外格式轮换。
+
+## 2026-08-30
+
+- Quality re-review 收紧 Growth false-negative 与 rejected-body 内存边界：`ProviderGrowthContract` 和本地 `GrowthContract` 现共同强制 `contract_status=dos_relevant => is_resource_growth=yes`，provider 返回 `no|unknown + dos_relevant` 时首轮只进入唯一 safe correction，第二轮保持 terminal `LLM_RESPONSE_SCHEMA_INVALID`，不缓存、不审计。每个 provider attempt 前及失败路径显式清空 `reply/content/request_id/actual_model/contract` 等响应引用；malformed Responses envelope 在清空 body/envelope/parts 等局部变量后以固定错误 `from None` 抛出，第二次 schema/sensitive terminal 与首轮 sensitive 后 correction transport failure 的最终 traceback frame locals 均不得保留 rejected marker。Disk cache hit 与 concurrent single-flight waiter 的 per-client body/request-ID policy rejection 同样先在 `_accept_growth_snapshot` 清空 snapshot，再由 caller 清空 `cached_snapshot` 或抽取 immutable waiter snapshot 后解除 `state` 引用，且不修改其他 waiter 仍需使用的 shared snapshot；不同 policy waiter 保持单 provider call，合法 waiter audit/cache 仍保留 exact accepted body，disk request ID 仍只存 HMAC digest。Growth production fingerprint 升至 v11；为隔离修复前可认证的 false-negative cache，Growth cache/HMAC domain 升至 v11，v10 及更早缓存不可复用；prompt/schema 仍为 v7/v5。
+- 修复 fresh t180 provider canary 的 attacker-evidence binder 失败：安全结构诊断确认有效 worktree run 的 initial/correction response 可满足 provider-v5 17-key shape，却可能选择无法通过本地 `flow|driver_origin + source|flows_to + unique attacker_target` 绑定的 alias；prompt 现只发布确定性 `attacker_evidence_options`（aliased evidence ID + local target context），provider 只能回传其中的 `evidence_id`，空 options 禁止 `dos_relevant`，correction 同时明确 `confidence` 必填且仍只有一次。未放宽 schema、alias ownership、binder、static evidence 或 positive gate；Growth prompt identity 升至 `growth-contract-v7`，production Growth fingerprint 升至 v10，response schema/cache format 保持 v5/v10，并新增 scripted provider RED/GREEN。PoC-33 real-provider acceptance full plan 同步 digest-bind `timeout_seconds=180` / `max_retries=3`，不再依赖 CLI 默认 60 秒 deadline。
+- Spec re-review 补齐 t180/archive 与 binder 边界：`validate_full_archive()` 现在要求 plan provider 映射精确等于 `allow_remote_llm=true, timeout_seconds=180, max_retries=3`，即使 60/1 计划自身 digest/target binding/state 全部一致也拒绝，且 60/1 与 180/3 plan ID/digest 差异有独立回归。Growth prompt 新增 eligible/wrong-relation/missing-target/multiple-target/zero-option 精确过滤矩阵；binder-invalid initial 后 correction 缺唯一 `confidence`（其余 16 键合法）保持 terminal strict failure，不本地填补、不缓存、不审计；成功 correction 回归继续保留。唯一设计的当前 Growth fingerprint 统一为 v10。
+- Code-quality re-review 修复 Growth provider/cache/single-flight 相邻边界：provider envelope 与 cache raw response 统一为 131072-byte safe limit，合法约 80.9KB envelope 可缓存重放，direct oversize cache write 固定为不含原文的 `LLM_CACHE_WRITE_FAILED`；thread single-flight 改为共享 policy-neutral immutable accepted snapshot，每个 waiter 使用自身 API key 与 `extra_secret_patterns` 重新验证 raw response及 in-memory provider request ID并生成自己的 replay audit，header-only/sensitive policy failure 不再作为共享结论且不同 policy 并发仍仅一次 provider call；disk cache 继续只保留 request-ID digest，replay snapshot 使用空 request-ID。DeepSeek cache hit 改为一次 authenticated snapshot 读取 typed contract、raw response、prompt variant 与 HMAC-bound `actual_model`，消除 `get()+audit_payload()` 双读 TOCTOU，并保留 provider model alias。Growth fingerprint 升至 v9；新增 large-envelope、body/header-only 不同 policy 并发、cache-file replacement 与 model-alias replay RED/GREEN。
+- 第三轮 provider cache spec review 收紧 `request_audit` identity binding：`provider` 与 `protocol` 现在都必须是 bounded string，并分别 exact-equal cache identity 的 provider/protocol；API-key 可重签的 arbitrary provider object、错误 provider、protocol object 或错误 protocol 均由 shared strict validator 的两个读取入口一致拒绝。signed-malformed 矩阵扩展至 19 类。
+- Provider correction cache re-review 消除 v10 两读取入口的验证分叉：`authenticated_contract()` 与 `audit_payload()` 现在共同委托唯一 strict Growth entry validator，对 exact top-level fields、cache key/format/schema/identity、identity/audit/raw/contract/entry hashes、request audit、`accepted_prompt_variant` enum、typed contract 与 HMAC 执行同一 fail-closed 验证；signed malformed entry 不再出现 contract reader 接受而 audit reader 拒绝或反向接受。新增 15 类 signed/tampered malformed 双入口一致拒绝矩阵。
+- Provider correction spec re-review 收口两条可重现边界：Growth cache 现在以 HMAC-authenticated `accepted_prompt_variant=initial|correction` 持久化实际 accepted prompt 路径，cache-hit 从同一 bounded slice 确定性重建该 prompt，fresh/cache-hit `normalized_prompt` 不再漂移；cache/HMAC domain 因结构变更诚实升至 v10 并进入 cache identity，v9 只作 cold miss且不会占用相同 cache key。第二次 schema/sensitive terminal failure 现在在离开原 exception handler 后重建固定无 details 的 `AnalyzerError`，JSON parser 也不再把带完整 rejected body 的 `JSONDecodeError.doc` 接入 cause/context 链；失败原文不得通过 message、details、cause 或 context 泄漏。Growth production fingerprint 升至 v7；新增 schema→sensitive、correction cache replay 与 malformed JSON exception-graph RED/GREEN。
+- 修复 fresh schema-2.7 provider canary 的 Growth completion 边界：首个 `LLM_RESPONSE_SCHEMA_INVALID` 或 `LLM_RESPONSE_SENSITIVE_CONTENT` 现在统一只触发一次 safe correction，correction 只重发未变 bounded slice 与 deterministic 17-key/status/evidence-alias/local-binding 约束，绝不回显、缓存、审计或记录被拒原文；第二个 schema/sensitive failure 保持原错误码 terminal。request credential scan、16/32 evidence limits、strict schema、positive gate、local evidence binding 与 single-flight 均未放宽。Growth prompt identity 升至 `growth-contract-v6`，production growth fingerprint 经 re-review 升至 `production-v2.7-open-world-maturation-growth-v7`，禁止 formal resume 复用修复前 growth artifacts；response schema 保持 v5，cache/HMAC format 经 re-review 升至 v10，并新增 scripted transport RED/GREEN 回归。
+- 收口 Auth final-quality 三项 fail-closed 边界：当前 Entry/bounded slice 内任一 non-deployment `partial`/`unsupported` security fact 现在都是 Auth coverage gap，local derivation 与 provider selective citation 均不能隐藏，固定输出 `REACH_AUTH_COVERAGE_PARTIAL`、unknown Auth/Reach；partial deployment 继续由独立 resolver 处理。32-ID proof budget 先保留最小 gap representative，再保留 complete Auth context、deployment status 与 provider citations，正反序和高基数结果一致。`@ConditionalOnProperty` 完整建模 static prefix canonicalization 与 `matchIfMissing` absence semantics，只允许唯一 static name、非空 static `havingValue`、static prefix、`matchIfMissing=false` 产 complete exact-key gate；`prefix` 与 `prefix.` 均归一到同一 key，unprefixed fallback 禁止，其余保持 partial。Auth annotation 从 simple-name heuristic 改为 `javax`/`jakarta` PermitAll/RolesAllowed、Spring PreAuthorize/Secured、Vaadin AnonymousAllowed exact qualified-name allowlist，项目自定义同名 annotation 不再误报。新增 unit、production selective-citation 与真实 CodeQL fixtures；entries/growth fingerprints 升至 v5，flows-v3、lifecycle-v2、conclude-v4 保持不变。
+- 修复 EntrySecurity/Auth/Reach quality review 的 fail-closed 边界：concrete route matcher 现在绑定全部语义匹配 Entry，zero-match 不再错误回退 handler；仅缺失/非具体 route 可使用唯一 exact handler identity，输出与输入顺序无关。`ROLE_USER`、混合/普通 role 与非 exact role expression 一律只产 partial unknown，仅 exact `ADMIN`/`ROLE_ADMIN` 及 exact admin `hasRole`/`hasAuthority` 可产 complete privileged；`ConditionalOnBean/Class/Expression` 与 generic `@Conditional` 改为 partial optional，复杂/负向/多值 `@Profile` 改为 partial，resolver 也拒绝旧 complete complex-profile fact。显式 partial deployment fact 继续抑制 synthetic `default_enabled`，保持 Reach unknown。新增 binder/resolver、真实 CodeQL Spring fixture 与 production artifact/decision 回归；direct/embedded `EntrySecurity.ql` byte-identical，entries fingerprint 升至 v4，并同步唯一规范/README 的完整 fingerprint 总表（flows-v3、growth-v4、lifecycle-v2、conclude-v4）。
+- 收紧 CandidateCoverage 与 lifecycle certificate 的 exact registration-coverage 边界：generic coverage 仍可表达 framework gap，但其每个非空 `supported_patterns` 现在也必须是归属于该 framework 的 modeled exact pattern ID，invented/cross-framework/broad-kind 值全部拒绝，`unsupported_patterns` 继续保留为自由 gap note。具体 certificate 不再把空 scope 当 wildcard，必须同时精确绑定当前 `registration_pattern_id`、`entry_id` 与 `growth_id`；`path_id` 继续保留既有 grouped-path 可选语义。新增 generic constructor、unscoped current/sibling、缺 Entry/Growth scope、canonical reconstruction 与 production exact-positive 回归；conclude fingerprint 升至 v4，禁止复用修复前 certificate artifacts。
+- 完成 open-discovery CLI ancestor 发布合同的最后收口：parent dirfd pin 后不再调用 path-based `_output_exists(output)`，destination preflight 与 publication 前复核仅使用固定 parent fd 的 no-follow leaf check，parent identity drift 与最终 `renameat2(RENAME_NOREPLACE)` 继续 fail closed。竞态回归改在首次 pin 前 existence check 内真实注入 `missing ancestor -> immutable batch` symlink，并断言 callback 已执行、CLI 返回 2、batch tree 无新增目录或 leaf；atomic leaf race 直接注入到 `renameat2` 调用窗口，竞争者 inode/内容保持不变。focused evaluator/CLI `41 passed, 58 subtests passed`。
+- 修复 Entry registration coverage 的同 kind 跨 pattern 继承：complete raw row 现在必须由 exact `(framework, registration.kind, coverage_note)` 派生不可伪造的 `registration_pattern_id`，并将其纳入 Entry semantic identity、strict roundtrip、artifact schema、normalize merge key 与 flow/association identity；未知 complete note、跨 framework/kind ID 和反序列化漂移均 fail closed。`coverage.json.supported_patterns` 改存 exact IDs，conclude/CandidateCoverage/certificate 只绑定当前 Entry exact ID；同 framework、同 registration kind 的 sibling supported pattern 不再能把当前 Entry 升为 complete，缺失 exact match 经 proof gate 固定输出 `static_unknown` / `VERDICT_ENTRY_COVERAGE_INCOMPLETE`。entries/flows/conclude fingerprints 升至 v3；新增 model/schema/normalize、candidate scope 与 production conclude RED/GREEN 回归。
+- Quality re-review 收紧 Auth/Reach 事实域：Auth 语义只接受 exact `(kind,value)` allowlist，`dependency_coverage + unauthenticated_annotation` 等错配不再参与 derivation、conflict 或 cited support；deployment facts 同时要求 current Entry 与 current bounded slice，外部 Entry gate 不再污染状态/evidence。modeled configuration index 改为全量 typed-value collect：同 type/value 可折叠，冲突值视为 absent/unknown，`True` 与 `1` 明确不同且输入逆序结果一致。production 注入错配 security fact 后 unique privileged Entry 仍正常；growth fingerprint 升至 v4，并同步唯一规范 Section 21.6 的 formal resume 边界。
+- 修复 Auth Contract selective-citation 绕过与高基数 evidence overflow：verifier 不再只检查 provider 引用的事实，而是对当前 Entry、当前 bounded security slice 内全部 complete Auth facts 重建语义 context 集；`unauthenticated`/`low_privilege`/`privileged` 多 context 冲突固定保持 `auth_context=unknown`，provider 只引用 public 或 privileged 一侧也不能升级 Reach。deployment gate 不参与 Auth 冲突，仍由独立 resolver 对全部 facts 解析。local unique Auth 固定引用最小 supporting fact；Reach 的 32-ID proof budget 先保留每个 Auth context 与每个独立 deployment-status bucket 的最小代表，再按序填充 provider citations，既不因 33+ duplicate facts 终止，也不因截断隐藏冲突。新增 unit/model、32-citation conflict、multiple-deployment、deployment 独立性与 injected production selective-citation 回归；禁止 formal resume 复用修复前 Reach/Auth artifacts。
+- 终审收紧 open-discovery evaluator/CLI：finding 只允许绑定 formal/gap disposition，gap 只能产 `static_unknown`，三态 verdict、disposition 与 same-Growth typed negative-proof ownership 全部 fail closed；每条 proof 必须被恰好一个 rejected disposition 引用，missing/orphan/wrong-Growth/non-rejected proof 不再降为 unresolved。analysis ID 禁止跨 repository 重用，seed-side missing concrete finding/Growth ID 也登记全局 owner（同 repo 可共享、跨 repo fail closed）；non-linking seed 携带 stale concrete ID、ordinary matched status/verdict 冲突及 finding/Growth 链不一致均拒绝。真实 multi-Growth seed 现在允许 finding mapped Growth 是 declared Growth 的严格子集；`matched_*`、ordinary `chain`、nested `candidate` 逐 carrier 校验后才 union，合法 superset/singleton 组合保留，novel conflict 也 fail closed。所有未链接 positive seed 输出 deterministic seed-only `unresolved_discovery`（`recall_miss=true`、保留固定 identity/status、analysis 字段为 null），linked row 固定 `recall_miss=false`。CLI 发布改用 component-wise no-follow output-parent dirfd walk：output parent 必须预先存在，CLI 禁止 pin 前 recursive mkdir，missing-ancestor symlink race 不会在 immutable batch产生目录副作用；temp 创建/写入/清理、destination 检查及 Linux `renameat2(RENAME_NOREPLACE)` 全部 dirfd-relative，pin 前后竞态 output leaf/ancestor symlink 均不能重定向或覆盖 immutable input；所需 syscall/flags 不可用时不退化，path-resolution/symlink-loop RuntimeError 统一 rc=2 且无 traceback。focused evaluator/CLI `40 passed, 58 subtests passed`。
+- 修复终审发现的 proof-gate bounded bypass：`apply_positive_proof_gate` 现在对 `static_vulnerable` 与 `bounded_under_modeled_assumptions` 使用同一 fail-closed 合同，Entry、ordinary Reach、verified Growth、proven flow、任一适用 assertion lifecycle coverage 或 candidate-gap obligation 缺失都会降为 `static_unknown`，并无损附加全部 exact `VERDICT_*` missing reasons；原本的 `static_unknown` 保持 unknown 但同样记录原因。actual bounded-to-unknown downgrade 同时移除矛盾的 `STATIC_EVIDENCE_COVERAGE_COMPLETE` assumption，保留有证据的 `MODELED_DEFAULT_CONFIGURATION` 与 modeled refs；原生 unknown 不制造 modeled-bounded assumptions。`not_entry_reachable` 继续在 maturation 以 same-Growth typed negative proof 进入 `rejected`，不作为 bounded bypass。新增 bounded+candidate gap、bounded+适用 lifecycle incomplete、7 obligations 全 false、unknown reason accumulation、certificate recomputation 与 production effective-Bound gap E2E 回归；conclude fingerprint 升至 v2，禁止复用修复前 conclude artifacts。assertions/certificates/production focused `99 passed, 4 skipped, 28 subtests passed`。
+- 收紧 candidate maturation 四态不变量：`gap_eligible` 现在必须在 `local_growth_status` 或 `association_status` 至少一个维度明确为 `partial`，`complete/complete` 只能表示 `formal_eligible`；model 与 artifact validator 同时 fail closed。production 在 relevance 为 `dos_relevant_partial`、canonical association 已 complete 时显式把 Growth-local 维度保留为 `partial`，不再生成伪 all-complete gap。新增 Growth-partial/complete-link、association-partial/partial-link、all-complete gap 拒绝及 formal complete/partial 矩阵回归；focused Growth/maturation/artifact/production `160 passed, 4 skipped, 64 subtests passed`。
+- Quality re-review 收紧最后两个相邻合同：request-local ArrayList 的 complete shape 只接受 exact one-argument append `add(E)`，indexed `add(int,E)` 即使位于 canonical attacker-bound loop 也保持 `partial` 且无 cardinality-proven marker。candidate link ownership 从 `(growth_id, entry_id)` 扩展为 `(growth_id, entry_id, link_status)`，reference validation、production 与 P0 aggregate 均要求 disposition `association_status` 精确等于唯一 link `status`；`formal_eligible` 因而只能引用 complete link，`gap_eligible` 可引用 partial 或 complete link但必须与自身 association status 一致。新增 indexed-add 真实 CodeQL fixture、partial-link 冒充 formal、gap partial/complete exact-match 及 P0 malformed 回归；真实 G1–G4 fixture `1 passed, 9 subtests passed`，focused Growth/maturation/artifact/production `152 passed, 4 skipped, 58 subtests passed`。
+- Re-review 继续收紧 request-local cardinality proof：relevance 不再对拼接后的 coverage note 文本做 substring 晋级，只精确接受单条 canonical `request_local_container_write:<allowed-driver>:attacker_controlled_loop_cardinality_proven`，其中 allowed driver 限于 query complete 域实际可输出的 `key_driver_unclassified`、`attacker_value_driver`、`value_driver_unclassified`；拆分 marker、`_but_unproven`、任意前后缀和不可能的 `attacker_key_driver` 均保持 unresolved。Map 与 ArrayList complete 现在共用 `canonicalAttackerBoundForLoop`，固定为 non-wrapping canonical `for (int i = 0; i < directAnnotatedIntParameter; i++|++i)`：exact integer literal zero initializer、direct int attacker bound、唯一 increment、body 无 induction write缺一不可，Map 另要求 exact induction key；仅有 `attackerControlsLoop` 不足以让 List 晋级。byte/float/long、非零起点、derived bound、decrement、stable multi-statement、`count - 2` 起点的 fixed-two List、`count` 起点的 infeasible List、`i < 2 && count == count` attacker-tautology List 与 `i < count && false` infeasible-condition List fixtures 均锁定为 `partial` 且不得携带 cardinality-proven marker。真实 G1–G4 fixture `1 passed, 9 subtests passed`，query contract `1 passed, 30 subtests passed`，focused Growth/maturation/artifact/production `149 passed, 4 skipped, 54 subtests passed`。
+- 激活并进一步收紧 request-local attacker cardinality 的真实 discovery：direct/embedded `ContainerGrowth.ql` 识别 supported handler 内由 concrete `Map`/`Collection` allocation 初始化的 exact local receiver，输出 handler-qualified receiver、local `field_path` 与 `escape_scope=request`。`complete` 同时要求 source-backed attacker loop、loop 外 zero-argument allocation 对 loop 的 lexical/CFG dominance、无第二 local access、逐迭代确定执行与新 entry 证明；当前 P0 Map 域仅接受 zero-argument concrete `HashMap.put` 加 exact canonical `ForStmt` induction `VarAccess` key，不再接受 string concat，stable zero-argument `ArrayList.add` 也必须是 unbraced direct body 或 braced loop body 的唯一 statement。conditional/continue/early-exit/multi-statement body 输出 `attacker_controlled_loop_per_iteration_execution_unproven`，same-key/concat Map 输出 new-entry-unproven，fresh-per-iteration Map 输出 instance-stability-unproven；只有 `attacker_controlled_loop_cardinality_proven` 可让 request-local candidate 进入 relevance，stored key/value 本身无需 annotated attacker parameter。新增 Spring 真实 CodeQL exact-key、concat、conditional Map/List、same-key、fresh-map、list 与 one-shot 回归；真实 G1–G4 fixture `1 passed, 9 subtests passed`，focused Growth/maturation/artifact/production `148 passed, 4 skipped, 49 subtests passed`。
+- 收紧 disposition ownership：`evidence_ids` 中全部 `negative_proof:*` 必须与 `negative_proof_ids` 精确相等，缺失引用、额外未声明 proof 和跨 Growth proof evidence 均 fail closed；formal/gap 的唯一 candidate link 必须同时拥有 disposition 的 `growth_id` 与 `canonical_entry_id`。production 与 P0 aggregate 均重建 `link_id -> (growth_id, entry_id)` ownership，wrong-growth/wrong-entry link 会将 target 标为 malformed。
+- 收紧 open-world candidate maturation：无 enclosing loop 的 async submission 不再按单次调用误删，保留到 repeatability、queue capacity 与 lifecycle；request-local container 只有 source-backed finite cardinality/byte bound 或确定低放大证明才可 negative reject，attacker-controlled loop witness 可进入单请求 cardinality Growth。`rejected` disposition 现在必须引用同 Growth 的 typed `negative_proof:*`，其 evidence 只能来自该 Growth 的 `candidate_evidence` `fact:*`；formal/gap/inventory 禁止携带 negative proof，`not_entry_reachable` 也发布同 Growth proof。exact `Math.min` clamp 仅接受严格正值的语法级 `IntegerLiteral` 与 supported Spring handler 中 exact annotated attacker-parameter `VarAccess`；constant expression、`static final` constant variable、server-derived nonconstant、零/负数均不得发布 complete clamp。hex/binary/octal/underscore integer literal 统一输出 canonical decimal，避免 downstream 十进制 Bound verifier 误判。Growth implementation fingerprint 升至 v2，禁止复用本修复前的 schema-2.7 growth stage。
+- 修复 P0 aggregate reference validation 被 artifact-name/id-kind 键错配整体跳过的问题：aggregation 现在仅从 Growth candidate evidence 与 Entry security facts 重建可信 fact ownership，并构造 `growth_fact_ids`、`entry_security_fact_ids`、`security_fact_ids`、`negative_proof_growth_ids` 后对全部 parsed schemas 执行 reference validation；跨 Growth disposition/proof、跨 Growth proof evidence 与 `fact:oracle_label` 自授权输入均将 target 标为 `malformed`。schema-invalid `candidate_evidence` 类型也只记 target malformed，不再在 known-map 重建时抛出未处理异常。
+- 将 schema/tool 升至 `2.7/0.6.0`，raw Growth 改为 `formal_eligible`、`gap_eligible`、`rejected`、`inventory_unresolved` 四态 maturation；新增 `candidate_negative_proofs.jsonl`，高 fanout 保留 inventory，request-local、finite-keyspace、server-controlled 等确定性负例携带 source-backed negative proof。formal resume 重新执行 2.6/0.5.0 stages，P0 aggregate 新增 `aggregate_candidate_negative_proofs.jsonl`。
+- Growth Contract 升至 v5/provider schema v5/cache v9：kind、dimension、attacker target 改由 bounded static facts 本地推导；provider 只回传 attacker evidence IDs。semantic-invalid 仅允许一次不回显原响应的 correction request，第二次 fail closed，invalid response 不入 cache。唯一 complete Auth facts 本地派生 Auth Contract，partial/冲突才调用 provider。
+- positive verdict proof gate 改为 assertion-scoped lifecycle coverage；registration coverage 改为 framework-specific exact pattern identity。修复 conclude 仍比较旧 `verified_relevant` 状态导致 formal candidates 全部降为 unknown 的迁移残留。
+- Bound modeled domain新增 direct `ByteBuffer.allocate/allocateDirect` absence proof 与 exact `Math.min(..., positiveLiteral)` typed `clamp` candidate；decoder、artifact schema、deterministic Bound evaluator和 direct/embedded CodeQL pack 同步。unsupported/custom/reflection domain 继续 partial，未放宽 async Release。
+- 新增只读 open-discovery evaluator `scripts/evaluate_open_discovery.py`：静态扫描完成后才与 PoC seed matches 做差集，固定输出 `seed_linked_static_vulnerable`、`novel_static_vulnerable`、`novel_bounded`、`source_proven_negative`、`unresolved_discovery`；PoC 未命中不会自动计为 FP，production 不读取 novelty/seed 标签。evaluator 同时接受普通 `matches.jsonl` 与 PoC-33 `truth_dispositions.jsonl`，只按 strict `owner/repository` scope 内的具体 finding/Growth ID 链接，拒绝重复 identity、非法 collection、跨 artifact disposition/proof 不一致；output 必须不存在，并经 0700 同父临时目录一次原子发布，既存 symlink/hardlink 不得覆写输入。
+- 修复 P0 与 framework-limit 真实 CodeQL E2E 的迁移断言：direct allocation modeled domain 会在同一 `/post-guard` Entry 下发现额外 `direct_allocation` Growth，Servlet 未晋级候选保持 `inventory_unresolved`；framework-limit fixture 现在精确绑定四条原 framework limit 与一条 `numeric_min_literal` clamp 的 anchor/evidence/configuration/encoding，不以旧四项集合遮蔽新增真候选。
+
+## 2026-08-28
+
+- 更新工具对 PoC-33 21 库做 formal full：`results/java_web_dos_batch/poc33-p02-20260828_174800-full/`。18/21 completed，3 个 target 在 16 次真实 provider 重试后仍失败（HertzBeat `LLM_RESPONSE_SENSITIVE_CONTENT`，ThingsBoard/WGCLOUD `LLM_RETRIES_EXHAUSTED`）。产出 87 条 `static_unknown` finding / 84 个 family，0 `static_vulnerable`。离线 recall 14/33 `full_chain_finding`；人工审查 family 级 TP=17、FP=67、precision=17/84=0.202，33 条基准审查覆盖 16/33。报告：`results/java_web_dos_batch/poc33-p02-20260828_174800-eval/TP_FP_REPORT.md`。
+- Growth relevance 与 candidate association 不再把 >64 条 Entry link 的 fanout 当成 target failure。Rebuild 一类同文件 source-order 高扇出会保持 `unresolved`（`RELEVANCE_LINK_FANOUT_EXCEEDED` / `ASSOCIATION_ENTRY_FANOUT_UNRESOLVED`），不中断其余候选。新增 RED/GREEN 回归。
+- Task 10 新增只编排静态验收的 `scripts/run_poc33_demo_acceptance.py` 与完整回归：`fast`、`codeql-fixtures`、`poc33-entries`、`poc33-real-provider-full`、`poc33-offline-eval` 五层均使用 immutable run ID、canonical 205 manifest 与 `poc/manifest.json` 的 digest-bound 21-target selection；driver 不运行动态 DoS，不用 mock 冒充 provider completed，并在 full/offline 层严格校验 formal/fail-closed、0600 私有 audit、P0 aggregate、同 run ID 派生产物和 rollout blocker matrix。
+- 首轮真实 entries canary `poc33-p02-20260828_001609` 暴露 exploratory source-hint 筛选把每库实际查询静默缩减为 3–8 条，因而被 8/8 gate 正确拒绝。新增 RED/GREEN 回归后，formal 与 explicit exploratory entries 都执行六个 Entry family 加 interposition/security 共 8 条 selected queries；exploratory 只改变 query failure policy，不再改变 coverage surface。删除已失效 hint scanner，并把 entries implementation fingerprint 升为 `production-v2.6-poc33-demo-repair-entries-v2`，阻止 pre-fix stage resume。
+- flows stage 仅为唯一 canonical、`dos_relevant_partial` 且 partial-link、同时缺正式 flow 的 E/G pair 生成一个 `unmodeled/partial` gap path；generic unresolved 不生成，complete link 缺 flow 继续视为损坏。stage metadata 新增 `partial_gap_flow_count`，flows fingerprint 升为 `production-v2.6-poc33-demo-repair-flows-v2`。持久化 production resume 复验覆盖 P0 13/13、MQTT 2/2、Netty 2/2、Servlet 6/6 finding-eligible pairs，所有未完成 Reach/lifecycle proof 的结论保持 `static_unknown`，provider 重复调用为 0。
+- evaluator 的 supported-chain recall 只排除同时带 `ENTRY_DYNAMIC_REGISTRATION_UNPROVEN` 与 `GROWTH_SINK_MATCHED` 的 explicit deferred Growth；新 run 直接消费 formal `finding_families.jsonl` 或 aggregate `aggregate_finding_families.jsonl`，两者并存时拒绝歧义，`--static-audit` 继续只用于 historical baseline。
+- 最终 immutable entries canary `results/java_web_dos_batch/poc33-p02-20260828_152629-entries/` 通过：21/21 completed、每库 8/8 selected queries、总计 168 queries、0 diagnostics、0 skipped，并生成 selection/plan digest 与 `acceptance_manifest.json`。无显式远程授权的同 run ID provider prerequisite 检查返回 exit 3 / `REMOTE_LLM_AUTHORIZATION_MISSING`，仅写入 `poc33-p02-20260828_152629-provider-prerequisite.json`；未创建 `-full/`，未运行 offline recall/evaluation，也未启动 178/205-target full。
+- Task 10 最终验证：network-free fast gate `797 passed, 26 skipped, 548 subtests passed`（734.29s；仅两个既有 fork DeprecationWarning）；真实 CodeQL Entry/Growth/Lifecycle/production-E2E gate `35 passed, 131 subtests passed`（4170.45s）；focused acceptance/evaluator/production `59 passed, 17 subtests passed`；`compileall` 与 `git diff --check` 通过。
+
+## 2026-08-27
+
+- Task 9 关闭剩余 supported Entry→Growth 形状但不放宽 deferred 边界：Servlet `doFilter` 中 constructor-injected final interface field 仅在 exact method signature 只有一个 source concrete implementation 时进入 depth≤3 proof-carrying path，multiple implementation 继续 fail closed；source-backed `InputStream` handler 到 bounded `ByteArrayOutputStream.toByteArray` 在缺少 global data-flow witness 时只发布 exact-call-path `partial/static_unknown`，不得升级 proven/complete。新增中性 HertzBeat/Grobid 等价 fixtures，association 与 formal flow 共用 source/sink/call-path evidence。
+- JAX-RS route 统一按 class/method path canonical slash join，annotation-only gap 也不再产生 `//`；CodeQL 只把“Guice Binder + Class 参数、唯一 singleton bind、唯一 Component multibinding”的 source helper视为 static registration，并把未注解 `InputStream` 统一标为 `stream`。bounded source fallback 新增 Sisu `WireModule(SpaceModule(..., GLOBAL_INDEX))` → `@Named` Guice root → 唯一 installed child → semantics-verified helper 链，支持显式与 static-wildcard helper import，duplicate install/bind、helper lookalike 和多义 owner 均 fail closed；真实本地 Concord 源码已恢复规范化 `POST /api/v2/process/{id}/log/segment/{segmentId}/data` 三个 attacker-input rows。
+- gRPC 新增完全中性的 legacy generated streaming、local-variable service construction、唯一 0–2 forwarding registration 与 ternary two-observer fixture；现有 generic `GrpcEntries.ql` 已直接产生两个 complete streaming handler，因此未加入目标特判。旧数据库缺少 handler compilation unit 时只作为 `database_source_coverage_missing` coverage gap 审计，不能伪造 Entry；四条 custom Reactor MQTT dispatch 回归固定保持 `entry_gap + growth_only`、无 finding/verdict。
+- Task 9 fresh gate 通过：JAX-RS source/truth disposition `47 passed, 4 subtests passed`；Entry CodeQL `11 passed, 21 subtests passed`；Flow/lifecycle CodeQL `17 passed, 84 subtests passed`。production oracle leakage 扫描为零，三份变更 query direct/embedded mirror byte-identical，`compileall` 与 `git diff --check` 通过。
+- conclude stage 新增 strict `FindingFamily` 聚合与 `finding_families.jsonl` 原子产物：family identity 绑定 framework/protocol、registration、handler、Auth/deployment、resource、Reach 与 verdict，route alias 可合并但安全上下文、资源或结论不同绝不合并；全部 member finding/certificate/Entry/Growth 引用无损保留，primary 只按 coverage、unresolved completeness、amplification 与 stable ID 选择，family ID 从公开 semantic record canonical hash 重算，拒绝 truth/oracle 输入和伪造 identity。
+- candidate disposition 新增严格 `dos_relevant_partial` 状态；`verified_relevant` 与 `dos_relevant_partial` 均要求且只允许一个 canonical link，只有这两类能进入 conclude。rejected、not-entry-reachable 与 generic unresolved 不再生成 finding/family；高价值 partial 以 `GROWTH_DOS_RELEVANT_PARTIAL` 保留 unresolved Growth，且只能得到 family-level `static_unknown`。
+- certificate/conclude 新增 positive proof gate，逐项重算 complete Entry coverage、ordinary-attacker Reach、verified Growth、proven flow、complete lifecycle family coverage 与 candidate-relevant gap-free；调用方提供的 verdict 不能越过 gate，positive verdict 的任一 obligation 缺失均降为 `static_unknown` 并发布稳定 `VERDICT_*` reason code。报告首屏改为 family-level priority/verdict/amplification/Reach/Bound/missing-evidence 表，exact finding/certificate 移入 audit section；summary 同时保留 family-level 与 exact-finding 计数，batch 新增 `aggregate_finding_families.jsonl`，私有 audit 聚合边界不变。
+- Task 8 fresh gate 通过：family/assertion/report/aggregation `53 passed, 17 subtests passed`；production/artifact/candidate/P0 end-to-end `80 passed, 41 subtests passed`；`compileall` 与 `git diff --check` 通过。
+- lifecycle Bound 新增 path-exact framework-limit normalization 与四类 complete source domain：Jackson `StreamReadConstraints.maxStringLength(literal)` 必须通过同一 fluent constraint 的 `validateStringLength` 约束 exact Growth driver；Netty pipeline 中先于 exact `FullHttpRequest` handler 注册的 `HttpObjectAggregator(maxContentLength)` 必须约束 body-derived allocation；Servlet `@MultipartConfig(maxRequestSize)` 仅绑定 request-derived allocation；Solr `formdataUploadLimitInKB` 要有 form-urlencoded pre-parse terminal reject。四类 provenance 统一标为 `literal`，不再把显式配置冒充未证明的 library default。formal lifecycle executor 显式调用 framework normalizer；只有 exact framework/encoding、同 Growth receiver/field、request scope、pre-growth path coverage、finite literal、checked rejection 与 complete query evidence 同时成立才为 `effective`，encoding/profile/provenance mismatch、post-growth、fail-open、partial coverage 保持 unknown/ineffective。
+- `LifecycleCoverage.ql` 不再因“查询执行过”就对所有 Growth/family 发布 complete absence：Guard、Bound、Release 各自具有显式 `familyModeledDomain`，未覆盖 API/config domain 固定输出 `partial/lifecycle_family_api_domain_unmodeled`；reflection/custom dispatch、未知 finite queue capacity 与 Netty async dispatch继续 partial，worker/timer/callback/consumer/ACK 等异步 Release 仍不作为同步减少证明。
+- 新增独立 framework-limit CodeQL fixture，四类 family 均发布 growth-anchored complete Bound row 与 exact bound coverage；未绑定 Jackson builder、Object 型 Netty message、与 request 无关的 multipart allocation 均不得发布 complete Bound。direct/embedded query 与 shared QLL 保持 byte-identical。Task 7 fast/contract suite 为 `92 passed, 10 skipped, 132 subtests passed`，五条 selected lifecycle query 全部 compile，真实 framework-limit CodeQL fixture 通过；完整多框架 fixture 留到 Task 10 最终 gate，避免对中间态重复执行超长编库。
+- Growth Contract 升级为 strict 19-field DoS Growth Contract：显式记录 attacker value space、growth function、amplification、requests-to-pressure、retention、failure mechanism、contract status 与 rejection reason；缺失/额外字段、超长或含 secret/source-code 的自由文本全部 fail closed。prompt/schema/cache identity 升至 `growth-contract-v4` / `growth-contract-schema-v4` / cache v8，旧 v7 cache 即使带合法旧 HMAC 也只作 cold miss。
+- bounded slice 新增 driver origin、value space、escape scope、retention、amplification、loop multiplicity、field identity、materialization phase 与 known-limit location typed facts；feature-state 配置不再伪装成 limit。deterministic verifier 仅在 DoS-relevant status、可支持的 failure pressure、attacker-backed driver/value space、retention/amplification citation 全部与 static facts 精确一致时发布 `verified`，server-controlled、low-amplification、false citation 与语义未知均保持 rejected/unresolved。
+- Task 6 定向回归通过：Growth/schema/artifact/production `103 passed, 67 subtests passed`；完整 provider/cache 套件 `117 passed, 146 subtests passed`（仅两个既有 fork DeprecationWarning）；`compileall` 与 `git diff --check` 通过。
+
+## 2026-08-26
+
+- association 与 formal flow 现共用 `Flows/EntryGrowthDomain.qll` proof-carrying domain：framework source、exact Growth demand、global data-flow、unique concrete/interface target 与 depth≤3 callable path 只建模一次，same-handler、unique helper、constructor/lambda、Servlet request wrapper 与 Armeria aggregation 可携带同一 complete row，custom async/reflection/ambiguous skeleton 继续 partial。bounded call path 显式展开 depth 0–3，避免递归 string path 物化写爆 CodeQL predicate cache。production 仅在 association row 与 formal row 的 source/sink、Entry attacker source、demand、call path、phase 完全一致时发布 complete `CandidateEntryLink`，缺 row 固定记录 `FLOW_CODEQL_ROW_MISSING`；删除从 partial links 合成 `unmodeled_flow` 的交叉乘积，route alias canonicalization 只保留一个 proven flow，无关 handler 不再获得 synthetic path。Flow verifier 改用 identifier-token 绑定 source/sink，校验 Entry/Growth location identity、entry-rooted bounded call edges 与 proof provenance，并把 path/Entry/Growth IDs 纳入 evidence；新增 route-alias/unrelated fixture、CodeQL shared-domain mirror/compile、association/flow witness、path-cache 与 substring/call-path fail-closed 回归。
+- Growth stage 新增 LLM 前 deterministic DoS relevance gate，固定区分 `contract_eligible`、`dos_relevant_partial`、`rejected`、`unresolved` 及 seven-class amplification；attacker-sized direct allocation、request body materialization、field-backed high-cardinality retention、attacker-loop queue submission 才能进入 Growth Contract，高置信 server-sized/server-file、fixed-key、single-submit 和 test/benchmark-only screening row 直接拒绝，普通 partial noise 只留 disposition，parser/read-all、field retention、queue 等高价值 partial 最多保留一个 canonical Entry 的 `static_unknown` gap。production 在 relevance precheck 后才调用 Auth/Growth LLM；privileged/default-disabled/optional Entry 转 `not_entry_reachable` 后不再调用 Growth provider，rejected/no-entry/multi-entry ambiguity 不生成 verified Growth、flow、certificate 或 finding cross product；同一 Entry 的多候选会显式复用其 cached Auth/Reachability decision，不再继承上一候选的循环局部状态。G1–G4 raw queries 同步收紧：allocation size 要有 handler attacker-parameter witness，否则 partial；field container 分离 key/value driver、fixed key 与 escape scope；async loop 输出真实 `submission_count`，one-shot 保持 low amplification；read-all 区分 request stream、unclassified stream、server file 与 BAOS/parser partial。direct/embedded Growth queries 与 shared loop witness 保持 byte-identical，并新增 10 类 relevance RED/GREEN、provider-call funnel、Auth cache ordering 和真实 CodeQL fixture 回归。
+- formal entries 新增第八条 `EntrySecurity.ql`（direct/embedded byte-identical）及独立 strict decoder/query-family contract，提取 source-backed method/type auth annotation、Servlet `@ServletSecurity`、静态 Spring Security matcher 与显式 profile/property/optional deployment gate；selected security query failure 在 formal 模式继续 fail-closed，只有显式 exploratory partial 模式记录 query gap。typed fact 只能按唯一 handler identity 或唯一静态 route 绑定 normalized Entry，dynamic matcher 不做近邻绑定；文本 fallback 全部降为 `partial`，不再从 annotation 文本证明 public。normalized complete registration 作为正向 `default_enabled` deployment evidence，显式 conditional gate 原子替换该默认，未通过“缺少 conditional annotation”反推部署状态。`ReachabilityDecision` 现携带 `deployment_status` 与稳定 reason codes，只有 complete `unauthenticated|low_privilege` auth 加 `default_enabled` 才发布 `ordinary_attacker_reachable`，privileged/default-disabled/optional 分别闭合为 `not_entry_reachable`，其余保持 `unknown`。配置 allowlist 同步支持安全的 active profile 与 feature/module enabled defaults，敏感 key 规则不变；新增真实 CodeQL security fixture、query mirror、schema、production 和 reachability 回归。
+- 批准 P0.2 evidence-funnel repair 并把 artifact/tool baseline 升至 `2.6/0.5.0`、Growth Contract response schema 升至 `growth-contract-schema-v4`；six-stage production fingerprints 全部切换为 `production-v2.6-poc33-demo-repair-*`，2.5 stage manifest 只能作为历史输入、不得 formal resume。新增 strict `finding_families` artifact schema/allowlist，生成与报告逻辑留待后续 family task 原子接入。
+- 新增只读 PoC-33 21 库 demo evaluator：冻结 `eligible_positive`、`hard_negative`、`weak_negative`、`unscored` taxonomy，分别报告 supported-chain recall、ordinary-scope positive recall、hard-negative safety 与历史 TP/FP precision；CLI 显式接收 static batch、recall、historical static audit（仅基线）和 dynamic 根目录，输出 `case_matrix.jsonl`、`metrics.json`、`REPORT.md`，并拒绝向任何输入目录写回。
+- 新增 21 库 demo 的证据驱动修复计划：`docs/research/2026-08-26-poc33-21-library-demo-repair-plan.md`。计划基于当前 formal batch 的 10,678 raw Growth、95/1,177 complete/partial links、44/1,234 proven/partial flows、14/319 verified/unresolved Growth、1,277 条全 unknown findings，以及独立动态队列 TP=9/FP=29/blocked=11，确认主因是 evidence funnel、Reach/Bound 和输出交叉乘积，而不是 provider 或 batch retry。
+- 计划保留 v2 固定公式、三态结论、formal fail-closed 与 async/custom/reflection deferred 边界；推荐按离线 evaluator -> candidate relevance -> proof-carrying E→G -> DoS Growth Contract -> Reach/EffectiveB -> finding-family report -> immutable PoC-33 gate 的顺序修复。当前仅新增计划与分析记录，未修改 analyzer、CodeQL query 或历史 results。
+- Completed PoC-33 independent static-positive queue dynamic validation for 49 family-deduplicated candidates from 1,277 findings / 21 libraries.
+- Aggregator accepted 49/49 cases (`confirmed_oom` 9, `observed_growth_not_confirmed` 13, other not_confirmed 16, blocked 11).
+- Dynamic TP/FP: TP=9, FP=29, blocked/unscored=11, precision=9/38=0.237. See `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/TP_FP_REPORT.md`.
+
+## [2026-08-25] PoC-33 independent static-positive queue and dynamic-validation scaffold
+
+- 对 `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233/` 的 21 库 **1,277** 条 pipeline `static_unknown` finding 做独立静态证据审计：join entry/growth/flow/contract/lifecycle/recall，按 resource 去重为 **189** 簇，再按 handler+operation 家族合并。审计脚本 `scripts/audit_poc33_static_positive_queue.py`，产物 `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-static-positive-audit/`。
+- 独立队列 **49** 条（47 `independent_static_positive` + 2 高危 `independent_static_unknown`；P0 31 / P1 1 / P2 17），覆盖 17 个 target。该标签只用于动态验证排队，不改写 pipeline 三态产物。
+- 动态验证脚手架已用 `scripts/prepare_dynamic_validation_output.py` 写入 `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/`（49 paused cases）。随后按 `$java-web-dos-dynamic-validator` 分组隔离验证并计算 TP/FP。
+
+## [2026-08-25] PoC-33 real-provider full batch completed 21/21
+
+- 在用户明确知悉本地代码片段、源码路径与提示词可能包含未公开或组织私有信息并批准外发后，PoC-33 真实 provider immutable batch `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233/` 以 `max_workers=1` 继续 bounded retry：Rebuild 在 target attempt 11 完成，ThingsBoard 在 attempt 11/12 遇到 `LLM_RESPONSE_SENSITIVE_CONTENT`、attempt 13/14 遇到 `LLM_RESPONSE_SCHEMA_INVALID` 后于 attempt 15 完成；attempt 16 未使用。Datacompare 保持 attempt 5 completed，未重跑。最终 batch state 与 P0 aggregate 均为 **21 completed / 0 failed / 0 malformed**。
+- 最终 `poc33_real_llm_completion_audit.json` 验证 21 个 target 的 schema/tool `2.5/0.4.0`、六阶段 completed、formal/fail-closed、每库 7/7 entry queries 且 0 skipped/diagnostics、630 个 stage artifact ref 的 byte/hash/schema、单一 query-pack hash、全部 0600 私有 audit，以及 **172 个** API-key HMAC 认证的真实 RightAPI Responses cache/audit/contract record；所有响应均为 `grok-4.6`、completed、非 `fixture-` request ID，未发现 scripted transport 证据。
+- 最终 benchmark-only recall 位于 `results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-recall-p0-final/`：33 条 truth 中 25 `full_chain_finding`、2 `association_missing`、2 `entry_only`、4 `growth_only`、0 `stage_failed`、0 `static_vulnerable`。该 oracle 映射不改变普通扫描的静态三态口径，也不表示动态 confirmed。
+
+## [2026-08-24] Extended bounded real-provider retry and lifecycle candidate schema repair
+
+- Batch target attempt ceiling由 10 显式扩展到 16，使已耗尽原上限的 formal target 可在新的人工授权下继续最多 6 次真实 provider attempt；默认仍为 2，只有 `--retry-failed --max-attempts 16` 才会重试既有 transient/provider-output failure，completed target 继续复用且不会被重跑。
+- `guard_candidates.jsonl`、`bound_candidates.jsonl`、`release_candidates.jsonl` 的 schema 现与三个生产 Candidate `to_dict()` 完整字段契约一致，并校验新增 boolean/string/coverage 字段；lifecycle stage 在发布前显式校验三类 raw candidate，避免生产产物先写出、聚合阶段才发现 schema drift。新增模型到 artifact schema 的 RED/GREEN 回归。
+- PoC-33 真实 LLM 批次新增 `poc33_real_llm_completion_audit.json` 派生审计：逐目标验证 formal/fail-closed、六阶段完成状态、stage artifact byte/hash/schema、统一 query-pack hash、0600 私有 audit，以及 API-key HMAC 认证 cache record 的 RightAPI Responses 元数据、`grok-4.6` model、completed status 与非 fixture request ID；最终 21/21 状态与计数见 2026-08-25 条目。
+
+## [2026-08-24] Bounded retry for rejected real-provider target attempts
+
+- Batch `--retry-failed` 现在允许在既有 `max_attempts` 上限内重新执行 `LLM_NETWORK_FAILED`、`LLM_RESPONSE_SCHEMA_INVALID` 与 `LLM_RESPONSE_SENSITIVE_CONTENT` 目标。三类错误对单次调用仍然 fail-closed；仅新的 target attempt 可再次调用真实 provider，不复用或接受被拒响应，也不放宽 Auth/Growth schema、敏感内容扫描或正式查询失败策略。新增 runner 回归先 RED 后 GREEN，凭据/授权失败仍明确不可重试。
+- PoC-33 benchmark 报告器现在通过 `targets/<index>-<slug>/batch_target.json` 的 digest-bound identity 解析 v2 P0 batch target，而不是只接受历史平铺 `<slug>/` 输出；malformed、symlink 或重复 binding 继续 fail closed。该修复先用真实 P0 目录形状复现全量误报 `stage_failed` 的 RED，再转 GREEN。
+- P0 aggregator 的 target binding 验证现在与 runner 写入格式一致，在当前计划中同时校验 `analysis_mode` 与 `query_failure_policy`；旧实现遗漏这两个 digest-bound 字段，会把 runner 正式产物统一误判为 binding mismatch。现有 legacy binding 路径保持不变，回归同样先 RED 后 GREEN。
+- P0 aggregator 从陈旧 schema `2.0`/14-artifact 白名单切换到当前 `SCHEMA_VERSION=2.5` 的 30-artifact正式契约，覆盖 modeled configuration/security、entry gap/interposition、candidate links/dispositions、repeatability/amplification、Auth/Reachability 与 path-bound lifecycle evidence/coverage/summaries；`llm_audit.private.jsonl` 只做私有 schema/hash/reference 验证，绝不进入 aggregate 输出。新增公开 aggregate JSONL 均为 additive，当前 artifact-set 与 normative aggregation 回归先 RED 后 GREEN。
+
+## [2026-08-23] PoC-33 majority recall: Presto, JMQTT and Citrus
+
+- Presto/Airlift source fallback 现从本地源码恢复 `POST /v1/statement` 的 JAX-RS Entry，并将 `QueuedStatementResource.postStatement:213 -> queries.put:269` 保留为 source-backed partial E→G 证据；正式 full 位于 `results/java_web_dos_batch/poc33-recall-v2-20260823_001047-presto-source-jaxrs-v1/`，全部 stage completed、0 query diagnostic、0 remote provider request、private audit 为 0600，truth 产出 certificate-backed `static_unknown`。
+- MQTT Entry/association 覆盖增加 validated `Object` callback 与严格 JMQTT async QoS2 skeleton：`NettyMqttHandler.channelRead -> MQTTConnection.processProtocol -> PublishProcessor.processRequest/processPublishMessage/processQos2 -> MqttSession.receivedPublishQos2 -> qos2Receiving.put`。跨 async processor table 的 dispatch 未被 CFG/path 完整证明，因此固定为 `partial`，不伪造 proven flow；generic-port MQTT benchmark matching 只对已匹配协议 Entry 生效。正式 full 位于 `results/java_web_dos_batch/poc33-recall-v2-20260823_144239-jmqtt-async-qos2-v1/`，4 links/flows/findings、0 diagnostic、0 remote provider request、private audit 为 0600。
+- Spring MVC 对源码可解析的 SpEL route default 同时发布 modeled complete Entry（`spring_spel_source_default_modeled_entry`）与原 runtime-binding partial gap，避免把部署时 override 风险静默当作完整覆盖。Citrus 现恢复 `POST /rest/authenticate` 与 `GET /rest/verify/{type}`，同时保留 `spring_spel_route_default_requires_runtime_binding` / `spring_spel_class_route_default_requires_runtime_binding`。
+- Growth domain 新增精确 `javax/jakarta HttpSession.setAttribute` session-retention candidate（`resource_dimension=objects`、`demand_input_role=value`、fresh-session cardinality 保持 partial）；Citrus 增加两个 bounded partial skeleton：`AuthenticateController -> RequestWrapperFilter -> RequestWrapper -> IoUtil.readBytes:47`，以及 `VerificationController -> VerificationProcessor -> CaptchaProcessor -> VerificationRepository -> SessionVerificationRepository -> HttpSession.setAttribute:26`。direct/embedded Growth、Association、Flow、Lifecycle domain 同步，package-accurate fixtures 覆盖正例及无关 lookalike。
+- Citrus 首轮 formal 暴露 source-backed `InputStream` raw screening 会命中未注册的 `FileResourceService.makeIdentify:61`，随后在 strict flow normalizer 触发 `FLOW_REFERENCE_AMBIGUOUS`。production 现先按 authoritative normalized Entry 与 retained Growth 的 exact file/start-line 双端 reconciliation，再对保留行执行严格 normalization；flow implementation version 升为 `production-v2.5-poc33-recall-flow-source-reconciliation-v1`，阻止 pre-fix flow artifact resume。该行为先由失败回归锁定，再转 GREEN；被 version bump 中止的中间批次已写入 `ABORTED.json`，未作为正式结果使用。
+- 全量 lifecycle fixture 额外暴露 `unmodeledLifecycleDispatch` 的 depth-2 分支把“任意两跳 source call”误当 lifecycle custom dispatch，导致 Netty request-body materialization 的 Guard/Bound/Release coverage 全部误降 partial。二跳分支现额外要求 nested target 具备对应 `lifecycleShape`；Netty line 76 request materialization 恢复 complete，而真正的 JSON async service Growth 仍由 `nettyProtocolDispatchGrowth` 保留 partial。该失败先在真实 CodeQL fixture 中复现，再由 direct/embedded 同步修复转 GREEN。
+- 最终 Citrus immutable formal full 位于 `results/java_web_dos_batch/poc33-recall-v2-20260823_171704-citrus-spel-session-v1/`：24 Entries、36 Growth candidates、5 links/partial flows/certificates/findings，全部 stage completed、7 条 formal entry queries、0 diagnostic、2 次本地 scripted contract interaction、0 remote provider request、`llm_audit.private.jsonl` 为 0600；两条 Citrus truth 均为 certificate-backed `static_unknown`。
+- 最新 immutable overlay `/tmp/poc33-overlay-citrus-lifecycle-v2-20260823_172904` 与报告 `/tmp/poc33-citrus-lifecycle-v2-report-20260823_172904` 达到 **27/33 `full_chain_finding`（81.8%）**、6 `entry_only`、0 `growth_only`、0 `stage_failed`、0 `static_vulnerable`。未覆盖项仅余 SkyWalking 1 条、SMQTT 4 条与 Concord 1 条；普通扫描 verdict 口径仍严格限定为 v2 三态，benchmark oracle 未被表述为动态确认。
+- PoC-29 严格 full-plan digest 随 direct/embedded query pack 同步更新为 `8d75d8b55226680373483f8f36a42a1893e1d60b096febec76b6cee0ac3c70e1`。Netty fixture 扩展造成的 lifecycle callable 单测源码行号漂移已修正，未改动 production binding 语义。最终验证：Entry CodeQL `7 passed, 20 subtests`，Growth CodeQL `3 passed, 13 subtests`，Lifecycle CodeQL `11 passed, 71 subtests`，网络无关全套 `716 passed, 20 skipped, 477 subtests`；18 份 tracked direct/embedded `.ql` 全部 byte-identical，`compileall` 与 `git diff --check` 通过。
+
+## [2026-08-22] ThingsBoard RequestBody String recall and large-DB query bound
+
+- `EntryToGrowthAssociations.ql` 与 `EntryToGrowth.ql` 不再通过全库 `Method.overrides` 枚举 interface target；真实 ThingsBoard evaluator log 证明旧实现生成约 31.6 亿中间元组并在 300 秒 production deadline 超时。新实现仅接受 source concrete direct call，或 `final` field 的精确 constructor initializer + exact method signature + source-supertype ambiguity check；multiple implementations 继续 fail closed。interface 单实现/多实现、source `InputStream` 一跳/两跳 fixture 均保持预期。
+- Spring `@RequestBody java.lang.String` 现作为精确 request-time byte materialization 同步进入 G1、candidate association、Entry→Growth flow 与 lifecycle coverage 四个 domain；operation 固定为 `spring_request_body_string_materialization`，`resource_dimension=bytes`、`demand_input_role=size`、`escape_scope=request`、coverage complete。新增 package-accurate fixture，覆盖 annotated Java String 正例、unannotated String 与 annotated lookalike 负例；四域测试先 RED 后 GREEN。
+- 真实 ThingsBoard DB 查询均低于 formal 300 秒门槛：InputMaterialization 20.7s/38 rows、association 25.5s/23 rows、flow 69.4s/20 rows、LifecycleCoverage 23.6s/63 rows；`DeviceApiController.postTelemetry` 与 `TelemetryController` attributes/telemetry handlers 均有 exact source/sink line、complete materialization association/flow，lifecycle custom-dispatch gap 保守为 partial。
+- ThingsBoard immutable formal full 位于 `results/java_web_dos_batch/poc33-recall-v2-20260822_184159-thingsboard-string-v3/`：全部 stage completed、7 条 formal entry queries、0 diagnostics、1875 Growth candidates、20 mapped/19 relevant candidates、25 flows/certificates/findings、38 次纯本地 scripted contract interactions、无远程 provider 请求，`llm_audit.private.jsonl` 为 0600。两条 truth 均从 `stage_failed` 推进为 `full_chain_finding/static_unknown`。
+- 最新合并 overlay 报告 `/tmp/poc33-thingsboard-string-v3-report-20260822_185353/` 为 **20/33 `full_chain_finding`**、7 `entry_only`、6 `growth_only`、0 `stage_failed`。当前 60.6% 仍不足“绝大多数”，目标继续 active；下一优先级为 XXL-JOB 三条 growth-only 与 SMQTT 四条 entry-only。
+
+## [2026-08-22] Solr pre-handler form parser recall
+
+- G1 现有 `java.io.ByteArrayOutputStream.toByteArray` 模型在真实 Solr DB 中识别 `SolrRequestParsers.parseFormDataContent` 的 `keyStream`/`valueStream` full-copy materialization（`SolrRequestParsers.java:293`）。新增 bounded、source-backed Solr P0.1 form pipeline association：要求精确 `SolrServlet.service -> dispatch -> HttpSolrCall.call -> init -> SolrRequestParsers.parse -> StandardRequestParser -> FormDataRequestParser -> parseFormDataContent` 方法链、精确 `application/x-www-form-urlencoded` 常量与 BAOS sink；因 request field/custom interface path 尚无完整 field-sensitive witness，固定输出 `partial`/`static_unknown`，不伪造 complete flow。
+- 新增 package-accurate Servlet fixture，覆盖真实 Solr form pre-handler 正例和同文件 unrelated BAOS 负例；定向测试先观察 0 association 的 RED，再转为唯一 `SolrServlet.service -> toByteArray` partial association GREEN。direct/embedded `EntryToGrowthAssociations.ql` 保持字节一致；真实 Solr DB 定向查询得到目标 `80 -> 293` partial 行。
+- Solr immutable formal full 位于 `results/java_web_dos_batch/poc33-recall-v2-20260822_164548-solr-form-v1/`：全部 stage completed、7 条 formal entry queries 零 diagnostic、1763 Growth candidates、2 partial links/flows/certificate-backed findings、provider requests 0，`llm_audit.private.jsonl` 为 0600。`SOLR-APP-STATIC-0001` 已从 `entry_only` 推进为 `full_chain_finding/static_unknown`。
+- 最新合并 overlay 报告 `/tmp/poc33-solr-form-v1-report-20260822_165828/` 为 **18/33 `full_chain_finding`**、7 `entry_only`、6 `growth_only`、2 `stage_failed`；仍未达到“绝大多数”，下一步继续处理 ThingsBoard formal query timeout 与 Spring `@RequestBody String` materialization。
+
+## [2026-08-22] Grobid source-backed JAX-RS and output-buffer recall
+
+- PoC benchmark 的 Entry 选择现在允许已关联同一 truth Growth 的 wildcard Entry 胜过未关联的 exact business route，但仍必须通过既有 `_routes_match`，不放宽 route pattern。Druid 两条与 PowerJob 因而进入 finding-backed `full_chain_finding/static_unknown`。
+- 新增有界 `dosweb.entries.jaxrs_source` fallback：在 CodeQL annotation/type resolution 不完整时，从精确 Dropwizard `Application`、`GuiceBundle`、`DropwizardAwareModule`/`AbstractModule` imports、唯一 application bundle installation、唯一 resource bind 与 `environment.jersey().setUrlPattern` 恢复静态 JAX-RS registration；遍历限制为 8192 files、300000 nodes、512 KiB/file、64 MiB total、depth 64，symlink/excluded-dir/多安装/多 bind 均 fail closed。entries implementation version 升为 `production-v2.5-poc33-recall-source-jaxrs-v1`。
+- G1 新增 `java.io.ByteArrayOutputStream.toByteArray` 的 request-local full-copy materialization；Association、Flow demand 与 Lifecycle Coverage 同步同一 Growth domain。对 framework annotation 在 DB 中不可见的 source method，查询仅以 source-backed `InputStream` 参数扩展候选 handler/source，production 仍按已归一化 Entry 的 exact file/start-line 绑定，未产生任意新正式 Entry。
+- 新增 package-accurate `SourceStreamResource` CodeQL fixture，覆盖无 annotation 的 `InputStream` handler、`readAllBytes` flow、`ByteArrayOutputStream.toByteArray` association 与 lifecycle anchor；direct/embedded 三类查询保持字节一致。真实 Grobid DB 定向查询得到 G1 4 rows（目标 748/1101）、association 74 rows（484→748、904→1101 均存在）、flow 0 rows（按 partial/unmodeled 保留）、lifecycle coverage 42 rows（两个目标各三 family partial）。
+- benchmark truth seed 现接受 `sinks.jsonl` 的有界字符串行范围（如 `"712-751"`），并把 `SINK-ID: descriptive text` 规范化回 `SINK-ID` 后再与 referenced finding/sink record 对齐；该逻辑仅用于 post-hoc oracle，不影响普通扫描。
+- Grobid immutable formal full 位于 `results/java_web_dos_batch/poc33-recall-v2-20260822_142244-grobid-baos-v9/`：全部 stage completed、provider requests 0、41 Entries、207 Growth candidates、8 links/flows/findings、private audit mode 0600；两条 truth 均产生 certificate-backed `static_unknown`。最新合并 overlay 报告 `/tmp/poc33-grobid-baos-v9-report-fixed-QWiCuA/` 为 **17/33 `full_chain_finding`**、8 `entry_only`、6 `growth_only`、2 `stage_failed`，仍未达到“绝大多数”，目标继续 active。
+- 本轮变更均先复现 RED 再转 GREEN；已通过 source-handler 定向 CodeQL fixture（1 test）、G1–G4 fixture（1 test / 8 subtests）及 symbolic-sink 定向 pytest。
+
+## [2026-08-21] PoC-33 full-chain recall crash and disposition fixes
+
+- 修复 Growth provider payload 对 modeled `ConfigFact.source_location_ref == config_id` 的合法 config-backed 引用处理：此类引用现在进入匿名化 `config_aliases`，不再被误送到 excerpt alias 表而触发 `KeyError`。Growth stage implementation version 单独升至 `production-v2.5-poc33-recall-growth-config-v2`，阻止旧 Growth artifact 被错误 resume。
+- `ConfigFact.normalized_value` 的整数域与上游 modeled configuration 对齐为 signed 64-bit 正值上界，允许 JetLinks `logging.logback.rollingpolicy.total-size-cap=10000000000` 进入严格 bounded slice；bool、负越界与 `2**63` 继续 fail-closed。
+- Growth CFG evidence 对同一 `(entry, growth, call_path, phase_sequence)` 上的多 attacker inputs 只保留一个稳定 path identity，同时保留各自独立 `flows_to` fact；修复 JetLinks captcha `width`/`height` 共用 CFG path 时的重复 path-ID schema 失败。
+- PoC benchmark disposition 先选择精确 literal route，再按 truth method 与目标 Growth 的实际 candidate link 选择同 registration 的 canonical route variant，避免 placeholder/methodless 变体掩盖完整链。alias 只在 registration 与 handler callable/file/line identity 均一致时复用，避免 JAX-RS 全局 package registration 串错 endpoint。严格 context-path suffix 仅允许长 route 在前方多 context prefix，且 downstream Growth identity/link 仍须匹配；WGCLOUD 的 `/wgcloud/agent/minTask` 因而可与应用 route `/agent/minTask` 对齐。
+- 后验 truth seed 会在 repo-root 内有界解析 `source_result.static_traceability` 引用的 `sinks.jsonl`，把 `S-CAPTCHA-BITMAP` 等 symbolic sink 映射回源码位置；同时读取 `static_finding.json`、`source_result.json`、`case_plan.json` 的顶层及 nested `static_traceability.evidence`。benchmark 还可在同文件、truth marker 明确包含 receiver type 且仅源码行号漂移时，用 receiver declaring type 对齐 semantic sink，并支持 truth 指向 receiver 字段声明、candidate 位于调用点的 owner 匹配；这些逻辑仅属于 benchmark oracle，不进入普通扫描。
+- G1/Association/Flow/Lifecycle 统一 read-all materialization domain：`IoUtil.readBytes`、Commons `IOUtils.toByteArray`、Spring `StreamUtils.copyToByteArray/copyToString`、`InputStream.readAllBytes` 与 `ServletUtils.getRequestString` 在四个查询中一致建模。Spring handler 的原生 `javax/jakarta HttpServletRequest` 参数进入 attacker-source 域，utility 参数 0 或 `readAllBytes` qualifier 作为精确 byte-size demand。新增 package-accurate Spring fixture，覆盖所有六类 API、跨 helper gateway flow、association 与 lifecycle coverage；direct/embedded query 保持字节一致。
+- 真实本地 CodeQL + scripted provider 回归：Datacompare（15 findings）两条 truth、RuoYi-Vue-Fast（4 findings）一条 truth、Rebuild barcode、WGCLOUD 与 JetLinks 均推进为 `full_chain_finding/static_unknown`。JetLinks attempt 3 完成 710 entries、406 Growth candidates、239 candidate links、3 certificate-backed findings，`JL-STAGEA-0001` 现在为完整链；7 条 formal entry queries 均无 diagnostic。当前合并 overlay 为 8/33 `full_chain_finding`，仍不代表“绝大多数”或 full recall 完成。
+- 新增 config-backed alias、signed-64-bit config、同-path 多输入、精确 route/link canonicalization、context-path、semantic sink line drift/receiver owner、nested case-plan evidence、symbolic sink location和统一 read-all 查询回归；所有行为修复均先复现 RED 再转 GREEN。
+
+## [2026-08-21] gRPC generated-identity and generic-builder hardening
+
+- modern nested `AsyncService` 现在额外要求 generated outer `*Grpc` 具有精确 `@io.grpc.stub.annotations.GrpcGenerated` 证据；同形但未注解的自定义 `FooGrpc.AsyncService` 不再产生 entry/gap，legacy nested `*ImplBase` 兼容分支不受影响。
+- gRPC builder native-registration 匹配只接受方法实际声明在精确 `io.grpc` package 中的 `ServerBuilder` / `ForwardingServerBuilder`；同时兼容 CodeQL 对泛型声明呈现的 `ServerBuilder<>` 与 `ForwardingServerBuilder<T>`。删除“任意子类只要继承 ServerBuilder 即可信”的旁路，应用 `FakeBuilder extends ServerBuilder` 覆写 no-op `addService` 现在仅留下 partial，不会伪造 complete。fixture 同时覆盖未注解 lookalike、泛型 `ForwardingServerBuilder<T>` 子类、direct legacy registration 和 no-op subtype override。
+- 验证：CodeQL entry fixtures `4 passed, 20 subtests passed`；相关 entries/production pytest `25 passed, 26 subtests passed`；direct/embedded query 字节一致，`compileall`、`git diff --check`、无 staged 检查通过。真实 `apache__skywalking-pprof-staging-db` 仍产 5 行，其中 `/skywalking.v10.PprofTask/collect` 精确为 1 partial、0 complete，handler 为 `PprofServiceHandler.collect`；由于注册唯一性未证明，结论继续为 `static_unknown`。
+
+## [2026-08-21] gRPC modern AsyncService and ForwardingServerBuilder partial recall
+
+- `GrpcEntries.ql`（direct/embedded 字节一致）将 generated RPC override 的保守形状从仅 nested `*ImplBase` 扩展至同一 generated outer `*Grpc` 下的 nested `AsyncService` interface；仍要求 source implementation 的真实 `overrides`、唯一编译期 `SERVICE_NAME` 与既有 route 推导，未加入项目/FQN/route 特判。
+- native registration 同时识别 gRPC 的 `ServerBuilder` hierarchy 与精确 `io.grpc.ForwardingServerBuilder` declaration，不扩展至任意同名 `addService`/`addHandler`。唯一 registration、0–2 forwarding、concrete-target 歧义和 streaming `onNext` attacker-input 证明均未放宽。
+- 新增 generic fixture 的 modern `AsyncService` complete streaming 正例及 two-concrete-wrapper → `ForwardingServerBuilder` 歧义负例；后者仅产 partial。真实 `apache__skywalking-pprof-staging-db` 查询产 5 行，其中 `/skywalking.v10.PprofTask/collect` 为 `PprofServiceHandler.collect` 的 1 行 partial、0 complete，故仍为 `static_unknown`，未声称 formal full 或漏洞结论完成。临时 CSV：`/tmp/dosweb-skywalking-grpc-async-20260821_002208/grpc.csv`。
+
+## [2026-08-20] Switch formal LLM provider to RightAPI Codex Responses
+
+- 生产 host 确认为 `https://rightapi.ai/grok/v1/`：非流式 Responses 请求固定发送 `User-Agent: pi-coding-agent`，不使用 Cloudflare Cookie、Origin、Referer 或浏览器 sec headers；HTTP 403 一律 fail-closed，不实现 SSE。
+- 收紧完整 Responses envelope 的私有持久化边界：Growth/Auth 在 parser、cache、audit 或 `last_audit` 接触 `reply.body` 前均扫描完整原始 envelope（含 reasoning/metadata）；命中 configured key、Bearer、既有 credential/extra pattern 时 fail-closed。Growth cache format 升至 v7，HMAC domain 同步为 v7；Auth cache 升至 v2。匹配当前 identity 且通过严格结构、hash 与旧 v1 HMAC 认证的 Auth v1 文件会以 dir_fd/inode 校验后删除并 fsync，形成 cold miss，允许安全 v2 原子重写；伪造、损坏、unsafe 文件不会删除或信任。回放 raw response 亦复查；`LlmAuditRecord` 同步拒绝 Bearer 或 key-shaped raw envelope。新增 Growth/Auth metadata 回显零 cache/零 audit 与 Auth v1 退役回归。
+- 最终真实合成 canary 已通过：Growth 与 Auth 均返回 HTTP 2xx、actual model `grok-4.6`，严格 contract/evidence 与完整 envelope 检查通过，等价第二次调用均命中本地 cache；脱敏证据位于 `results/provider_canary/rightapi-responses-final-20260820_154025/`。
+- 首次 Auth synthetic canary 曾因响应漏掉必填 `confidence` 被严格 parser 按 `LLM_RESPONSE_SCHEMA_INVALID` 拒绝。Auth prompt 现明确要求四个键 `auth_context`、`evidence_ids`、`assumptions`、`confidence`，且未知时仍输出 `unknown`/`low` 与全部键；`AUTH_PROMPT_VERSION` 升至 `auth-contract-v3` 隔离旧缓存，未放宽 parser/schema，并已由上方最终 canary 重测通过。
+- 最终网络无关全套验证为 `679 passed, 10 skipped, 456 subtests`；`compileall`、`git diff --check` 与无 staged 检查通过，fresh reviewer 最终 GO（无 blocker/high/medium）。
+
+## [2026-08-20] RightAPI migration details
+
+- fresh-reviewer 收尾：credential preflight 现序列化并扫描与实际发送完全一致的 Responses payload；Auth wire regression 显式锁定 `/responses`、typed `input_text`、JSON text format、`store=false`/`stream=false`，并拒绝遗留 Chat Completions 字段。
+- 正式 LLM provider 现唯一使用 `https://rightapi.ai/grok/v1/`、`grok-4.6` 与非流式 `/responses` 协议；不再接受旧 Chat Completions production endpoint 或 DeepSeek model。
+- Growth/Auth 请求改为 typed `input_text` Responses payload，并以 `store=false`、`stream=false` 和 JSON-object text format 固定约束；响应仅接受 completed、唯一 assistant message 的 `output_text`，reasoning item 可忽略，refusal/incomplete/ambiguity fail-closed。
+- cache/audit identity 迁移为 `rightapi_codex_responses` / `responses-v1`，旧缓存自动冷 miss；现有 API-key 存储字段和环境变量兼容不变，错误文案改为 provider-neutral。
+- 网络无关全套迁移基线验证为 `676 passed, 10 skipped, 454 subtests`，fresh reviewer 给出 GO。历史 canary `results/provider_canary/rightapi-responses-20260820_111859/` 的 HTTP 403 后续定位为 provider 拒绝默认客户端 User-Agent，而非凭据无效；该历史失败已由上方固定 `pi-coding-agent` UA 及成功 canary 取代。
+
+## [2026-08-19] Reviewer hardening: generated gRPC streaming and SMQTT gap identity
+
+- `GrpcEntries.ql`（direct/embedded 字节一致）不再将 RPC 的 response `StreamObserver` 当 attacker input。client/bidi complete entry 仅在 source method override generated `*ImplBase` RPC declaration、outer `*Grpc.SERVICE_NAME` compile-time identity、service 唯一注册均可恢复，且每个顶层 conditional return leaf 都是 source `StreamObserver` construction、具唯一 `onNext(request)` 时发布；每个 leaf 的 `onNext` 为同一路由的 `stream` handler。native registration 识别 `ServerBuilder` 子类；source forwarding 以参数 0 直传、唯一 concrete interface dispatch 的非递归 0–2 wrapper 展开建模。其余 generated streaming RPC 仅输出 concrete partial gap。
+- 删除 Pprof/SkyWalking/fixture FQN 和 route 特判。route 从 generated outer `SERVICE_NAME` 和 generated method name 推导为 `/<SERVICE_NAME>/<rpcMethod>`；partial 在 identity 可恢复时同样保留该精确 route，缺 identity 才使用 source handler identity。fixture 改为 generic generated `SampleGrpc.SERVICE_NAME`/`SampleImplBase`，覆盖 interface→两层 forwarding→NettyServerBuilder、顶层 ternary 的两个 observer、unregistered/helper/lookalike/no-forward/double-forward/multi-implementation/unsupported leaf/no-identity/duplicate-registration negative。
+- 第三轮 fresh-review 收紧：每个 forwarding method 必须只有一个参数 0 直传的 outbound call，因而 native 与任意 wrapper depth 的混合转发均拒绝；`uniqueConcreteTarget` 现在把 dependency 内非 abstract concrete override 也计为歧义，仅最终选定 target 可为 source。fixture 将多实现、无/反射 forwarding、mixed direct+wrapper 和两次 service 注册拆为 identity/observer 均完整的独立 partial negative，并使用独立 generated service route 断言不会泄漏 complete observer entry；registered 与 ternary complete RPC 则断言无同 service partial。
+- SMQTT `mqtt_protocol` partial gap 现额外要求 exact diagnostic、exact `io.github.quickmsg.core.mqtt.MqttReceiver.newTcpServer` handler/registration FQN、同一 `.java` file 和正行号；同 note 的 synthetic/mismatched shape 继续拒绝。ordinary verdict 仍由 partial coverage 导出 `static_unknown`。
+- 历史初版查询的旧 DB 证据是 `/tmp/dosweb-skywalking-grpc-final-1044439/grpc.json`：`raw_rows=3`、严格 decode/normalize `entries=0`、`gaps=3`、0 query diagnostic。收紧 generated-identity 后的当前 run 为 `/tmp/dosweb-skywalking-grpc-reviewer-final2-1117123/grpc.json`：`raw_rows=0`、`entries=0`、`gaps=0`，同样无 query failure。两者均因该 DB 未包含 `PprofServiceHandler.java`；未声称 Pprof 召回已完成，需 DB 重建后重验。
+
+## [2026-08-19] Close final Solr web.xml descriptor review findings
+
+- descriptor 发现改为 fd-relative、增量 `os.scandir` DFS：单条目录项立即计数，命中 tree/file limit 立刻停止、关闭待处理目录 FD；不再调用 `os.walk` 或预物化路径列表。新增单目录 tree-limit iterator 回归。
+- descriptor coverage 的 complete/partial 计数改为 candidate 维度（多 URL pattern 仍可产生多 complete entry），validator 校验计数关系、最大值与受控 diagnostics 枚举。解析时独立保留 declaration identity，因此第二个 descriptor 即使没有有效 mapping，也会使相同 FQN 的 candidate 降为 partial。
+- 新增真实 Solr 源树 resolver integration 回归，验证 `SolrServlet.service -> /*`、static registration、unknown auth 和 schema 计数。
+
+## [2026-08-19] Harden Solr web.xml descriptor entry binding
+
+- 根据独立审查收紧 descriptor 遍历与选择：改用有界 `os.walk(followlinks=False)`，限制访问节点和最多 64 个 descriptor；拒绝最终文件及父目录 symlink，并使用 `dir_fd`/`O_NOFOLLOW` 逐组件读取。超过文件、树、字节、XML 元素或深度上限均保留 partial 诊断。
+- 相同 `servlet-name` 即使重复相同 class 也不再被 set 去重；同一 candidate 出现在多个 descriptor 时发布 concrete partial `web_xml_descriptor_selection_ambiguous`，不提升 complete。单一 descriptor 的多个 URL pattern 仍逐条 complete。
+- `descriptor_coverage.json` 固化为版本化 1.0 schema（发现/解析/映射/candidate 计数与有界 diagnostics），entries executor 生成后再次校验。`web_xml_servlet_mapping` placeholder 不再进入 concrete gap artifact。
+
+## [2026-08-19] Solr web.xml Servlet descriptor entry binding
+
+- `ServletEntries.ql`（direct/embedded 字节一致）仅为 source-backed、声明 `service(HttpServletRequest,HttpServletResponse)` 的 `HttpServlet` 子类发布 descriptor candidate；candidate 在 Python resolver 前均为 partial，绝不直接成为 Entry。
+- 新增有界、安全的 `dosweb.entries.webxml`：只读取 root-contained regular `WEB-INF/web.xml`，拒绝 symlink、DTD/entity/external declaration、非法 UTF-8、超限文件/元素/嵌套；仅以完整 FQN 和同一描述符内唯一 `servlet-name → servlet-class → url-pattern` 链提升为 `static_registration`。解析/结构问题只留下 partial descriptor coverage，不会伪造 complete 或造成 CodeQL query failure。
+- entries stage 新增审计产物 `descriptor_coverage.json`。Solr 真实 DB 查询并经 resolver 得到 `org.apache.solr.servlet.SolrServlet.service`、`web.xml:SolrServlet`、`/*` 的 complete entry；认证与 filter/order 仍为 unknown/deferred，未将 form parser 或 filter 安全边界标为已证。
+- 新增 web.xml happy/namespace/conflict/malformed/DTD/UTF-8/symlink/element-limit 回归和 servlet fixture；定向 pytest 与真实 javac/CodeQL fixture 均通过。
+
+## [2026-08-19] PoC-33 SMQTT protocol gaps and gRPC client-streaming entries
+
+- `normalize_gap_entry_rows` 现在只为 source-backed `smqtt_protocol_dispatch_binding_unresolved` 保留 `mqtt_protocol` partial gap；generic protocol placeholder、synthetic query gap 与 `dynamic_topic` 继续丢弃，ordinary verdict 不会被升级。
+- 此条 gRPC 初版 client/bidi-streaming 记录已被上方同日「Reviewer hardening」替代：complete 条件现要求 generated override、`SERVICE_NAME`、唯一 forwarding registration 与 source `onNext` proof；不再含任何 Pprof/SkyWalking/fixture 特判。
+- 初版验证记录已被上方同日 reviewer hardening 的 fixture/DB 结果替代；旧 `apache__skywalking-db` 未编译 `PprofServiceHandler.java`，因此不作为 Pprof 召回完成证据。
+
+## [2026-08-19] Remote provider credential and endpoint rotation
+
+- 将默认 OpenAI-compatible provider 切换到 `https://apibasis.com/v1/` / `grok-4.6`；旧 DeepSeek 模型仍保留为显式兼容选项，但不再是默认值。
+- production endpoint allowlist 增加新的规范化 HTTPS endpoint；仅显式接受 provider 返回的 `grok-4.6-build` 模型别名，其他模型不匹配继续 fail-closed。
+- 本地凭据已轮换到 gitignored、owner-only `config/local_secrets.json`（`0600`），未写入日志、报告或版本控制；配置/endpoint 定向回归及无源码 provider canary 通过。API-key 轮换会改变私有 cache HMAC，旧 provider cache 不可跨 key resume，应使用新的 immutable output。当前 query-pack 冻结后的 PoC-29 临时 full-plan digest 为 `38aa5eb7fb91672c89fdfe4045d2a8c34abd131bea45b56d10063042c3362c43`；未重写历史计划资产。
+
+## [2026-08-19] Track A3 partial-first entry interposition extraction
+
+- 新增 `EntryInterpositions.ql`（direct/embedded 字节一致）、严格 `entry_interposition` decoder 合约及 `entry_interposition_facts.jsonl` schema/entries-stage 产物。
+- 仅提取 source-backed `FilterRegistrationBean` 静态注册、常量 URL/order 与 filter action/chain 位置；CFG 未被严格证明时固定发布 `partial`/`cfg_action_before_chain_unproven`，不把 interposition 或 HertzBeat 链声明为 complete。
+- `EntryToGrowthAssociations.ql` 与 `EntryToGrowth.ql` 新增 source-defined `doFilter`、depth≤3 唯一 interface implementation、`computeIfAbsent/putIfAbsent/merge` key demand 和 request-URI regex group taint witness；所有跨 callable 结果仍固定为 partial，不改变普通 verdict。
+- HertzBeat 真实数据库回归精确提取 controller 43、filter 53、registration 42、action 63、chain 66/69/72/76、sink 77，并形成 partial association、partial flow 与 certificate-backed `static_unknown` finding；0 query diagnostic。formal entries 将 interposition 作为第七个必跑查询，仅 exploratory 允许失败降级。
+- G1 `InputMaterialization.ql` 新增 `IoUtil.readBytes`、Commons `IOUtils.toByteArray`、Spring `StreamUtils.copyToByteArray`、JDK `readAllBytes` 及 HttpServletRequestWrapper reader-loop/StringBuilder 物化；Citrus `RequestWrapperFilter.java:47` 与 PowerJob `CachingRequestBodyFilter.java:72` 已通过真实数据库严格查询及 scripted-provider production canary。链级结果分别推进为 `growth_only` 与 `association_missing`，未伪造 Entry→Growth 证明。
+- Spring MVC Entry 对 source-defined SpEL 默认 route 增加保守解析：方法级 `authenticateEndpoint` 及类级 `verifyEndpointPrefix` 只发布 `dynamic_unresolved/partial` concrete gap route，不再把原始 `#{...}` placeholder 误当 complete route；Citrus 真实数据库已提取 `/rest/authenticate` 与 `/rest/verify/{type}`。
+- 冻结 query pack 后的 21-target formal entries wave 已发布到 `results/java_web_dos_batch/poc33-recall-v2-20260819_093248-entries/`：21/21 completed、全部 query_count=7、0 skipped/query diagnostics、七类 entries artifact 集完整；`AUDIT.json` 记录逐目标证据。
+- 新增 schema/production/contract、route-variant canonicalization、Servlet `/*` benchmark matching、sink-location truth matching及 interposition/unique-interface fixture 回归；benchmark entry reader 同时严格识别冻结 2.0 两文件集合与当前 2.5 七文件集合。前两次 21-target entries wave 分别因执行期间 query pack 继续变更、以及新 gap artifact 暴露重复 semantic ID 而主动终止，均保留为 `ABORTED.json` 标记的非正式资产，不参与 recall；`normalize_gap_entry_rows` 现按覆盖状态在内的完整身份确定性去重，Citrus/Solr/Dependency-Track formal entries 定向重跑均成功。网络无关全套为 `656 passed, 10 skipped, 447 subtests`，real CodeQL entry/growth/lifecycle-flow 为 `4/20 + 2/12 + 3/53`。
+
+## [2026-08-18] PoC-33 recall hardening: configuration pruning, credential redaction, chain-level dispositions
+
+### 修改时间
+2026-08-18
+
+### 变更类型
+- [修复]
+- [分析语义]
+- [安全]
+- [测试]
+- [文档]
+- [评估]
+
+### 核心改动
+- **schema/tool 升版**：artifact schema 升至 **2.5**、tool 升至 **0.4.0**（`dosweb/pipeline.py`、`dosweb/artifacts/schemas.py`）；per-stage implementation version 更新为 `production-v2.5-poc33-recall`。旧 2.4 artifact 保留但不可 resume。
+- **approved design amendment**：在 `docs/superpowers/specs/2026-07-18-java-web-dos-p0-analyzer-design.md` 新增第 19 章（PoC-33 recall hardening / P0.1 extension），明确 Track A 为 P0 修复、Track B 为显式扩展，纠正 remote LLM 授权口径（显式 `allow_remote_llm` + 非空 key + 可读 checkout 为硬门禁，URL/SHA 仅为可选审计元数据），并写清 JAX-RS/gRPC/Armeria/Solr 的 complete/partial 边界。
+- **Track 1.1 配置遍历剪枝**：`dosweb/configuration/extract.py` 新增与 corpus 一致的 `_EXCLUDED_DIRS` 剪枝（`.git/.gradle/.idea/.mvn/build/node_modules/out/target`），并将配置读取限定到 root、`config/conf/WEB-INF`、`src/main/resources`；新增 `extract_modeled_configuration_with_coverage` 返回可审计 `configuration_coverage.json`（visited/pruned/config-file/truncated）。entries stage 现发布该 artifact，修复 Druid/ThingsBoard 因 node_modules 超过 100k 遍历上限而 `CONFIG_MODELED_DEFAULT_INVALID` 失败。
+- **Track 1.2 decoder 安全诊断**：`dosweb/codeql/runner.py` 的 bqrs_decode 失败保留 query name、contract reason、column、row（序列化为安全 JSON），不泄露绝对路径或源码内容；`_decode_contract_diagnostic` 负责白名单字段。
+- **Track 1.3 凭据 redaction**：新增 `dosweb/growth/redaction.py`，行号保持地替换 credential assignment/mutator/header 的值为固定 token；`SourceExcerpt` 新增 `original_excerpt_sha256`、`redaction_events`、`redaction_version`，`content` 为 redacted（transmitted）内容；`_scan_transmitted_request` 与 `_sensitive_java_assignment`/`_CREDENTIAL_ASSIGNMENT` 改为对 `[REDACTED]` 值感知，避免业务 `password`/`token` 赋值造成误报，同时真实 key/JWT/AWS/私钥仍 fail-closed。`_slice_for` 为 `LLM_BOUNDED_SLICE_INVALID` 附加 candidate id、repo-relative path 与 line。
+- **Track 1.4 case-preserving asset resolver**：`dosweb/benchmark/truth.py` 新增 `resolve_asset_directory`，按大小写不敏感且拒绝歧义/symlink 的方式解析 `grobidOrg__grobid` 等大小写保留目录；`build_asset_manifest` 改用该解析器，修复 Grobid 误判 `asset_missing`。
+- **Track A1 formal entry selection**：formal 模式现在执行全部 6 个已启用 P0 entry families，源码 hint 仅用于 exploratory entries 成本侦察，不再决定 formal 是否运行查询。
+- **Track 0.2 链级 disposition**：新增 `dosweb/benchmark/disposition.py`（`compute_disposition` + 11 态 status）与 `scripts/generate_poc33_recall.py`，从 `poc/manifest.json` 生成版本化 truth seed，逐条产出 `truth_dispositions.jsonl`/`summary.json`/`REPORT.md`；主匹配使用 repo + entry identity + sink/growth identity + finding/certificate，route marker 仅为次级诊断。
+- **CodeQL 查询端召回修复**：
+  - `EntryToGrowthAssociations.ql`：`growthSite` 对齐真实 Growth 查询（put/add 限 Map/Collection、submit/execute/offer/schedule 限 ExecutorService/BlockingQueue、均要求 field-backed receiver），transitive 调用链限制 depth≤3，并把 JAX-RS（`javax/jakarta.ws.rs`）handler 纳入 association；修复 Rebuild 10840 行超限导致的 `ROWS_INVALID`（降至 1165 行）。
+  - `LifecycleCoverage.ql`：`modeledGrowth` 对齐真实 Growth 查询的 declaring-type 约束，并新增 `entryReachableGrowth`（handler + callsWithin depth≤3）把 coverage 限定到入口可达的 growth site；修复 Dependency-Track 10221 行超限（降至 21 行），并把 JAX-RS handler 纳入。
+  - `JaxRsEntries.ql`：`dynamic_unresolved` 分支现在仍合成实际路由（verb + classPath + methodPath），不再输出字面 `unresolved_jax_rs_resource`；修复 Concord/Presto 等动态注册 JAX-RS 资源的 route 缺失。
+  - `SpringMvcEntries.ql`：`getMappingPath` 对无 value/path 的 `@PostMapping()`/`@RequestMapping` 回退为 `""`，修复 HertzBeat `PushPrometheusController`（`@RequestMapping("/api/push/prometheus/**")` + 空 `@PostMapping`）这类空路径映射缺失。
+  - `dosweb/benchmark/disposition.py`：`_match_entries` 支持 Spring `/**` 多段通配与 `{}` 单段占位（`_routes_match`），使 HertzBeat 等 `/**` 路由与具体 truth 路由可匹配。
+  - `ContainerGrowth.ql`/`EntryToGrowthAssociations.ql`/`LifecycleCoverage.ql`：新增 `computeIfAbsent`/`putIfAbsent`/`merge` 作为 Map container 写（demand role=key），使 HertzBeat `jobInstanceMap.computeIfAbsent` 等持久 Map 写进入 growth candidate 与 association/coverage 域。
+  - 以上查询的 direct/embedded 副本已同步保持字节一致。
+
+### 验证
+- 定向回归：`test_configuration_reachability.py`（11）、`test_config_and_cli.py`、`test_growth_redaction.py`（9）、`test_truth_disposition.py`（8）、`test_codeql_adapter.py`/`test_codeql_decoder.py`（14）、`test_deepseek_client.py`（108 passed / 141 subtests）、`test_production.py`（32）、`test_benchmark_truth.py` 快速子集、`test_batch_plan.py`/`test_batch_runner.py` 全绿。
+- `python3 -m compileall -q dosweb scripts` 通过；`python3 -m pytest -q` **636 passed、9 skipped、436 subtests、2 warnings**。
+- 真实 CodeQL 验证：Druid entries（25 行，含 `POST /druid/v2/sql`）、ThingsBoard entries（1045 行）不再 `CONFIG_MODELED_DEFAULT_INVALID`；HertzBeat 提取 `POST /api/push/prometheus/**/`；Rebuild association 1165 行、Dependency-Track lifecycle coverage 21 行均通过 decoder 契约；Concord JAX-RS 输出实际路由（如 `POST /api/v2/process/{id}/log/segment/{segmentId}`）；HertzBeat `jobInstanceMap.computeIfAbsent` 进入 ContainerGrowth candidate。
+- 21 库 entries 全量重跑（`poc33-recall-v2/`）：19/21 rc=0 产出 entry facts；其中 SkyWalking（0，gRPC 未建模）、Solr（0，web.xml 注册未建模）、SMQTT（0，MQTT Reactor 分发未建模）、Grobid（0，`GrobidRestService` 未编译入 DB）、Concord（0，动态 JAX-RS 仅 partial 未持久化）与 Presto（2，`QueuedStatementResource` 不在 DB）仍需后续 Track A2/B3/B4 与 DB 重建。
+- 链级 recall 脚本对既有 `poc33-recall` 结果生成 33/33 disposition（4 full_chain_finding、2 entry_and_growth_linked、14 entry_only、13 stage_failed，0 static_vulnerable），全部有 reason code。
+
+### 保留
+- 未修改 `../dos-analysis/`，未 reset 既有未提交改动，未删除/重写保留资产。
+- 动态 truth 仍仅作 oracle label，不改变 ordinary scan verdict；不设 static_vulnerable 数量 KPI。
+
+## [2026-08-18] Remove git-commit provenance gate
+
+### 修改时间
+2026-08-18
+
+### 变更类型
+- [安全]（用户明确授权）
+- [批处理]
+- [测试]
+- [文档]
+
+### 核心改动
+- 用户明确决定：工具不再需要 git-commit provenance 作为门槛。`tree-sha256` 目标与 `git-commit` 目标同等对待，全部可 full 执行，不再 paused。
+- `dosweb/batch/corpus.py` 与 `dosweb/benchmark/truth.py`：`provider_eligible` 不再依赖 `fingerprint_type`，统一为 True；`reason` 不再产出 `attestation_unavailable`；`attestation` 仅保留指纹类型作为身份元数据。
+- `dosweb/batch/plan.py`：full 模式不再因缺 provider provenance 而 paused，所有目标 queued。
+- `dosweb/batch/runner.py`：移除 full 模式的 commit 校验与 worktree 固定（`_prepared_provider_checkout`、`_git_checkout` 及 `verify_local_checkout_at_commit` 导入），full 直接使用本地源码树；`source_commit_sha` 对 tree-sha256 目标为 None。
+- `dosweb/llm/deepseek.py`：remote 门禁降级为显式 `--allow-remote-llm` + 非空 API key + 可读本地 source checkout；`_verified_attestation` 不再调用 verifier，直接返回本地源码树 attestation（`verified_public`/`verified_clean_checkout` 记录为 False，不再是失败条件）；`PublicSourceAttestation.source_commit_sha` 允许 None。
+- `dosweb/llm/cache.py`：cache/audit identity 的 provenance 字段统一为可选元数据（缺失记为 ""，`verified_*` 固定 False），避免 None/字符串规范化不一致破坏 HMAC 缓存校验；`public_source_url`/`source_commit_sha` 仍作为 cache/audit 追溯元数据保留（用于区分不同源码与记录来源），不再参与任何失败判定。
+- `GitHubPublicSourceVerifier` 与 `verify_local_checkout_at_commit` 等保留为可选工具（不再被门禁路径强制调用）；benchmark 的 `--source-overrides` 同样保留为可选增强（显式提供才校验其格式与 checkout 绑定），不再是 full plan 门槛。
+- 重新生成 205-target formal plan：`results/java_web_dos_batch/java-web-205-formal-ready-gate23-20260818/`，205 全部 queued，digest `7fb0dc310b1523fedb084b7596e8568170d9349b248f808c88ee3382bb608023`。
+- PoC-29 benchmark full plan 不再因缺 public commit attestation 而 fail closed；对应 plan digest 更新为 `bc40e56958f89a731c2fc871d49392ca5d30f8dea5c1e504ac5e22d07e7031fb`。
+- 更新 README、AGENTS、corpus 与 research 文档口径：由“178 queued + 27 paused / tree-only paused”统一为“205 全部 queued，不需要 git-commit provenance”。
+
+### 验证
+- `python3 -m pytest -q`：611 passed、9 skipped、436 subtests passed、2 warnings。
+- `python3 -m compileall -q dosweb scripts tests`、`git diff --check` 通过。
+- 定向回归：`test_deepseek_client.py` 108 passed / 141 subtests；`test_batch_runner.py`、`test_batch_plan.py`、`test_benchmark_truth.py` 全绿。
+
+### 保留
+- 显式 `--allow-remote-llm` 授权、非空 API key、可读本地源码目录仍是 remote LLM 的硬门槛。
+- API key 永不进入 report/日志/提交/artifact；`config/local_secrets.json` 仍为 gitignored 0600。
+- 历史结果资产（`poc29-full-plan-20260810`、`java-web-205-ready-plan-20260810`）未改写。
+
+## [2026-08-18] Complete approved P0 Gate 2/3 and true-positive formal canary
+
+### 修改时间
+2026-08-18
+
+### 变更类型
+- [修复]
+- [分析语义]
+- [安全]
+- [测试]
+- [文档]
+
+### 核心改动
+- Growth stage 现在先执行真实 `EntryToGrowth.ql`，bounded slice 同时包含 Entry handler、registration、Growth site 与 CodeQL proven flow facts；删除在 Growth site 无条件合成 attacker `source` fact 的行为。没有 matching proven flow 时，LLM `yes` 也无法生成 verified Growth。
+- `EntryToGrowthAssociations.ql` 补齐严格 13 列别名和 G1 materialization anchor；Spring MVC/Servlet/Netty/MQTT 使用真实 qualified API，Servlet request accessor 结果作为受支持 attacker source，same-handler flow 可 proven，跨过程/custom 模式保持 partial。
+- G1 materialization demand 改为 `size`；`submit(task)` 改为 `value`。Container/async query 区分无 enclosing loop 的单次操作与 loop multiplicity 未建模，A1 不再把单次 `put/submit` 当单请求放大。
+- Entry security 提取改为 bounded、source-root-contained、拒绝 symlink 的显式 annotation evidence；`@PermitAll`/`permitAll()`、`isAuthenticated()`、role-based annotation 分别映射可验证的 unauthenticated、low-privilege、privileged facts，Auth verifier 要求 cited fact 语义与模型结论匹配。A1 与 A2 均消费 ReachabilityDecision。
+- lifecycle linker 修复 `analysis_source_root` wiring，按 `(E,G,path,family)` 发布 coverage；candidate-only query 的无匹配结果继续 partial，不能伪造 absence。有限 `ArrayBlockingQueue` 容量从构造器 literal 提取，checked submission 可得到 effective Bound；字面量 Guard/Bound 不再错误要求外部配置。
+- 修复 Netty bootstrap 类型绑定；补真实 Spring/Servlet/Netty/MQTT package stubs、Servlet `@WebServlet` 和 FilterRegistrationBean positive fixture、uninstalled Netty initializer negative fixture。
+- 新增完整 production executor/artifact/report 测试：受约束 Auth + verified Growth + proven flow 在 lifecycle absence 未证明时生成 certificate-backed `static_unknown` finding，验证 fail-closed 全链而不伪造 vulnerability。
+- 应用 modeled configuration 改为 lifecycle/security key allowlist 与安全 typed value；password/token/api-key/credential/private-key 等键和任意业务字符串不再写入 artifact 或发送给 LLM。remote provider 现在强制 public GitHub URL、origin、公开仓库 API 与 commit SHA 同时验证，`verified_public=false` 禁止请求。
+- Auth cache 条目纳入全局 entry/byte 容量锁；resume 原子更新根 run identity 并记录前一 identity hash；production downstream 从同一已认证 FD 读取 bytes snapshot，消除验证后重新按路径打开的 TOCTOU 窗口。
+- 基于源码文本的 Guard 与 finally Release 候选统一降为 partial，不再声称 CFG dominance/post-dominance 或 normal+exception path complete，从而阻止 false-bounded。
+- schema/tool 保持 `2.4/0.3.0`；更新 README、approved design、AGENTS 和 2026-08-17 compliance audit 状态说明。历史 plans/results/cache 不改写。
+- corpus 口径统一为 **205 个库**，全部 active 文档将 “178-target full” 更正为 “205-target full”。（后随用户授权移除 git-commit provenance 门槛，205 全部 queued，见顶部条目。）
+- DeepSeek API key 改由 gitignored 的 `config/local_secrets.json` 提供（`deepseek_api_key`），环境变量 `DEEPSEEK_API_KEY` 仍可优先覆盖；读取时用同一 FD 强制 owner UID、regular、精确 `0600` 和 4KiB 上限，不安全文件以 `CONFIG_SECRET_FILE_UNSAFE` 拒绝。`load_config` 新增 keyword-only `secrets_path`，batch/scripts 统一经 `resolve_api_key` 解析。
+- 新增硬门槛 2/3 解决方案 `docs/research/2026-08-17-v2-p0-gates-2-3-solution-plan.md`：bounded CFG-effective Guard/Bound/Release、depth≤1 跨过程 wrapper、循环倍数证明，以及十场景 production E2E harness 与验收顺序。
+- G3/G4 amplification 现在复用 `LoopAmplification.qll` 的真实 P0 handler/source → `LoopStmt` condition global-dataflow witness；仅 loop body 的 field-backed write/submission 才可标记 `attacker_controlled_loop_multiplicity_proven`。single/fixed/unknown loop、fan-out 仍为 unknown，finite queue 明确阻止 `proven`；production 再次检查 witness note，不能按 demand role 推断放大。
+- Gate 3 最终实现：Guard 要求同一 attacker origin 同时流入 condition 与 Growth demand，并验证 CFG 节点顺序、终止 reject 与不可达性；Bound 仅认可 `ArrayBlockingQueue`/`LinkedBlockingQueue` literal hard capacity + `if (!offer) return/throw`；Release 区分 finally complete 与 success-only ineffective；depth≤1 wrapper 仅接受 uncaught direct throw，return/caught/post-order/depth3 均显式非 effective/partial。Map initial capacity 永不作为 bound。
+- 新增 `LifecycleCoverage.ql`、`LifecycleSummary.ql`、`FiniteQueueDomain.qll` 与严格 decoder/schema/production linking；candidate-only 零行不再证明 absence，direct/nested custom/reflection 保持 partial；partial association 生成 certificate-backed `static_unknown`，不再停在内部 disposition。
+- Gate 2 完成：`tests/support/fixture_database.py` 使用真实 javac + CodeQL DB，`tests/support/mock_deepseek.py` 使用真实 DeepSeekClient 仅替换 transport/verifier；`tests/test_production_e2e.py` 覆盖 Spring P0 1–8、Servlet、Netty、MQTT 的 finding/certificate/report/audit/resume 精确语义。
+- DeepSeek live canary 修复真实阻塞：GitHub attestation 改用 bounded git-commit API、缓存同一 checkout attestation、source blob 上限与 extractor 对齐、JSON mode + v3 strict prompt、private audit 的语义 authorization 文本不再误判凭据；API key 仍不进入 tracked 文件/artifact。
+- Erupt/Citrus/DataCompare 三个动态真阳性 seed formal static canary 全部 completed，0 query diagnostics，resume stage hash/time 全复用，0 credential leak；目标均保守输出 certificate-backed `static_unknown` 并记录具体 auth/flow/lifecycle gap，truth 仅 post-hoc。
+- 发布新 205-target formal plan：`results/java_web_dos_batch/java-web-205-formal-ready-gate23-20260818/batch_plan.json`，205 targets 全部 queued，digest `7fb0dc310b1523fedb084b7596e8568170d9349b248f808c88ee3382bb608023`；未启动执行。
+
+### 验证
+- offline：`611 passed、9 skipped、437 subtests passed、2 warnings`。
+- real CodeQL entry/growth：`5 passed、30 subtests`；real lifecycle：`3 passed、50 subtests`。
+- production E2E：4 个真实 framework tests 全部通过；P0 aggregate test同时验证非空 private audit、0600、首轮 provider 请求及全 stage resume hash/time 不变。
+- `python3 -m compileall -q dosweb scripts tests`、`git diff --check` 通过；direct/embedded pack 字节一致；0 个 execution snapshots。
+- Gate 3 fresh reviewer 最终：0 BLOCKER / 0 HIGH；canary fresh reviewer：全部 PASS。
+
+### 明确保留的 deferred 边界
+- depth>1 arbitrary lifecycle、custom/reflection dispatch、异步 Release capacity、producer/consumer rate、TTL/timeout、WebSocket、任意 custom protocol 继续输出 partial/`static_unknown`；这不是 Gate 2/3 未完成项。
+- 205-target formal plan 已 ready，但执行仍是独立授权操作，本次没有启动全量批次。
+
+## [2026-08-17] Close cache-hit audit replay and real-framework flow fixtures
+
+### 修改时间
+2026-08-17
+
+### 变更类型
+- [修复]
+- [安全]
+- [测试]
+
+### 核心改动
+- Growth cache 升至 `growth-contract-cache-v6`：成功 entry 以私有、HMAC、原子方式保存有界 exact provider body、parsed contract 与 hash；cache hit 的 audit 现在可完整回放，旧格式不复用。
+- Auth Contract 从 process-local dict 扩展为独立的私有 HMAC/atomic persistent cache；fresh client cache hit 仍保留 exact raw response，且不写入 key/header/environment。
+- Spring MVC、Servlet、MQTT fixtures 改为真实 framework qualified API stub；Flow query 只以真实 Spring/Servlet/Netty/MQTT source 为入口，`submit(task)` 仅是 task/value，不再假称 submission count。
+- 同步 direct/embedded Growth pack；复核 lifecycle direct/embedded query 一致、无 execution snapshot。高级 field/alias、多 wrapper、reflection/custom dispatch、未证明 loop/fan-out 仍显式 partial，不升级为 complete。
+
+### 验证
+- `python3 -m pytest -q tests/test_deepseek_client.py`：107 passed、141 subtests passed。
+- `python3 -m pytest -q tests/test_codeql_entry_queries.py tests/test_codeql_growth_queries.py tests/test_flow_verification.py tests/test_deepseek_client.py`：116 passed、3 skipped、155 subtests passed。
+- `python3 -m pytest -q tests/test_codeql_lifecycle_queries.py tests/test_lifecycle_evidence.py tests/test_lifecycle_bounds.py`：15 passed、1 skipped、31 subtests passed。
 
-本文档记录 dos-analysis-web 项目的所有重要变更。
+## [2026-08-17] Bind lifecycle screening to E→G paths
 
----
-
-## [2026-06-30] 应用级 29 条真阳性 Security Advisory PoC 生成
-
-### 修改时间
-2026-06-30 22:42
-
-### 变更类型
-- [文档] 安全公告 PoC 材料生成
-- [新增功能] 二值真阳性 advisory PoC 生成脚本
-
-### 核心改动
-- 基于 `results/applications_dynamic_validation/binary_truth_collection.json` 和 `BINARY_TRUTH_COLLECTION.md` 中 29 条 `confirmed_true_positive`，在 `poc/` 下为每条真阳性生成独立目录。
-- 每个目录包含中英文 `SECURITY_ADVISORY`、本地受控 `reproduce.sh`、标准化 evidence JSON、truth source record、附件索引，并尽量复制 case-local probe / compose / 小日志附件。
-- 对 `new/new_retest` 中部分旧 result commands 与严格 1GiB 复测口径不一致的条目，生成脚本内置严格复测命令覆盖，避免 advisory 复现步骤落回小堆历史口径。
-- P0/P1 条目统一使用现有动态验证 runner 的 `--case <ID> --min-heap 1g` 本地复测入口，保持与当前二值真相口径一致。
-
-### 交付成果
-- 新增脚本：`scripts/generate_advisory_pocs.py`
-- 修改忽略规则：`.gitignore` 放行标准化 `poc/<true-positive-id>/` advisory 文本、JSON evidence、复现脚本和小附件，继续避免把任意私有披露草稿整体纳入。
-- 新增索引：`poc/README.md`、`poc/manifest.json`
-- 新增 PoC 目录：`poc/<true-positive-id>/`
-- 每个 PoC 目录包含：`SECURITY_ADVISORY.zh-CN.md`、`SECURITY_ADVISORY.en.md`、`reproduce.sh`、`attachments/`
-- 测试/验证结果：`python3 -m py_compile scripts/generate_advisory_pocs.py` 通过；`python3 scripts/generate_advisory_pocs.py` 成功生成 29 个目录；结构检查确认 29 个目录均包含中英文报告、复现脚本和 evidence；`python3 -m json.tool poc/manifest.json` 通过。
-
-### 依赖与影响
-- 依赖：当前二值真相集合 `results/applications_dynamic_validation/binary_truth_collection.json` 与既有 P0/P1/new/new_retest 动态验证证据。
-- 对后续工作的影响：后续 security advisory、私有 issue、披露材料可直接从 `poc/<true-positive-id>/` 取用，并可通过生成脚本按最新 truth 集合再生成。
-- 版本化影响：`.gitignore` 只放行本次标准化 PoC 包固定文件名和小日志附件；其他任意 `poc/` 私有草稿仍默认忽略。
-- 破坏性变更：无；未执行任何 DoS 探针，未修改 CodeQL 查询、ranking、verdict 或动态验证逻辑。
-
----
-
-## [2026-06-30] 应用级动态二值集合恢复全批次去重口径
-
-### 修改时间
-2026-06-30 22:03
-
-### 变更类型
-- [Bug 修复] 动态验证二值真阳性集合批次范围修正
-- [文档] 全批次去重结果刷新
-
-### 核心改动
-- 修正 `scripts/collect_dynamic_validation_binary_truth.py` 的严格审计批次：`p0`、`p1`、`p2`、`new`、`new_retest` 全部参与去重后的 `confirmed_true_positive` 判定。
-- 保留原有去重优先级 `new_retest > new > p2 > p1 > p0`；同 ID 多批次出现时选择优先级更高的记录。
-- 重新覆盖 `BINARY_TRUTH_COLLECTION.md` 和 `binary_truth_collection.json`，当前全批次去重结果为 29 条 `confirmed_true_positive`、160 条 `unconfirmed_or_non_oom`；来源分布为 P0 8、P1 11、new 8、new_retest 2、P2 0。
-- 更正上一轮因只聚焦 `new/new_retest/p2` 导致的 10 条 confirmed 中间口径；P0/P1 动态真阳性现在纳入该二值集合。
-
-### 交付成果
-- 修改脚本：`scripts/collect_dynamic_validation_binary_truth.py`
-- 覆盖结果：`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`、`results/applications_dynamic_validation/binary_truth_collection.json`
-- 测试/验证结果：`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功；`python3 -m py_compile scripts/collect_dynamic_validation_binary_truth.py` 通过；`python3 -m json.tool results/applications_dynamic_validation/binary_truth_collection.json` 通过。
-
-### 依赖与影响
-- 依赖：既有 `p0/p1/p2/new/new_retest` 动态验证结果。
-- 对后续工作的影响：论文/报告若引用应用级动态二值真阳性集合，应使用当前 29 条全批次去重 confirmed 口径。
-- 破坏性变更：只修正结果聚合范围；未修改动态 PoC、CodeQL 查询、ranking 或 AOSP verdict 语义。
-
----
-
-## [2026-06-30] new/P2 五条候选 PoC 补强与二值集合刷新
-
-### 修改时间
-2026-06-30 21:58
-
-### 变更类型
-- [功能改进] 应用级动态验证 PoC 补强
-- [文档] new/new_retest/P2 二值真阳性集合刷新
-
-### 核心改动
-- 按用户要求补强 `DRUID-APP-STATIC-0001`、`SKYWALKING-APP-STATIC-0003`、`HERTZBEAT-DOS-0001`、`TB-APP-STATIC-0001`、`SBA-APP-STATIC-0002` 五条此前证据不足的候选，并坚持至少 1GiB JVM heap/direct 或目标容器内存口径。
-- `DRUID-APP-STATIC-0001` 修复 size ladder 未覆盖 512MiB 的问题，改为流式发送大 body；在 `DRUID_XMS=1g` / `DRUID_XMX=1g` 下单个 512MiB `text/plain` SQL body 触发 Router `OutOfMemoryError: Java heap space`。
-- `TB-APP-STATIC-0001` 新增 large-value/timeseries-large-value chunked JSON payload；在 ThingsBoard `-Xmx1024m` / 2g 容器下，512MiB telemetry body 触发 `Handler dispatch failed: java.lang.OutOfMemoryError: Java heap space`。
-- `HERTZBEAT-DOS-0001` 将 HertzBeat 补测提升到 2g 容器、1g heap/direct，并补回 Apache Arrow Java 21 `--add-opens`；约 21.7k 个唯一 job/instance 后触发 1GiB direct-buffer OOM，push 面出现重复 502。
-- `SBA-APP-STATIC-0002` 增加每实例 retained bytes（8 个 4KiB cookie、4KiB metadata、30k instances）并以 `--min-heap 1g` 补测，仍为 `completed_without_oom`；`SKYWALKING-APP-STATIC-0003` 增加 ack 解码和诊断采样，32 条 AsyncProfiler 流均被接受但 1g/2g 下未 OOM，继续保持 `observed_growth_not_confirmed`。
-- 将二值真相 collector 的严格审计范围恢复为本轮要求的 `new/new_retest/p2`，P1 结果保留在 P1 动态报告中，不纳入当前 `BINARY_TRUTH_COLLECTION`。
-
-### 交付成果
-- 修改脚本/PoC：`scripts/collect_dynamic_validation_binary_truth.py`、`scripts/run_application_p2_dynamic_validation.py`、`results/applications_dynamic_validation/new/cases/apache__druid-DRUID-APP-STATIC-0001/probe.py`、`results/applications_dynamic_validation/new/cases/thingsboard__thingsboard-TB-APP-STATIC-0001/probe.py`、`results/applications_dynamic_validation/new/cases/apache__hertzbeat-HERTZBEAT-DOS-0001/probe.py`、`results/applications_dynamic_validation/new/cases/apache__hertzbeat-HERTZBEAT-DOS-0001/start_commands.sh`、`results/applications_dynamic_validation/new/cases/apache__skywalking-SKYWALKING-APP-STATIC-0003/probe.py`
-- 覆盖 case 结果：`results/applications_dynamic_validation/new/cases/apache__druid-DRUID-APP-STATIC-0001/result.json`、`results/applications_dynamic_validation/new/cases/thingsboard__thingsboard-TB-APP-STATIC-0001/result.json`、`results/applications_dynamic_validation/new/cases/apache__hertzbeat-HERTZBEAT-DOS-0001/result.json`、`results/applications_dynamic_validation/new/cases/apache__skywalking-SKYWALKING-APP-STATIC-0003/result.json`
-- 覆盖汇总：`results/applications_dynamic_validation/new/summary.json`、`results/applications_dynamic_validation/new/findings.jsonl`、`results/applications_dynamic_validation/new/summary.csv`、`results/applications_dynamic_validation/new/DYNAMIC_VALIDATION_REPORT.md`、`results/applications_dynamic_validation/p2/summary.json`、`results/applications_dynamic_validation/p2/P2_DYNAMIC_VALIDATION_REPORT.md`
-- 二值汇总：`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`，当前为 10 条 `confirmed_true_positive` 与 179 条 `unconfirmed_or_non_oom`
-- 新增/补强关键证据：Druid `evidence/router_oom_reinforce_excerpt.txt`、ThingsBoard `logs/probe_results_reinforce_telemetry_large.jsonl`、HertzBeat `evidence/probe_summary_reinforce.json` / `evidence/oom_reinforce_excerpt.txt`、SkyWalking `evidence/probe_reinforce_diag_32x30m.json`
-
-### 依赖与影响
-- 依赖：本地 Docker、既有应用源码/镜像缓存、Spring Boot Admin 构建产物、SkyWalking OAP/BanyanDB 镜像。
-- 对后续工作的影响：`new/new_retest/p2` 强证据集合从 7 条更新为 10 条；Druid SQL、ThingsBoard telemetry、HertzBeat push 可进入论文强真阳性数据，SkyWalking AsyncProfiler 与 SBA CookieStore 仍不能按 confirmed 表述。
-- 破坏性变更：二值集合范围从上一条 P1 实验口径恢复为 `new/new_retest/p2`；未修改 CodeQL 查询、ranking 或 AOSP verdict 语义。
-
----
-
-## [2026-06-30] P1 三条优先 PoC 补强与 1G 复测
-
-### 修改时间
-2026-06-30 21:13
-
-### 变更类型
-- [功能改进] 应用级 P1 动态验证 PoC 补强
-- [文档] P1 与二值真阳性集合刷新
-
-### 核心改动
-- 优先补强 `JMQTT-APP-STATIC-0002`、`ERUPT-APP-STATIC-0002`、`XXL-JOB-APP-STATIC-0003` 三条此前未确认的 P1 候选，并使用 `--min-heap 1g` 复测覆盖旧结果。
-- `JMQTT-APP-STATIC-0002` 将 QoS2 PUBLISH payload 固定在默认 `maxMsgSize=512KiB` 以下，保留半握手 in-flight 消息；1G 堆下发送 2030 条后触发 `java.lang.OutOfMemoryError: Java heap space`。
-- `ERUPT-APP-STATIC-0002` 将探针入口从 GET-only `/erupt-api/login` 修正为真实 POST `/erupt-api/data/table/EruptUser`，匿名 JSON body 先经过 `HttpServletRequestFilter$EruptRequestWrapper` 复制；1G 堆下 13 个约 36MiB body 触发 Java heap OOM。
-- `XXL-JOB-APP-STATIC-0003` 将 GLUE_GROOVY handler 改为阻塞型执行，按默认 token 触发大量唯一 `jobId` 的 `JobThread`；1G 堆下 780 次触发后出现 `unable to create native thread`，按线程耗尽型 target failure 计为确认。
-- 将 P1 报告文案从单一 OOM 真阳性扩展为目标资源失败真阳性，覆盖 `verified_oom` 和 `confirmed_thread_exhaustion`；二值真相 collector 将 P1 纳入严格审计批次。
-- 当前 P1 严格 1G confirmed 更新为 11 条；全局二值集合更新为 18 条 `confirmed_true_positive` 与 171 条 `unconfirmed_or_non_oom`。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`、`scripts/collect_dynamic_validation_binary_truth.py`
-- 覆盖结果：`results/applications_dynamic_validation/p1/summary.json`、`results/applications_dynamic_validation/p1/findings.jsonl`、`results/applications_dynamic_validation/p1/summary.csv`、`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
-- 二值汇总：`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`
-- 关键日志：`results/applications_dynamic_validation/p1/logs/JMQTT-APP-STATIC-0002.log`、`results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0002.log`、`results/applications_dynamic_validation/p1/logs/XXL-JOB-APP-STATIC-0003.log`
-- 测试/验证结果：`python3 scripts/run_application_p1_dynamic_validation.py --min-heap 1g --case JMQTT-APP-STATIC-0002 --case ERUPT-APP-STATIC-0002 --case XXL-JOB-APP-STATIC-0003` 执行成功；`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功；三条补强 case 均进入 `confirmed_true_positive`。
-
-### 依赖与影响
-- 依赖：本地 Docker、MySQL 镜像缓存、P1 目标应用既有源码与构建产物。
-- 对后续工作的影响：论文/报告中的 P1 confirmed 集合应使用当前 11 条严格 1G 结果；线程耗尽类证据按 confirmed target failure 单独表述，不再混写为 heap OOM。
-- 破坏性变更：统计口径将 P1 纳入严格审计批次；未修改 CodeQL 查询、ranking 或 verdict 语义。
-
----
-
-## [2026-06-30] new/new_retest/P2 动态真阳性 1G 证据复核
-
-### 修改时间
-2026-06-30 20:57
-
-### 变更类型
-- [功能改进] 应用级动态验证证据门槛收紧
-- [文档] 强证据二元真阳性集合刷新
-
-### 核心改动
-- 按用户要求复核 `results/applications_dynamic_validation/` 下 P2、`new`、`new_retest` 批次的真阳性；实际目录为 `new_retest`，未发现 `new_reset` 目录。
-- 将旧低堆 confirmed 记录按至少 1GiB JVM heap 或目标进程/容器内存证据重新审计：保留 Zipkin、Solr、SkyWalking pprof、Druid Avatica 的 1G 补测 OOM 证据，并继续保留既有 1G+ 证据的 Presto、ThingsBoard TB-0002、Dependency-Track。
-- 覆盖降级证据不足或未复现的旧记录：Druid SQL 在 `DRUID_XMS=1g` / `DRUID_XMX=1g` 下完成探针且 HTTP 仍可用；SkyWalking AsyncProfiler 在 `-Xmx1g` / 2GiB OAP 容器下 48/96 条流未 OOM；HertzBeat 与 ThingsBoard TB-0001 仅保留低内存历史证据，不进入强真阳性集合。
-- 收紧 `scripts/collect_dynamic_validation_binary_truth.py`：只把审计批次 `p2/new/new_retest` 中 confirmed target failure 且有 >=1GiB heap、`-Xmx` 或目标进程/容器内存证据的记录归为 `confirmed_true_positive`；旧 P0/P1 未纳入本轮强真阳性集合。
-- 刷新二元集合为 7 条 `confirmed_true_positive` 与 182 条 `unconfirmed_or_non_oom`。
-
-### 交付成果
-- 修改脚本：`scripts/collect_dynamic_validation_binary_truth.py`
-- 覆盖结果：`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`
-- 更新 case 结果：`results/applications_dynamic_validation/new_retest/cases/openzipkin__zipkin-ZIPKIN-APP-STATIC-0001/result.json`、`results/applications_dynamic_validation/new/cases/apache__solr-SOLR-APP-STATIC-0001/result.json`、`results/applications_dynamic_validation/new/cases/apache__skywalking-SKYWALKING-APP-STATIC-0002/result.json`、`results/applications_dynamic_validation/new/cases/apache__skywalking-SKYWALKING-APP-STATIC-0003/result.json`、`results/applications_dynamic_validation/new/cases/apache__druid-DRUID-APP-STATIC-0001/result.json`、`results/applications_dynamic_validation/new/cases/apache__druid-DRUID-APP-STATIC-0002/result.json`、`results/applications_dynamic_validation/new/cases/apache__hertzbeat-HERTZBEAT-DOS-0001/result.json`、`results/applications_dynamic_validation/new/cases/thingsboard__thingsboard-TB-APP-STATIC-0001/result.json`
-- 新增/补强关键证据：Zipkin `logs/probe_results_1g_confirmed.jsonl`、Solr `evidence/probe_observations.json`、SkyWalking pprof `logs/probe-failure-1g-48stream-30m.json`、Druid Avatica `logs/router_after_1g_oom.log` 与对应 inspect/log 文件。
-- 测试/验证结果：`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功；`python3 -m json.tool results/applications_dynamic_validation/binary_truth_collection.json` 通过；`python3 -m py_compile scripts/collect_dynamic_validation_binary_truth.py` 通过；`python3 scripts/check_phase3_consistency.py` 通过，结果为 37/37 matched；`python3 scripts/check_web_real_regression.py` 通过，结果为 6/6 phase3 hit、6 dynamic-only pending query；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过，288 个积格点单调；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression；`git diff --check` 通过。
-
-### 依赖与影响
-- 依赖：本地 Docker 镜像缓存、既有 `new/new_retest/p2` 动态验证 case 目录和本轮 1G 补测证据。
-- 对后续工作的影响：论文和披露材料中应用级强真阳性集合应使用当前 7 条 >=1GiB 证据集合；低堆 OOM 只能作为历史弱证据或待增强候选。
-- 破坏性变更：统计口径收紧会排除旧低内存真阳性；未修改 CodeQL 查询、ranking 或 verdict 语义。
-
----
-
-## [2026-06-30] P1 11 条增强 PoC 1G 补测
-
-### 修改时间
-2026-06-30 20:55
-
-### 变更类型
-- [功能改进] 应用级 P1 动态验证增强
-- [文档] P1 1G confirmed 真阳性集合刷新
-
-### 核心改动
-- 按第一优先级 5 条、第二优先级 6 条对 P1 PoC 做增强并使用 `--min-heap 1g` 补测，继续坚持真实外部 HTTP/协议请求触发目标 JVM `OutOfMemoryError` 才提升为真阳性。
-- 第一优先级中 `ERUPT-APP-STATIC-0001`、`SMQTT-APP-STATIC-0003`、`SMQTT-APP-STATIC-0006` 在 1G 堆下确认 OOM；`JMQTT-APP-STATIC-0002`、`XXL-JOB-APP-STATIC-0003` 增强后仍未确认 OOM。
-- 第二优先级中 `REBUILD-APP-STATIC-0003`、`CITRUS-APP-STATIC-0002` 在 1G 堆下确认 OOM；`OPSLI-BOOT-APP-STATIC-0001`、`XXL-BOOT-APP-STATIC-0001`、`RYVF-APP-STATIC-0002`、`ERUPT-APP-STATIC-0002` 增强后仍未确认 OOM。
-- 增强内容包括更高 captcha height、更大的 JSON/body payload、更大的 MQTT QoS2 payload 与 topic key 空间、更高触发次数和更长探针窗口；新增 OOM 后已覆盖 `results/applications_dynamic_validation/p1/` 下旧结果。
-- P1 严格 1G 真阳性从 3 条更新为 8 条；全局二值集合更新为 18 条 `confirmed_true_positive` 与 171 条 `unconfirmed_or_non_oom`。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
-- 覆盖结果：`results/applications_dynamic_validation/p1/summary.json`、`findings.jsonl`、`summary.csv`、`P1_DYNAMIC_VALIDATION_REPORT.md`
-- 二值汇总：`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`
-- 新增/补强关键日志：`results/applications_dynamic_validation/p1/logs/ERUPT-APP-STATIC-0001.log`、`SMQTT-APP-STATIC-0003.log`、`SMQTT-APP-STATIC-0006.log`、`REBUILD-APP-STATIC-0003.log`、`CITRUS-APP-STATIC-0002.log`
-- 测试/验证结果：`python3 scripts/run_application_p1_dynamic_validation.py --min-heap 1g --case ...` 执行成功，本轮 11 条中 5 条新增 1G confirmed；`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功；8 条 P1 confirmed 日志均包含 `-Xmx1g` 与 `OutOfMemoryError`；`python3 -m py_compile scripts/run_application_p1_dynamic_validation.py scripts/collect_dynamic_validation_binary_truth.py` 通过；`python3 scripts/check_phase3_consistency.py` 通过，结果为 37/37 matched；`python3 scripts/check_web_real_regression.py` 通过，结果为 6/6 phase3 hit、6 dynamic-only pending query；`git diff --check` 通过
-
-### 依赖与影响
-- 依赖：本地 Docker、MySQL/Redis 镜像缓存、P1 目标应用既有源码与构建产物。
-- 对后续工作的影响：论文/报告中的 P1 confirmed 集合应使用当前 8 条严格 1G 结果；本轮未确认的 6 条保留为弱证据或低优先级候选，不再按真阳性表述。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking 或 verdict 语义。
-
----
-
-## [2026-06-30] 应用级动态验证严格 1G 堆真阳性统计口径
-
-### 修改时间
-2026-06-30 20:30
-
-### 变更类型
-- [功能改进] 动态验证统计口径收敛
-- [文档] 权威应用级真阳性数量刷新
-
-### 核心改动
-- 统一应用级动态验证统计口径：只有 confirmed target failure 且显式 JVM heap / `-Xmx` 至少 1GiB 的结果才计为真阳性。
-- 将 P0/P1/P2 runner 导出的 `summary.json`、`findings.jsonl`、`summary.csv` 中 `true_positive` 字段改为严格 1G 堆口径；小堆 OOM 仍保留原始 `status`、日志和 OOM 信号，但不再计入真阳性。
-- 将二值真相归并脚本改为只接受显式 JVM heap / `-Xmx` 证据，container memory limit-only 证据统一归入 `unconfirmed_or_non_oom`。
-- 刷新当前权威统计：P0 为 8 条严格真阳性，P1 为 3 条，P2 为 0 条；五批次归并二值真相为 13 条 `confirmed_true_positive` 与 176 条 `unconfirmed_or_non_oom`。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p0_dynamic_validation.py`、`scripts/run_application_p1_dynamic_validation.py`、`scripts/run_application_p2_dynamic_validation.py`、`scripts/collect_dynamic_validation_binary_truth.py`
-- 覆盖结果：`results/applications_dynamic_validation/p0/summary.json`、`results/applications_dynamic_validation/p1/summary.json`、`results/applications_dynamic_validation/p2/summary.json` 及对应 `findings.jsonl`、`summary.csv`、动态验证报告
-- 二值汇总：`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`
-- 文档：`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功；严格汇总检查显示 P0/P1/P2 真阳性分别为 8/3/0，二值集合为 13/176；`python3 -m py_compile scripts/collect_dynamic_validation_binary_truth.py scripts/run_application_p0_dynamic_validation.py scripts/run_application_p1_dynamic_validation.py scripts/run_application_p2_dynamic_validation.py` 通过；`git diff --check` 通过；`python3 scripts/check_phase3_consistency.py` 通过，结果为 37/37 matched；`python3 scripts/check_web_real_regression.py` 通过，结果为 6/6 phase3 hit、6 dynamic-only pending query
-
-### 依赖与影响
-- 依赖：现有 `results/applications_dynamic_validation/` 下五个批次的动态验证产物，不重新执行破坏性或高负载探针。
-- 对后续工作的影响：论文统计、补测队列和披露材料均应使用严格 1G 堆真阳性口径；旧小堆 OOM 只能作为待增强证据或候选。
-- 破坏性变更：统计口径收紧会降低 confirmed 数量；未修改 CodeQL 查询、ranking 或 verdict 语义。
-
----
-
-## [2026-06-30] P1 旧真阳性 1G 严格复测与二值真相收敛
-
-### 修改时间
-2026-06-30 20:29
-
-### 变更类型
-- [功能改进] 应用级 P1 动态验证严格复测
-- [文档] 1G 证据门槛下的二值真相集合刷新
-
-### 核心改动
-- 对旧二值真相集合中属于 P1 的 17 条真阳性按 `--min-heap 1g` 重新执行动态验证，并覆盖 `results/applications_dynamic_validation/p1/` 下的汇总结果。
-- 复测后仅 `REBUILD-APP-STATIC-0002`、`WGCLOUD-APP-STATIC-0002`、`XXL-JOB-APP-STATIC-0004` 在 1G 堆限制下仍由外部 HTTP/协议请求触发目标 JVM `java.lang.OutOfMemoryError`。
-- 将旧小堆证据依赖较强的 14 条 P1 结果降级为 `completed_without_oom`，包括 `CITRUS-APP-STATIC-0002`、`ERUPT-APP-STATIC-0001`、`ERUPT-APP-STATIC-0002`、`JMQTT-APP-STATIC-0002`、`OPSLI-BOOT-APP-STATIC-0001`、`REBUILD-APP-STATIC-0003`、`RYVF-APP-STATIC-0002`、`SBA-APP-STATIC-0001`、`SMQTT-APP-STATIC-0001`、`SMQTT-APP-STATIC-0003`、`SMQTT-APP-STATIC-0006`、`XXL-BOOT-APP-STATIC-0001`、`XXL-BOOT-APP-STATIC-0003`、`XXL-JOB-APP-STATIC-0003`。
-- 扩展 `scripts/collect_dynamic_validation_binary_truth.py` 的输出字段，保留 `heap_or_limit`、`requests_sent`、`failure_signal`、`log_path` 和证据摘要，并按严格 1G 证据口径生成二值真相集合。
-- 识别下一轮值得增强 PoC 的候选：优先 `SMQTT-APP-STATIC-0006`、`JMQTT-APP-STATIC-0002`、`ERUPT-APP-STATIC-0001`、匿名 JSON body copy 系列和 `XXL-JOB-APP-STATIC-0003`；`SBA-APP-STATIC-0001` 需要更高注册上限但日志/耗时成本较高，暂列次优先级。
-
-### 交付成果
-- 修改脚本：`scripts/collect_dynamic_validation_binary_truth.py`
-- 覆盖结果：`results/applications_dynamic_validation/p1/summary.json`、`findings.jsonl`、`summary.csv`、`P1_DYNAMIC_VALIDATION_REPORT.md`
-- 二值汇总：`results/applications_dynamic_validation/binary_truth_collection.json`、`BINARY_TRUTH_COLLECTION.md`
-- 关键日志：`results/applications_dynamic_validation/p1/logs/REBUILD-APP-STATIC-0002.log`、`WGCLOUD-APP-STATIC-0002.log`、`XXL-JOB-APP-STATIC-0004.log`
-- 测试/验证结果：`python3 scripts/run_application_p1_dynamic_validation.py --min-heap 1g --case ...` 执行成功，旧 P1 17 条真阳性收敛为 3 条 1G confirmed；`python3 -m py_compile scripts/collect_dynamic_validation_binary_truth.py scripts/run_application_p1_dynamic_validation.py` 通过；`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功，严格二值集合当前为 `13` 条 `confirmed_true_positive` 与 `176` 条 `unconfirmed_or_non_oom`；`python3 scripts/check_phase3_consistency.py` 通过；`python3 scripts/check_web_real_regression.py` 通过；`git diff --check` 通过
-
-### 依赖与影响
-- 依赖：本地 Docker、MySQL/Redis 镜像缓存、P1 目标应用既有本地源码与构建产物。
-- 对后续工作的影响：论文/报告中的 P1 真阳性统计应使用 1G 严格口径下的 3 条 confirmed；小堆 OOM 只能保留为候选或弱证据，除非后续增强 PoC 在 1G 下重新确认。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking 或 verdict 语义。
-
----
-
-## [2026-06-30] P0 三条旧真阳性 1G 增强 PoC 补测与二值汇总刷新
-
-### 修改时间
-2026-06-30 20:00
-
-### 变更类型
-- [功能改进] 应用级 P0 动态验证增强
-- [文档] 1G 堆补测结果归档与二值真相汇总刷新
-
-### 核心改动
-- 为 P0 动态验证 runner 增加 `--min-heap` 下限能力，并在 1G 补测模式下增强 `CITRUS-APP-STATIC-0001`、`POWERJOB-APP-STATIC-0002`、`RYVF-APP-STATIC-0001` 的 PoC 参数。
-- `CITRUS-APP-STATIC-0001` 保持默认验证码尺寸和匿名 `/rest/verify/captcha` 入口，仅提高新 session 基数与并发，避免把非默认配置混入证据。
-- `POWERJOB-APP-STATIC-0002` 使用更大的匿名 JSON body 与并发请求放大请求期 body copy/parse 压力。
-- `RYVF-APP-STATIC-0001` 使用更高吞吐的低权限 `/test/user/save` static map 写入，保留 1G 下请求参数和并发信息。
-- 重新运行 `scripts/collect_dynamic_validation_binary_truth.py` 覆盖二值真相汇总；全局严格 1G 堆统计随后以 20:30 条目为准。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p0_dynamic_validation.py`
-- 相关下限参数入口：`scripts/run_application_p1_dynamic_validation.py`、`scripts/run_application_p2_dynamic_validation.py`
-- 覆盖结果：`results/applications_dynamic_validation/p0/summary.json`、`findings.jsonl`、`summary.csv`、`P0_DYNAMIC_VALIDATION_REPORT.md`
-- 二值汇总：`results/applications_dynamic_validation/binary_truth_collection.json`、`BINARY_TRUTH_COLLECTION.md`
-- 原始日志：`results/applications_dynamic_validation/p0/logs/CITRUS-APP-STATIC-0001.log`、`POWERJOB-APP-STATIC-0002.log`、`RYVF-APP-STATIC-0001.log`
-- 测试/验证结果：`python3 -m py_compile scripts/run_application_p0_dynamic_validation.py` 通过；`python3 scripts/run_application_p0_dynamic_validation.py --min-heap 1g --case CITRUS-APP-STATIC-0001 --case POWERJOB-APP-STATIC-0002 --case RYVF-APP-STATIC-0001` 执行成功，三条均在 1G 堆下触发目标 JVM `java.lang.OutOfMemoryError`；`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功
-
-### 依赖与影响
-- 依赖：本地 Docker、MySQL/Redis 镜像缓存、三个目标应用既有本地源码与构建产物。
-- 对后续工作的影响：这三条旧 P0 真阳性可从“小堆证据”提升为 1G 堆强动态证据；二值真相汇总已反映当前 P0/P1/P2/new/new_retest 的最新覆盖结果。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking 或 verdict 语义。
-
----
-
-## [2026-06-30] 动态验证结果二值真相归并
-
-### 修改时间
-2026-06-30 17:17
-
-### 变更类型
-- [新增功能] 动态验证结果二值归并脚本
-- [文档] 应用级动态验证确认/未确认两类清单
-
-### 核心改动
-- 新增 `scripts/collect_dynamic_validation_binary_truth.py`，统一读取 `results/applications_dynamic_validation/` 下的 `p0`、`p1`、`p2`、`new`、`new_retest` 五个批次结果。
-- 对 `p0/p1/p2` 的旧式 `findings.jsonl` 和 `new/new_retest` 的 `cases/*/result.json` 做统一标准化，并仅保留两类结果：`confirmed_true_positive` 与 `unconfirmed_or_non_oom`。
-- 对跨批次重复 case 按批次新旧顺序去重，优先保留 `new_retest > new > p2 > p1 > p0` 的较新结论，解决 `openzipkin__zipkin-ZIPKIN-APP-STATIC-0001`、`dependencytrack__dependency-track-DTRACK-APP-STATIC-0001`、`apache__inlong-INLONG-APP-STATIC-0001` 等补测覆盖问题。
-- 生成机器可读和人工可读汇总；该初始二值集合已由 20:30 的严格 1G 堆统计口径覆盖。
-
-### 交付成果
-- 新增脚本：`scripts/collect_dynamic_validation_binary_truth.py`
-- 机器可读汇总：`results/applications_dynamic_validation/binary_truth_collection.json`
-- 人工可读汇总：`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md`
-- 测试/验证结果：`python3 scripts/collect_dynamic_validation_binary_truth.py` 执行成功；`python3 scripts/check_phase3_consistency.py` 通过；`python3 scripts/check_web_real_regression.py` 通过；`git diff --check` 通过
-
-### 依赖与影响
-- 依赖：现有 `results/applications_dynamic_validation/` 下五个批次的动态验证产物。
-- 对后续工作的影响：后续在论文统计、补测挑选和披露材料中，可直接使用该二值归并结果，而不再手工在多个批次间交叉去重。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking、verdict 语义或动态验证执行逻辑。
-
----
-
-## [2026-06-30] 6 条高潜力阻塞样本补测归档到 new_retest
-
-### 修改时间
-2026-06-30 16:07
-
-### 变更类型
-- [功能改进] 应用级动态验证补测结果归档
-- [文档] 高潜力 blocked/growth-only 样本利用条件刷新
-
-### 核心改动
-- 基于 `results/applications_dynamic_validation/new/manifest.normalized.jsonl` 中挑出的 6 条高潜力阻塞样本，新建 `results/applications_dynamic_validation/new_retest/` 作为独立补测批次，避免覆盖既有 `new/` 结果。
-- 重新验证 `openzipkin__zipkin-ZIPKIN-APP-STATIC-0001` 与 `dependencytrack__dependency-track-DTRACK-APP-STATIC-0001`，分别确认匿名 Zipkin spans gzip 解压路径和低权限 Dependency-Track BOM 上传路径都能在默认部署下稳定触发目标 JVM `OutOfMemoryError`。
-- 补跑 `apache__inlong-INLONG-APP-STATIC-0001` 的默认 Manager 登录路径：修正 case-local MySQL SQL 挂载权限后完成匿名登录探针，确认 `5000` 个唯一失败用户名会保留 `5005` 个 `UserLoginLockStatus` 实例并推高堆占用，但在 `2g` harness 下仍未触发 OOM 或持续不可用，因此收敛为 `observed_growth_not_confirmed`。
-- 将 `apache__ambari-AMBARI-APP-STATIC-0001`、`apache__ranger-RANGER-APP-STATIC-0001`、`apache__linkis-LINKIS-APP-STATIC-0001` 的既有阻塞证据目录纳入 `new_retest/` 聚合，保留其 `environment_blocked` 结论，作为后续专项环境补齐的基线。
-- 运行动态验证聚合脚本，生成 `summary.json`、`summary.csv`、`findings.jsonl`、`blocked_or_rejected.jsonl`、`DYNAMIC_VALIDATION_REPORT.md`，并补齐技能规范要求的 `validation_status.jsonl`。
-
-### 交付成果
-- 补测输出根：`results/applications_dynamic_validation/new_retest/`
-- 聚合摘要：`results/applications_dynamic_validation/new_retest/summary.json`、`summary.csv`
-- 聚合结果：`results/applications_dynamic_validation/new_retest/findings.jsonl`、`blocked_or_rejected.jsonl`、`validation_status.jsonl`
-- 人工报告：`results/applications_dynamic_validation/new_retest/DYNAMIC_VALIDATION_REPORT.md`
-- 单 case 证据：`results/applications_dynamic_validation/new_retest/cases/<case_id>/`
-- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过；`python3 scripts/check_web_real_regression.py` 通过；补测批次聚合统计为 2 个 `confirmed_oom`、1 个 `observed_growth_not_confirmed`、3 个 `environment_blocked`
-
-### 依赖与影响
-- 依赖：既有 `results/applications_dynamic_validation/new/` case 证据目录、`docker.1ms.run/inlong/manager:latest` 本地镜像缓存，以及补测期间生成的 case-local compose 运行状态。
-- 对后续工作的影响：`new_retest/` 可直接用于挑选下一轮最值得继续补环境的 blocked 样本；其中 InLong 现已从“镜像未就绪”推进到“默认匿名入口存在 retained growth 但未证实真实故障”。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking、verdict 语义或主 pipeline 逻辑。
-
----
-
-## [2026-06-30] 51 条应用级 Java Web DoS 候选动态验证收敛到 new 批次
-
-### 修改时间
-2026-06-30 12:42
-
-### 变更类型
-- [功能改进] 应用级动态验证结果归档
-- [文档] 批量动态验证汇总与利用条件说明
-
-### 核心改动
-- 使用 `$java-web-dos-dynamic-validator` 对 `manifest.normalized.jsonl` 中 51 条应用级候选执行默认部署动态验证，结果统一写入 `results/applications_dynamic_validation/new/`。
-- 为每个 case 补齐 `case_plan.json`、`environment.md`、`data_prep.md`、`result.json` 以及按需的探针、日志和证据文件，并通过主控校验将完整性结果追加到 `validation_status.jsonl`。
-- 运行聚合脚本生成 `summary.json`、`summary.csv`、`findings.jsonl`、`blocked_or_rejected.jsonl` 和 `DYNAMIC_VALIDATION_REPORT.md`；本批次收敛为 9 个 `confirmed_oom`、22 个 `observed_growth_not_confirmed`、20 个 blocked/restricted 类结果。
-- 对默认环境未就绪、依赖镜像不可用、鉴权前置条件或默认入口不可达的目标保持 `environment_blocked`、`auth_blocked`、`precondition_blocked`、`default_not_reachable` 或 `non_default_only`，未将 growth-only 行为提升为 confirmed。
-
-### 交付成果
-- 动态验证总目录：`results/applications_dynamic_validation/new/`
-- 聚合摘要：`results/applications_dynamic_validation/new/summary.json`、`summary.csv`
-- 聚合结果：`results/applications_dynamic_validation/new/findings.jsonl`、`blocked_or_rejected.jsonl`
-- 人工报告：`results/applications_dynamic_validation/new/DYNAMIC_VALIDATION_REPORT.md`
-- 单 case 证据：`results/applications_dynamic_validation/new/cases/<case_id>/`
-- 测试/验证结果：51/51 个 manifest case 均存在 `result.json`，聚合脚本执行成功，`python3 scripts/check_phase3_consistency.py` 与 `python3 scripts/check_web_real_regression.py` 待本次结果归档后复核
-
-### 依赖与影响
-- 依赖：前序静态批次 `results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl` 与 `results/applications_dynamic_validation/new/manifest.normalized.jsonl`。
-- 对后续工作的影响：`results/applications_dynamic_validation/new/` 可直接作为论文和复核阶段的新一批应用级默认部署动态证据输入；其中 blocked 类结果为环境/前置条件结论，不应视为 negative。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking、verdict 语义或 pipeline 逻辑。
-
----
-
-## [2026-06-29] Java Web DoS 动态验证 Skill
-
-### 修改时间
-2026-06-29 13:51
-
-### 变更类型
-- [新增功能] 动态验证 Skill
-- [文档] Subagent 动态验证流程与结果格式
-
-### 核心改动
-- 新增 `$java-web-dos-dynamic-validator`，用于接收上一轮静态分析结果文件和目标输出目录，按候选开启 subagent 执行默认部署动态验证。
-- 约束 worker 必须完成环境准备、默认服务运行、必要数据或低权限账户准备、受控 HTTP/协议探测、证据采集和清理，并把利用条件写入 `utilization_conditions`。
-- 明确 Docker/compose/release package 默认部署优先级、国内镜像加速使用原则、动态 confirmed 门槛、growth-only 降级规则和 blocked/not reproduced 分类。
-- 新增聚合脚本，将各 case 的 `result.json` 汇总为 `summary.json`、`summary.csv`、`findings.jsonl`、`blocked_or_rejected.jsonl` 和 `DYNAMIC_VALIDATION_REPORT.md`。
-
-### 交付成果
-- 新增 Skill 主文件：`.codex/skills/java-web-dos-dynamic-validator/SKILL.md`
-- 新增 UI 元数据：`.codex/skills/java-web-dos-dynamic-validator/agents/openai.yaml`
-- 新增聚合脚本：`.codex/skills/java-web-dos-dynamic-validator/scripts/aggregate_dynamic_validation.py`
-- 测试/验证结果：`quick_validate.py` 校验通过；聚合脚本使用临时样例执行成功并生成预期摘要文件。
-
-### 依赖与影响
-- 依赖：Codex subagent 工具可用时才能实际并发执行动态验证；不可用时 skill 会生成暂停状态和执行计划。
-- 对后续工作的影响：可直接用于 `dynamic_validation_queue.jsonl`、`findings.jsonl` 或 Markdown 静态结果到默认部署动态证据的闭环验证。
-- 破坏性变更：无；未修改 CodeQL 查询、runner、ranking、verdict 或既有动态验证脚本。
-
----
-
-## [2026-06-29] 用户指定 34 个 Java Web 应用 DoS 批量静态猎取
-
-### 修改时间
-2026-06-29 01:09
-
-### 变更类型
-- [新增功能] 批量静态分析结果聚合
-- [文档] 应用级 DoS 候选与动态验证队列归档
-
-### 核心改动
-- 使用 `$java-web-dos-batch-hunter` 编排用户指定的 34 个 Java Web 应用，每个目标由独立 worker 显式使用 `$java-web-dos-hunter` 执行 static-only 资源耗尽 DoS 分析。
-- 保持默认并发 3，保留每个目标自己的 hunter 输出目录：`frameworks/applications/<slug>/results/applications_static_analysis/<slug>/`，并仅在 orchestration 仓库下写入 batch 汇总。
-- 完成 34/34 个目标，聚合 52 条 finding，其中 29 条 `likely`、22 条 `needs_dynamic_probe`、1 条 `rejected`，生成 51 条动态验证队列候选；未执行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 交付成果
-- 新增 batch manifest 与状态：`results/java_web_dos_batch/20260628-233819/manifest.normalized.jsonl`、`batch_status.jsonl`
-- 新增聚合摘要：`results/java_web_dos_batch/20260628-233819/batch_summary.md`
-- 新增聚合 JSONL：`aggregate_target_profiles.jsonl`、`aggregate_sinks.jsonl`、`aggregate_sources.jsonl`、`aggregate_flows.jsonl`、`aggregate_findings.jsonl`、`aggregate_rejected.jsonl`、`aggregate_dynamic_probe_plan.jsonl`、`aggregate_subagent_reviews.jsonl`、`aggregate_status.jsonl`
-- 新增动态验证队列：`results/java_web_dos_batch/20260628-233819/dynamic_validation_queue.jsonl`
-- 新增聚合 gap 与 inventory：`aggregate_gaps.md`、`aggregate_inventory.json`
-- 测试/验证结果：batch 聚合脚本执行成功；必需 batch 文件均存在，聚合统计为 34 个 complete repository、0 个 missing hunter output、0 个 malformed JSONL record。
-
-### 依赖与影响
-- 依赖：34 个目标本地源码目录和 `$java-web-dos-hunter` worker 输出文件。
-- 对后续工作的影响：可基于 `dynamic_validation_queue.jsonl` 选择高价值 `likely` / `needs_dynamic_probe` 候选进入隔离动态验证；当前结果均为静态分析结论，不应提升为 confirmed DoS。
-- 破坏性变更：无；不修改目标应用源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache RocketMQ Dashboard 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 01:12
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/rocketmq-dashboard` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Spring MVC controller、Spring Security/auth 默认边界、RocketMQ client 生命周期、Guava cache、线程池队列和服务单例集合。
-- 识别 1 个 `likely` 候选：默认开放的 `GET /test/runTask.do` 每次请求都会启动 RocketMQ consumer、producer 和一个无限循环 sender 线程，未见停止路径、全局 cap 或 per-client quota。
-- 将消息分页 cache、Dashboard 采集 cache、consumer group map、collector executor queue、AutoCloseConsumerWrapper、CSRF token endpoint、monitor/ops 配置路径和 actuator 管理面按 bounded、server_controlled、request_local、disk_out_of_scope、not_amplifiable 或 admin_required 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__rocketmq-dashboard/results/applications_static_analysis/apache__rocketmq-dashboard/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：JSON/JSONL 格式校验通过，必需 hunter 文件无缺失；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改目标应用源码、CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__rocketmq-dashboard` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 `/test/runTask.do` 触发后的 live thread、RocketMQ client/remoting state、连接数、heap slope 和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache RocketMQ Dashboard 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Ranger 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 01:12
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/ranger` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Ranger KMS Jersey API、security-admin Spring Security/Jersey 配置、multipart import、匿名下载配置和 session 相关状态。
-- 识别 1 个 `likely` 候选：KMS `generateEncryptedKeys()` 的 `num_keys` 查询参数直接驱动 `EncryptedKeyVersion` 列表和响应 JSON 列表增长，默认 KMS `GENERATE_EEK` ACL 为普通认证用户可达。
-- 识别 1 个 `needs_dynamic_probe` 候选：KMS re-encrypt batch JSON 数组会被完整反序列化并复制到响应对象，但受默认 POST 大小、有效 encrypted-key 结构和运行时容器边界影响，未静态升级。
-- 将 security-admin multipart 导入、匿名下载开关、未证明注册的 session listener 和有界 KMS ValueQueue cache 按 admin_required、requires_config_change、missing_path_proof 或 bounded 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__ranger/results/applications_static_analysis/apache__ranger/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：`target_profile.json` 与所有 JSONL 文件格式校验通过，必需 hunter 文件无缺失；`python3 scripts/check_phase3_consistency.py` 通过（37/37 matched），`python3 scripts/check_web_real_regression.py` 通过（6/6 phase3 hit，0 missing，6 dynamic-only pending query）；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、runner、ranking 或 verdict 语义。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__ranger` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离 KMS 实例中测量 `num_keys` 和 re-encrypt batch 的 heap slope、对象数、默认容器边界和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Ranger 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache InLong 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 01:00
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/inlong` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 InLong Manager Spring MVC/Shiro、DataProxy Netty HTTP ingest、TubeMQ manager/broker web 面和默认 Docker/compose 暴露面。
-- 识别 1 个 `likely` 候选：匿名 `POST /inlong/manager/api/anno/login` 失败登录路径把攻击者可控 `username` 保留到 Spring singleton `loginLockStatusMap`，未见 key cardinality 上限、TTL 或清理逻辑。
-- 将 Manager request wrapper、DataProxy HTTP 参数/body 解析、SourceSnapshot cache、cluster install queue、multipart Excel import 和 TubeMQ broker admin servlet 按 request_local、bounded、admin_required 或 management_only 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__inlong/results/applications_static_analysis/apache__inlong/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：`target_profile.json` 与所有 JSONL 文件格式校验通过，必需 hunter 文件无缺失；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__inlong` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 login lockout map size、heap slope、默认请求速率/容器边界和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache InLong 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Guacamole Client 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:56
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/guacamole-client` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Jersey REST token/session、Guice `/tunnel`、WebSocket tunnel、auth-ban/TOTP/Duo/JSON/QuickConnect 扩展状态和 stream 转发路径。
-- 识别 1 个 `likely` 候选：成功 `POST /api/tokens` 可在 singleton `HashTokenSessionMap` 中保留新的 `GuacamoleSession`，默认 60 分钟空闲回收且未见全局/每用户 session 数量上限。
-- 识别 1 个 `needs_dynamic_probe` 候选：认证后 tunnel 创建可保留 per-session `UserTunnel` 和 HTTP tunnel registry，但受 15 秒空闲清理、连接权限、guacd/backend 和运行时连接边界影响，未静态升级。
-- 将 auth-ban Caffeine cache、TOTP used-code map、Duo/SSO deferred session、JSON auth active connection registry、stream upload、admin 管理 API 和文件/历史记录路径按 bounded、cleanup_effective、disabled_by_default、request_local、admin_required 或 requires_config_change 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__guacamole-client/results/applications_static_analysis/apache__guacamole-client/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：`target_profile.json` 与所有 JSONL 文件格式校验通过，必需 hunter 文件无缺失；`python3 scripts/check_phase3_consistency.py` 通过（37/37 matched），`python3 scripts/check_web_real_regression.py` 通过（6/6 phase3 hit，0 missing）；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__guacamole-client` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 token session map 和 active tunnel map 的对象数、heap slope、默认认证 provider/连接配置边界和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Guacamole Client 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Atlas 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 01:05
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/atlas` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Atlas Jersey/Spring Security REST 面、搜索任务、SearchTracker、RequestContext/ThreadLocal cache、admin import/export 和登录 session 标记。
-- 未发现满足默认外部非管理员范围的 `confirmed`、`likely` 或 `needs_dynamic_probe` finding；将登录成功后的 `ServletContext` session-id 标记、搜索任务队列、active search registry、request-local 搜索结果集合、admin multipart import 和关系搜索按 admin_required、bounded、cleanup_effective、request_local 或 disabled_by_default 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__atlas/results/applications_static_analysis/apache__atlas/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：JSON/JSONL 格式校验通过；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__atlas` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：当前无默认外部非管理员动态补测候选；如后续扩大到普通有效用户或默认 admin 账户，可单独验证 `ServletContext` session-id 标记是否随 session 过期清理。
-- 破坏性变更：无；未修改 Apache Atlas 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Solr 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:57
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/solr` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Solr Jetty/Servlet 分发、默认 `_default` configset、请求解析器、隐式 `/stream` handler、默认查询缓存和管理端点边界。
-- 识别 3 个 `likely` 候选：默认 form-urlencoded 解析器近似无界堆内参数构造、multipart 非文件字段堆内字符串构造、默认 `/stream` daemon 表达式保留 attacker-named daemon/queue/thread。
-- 将默认 query/filter/document cache、URL/header 参数膨胀、replication/backup/file upload、admin/node management 和 lazy/sample handler 按 `bounded`、`disk_out_of_scope`、`management_only` 或 `disabled_by_default` 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__solr/results/applications_static_analysis/apache__solr/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__solr` 源码快照，提交 `4eb42f0`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 parser heap slope、multipart 非文件字段 heap slope 和 `/stream` daemon map/thread 增长；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Solr 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Ambari 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:50
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/ambari` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Ambari Jetty/Jersey API、Spring Security 过滤链、agent 证书入口、API 查询谓词解析、View provider 和 alert cache。
-- 识别 1 个 `needs_dynamic_probe` 候选：默认 `/api/*` Spring Security 链在认证前执行 `RequestBodyCachingFilter`，对匿名请求 body 调用 `readAllBytes()` 缓存到堆内，且 Ambari 代码中未见 filter 级 body 上限；因默认连接器/反代 body limit 和实际不可用阈值未静态证实，未提升为 `likely` 或 `confirmed`。
-- 将证书签名、查询谓词解析、View body buffering、alert cache 和重复 JAX-RS parser 路径按 server_controlled、request_local、requires_config_change、bounded 或 duplicate 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__ambari/results/applications_static_analysis/apache__ambari/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__ambari` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 pre-auth body caching 的 heap slope、默认 body-size 边界和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Ambari 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] RuoYi-Vue-Plus 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:54
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `dromara/RuoYi-Vue-Plus` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Sa-Token 鉴权边界、默认启用 SSE、默认打包 demo 队列接口、验证码 Redis key、WebSocket、Actuator、上传导出和本地缓存。
-- 识别 3 个 `likely` 候选：默认 SSE 静态 `SseEmitter` per-token 保留、demo delayed queue Redis 延迟队列保留、demo priority queue attacker-chosen queueName 基数增长；识别 1 个 `needs_dynamic_probe` 匿名短信验证码 Redis key 基数候选。
-- 将 WebSocket、Actuator、邮箱验证码、登录欢迎任务、captcha image、本地 Caffeine cache 和磁盘上传导出类路径按 disabled_by_default、management_only、requires_config_change、bounded 或 disk_out_of_scope 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/dromara__ruoyi-vue-plus/results/applications_static_analysis/dromara__ruoyi-vue-plus/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：`target_profile.json` 与所有 JSONL 文件格式校验通过；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/dromara__ruoyi-vue-plus` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 SSE emitter map、Redisson delayed/priority queue、短信验证码/限流 Redis key 的对象数、内存斜率、默认 demo surface 暴露和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 RuoYi-Vue-Plus 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] GeoServer 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:46
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `geoserver/geoserver` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 Servlet/Spring MVC/OWS Dispatcher、WMS GetMap/UTFGrid 渲染、REST 上传/配置接口、WFS stored query、GeoWebCache transient cache 和 header ThreadLocal。
-- 未发现满足默认外部非管理员、无有效容量边界条件的 `confirmed`、`likely` 或 `needs_dynamic_probe` finding；将 WMS 大尺寸渲染、UTFGrid、REST 上传、WFS stored query、GWC cache 和 header map 按 bounded、admin_required、request_local、cleanup_effective 或 missing_path_proof 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/geoserver__geoserver/results/applications_static_analysis/geoserver__geoserver/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：JSON/JSONL 格式校验通过；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/geoserver__geoserver` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：当前无默认外部非管理员动态补测候选；如后续扩大范围，可单独审计非默认数据目录、放宽 REST/服务安全配置、可选扩展模块或 GeoWebCache 外部依赖内部实现。
-- 破坏性变更：无；未修改 GeoServer 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Dependency-Track 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:45
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `DependencyTrack/dependency-track` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Alpine/Jersey 鉴权过滤器、匿名接口、BOM/VEX 上传、CEL 表达式缓存、session token、分页 token 和 memory cache provider。
-- 识别 2 个 `needs_dynamic_probe` 低权限业务上传候选：BOM 与 VEX 上传路径会将请求体或 multipart part 累积为堆内 `byte[]` 后再验证/入队；因默认请求体限制、multipart buffering 和默认权限分配未静态证实，未提升为 `likely` 或 `confirmed`。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/dependencytrack__dependency-track/results/applications_static_analysis/dependencytrack__dependency-track/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：JSON/JSONL 格式校验通过；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/dependencytrack__dependency-track` 源码快照，提交 `4eb42f0`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 BOM/VEX 上传的 heap slope、请求体限制、multipart buffering 和 workflow backlog 行为；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Dependency-Track 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Linkis 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 03:05
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/linkis` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Linkis Gateway、Eureka 服务发现、ContextService、context cache、multipart 默认限制和管理/管理员端点。
-- 识别 1 个 `likely` 普通认证用户候选：`/contextservice/setValue*` 可将攻击者控制的 context key/value 写入进程内 per-context map 与倒排索引；外层 contextID cache 有默认 3000/3h 边界，但单个 contextID 内 key/index 未见容量上限。
-- 将网关请求体聚合、multipart/BML 文件路径、Eureka 注册表和管理员 cleanup/search 路径按 bounded、management_only 或 admin_required 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__linkis/results/applications_static_analysis/apache__linkis/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__linkis` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 ContextService per-context map/index 对象数、堆增长和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Linkis 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache StreamPark 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:39
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/streampark` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 Shiro 匿名链、WebSocket endpoint、代理服务、multipart 上传、线程池队列、OpenAPI 作业启动和 MyBatis 缓存。
-- 识别 1 个 `likely` 默认匿名候选：`/websocket/{id}` 将攻击者控制的 path id 作为静态 WebSocket session map key，缺少应用级 session 数量、id cardinality 或 per-client quota；将代理体/响应体复制、multipart 上传、bounded executor、future map 和 statement cache 按 scope 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__streampark/results/applications_static_analysis/apache__streampark/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：JSON/JSONL 格式校验通过；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__streampark` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 WebSocket session map、连接数、堆和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache StreamPark 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Pinot 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 02:05
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/pinot` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 Broker Jersey/JAX-RS 查询 API、cached executor、ManagedAsync 默认 executor、response store、controller/server admin 资源和 workload config 管理路径。
-- 识别 2 个 `likely` 默认外部 Broker 线程耗尽候选：`POST /query/compare` 每请求向 unbounded cached executor 提交双查询任务，以及默认关闭 bounded Jersey executor 下 `@ManagedAsync` 查询端点的无界异步线程处理风险；将磁盘型 response store、request-local parser/map、controller/server admin 面和 workload config 管理路径按 scope 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__pinot/results/applications_static_analysis/apache__pinot/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：JSON/JSONL 格式校验通过；本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__pinot` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 Broker thread count、async-task-thread 数量、请求延迟和服务可用性；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Pinot 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache NiFi 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 01:30
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/nifi` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 Jetty/JAX-RS Web API、`/access/token`、HTTP Site-to-Site transaction map、流程导入/替换异步请求、SAML/OIDC/logout cache 和内容长度/速率过滤器。
-- 未发现满足默认外部非管理员、无有效容量边界条件的 `confirmed`、`likely` 或 `needs_dynamic_probe` finding；将事务表、异步请求、上传解析、SAML/OIDC、两阶段提交和可选 Processor servlet 按 bounded、requires_config_change、cleanup_effective、management_only 或 missing_path_proof 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__nifi/results/applications_static_analysis/apache__nifi/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__nifi` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：当前无默认外部非管理员动态补测候选；如后续扩大范围，可单独审计启用 public port 的 Site-to-Site、OIDC/SAML SSO 或 operator-created processor HTTP servlet。
-- 破坏性变更：无；未修改 Apache NiFi 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache HertzBeat 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 01:07
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/hertzbeat` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 Sureness 鉴权排除、Prometheus push gateway、匿名 SSE 订阅管理器、OTLP/log ingestion 和默认 memory queue。
-- 识别 4 个 `likely` 默认匿名候选：Prometheus push `jobInstanceMap` key cardinality，以及 alert/log/manager 三组 SSE emitter/subscriber 无应用级连接保留上限；识别 1 个 `needs_dynamic_probe` 普通用户日志内存队列候选。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__hertzbeat/results/applications_static_analysis/apache__hertzbeat/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__hertzbeat` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 push map、SSE subscriber map、连接数、队列长度和堆曲线；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 HertzBeat 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Zeppelin 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:24
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/zeppelin` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 Jersey/JAX-RS REST、Shiro 默认 URL 门禁、WebSocket 会话表、SessionManagerService、NotebookService 执行路径和 interpreter scheduler。
-- 识别 2 个 `likely` 默认普通认证候选：`POST /api/session` 可保留无上限 `SessionInfo` map entries；重复 paragraph run 可进入默认无容量上限的 interpreter scheduler queue。WebSocket map、TicketContainer、notebook import、JMX/管理面路径按 cleanup_effective、server_controlled、disk_out_of_scope、requires_config_change 或 admin_required 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__zeppelin/results/applications_static_analysis/apache__zeppelin/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__zeppelin` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 `/api/session` map/heap 增长、scheduler queue 长度、清理路径和服务影响；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Apache Zeppelin 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Graylog2 Server 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:46
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `Graylog2/graylog2-server` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 Jersey REST、Shiro 认证门禁、搜索执行线程池、SearchJob cache、静态资源 cache、协议 input/parser 和 support bundle 管理路径。
-- 识别 1 个 `likely` 默认低权限候选：普通已认证用户搜索执行可向默认无界 `QueryEngine` worker queue 提交任务；将 SearchJob cache、静态资源 cache、Netflow input parser、support bundle 和 request-local parser 集合按 bounded、requires_config_change、admin_required 或 request_local 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/graylog2__graylog2-server/results/applications_static_analysis/graylog2__graylog2-server/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/graylog2__graylog2-server` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量默认搜索查询队列长度、堆增长、取消行为和服务影响；当前 finding 不应表述为 confirmed。
-- 破坏性变更：无；未修改 Graylog2 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache ShenYu 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:32
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/shenyu` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 bootstrap 网关请求链、admin 白名单 `/alert/report`、`/websocket`、metrics raw-path label、multipart body 聚合和本地插件控制面。
-- 未发现满足默认外部非管理员、无有效容量边界条件的 `confirmed` 或 `likely` finding；将告警队列、metrics、multipart、websocket 和 local plugin cache mutation 按 bounded、requires_config_change 或 missing_path_proof 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__shenyu/results/applications_static_analysis/apache__shenyu/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：已校验 `target_profile.json` 与全部 JSONL 文件可解析；本轮未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__shenyu` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：当前无默认外部非管理员动态补测候选；如后续扩大范围，可单独审计启用 metrics 后的 raw-path label cardinality 或管理面/插件配置依赖路径。
-- 破坏性变更：无；未修改 Apache ShenYu 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] SonarQube 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:14
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `SonarSource/sonarqube` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 WebService/SSE push API、Tomcat connector body/connection 边界、request body parser、webhook async queue 和权限门禁。
-- 识别 1 个 `likely` 默认低权限候选：`/api/push/sonarlint_events` 对普通登录且具备项目 `USER` 权限的客户端保留无应用级上限的 SSE async client/heartbeat 状态；管理权限、配置依赖、request-local 和缺少路径证明的候选按范围约束拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/sonarsource__sonarqube/results/applications_static_analysis/sonarsource__sonarqube/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/sonarsource__sonarqube` 源码快照，提交 `4eb42f0`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量默认 SSE 连接保留、`SonarLintClientsRegistry` 规模、heartbeat 队列和堆/FD 曲线。
-- 破坏性变更：无；未修改 SonarQube 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Flowable Engine 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:17
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `flowable/flowable-engine` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认 `flowable-rest` 安全配置、匿名 `/docs/**`、REST 部署上传、流程/任务变量写入、分页查询和管理 job 批量操作。
-- 未发现满足默认外部非管理员、非磁盘 retained resource 条件的 `confirmed`、`likely` 或 `needs_dynamic_probe` finding；将默认 REST 写入口按默认 admin gate、磁盘/数据库持久化、request-local 或缺少默认非管理员路径证明拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/flowable__flowable-engine/results/applications_static_analysis/flowable__flowable-engine/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/flowable__flowable-engine` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：如后续范围允许默认管理员凭据或单独证明默认非管理员 `access-rest-api` 用户，可重新评估部署上传和变量写入的 request-burst parser/memory 行为；当前无动态补测候选。
-- 破坏性变更：无；未修改 Flowable 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Apache Druid 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:08
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/druid` 本地源码执行 static-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP/SQL query 入口和非磁盘资源；复核 SQL raw-body parser-state、Router Avatica protobuf buffering、SQL lifecycle registry、native query scheduler、listener/lookup/basic-security/test-tool 管理路径。
-- 未发现可在静态阶段提升为 confirmed/likely 的默认外部非管理员漏洞；保留 2 个 request-burst memory/parser-state 候选为 `needs_dynamic_probe`，并将生命周期清理有效、管理面、管理员和测试工具路径按范围约束拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__druid/results/applications_static_analysis/apache__druid/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：已校验 `target_profile.json` 与全部 JSONL 文件可解析；本轮未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__druid` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境确认默认 SQL raw-body 和 Router Avatica protobuf 请求体大小边界及堆增长曲线。
-- 破坏性变更：无；未修改 Apache Druid 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] Trino 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:20
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `trinodb/trino` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 `/v1/statement` 查询提交、`QueuedStatementResource` 预分发查询保留、`DispatchManager` / `QueryTracker` 生命周期、OAuth2 token exchange、spooling 下载和 Web UI worker proxy。
-- 未发现满足默认外部非管理员、无有效容量边界条件的 `confirmed` 或 `likely` finding；将查询生命周期状态、OAuth2 cache、spooling handle、worker proxy 和可选 trino-proxy 按 bounded、requires_config_change、request_local、missing_path_proof 或 disabled_by_default 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/trinodb__trino/results/applications_static_analysis/trinodb__trino/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/trinodb__trino` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：当前无动态补测候选；如后续扩大范围，可单独审计可选 connector/service HTTP 面和部署配置。
-- 破坏性变更：无；未修改 Trino 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] CAS 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:10
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apereo/cas` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核默认登录 webflow、accept-users 默认凭据、内存 TicketRegistry、TGT/ST 票据保留、webflow 会话状态、actuator 管理面和可选 OAuth/OIDC/REST 支持模块。
-- 识别 1 个 `likely` 默认配置内存保留候选：默认登录可创建不同 TGT 并写入无最大容量的默认 `ConcurrentHashMap` TicketRegistry；另保留 1 个服务票据 fanout 候选为 `needs_dynamic_probe`，因默认 registered-service 可达性未完全证明。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apereo__cas/results/applications_static_analysis/apereo__cas/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apereo__cas` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量默认登录驱动的 TicketRegistry map、堆和 GC 曲线，并先澄清 accept-users 默认凭据是否纳入论文默认生产口径。
-- 破坏性变更：无；未修改 CAS 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] OpenSearch 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:05
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `opensearch-project/OpenSearch` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核 REST dispatch、PIT/scroll reader context、msearch 解析、aggregation bucket 上限、cancellable REST channel/task 跟踪和 admin/plugin 部署门槛。
-- 未发现满足默认外部非管理员、无有效容量边界条件的 `confirmed` 或 `likely` finding；将 PIT、scroll、aggregation、msearch 和 cancellable client 模式分别按 bounded、request-local 或 cleanup-effective 拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/opensearch-project__opensearch/results/applications_static_analysis/opensearch-project__opensearch/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/opensearch-project__opensearch` 源码快照，提交 `4eb42f0`。
-- 对后续工作的影响：如后续扩展范围，可针对 PIT/scroll 默认权限和插件安全角色做独立配置审计；当前无动态补测候选。
-- 破坏性变更：无；未修改 OpenSearch 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] Presto 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:56
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `prestodb/presto` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；重点复核 `/v1/statement` 查询提交、`QueuedStatementResource` 预分发查询保留、`QueryTracker` 清理边界、rate limiter cache、presto-proxy 和 OAuth2 配置门槛。
-- 识别 1 个默认外部可达的 `likely` 内存保留候选：未轮询的 `/v1/statement` 初始提交会在 dispatch 前保留 `Query` 对象，且静态清理逻辑跳过 `querySubmissionFuture == null` 的条目；其他 bounded、配置依赖、管理面或重复模式已拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/prestodb__presto/results/applications_static_analysis/prestodb__presto/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，按约束未运行动态 exploit/fuzz/load/OOM/network 测试；未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/prestodb__presto` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量未轮询查询提交的 `queries` map 和 heap slope。
-- 破坏性变更：无；未修改 Presto 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] MeterSphere 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:59
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `metersphere/metersphere` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP/WebSocket 入口和非磁盘资源；复核匿名 WebSocket 会话表、任务运行缓存、导出 Future 管理、插件注册表、脚本黑名单缓存和上传/权限门控路径。
-- 保留 2 个默认匿名 WebSocket session registry 连接/内存增长候选为 `likely`；将有 TTL/cleanup/权限门槛、server-controlled 注册和磁盘相关路径按范围或边界约束拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/metersphere__metersphere/results/applications_static_analysis/metersphere__metersphere/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/metersphere__metersphere` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量默认匿名 `/ws/api/{reportId}` 与 `/ws/export/{fileId}` WebSocket session map、堆和连接数曲线。
-- 破坏性变更：无；未修改 MeterSphere 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] yudao-cloud 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:53
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `YunaiV/yudao-cloud` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP/WebSocket 入口和非磁盘资源；复核 WebSocket 会话表、网关 token cache、匿名文件上传、验证码、签名 webhook、admin 导入导出和 IoT 协议连接管理路径。
-- 保留 1 个默认 authenticated WebSocket session registry 连接/内存增长候选为 `likely`；将 gateway cache、multipart 上传、captcha、签名 webhook、admin/import 和非 HTTP IoT 协议路径按有效边界或范围约束拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/yunaiv__yudao-cloud/results/applications_static_analysis/yunaiv__yudao-cloud/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/yunaiv__yudao-cloud` 源码快照，提交 `4eb42f0`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量默认 `/infra/ws` authenticated WebSocket session map、堆和连接数曲线。
-- 破坏性变更：无；未修改 yudao-cloud 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] Zipkin 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:53
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `openzipkin/zipkin` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP/gRPC 入口和非磁盘资源；复核 Armeria HTTP collector、gRPC collector、Query API、默认 in-memory storage、storage throttle、broker collectors 和 actuator 管理面。
-- 未发现满足默认外部非管理员门槛的 confirmed/likely 漏洞；保留 HTTP/gzip collector 与 gRPC unary proto3 span batch 两个 parser/request-burst 候选为 `needs_dynamic_probe`，并将默认 in-memory storage retained indexes 按 `max-spans` 逐出边界拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/openzipkin__zipkin/results/applications_static_analysis/openzipkin__zipkin/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/openzipkin__zipkin` 源码快照，提交 `4eb42f0`。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境确认默认 Armeria HTTP/gRPC 消息大小边界和 collector parser-state 资源曲线。
-- 破坏性变更：无；未修改 Zipkin 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] ThingsBoard 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:50
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `thingsboard/thingsboard` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；将 WebSocket pending session、WebSocket outbound queue、HTTP transport long-poll session、默认 Caffeine cache、上传/安装/管理类路径按有效边界或范围约束拒绝。
-- 保留 2 个 payload size 过滤器与 chunked/no-`Content-Length` 请求相关的 JSON parser-state 候选为 `needs_dynamic_probe`，未升级为 confirmed/likely，因为默认容器运行态 body-size 行为尚未动态确认。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/thingsboard__thingsboard/results/applications_static_analysis/thingsboard__thingsboard/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：已校验 `target_profile.json` 与全部 JSONL 文件可解析；本轮未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/thingsboard__thingsboard` 源码和人工静态代码复核。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境确认默认 Servlet 容器对 no-`Content-Length` 大请求的实际拦截边界。
-- 破坏性变更：无；不修改目标源码、查询、runner 或既有权威结果。
-
----
-
-## [2026-06-28] SkyWalking 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:47
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `apache/skywalking` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP/gRPC 入口和非磁盘资源；将 admin-server、文件模式 profiling、Zipkin body parsing 和泛化 gRPC executor 噪声按范围或证据不足降级/拒绝。
-- 保留 1 个 PromQL regex CPU 候选为 `likely`，2 个 profiling gRPC per-stream heap retention 候选为 `needs_dynamic_probe`。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/apache__skywalking/results/applications_static_analysis/apache__skywalking/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：已执行 JSON/JSONL 格式校验与必需文件存在性检查；本轮仅写静态分析结果，未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/apache__skywalking` 源码和人工静态代码复核；未使用 CodeQL 数据库。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 PromQL regex CPU、pprof 和 async-profiler per-stream heap retention。
-- 破坏性变更：无；不修改 SkyWalking 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-29] DataEase 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-29 00:20
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 按 `$java-web-dos-hunter` 流程对 `dataease/dataease` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；复核匿名白名单、TokenFilter、缓存、导出线程池、GeoJSON 解析、Datasource Provider 静态连接状态和延迟队列。
-- 未发现满足默认外部非管理员门槛的 confirmed/likely 漏洞；保留导出队列和 GeoJSON parser 两个 authenticated `needs_dynamic_probe` 候选，并将固定 cache key、request-local crypto、server-controlled cache、配置依赖连接状态等模式拒绝。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/dataease__dataease/results/applications_static_analysis/dataease__dataease/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/dataease__dataease` 源码快照，提交 `4eb42f06501bc480692221b9b233a6c69bee3e20`。
-- 对后续工作的影响：后续如扩展到 authenticated 动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量导出队列和 GeoJSON parser 的资源曲线。
-- 破坏性变更：无；未修改 DataEase 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] Keycloak 应用级 Java Web DoS 静态猎取
-
-### 修改时间
-2026-06-28 23:41
-
-### 变更类型
-- [文档] 应用级静态分析结果归档
-
-### 核心改动
-- 使用 `$java-web-dos-hunter` 方法论对 `keycloak/keycloak` 本地源码执行静态-only Java Web 资源耗尽 DoS 复核。
-- 聚焦默认生产配置、外部非管理员 HTTP 入口和非磁盘资源；将 SCIM、AuthZen、SSF、admin import 和 action-token 噪声按默认部署门槛或有效边界降级/拒绝。
-- 保留 1 个 OIDC root authentication session cache cardinality 候选为 `needs_dynamic_probe`，未升级为 confirmed/likely，因为默认运行态 cache 增长、TTL 清理和内存斜率尚未动态测量。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/keycloak__keycloak/results/applications_static_analysis/keycloak__keycloak/`
-- 新增必需产物：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：本轮仅写静态分析结果，未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑；按约束未运行动态 exploit/fuzz/load/OOM/network 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/keycloak__keycloak` 源码和人工静态代码复核。
-- 对后续工作的影响：后续如进入动态阶段，可按 `dynamic_probe_plan.jsonl` 在隔离环境测量 OIDC auth-session root entry 增长与清理边界。
-- 破坏性变更：无；不修改目标源码、查询、runner 或既有权威结果。
-
----
-
-## [2026-06-28] Jenkins 应用级静态 DoS Hunter 结果
-
-### 修改时间
-2026-06-28 23:55
-
-### 变更类型
-- [文档] 应用级静态分析结果
-
-### 核心改动
-- 按 `java-web-dos-hunter` 静态流程复核 `jenkinsci/jenkins` 的 Stapler/Servlet HTTP 入口、Remote API、Queue、搜索、CSP report 和管理面路径。
-- 在默认生产、外部非管理员、非磁盘资源范围内保守判定：未提升 confirmed/likely；保留 Remote API XML request-burst 内存/CPU 与参数化构建 Queue retention 两个 `needs_dynamic_probe` 候选。
-- 将搜索建议、CSP report、AvatarContributor、管理配置/XML、文件参数和 setup wizard 等高噪声路径按 bounded、missing path、admin、disk out of scope 或 test/dev only 拒绝。
-
-### 交付成果
-- 新增 hunter 结果目录：`frameworks/applications/jenkinsci__jenkins/results/applications_static_analysis/jenkinsci__jenkins/`
-- 新增必需文件：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：已执行 JSON/JSONL 格式校验与必需文件存在性检查；本轮仅新增静态 hunter 结果，未运行动态、网络、负载、OOM 或 CodeQL pipeline 验证。
-
-### 依赖与影响
-- 依赖：本地 Jenkins 源码 `frameworks/applications/jenkinsci__jenkins`，静态人工代码审查；未使用 CodeQL 数据库。
-- 对后续工作的影响：后续如需提升候选，应在隔离本地 Jenkins harness 中按 `dynamic_probe_plan.jsonl` 执行低风险度量，不能直接对生产服务测试。
-- 破坏性变更：无；不修改 Jenkins 目标源码、CodeQL 查询、runner、ranking 或 verdict 语义。
-
----
-
-## [2026-06-28] Conductor 应用级 Java Web DoS 静态猎查
-
-### 修改时间
-2026-06-28 23:50
-
-### 变更类型
-- [文档] 应用级静态分析结果
-
-### 核心改动
-- 按 `$java-web-dos-hunter` 流程对 `conductor-oss/conductor` 执行默认生产配置、外部非管理员 HTTP 入口范围内的静态资源耗尽 DoS 复核。
-- 识别默认 `/api/workflow` 动态 fork 输入膨胀为 `likely` 候选，并将 JSON/JQ transform CPU/结果列表放大记录为 `needs_dynamic_probe`。
-- 明确拒绝 isolated system task 线程池膨胀、Workflow Message Queue、`/api/admin/*`、文件存储和 bulk list 噪声路径，原因分别落到 disabled-by-default、management-only、disk-out-of-scope 或 bounded。
-
-### 交付成果
-- 新增 hunter 输出目录：`frameworks/applications/conductor-oss__conductor/results/applications_static_analysis/conductor-oss__conductor/`
-- 新增必需文件：`summary.md`、`target_profile.json`、`sinks.jsonl`、`sources.jsonl`、`flows.jsonl`、`findings.jsonl`、`rejected.jsonl`、`dynamic_probe_plan.jsonl`、`subagent_reviews.jsonl`、`gaps.md`
-- 测试/验证结果：执行 JSON/JSONL 结构校验；本轮未修改 CodeQL、ranking、verdict 或 pipeline 逻辑，未运行动态、网络、负载或 OOM 测试。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/conductor-oss__conductor` 源码快照，提交短哈希 `4eb42f0`。
-- 对后续工作的影响：可对 `CONDUCTOR-APP-STATIC-0001` 优先做隔离动态验证，确认默认请求体/堆限制下的真实服务影响；`CONDUCTOR-APP-STATIC-0002` 需要先补具体 jq 表达式和 payload 限制证据。
-- 破坏性变更：无；未修改目标源码、查询、runner 或既有权威结果。
-
----
-
-## [2026-06-28] 用户指定 34 个 Java Web 应用 CodeQL build-mode 数据库批量构建
-
-### 修改时间
-2026-06-28 22:21
-
-### 变更类型
-- [新增功能] 应用级目标批量构建产物
-- [文档] 构建状态报告
-
-### 核心改动
-- 为用户指定的 34 个 Java Web 应用建立独立目标 manifest，并基于 `scripts/build_application_databases.py` 执行 build-mode CodeQL 数据库构建。
-- 使用中国境内 Maven/Gradle 镜像、JDK 22/21/17 自动重试和已有本地源码目录推进构建；以 `db-java` 与 `src.zip` 同时存在作为完整数据库判定标准。
-- 当前形成 11 个完整 build-mode 数据库，23 个目标保留为待定制构建；失败原因集中在项目专用构建 profile、前端 Node/npm 下载、Maven wrapper 缺失、JDK 版本要求、超时和部分依赖解析问题。
-
-### 交付成果
-- 新增目标 manifest：`results/application_dbs/requested_20260628/requested_targets_manifest.json`
-- 新增重试 manifest：`results/application_dbs/requested_20260628/requested_targets_retry_manifest.json`
-- 更新构建状态：`results/application_dbs/requested_20260628/application_db_build_status.jsonl`
-- 更新构建摘要：`results/application_dbs/requested_20260628/application_db_build_summary.md`
-- 新增构建报告：`results/application_dbs/requested_20260628/REQUESTED_BUILD_FINAL_REPORT.md`
-- 完整数据库目录：`databases/applications/` 下 11 个 `<target_id>-db`
-- 测试/验证结果：已执行严格完整性检查，确认 11 个数据库同时具备 `db-java` 与 `src.zip`；本轮未修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/` 源码目录、CodeQL CLI 2.23.8、JDK 22/21/17、Maven/Gradle 依赖缓存和外部依赖下载网络。
-- 对后续工作的影响：后续可直接对 11 个完整数据库运行应用级静态查询；剩余 23 个目标需要按项目定制定制构建命令或拆分模块继续补齐。
-- 破坏性变更：无；不修改查询、runner、verdict 语义或既有权威结果。
-
----
-
-## [2026-06-28] XXL-Boot 漏洞申报稿合并为中文 GitHub Issue 格式
-
-### 修改时间
-2026-06-28 16:11
-
-### 变更类型
-- [文档] 漏洞申报材料调整
-
-### 核心改动
-- 将 `XXL-BOOT-APP-STATIC-0001` 与 `XXL-BOOT-APP-STATIC-0003` 合并到同一份中文 GitHub issue 提交稿中，覆盖匿名 `/login` / `/register` JSON 请求体复制和匿名登录失败异步日志队列两个子问题。
-- 去除 issue 正文中的附件位置引用，改为内联描述源码证据、动态验证摘要、服务端 OOM 日志信号、影响和修复建议。
-- 将 `XXL-BOOT-APP-STATIC-0003` 原目录的提交指南和漏洞报告改为指向 `XXL-BOOT-APP-STATIC-0001` 合并稿，避免重复分开发送。
-
-### 交付成果
-- 更新合并稿：`poc/high_probability_disclosures_2026-06-28/XXL-BOOT-APP-STATIC-0001__xxl-boot-repeatablefilter-login-body-oom/VULNERABILITY_REPORT.md`
-- 更新提交指南：`poc/high_probability_disclosures_2026-06-28/XXL-BOOT-APP-STATIC-0001__xxl-boot-repeatablefilter-login-body-oom/SUBMISSION_GUIDE.md`
-- 更新 0003 指向说明：`poc/high_probability_disclosures_2026-06-28/XXL-BOOT-APP-STATIC-0003__xxl-boot-login-failure-async-queue-oom/VULNERABILITY_REPORT.md`、`SUBMISSION_GUIDE.md`
-- 更新申报包索引：`poc/high_probability_disclosures_2026-06-28/README.md`
-- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态；`git diff --check` 通过。
-
-### 依赖与影响
-- 依赖：已有 XXL-Boot P1 动态验证真阳性和静态 finding 证据。
-- 对后续工作的影响：XXL-Boot 两个匿名登录面 DoS 子问题建议以一个 GitHub issue 提交，必要时再按维护者要求补私密日志。
-- 破坏性变更：无；不修改 CodeQL 查询、runner 或 verdict 语义。
-
----
-
-## [2026-06-28] Erupt 漏洞申报稿合并为中文 GitHub Issue 格式
-
-### 修改时间
-2026-06-28 11:00
-
-### 变更类型
-- [文档] 漏洞申报材料调整
-
-### 核心改动
-- 将 `ERUPT-APP-STATIC-0001` 与 `ERUPT-APP-STATIC-0002` 合并到同一份中文 GitHub issue 提交稿中，覆盖匿名验证码 `height` 参数大图分配和 `/erupt-api/*` JSON 请求体 pre-auth 复制两个子问题。
-- 去除 issue 正文中的附件位置引用，改为内联描述源码证据、动态验证摘要、影响和修复建议。
-- 将 `ERUPT-APP-STATIC-0002` 原目录的提交指南和漏洞报告改为指向 `ERUPT-APP-STATIC-0001` 合并稿，避免重复分开发送。
-
-### 交付成果
-- 更新合并稿：`poc/high_probability_disclosures_2026-06-28/ERUPT-APP-STATIC-0001__erupt-captcha-height-bufferedimage-oom/VULNERABILITY_REPORT.md`
-- 更新提交指南：`poc/high_probability_disclosures_2026-06-28/ERUPT-APP-STATIC-0001__erupt-captcha-height-bufferedimage-oom/SUBMISSION_GUIDE.md`
-- 更新 0002 指向说明：`poc/high_probability_disclosures_2026-06-28/ERUPT-APP-STATIC-0002__erupt-operation-log-json-body-copy-oom/VULNERABILITY_REPORT.md`、`SUBMISSION_GUIDE.md`
-- 更新申报包索引：`poc/high_probability_disclosures_2026-06-28/README.md`
-- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态；`git diff --check` 通过。
-
-### 依赖与影响
-- 依赖：已有 Erupt P1 动态验证真阳性和静态 finding 证据。
-- 对后续工作的影响：Erupt 两个匿名 DoS 子问题建议以一个 GitHub issue 提交，必要时再按维护者要求补私密日志。
-- 破坏性变更：无；不修改 CodeQL 查询、runner 或 verdict 语义。
-
----
-
-## [2026-06-28] 高概率应用 DoS 漏洞申报包整理
-
-### 修改时间
-2026-06-28 01:36
-
-### 变更类型
-- [文档] 漏洞申报材料与附件归档
-
-### 核心改动
-- 基于 `results/applications_dynamic_validation/` 中真实触发 OOM、且前置条件较低的应用级真阳性，筛选 16 个高概率被上游认可的申报对象。
-- 在 `poc/high_probability_disclosures_2026-06-28/` 下为每个漏洞建立独立目录，按 GitHub 私密漏洞报告、项目 `SECURITY.md`、项目公开邮箱和 CNVD/CVE 后续协调路径写明申报顺序。
-- 每个漏洞目录包含中文 `SUBMISSION_GUIDE.md`、英文 `VULNERABILITY_REPORT.md` 和 `attachments/`，附件内归档动态验证 JSON、静态 finding JSON、压缩原始动态日志与校验索引。
-
-### 交付成果
-- 新增申报包索引：`poc/high_probability_disclosures_2026-06-28/README.md`
-- 新增 16 个漏洞申报目录：覆盖 PowerJob、smqtt、JMQTT、Erupt、Rebuild、OPSLI、WGCloud 和 XXL-Boot 的高概率默认/匿名/默认 token DoS 真阳性。
-- 新增附件：每个目录下的 `attachments/dynamic_finding.json`、`static_finding.json`、`*.log.gz` 和 `ATTACHMENTS.md`
-- 更新文档：`CHANGELOG.md`
-- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态；`git diff --check` 通过。
-
-### 依赖与影响
-- 依赖：已有 P0/P1 动态验证真阳性结果、本地静态 finding、目标仓库 `SECURITY.md` / README 中的安全联系信息。
-- 对后续工作的影响：可直接按目录逐项向上游提交私密报告；同一项目多漏洞可按维护者反馈合并为一个 advisory 或拆分为多个 CVE/GHSA。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、动态验证 runner 或 verdict 语义。
-
----
-
-## [2026-06-27] 应用级 P2 动态验证执行
-
-### 修改时间
-2026-06-27 22:54
-
-### 变更类型
-- [新增功能] 应用级 P2 动态验证 runner
-- [文档] P2 动态验证结果归档与口径同步
-
-### 核心改动
-- 新增 `scripts/run_application_p2_dynamic_validation.py`，以 `p2_dynamic_validation_triage.md` 为输入，按 P2 triage 维护 34 条候选的动态验证状态，并支持 `--case`、`--recommended-only`、`--runnable-only` 单项或子队列重跑。
-- 为 `SBA-APP-STATIC-0002` 实现默认 insecure Spring Boot Admin sample 探针：外部注册唯一 `/instances`，指向攻击者控制 health endpoint，由默认 status updater 接收 `Set-Cookie` 响应并写入 per-instance JDK CookieStore。
-- 保持严格真阳性门槛：只有真实外部 HTTP/协议请求触发目标 JVM `OutOfMemoryError`、GC death、线程/连接池耗尽或持续服务不可用才提升；未补齐默认服务环境、业务数据、登录态或依赖栈的候选保持 `precondition_blocked`，P2 triage 未选入主队列的候选保持 `triage_not_selected`。
-
-### 交付成果
-- 新增脚本：`scripts/run_application_p2_dynamic_validation.py`
-- 更新动态验证结果：`results/applications_dynamic_validation/p2/summary.json`、`summary.csv`、`findings.jsonl`
-- 新增人工报告：`results/applications_dynamic_validation/p2/P2_DYNAMIC_VALIDATION_REPORT.md`
-- 新增原始日志：`results/applications_dynamic_validation/p2/logs/SBA-APP-STATIC-0002.log`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`python3 -m py_compile scripts/run_application_p2_dynamic_validation.py` 通过；`python3 scripts/run_application_p2_dynamic_validation.py` 生成完整 P2 结果；`python3 scripts/run_application_p2_dynamic_validation.py --case SBA-APP-STATIC-0002` 确认 `SBA-APP-STATIC-0002` 为 `verified_oom`。当前 P2 为 1 个 `verified_oom`、7 个 `precondition_blocked`、26 个 `triage_not_selected`、0 个 `probe_error`。
-
-### 依赖与影响
-- 依赖：本地 Spring Boot Admin 源码和已构建 classpath、本地 Maven 依赖缓存、可绑定本地端口的宿主环境。
-- 对后续工作的影响：P2 首个默认 HTTP 触发 OOM 已归档；后续可继续补 Astron、JetLinks、Mall、Kafka WebView 和 Rill Flow 的默认依赖栈、登录态与业务数据初始化。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-27] 应用级 P1 A 组前置条件补环境重测
-
-### 修改时间
-2026-06-27 21:44
-
-### 变更类型
-- [功能改进] 应用级 P1 动态验证 runner
-- [Bug 修复] 默认服务依赖与协议 harness
-- [文档] P1 动态验证结果口径同步
-
-### 核心改动
-- 对 P1 `precondition_blocked` 中 10 个 A 组候选补齐默认环境或协议 harness：Nacos ConfigService gRPC listener、CAT 官方 Docker Web+MySQL、DIYHI BBS MySQL、JPom 首次安装态、UJCMS MySQL、litemall 多模块 MySQL、ShoppingCart WAR/Tomcat、OPSLI MySQL+Redis。
-- 修复补测中的依赖和运行时问题：Litemall/OPSLI 使用 Maven classpath 优先，补 OPSLI MySQL driver 和 Java 22 启动顺序，修复 ShoppingCart Tomcat harness Java 版本，CAT 改为 runtime 可读 SQL 初始化目录、本地已有镜像优先和并发 projectUpdate burst。
-- 继续保持真阳门槛：只有外部协议或 HTTP 请求触发目标 JVM `OutOfMemoryError` 才标为 `verified_oom`，启动期失败、环境缺口和未 OOM 的执行完成均不提升。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
-- 更新动态验证结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
-- 更新人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：A 组 10 个候选均完成补测；`OPSLI-BOOT-APP-STATIC-0001` 为 `verified_oom`，其余 9 个为 `completed_without_oom`。当前 P1 为 17 个 `verified_oom`、18 个 `completed_without_oom`、0 个 `probe_error`、54 个 `precondition_blocked`。
-
-### 依赖与影响
-- 依赖：本地应用源码、已有 Maven 依赖缓存、Docker MySQL/Redis/CAT 镜像、可绑定本地端口的宿主环境。
-- 对后续工作的影响：P1 第一优先级队列已压缩到 11 个 `precondition_blocked`；后续可继续补 Cryostat、CAT config、JPom cluster、itranswarp、SPMS 和 Rill Flow 等仍缺默认服务/业务态/protocol harness 的候选。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-27] 应用级 P2 动态验证准入复核
-
-### 修改时间
-2026-06-27 15:53
-
-### 变更类型
-- [文档] 应用级 P2 候选动态验证 triage
-
-### 核心改动
-- 基于 `_static_validation` 的 P2 队列，复核 34 条候选的默认可达性、部署条件、权限前置和资源类型边界。
-- 将 P2 候选拆分为 8 条建议进入动态验证、10 条低成本观测/代表性 Redis TTL 子实验、16 条暂不进入动态验证，避免短 TTL 小值 Redis、纯磁盘/DB 持久化、admin-only 或非默认 handler 路径占用 OOM 动态验证资源。
-- 明确下一轮 P2 动态验证仍需区分 `precondition_blocked`、`completed_without_oom`、`verified_oom` 和服务不可用证据，不把静态可疑点或单纯增长曲线提升为 confirmed。
-
-### 交付成果
-- 新增文档：`results/applications_static_analysis/_static_validation/p2_dynamic_validation_triage.md`
-- 输入依据：`results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md`、`all_candidates.csv` 和各应用 `findings.*`
-- 测试/验证结果：`python3 scripts/check_phase3_consistency.py` 通过，Phase 3 consistency 37/37；`python3 scripts/check_web_real_regression.py` 通过，WEB-REAL 回归 6/6 phase3 hit，6 个 dynamic-only pending query 保持既有状态。
-
-### 依赖与影响
-- 依赖：已有应用级静态汇总、P0/P1 动态验证结果和本地应用源码快照。
-- 对后续工作的影响：为 P2 runner 或手工动态验证提供优先队列，首批建议覆盖 SBA CookieStore、Astron embedding 线程、JetLinks thumbnail/WebSocket、Mall RabbitMQ、Kafka WebView WebSocket/JSON body 和 Rill Flow Redis runtime state。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-27] 应用级 P1 probe_error 修复与补测
-
-### 修改时间
-2026-06-27 12:44
-
-### 变更类型
-- [Bug 修复] 应用级 P1 动态验证 runner
-- [文档] P1 动态验证结果口径同步
-
-### 核心改动
-- 修复 `NACOS-APP-STATIC-0001` 的动态探针启动问题：补齐 Nacos classpath fallback、Prometheus 运行时依赖、JDK legacy opens、standalone/auth-disabled 启动参数和端口级 readiness，避免因依赖缺失或健康检查端点差异落入 `probe_error`。
-- 修复 `REBUILD-APP-STATIC-0001..0004` 的动态探针环境问题：为 Rebuild classpath 增加 CodeQL `javac.args` fallback，启动时写入默认安装态 `.rebuild` 配置，并以应用日志中的 installed ready state 作为 readiness 条件。
-- 对 5 个原 `probe_error` 候选执行动态补测，继续只把目标 JVM 真实 `OutOfMemoryError` 作为真阳性；Nacos instance registration、Rebuild session/captcha 两类探针执行完成但未确认 OOM，Rebuild barcode 和 pre-auth JSON body 两类探针确认 OOM。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
-- 更新动态验证结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
-- 更新人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`python3 -m py_compile scripts/run_application_p1_dynamic_validation.py` 通过；5 个原 `probe_error` 均已补测完成，当前 P1 为 16 个 `verified_oom`、9 个 `completed_without_oom`、0 个 `probe_error`、64 个 `precondition_blocked`。
-
-### 依赖与影响
-- 依赖：已有 P1 动态验证准备清单、本地 Nacos/Rebuild 源码与 CodeQL DB 构建日志、本地 Maven 依赖缓存、Docker MySQL 镜像和可绑定本地端口的宿主环境。
-- 对后续工作的影响：P1 第一优先级队列已无探针错误，后续可转向剩余 `precondition_blocked` 的默认部署初始化、低权限账号、业务数据或协议 harness 补齐。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-27] 应用级 P1 第一优先级补测
-
-### 修改时间
-2026-06-27 00:24
-
-### 变更类型
-- [功能改进] 应用级 P1 动态验证 runner
-- [文档] P1 第一优先级补测结果归档
-- [文档] README/AGENTS 结果口径同步
-
-### 核心改动
-- 扩展 `scripts/run_application_p1_dynamic_validation.py` 的 P1 探针覆盖，补测第一优先级 38 个候选，并新增 `--first-priority` 选择器以便只重跑该子集。
-- 补齐 JMQTT、Spring Boot Admin、Erupt、WGCloud、Socket-MQTT 和 XXL-Boot 等候选的默认环境或协议 harness；继续只把真实外部协议/HTTP 请求触发目标 JVM `OutOfMemoryError` 作为真阳性。
-- 拆分报告统计口径，把 `completed_without_oom`、`probe_error` 和 `precondition_blocked` 分开呈现，避免把探针依赖失败混入已执行未确认项。
-
-### 交付成果
-- 修改脚本：`scripts/run_application_p1_dynamic_validation.py`
-- 更新动态验证结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
-- 更新人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：P1 当前 89 个候选中 14 个 `verified_oom` 真阳性、6 个 `completed_without_oom`、5 个 `probe_error`、64 个 `precondition_blocked`；第一优先级 38 个候选中 7 个真实 OOM、5 个已执行未确认 OOM、5 个探针错误、21 个前置条件阻塞。
-
-### 依赖与影响
-- 依赖：已有 P1 动态验证准备清单、本地应用源码/构建产物、Docker、MySQL 镜像、Maven 依赖缓存和可绑定本地端口的宿主环境。
-- 对后续工作的影响：后续可优先处理 `probe_error` 的 Nacos/Rebuild 依赖解析问题，以及仍处于 `precondition_blocked` 的生产默认部署可达性、初始化数据、低权限账号或 agent/compose 前置条件缺口。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-26] 应用级 P1 动态 OOM 验证
-
-### 修改时间
-2026-06-26 21:57
-
-### 变更类型
-- [新增功能] 应用级 P1 动态验证 runner
-- [文档] P1 动态验证结果归档
-- [文档] 运行指南同步
-
-### 核心改动
-- 新增 `scripts/run_application_p1_dynamic_validation.py`，基于 `results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P1 队列执行应用级动态验证，并继续以真实外部协议或 HTTP 请求触发目标 JVM `OutOfMemoryError` 作为真阳性门槛。
-- 覆盖 89 个 P1 候选：对已脚本化的 PowerJob、SMQTT、XXL-JOB、RuoYi-Vue-Fast 和 Citrus 候选运行完整依赖环境或协议 harness，其余候选记录为 `precondition_blocked`，不当作阴性。
-- 修正 SMQTT P1 探针的收尾和隔离：MQTT 客户端异常统一进入 `finish_probe`，不同 SMQTT case 使用独立端口，并提升 empty-topic key 负载以稳定触发目标 JVM OOM。
-- 修正 PowerJob remote HTTP 探测：从日志发现实际 remote bind host，避免把非 localhost 绑定误判为服务未启动；该候选在 22,914 次 heartbeat 后仍未触发 OOM，保留 `completed_without_oom`。
-
-### 交付成果
-- 新增脚本：`scripts/run_application_p1_dynamic_validation.py`
-- 新增动态验证结果目录：`results/applications_dynamic_validation/p1/`
-- 新增机器可读结果：`results/applications_dynamic_validation/p1/summary.json`、`summary.csv`、`findings.jsonl`
-- 新增人工报告：`results/applications_dynamic_validation/p1/P1_DYNAMIC_VALIDATION_REPORT.md`
-- 新增原始日志：`results/applications_dynamic_validation/p1/logs/`
-- 修改文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`python3 -m py_compile scripts/run_application_p1_dynamic_validation.py` 通过；P1 动态验证完成，89 个候选中 7 个 `verified_oom` 真阳性、1 个 `completed_without_oom` 未确认、81 个 `precondition_blocked`。
-
-### 依赖与影响
-- 依赖：已有 P1 动态验证准备清单、`frameworks/applications/*` 对应目标源码、本地 Maven 依赖缓存、Docker、MySQL/Redis 镜像和可绑定本地端口的宿主环境。
-- 对后续工作的影响：P1 结果为下一轮补齐 Nacos、Spring Boot Admin、Cryostat、JMQTT、CAT 等未脚本化默认环境提供了明确阻塞清单；当前真阳性只来自已由外部协议/HTTP 请求触发目标 JVM OOM 的 case。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-26] 应用级 P0 动态 OOM 验证
-
-### 修改时间
-2026-06-26 19:58
-
-### 变更类型
-- [新增功能] 应用级 P0 动态验证 runner
-- [文档] P0 动态验证结果归档
-- [文档] 运行指南同步
-
-### 核心改动
-- 新增 `scripts/run_application_p0_dynamic_validation.py`，基于 `results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md` 的 P0 队列执行应用级动态验证，并用真实外部协议或 HTTP 请求触发目标 JVM OOM 作为真阳性门槛。
-- 覆盖 15 个 P0 候选：对 quickmsg/smqtt、xuxueli/xxl-job、powerjob、dromara/datacompare、yangzongzhuan/ruoyi-vue-fast、yiuman/citrus、1024-lab/smart-admin、xnx3/wangmarket 和 tianshiyeben/wgcloud 执行外部协议或 HTTP 动态验证。
-- 使用 Docker 启动 MySQL/Redis 等完整依赖环境，优先使用国内镜像前缀；Citrus 为进入目标 `/rest/verify/captcha` 路径额外使用运行时 properties、MDA classpath patch 和与目标无关的 MDA 自动配置排除，未修改应用源码。
-- 对 SmartAdmin、WGCloud、WangMarket 保留 `completed_without_oom`，对需要 Java agent 注入默认形态的 EaseAgent 两项保留 `blocked_environment`，不把静态可疑点、启动失败、增长曲线或非目标阶段错误提升为 confirmed。
-- 支持 `--case` 单候选补跑，并在补跑时合并保留已有 `summary.json` 结果，避免覆盖其他候选证据。
-
-### 交付成果
-- 新增脚本：`scripts/run_application_p0_dynamic_validation.py`
-- 新增动态验证结果目录：`results/applications_dynamic_validation/p0/`
-- 新增机器可读结果：`results/applications_dynamic_validation/p0/summary.json`、`summary.csv`、`findings.jsonl`
-- 新增人工报告：`results/applications_dynamic_validation/p0/P0_DYNAMIC_VALIDATION_REPORT.md`
-- 新增原始日志：`results/applications_dynamic_validation/p0/logs/`
-- 修改文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`python3 -m py_compile scripts/run_application_p0_dynamic_validation.py` 通过；P0 动态验证完成，15 个候选中 10 个 `verified_oom` 真阳性、3 个 `completed_without_oom` 未确认、2 个 `blocked_environment`。
-
-### 依赖与影响
-- 依赖：已有 P0 动态验证准备清单、`frameworks/applications/*` 对应目标源码、本地 Maven 依赖缓存、Docker、MySQL/Redis 镜像和可绑定本地端口的宿主环境。
-- 对后续工作的影响：后续应用级动态验证可复用该 runner 的 `ProbeResult`/报告格式，继续扩展 P1 或补齐 blocked P0 的默认部署环境。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、Phase 3/4 pipeline 或 verdict 语义。
-
----
-
-## [2026-06-26] 应用级静态候选默认 OOM 汇总复核
-
-### 修改时间
-2026-06-26 14:06
-
-### 变更类型
-- [新增功能] 应用级静态候选汇总脚本
-- [文档] 默认外部 OOM 静态复核报告
-- [文档] 运行指南同步
-
-### 核心改动
-- 新增 `scripts/summarize_application_static_findings.py`，聚合 `results/applications_static_analysis/*/findings.jsonl` 与 `findings.csv`，统一输出全量候选、应用级汇总和默认外部 OOM 动态验证优先队列。
-- 对 48 个已有应用结果目录中的 216 条候选做静态复核，按默认外部可达性、非磁盘 OOM 相关资源类型、默认边界/TTL/cleanup 和动态证据缺口打上 `P0` 到 `P3` 优先级。
-- 新增 `all_candidates_dynamic_validation.md`，把 216 条候选全部整理为按 `P0/P1/P2/P3` 和应用分组的动态验证准备文档，逐条保留 entry、source、sink、driver、dimension、retention、bound、impact、动态验证建议和原始证据位置。
-- 将二阶段 DB-backed heap amplification、磁盘/DB-only、管理面/特殊配置/已拒绝候选与直接 session/map/cache/body/thread/queue 类路径区分开，避免把增长曲线或静态可疑点直接提升为 confirmed DoS。
-- 同步更新 `README.md` 与 `AGENTS.md`，记录应用级静态汇总脚本和 `_static_validation` 输出目录。
-
-### 交付成果
-- 新增脚本：`scripts/summarize_application_static_findings.py`
-- 新增静态验证报告：`results/applications_static_analysis/_static_validation/default_oom_static_validation.md`
-- 新增全量候选：`results/applications_static_analysis/_static_validation/all_candidates.csv`、`all_candidates.jsonl`
-- 新增动态验证准备清单：`results/applications_static_analysis/_static_validation/all_candidates_dynamic_validation.md`
-- 新增应用汇总：`results/applications_static_analysis/_static_validation/application_summary.csv`
-- 新增动态验证队列：`results/applications_static_analysis/_static_validation/default_oom_probe_queue.csv`
-- 修改文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`python3 -m py_compile scripts/summarize_application_static_findings.py` 通过；轻量回归见最终回复。
-
-### 依赖与影响
-- 依赖：已有 `results/applications_static_analysis/<target_id>/` 静态结果、`intel/applications/java_web_application_targets.json` manifest。
-- 对后续工作的影响：后续默认部署动态验证可优先从 `default_oom_probe_queue.csv` 的 `P0`/`P1` 队列选取目标，并用报告中的分类原因决定是否先补默认可达性或边界证据。
-- 破坏性变更：无；不修改 CodeQL 查询、ranking、verdict、Phase 3/4 pipeline 或动态验证语义。
-
----
-
-## [2026-06-26] linlinjava/litemall 应用级静态 DoS 挖掘
-
-### 修改时间
-2026-06-26 12:25
-
-### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
-
-### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `linlinjava/litemall` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `litemall-all` 的 `admin`/`wx` profiles、官方 Docker compose 8080 HTTP 面、Shiro 匿名登录前接口、wx 商城匿名分页接口、低权限订单延迟任务队列和默认配置开关。
-- 按用户限定范围排除磁盘/DB/对象存储耗尽、需要管理权限的 `/admin/**` 业务接口、默认关闭的短信/邮件/快递/外部 provider、特殊上线配置、bounded thread pool、disabled HomeCache 和 Druid stat view。
-- 静态复核结论为 0 个 `confirmed`、1 个 `likely`、2 个 `needs_dynamic_probe`：匿名 `/admin/auth/kaptcha`/失败登录可驱动 Shiro `MemorySessionDAO` 6 小时内存 session 基数增长；匿名 `/wx/*/list`/search page-size 与低权限 unpaid-order `DelayQueue` 保留为动态探针。
-- 通过本地 `shiro-core-1.6.0.jar` 字节码核对确认 `DefaultSessionManager` 默认创建 `MemorySessionDAO`，且 `MemorySessionDAO` 使用 `ConcurrentHashMap` 保存 session；所有候选均未执行动态验证，不能提升为 confirmed DoS。
-
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/linlinjava__litemall/`
-- 新增报告：`results/applications_static_analysis/linlinjava__litemall/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/linlinjava__litemall/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/linlinjava__litemall` 源码、`databases/applications/linlinjava__litemall-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `linlinjava/litemall` target 信息。
-- 对后续工作的影响：后续可优先用固定小堆和隔离 Docker/MySQL 验证匿名 captcha session 基数增长、匿名大 `limit` 请求和低权限 unpaid-order queue 是否能达到 OOM、GC death、线程/连接池耗尽或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
-
-## [2026-06-26] codecentric/spring-boot-admin 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-26 12:38
+2026-08-17
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [修复]
+- [分析语义]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `codecentric/spring-boot-admin` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Admin Server/starter setup、无内置默认认证、`POST /instances` 注册 API、in-memory event store、snapshot repository、status/info monitor、默认 instance WebClient cookie store、proxy fan-out 和 SSE event streams。
-- 按用户限定范围排除磁盘/DB/日志、样例 `insecure` profile、需要 `secure` profile/管理权限的路径、`FilteringNotifier` 样例自定义、Hazelcast/Discovery 特殊配置和 Actuator 管理面操作。
-- 静态复核结论为 0 个 `confirmed`、1 个 `likely`、3 个 `needs_dynamic_probe`：默认开放 `/instances` 可由唯一 `healthUrl` 驱动 eventLog/snapshot/monitor map 基数增长；registered endpoint cookie store、同名 application proxy fan-out 和 SSE/backpressure 保留为动态探针。
-- 明确所有候选均未执行动态验证，不能提升为 confirmed DoS；磁盘存储不纳入问题范围。
-
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/codecentric__spring-boot-admin/`
-- 新增报告：`results/applications_static_analysis/codecentric__spring-boot-admin/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/codecentric__spring-boot-admin/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 新增 `LifecycleEvidence` 和 `LifecycleCoverage` artifacts；每条 relevant flow 的 Guard/Bound/Release family 都有 coverage record，conclude 缺失任一 family coverage 时 fail closed。
+- lifecycle executor 不再把全局候选传给每条 flow；现在要求同一 Java callable，且 Bound/Release 必须与 Growth 的 canonical receiver 一致。带 complete same-callable witness 的候选才可进入 effective 判定；跨 handler、纯字符串 receiver、alias/custom/interprocedural 模式保持 partial。
+- Guard/Bound/Release evaluator 只有 coverage complete 且无候选才返回 absence；partial/unsupported empty coverage 返回 unknown。production 现在消费 entries 产生的 modeled configuration facts，拒绝 conflicting default configuration。
+- artifact/pipeline schema 升至 2.4，旧运行不可 resume。
 
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/codecentric__spring-boot-admin` 源码、`databases/applications/codecentric__spring-boot-admin-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `codecentric/spring-boot-admin` target 信息。
-- 对后续工作的影响：若后续扩大到动态验证，可优先用 minimal unsecured SBA server、固定 JVM heap 和本地 mock health endpoint 验证 `/instances` 注册 retained state、per-instance cookie store、application proxy fan-out 与 SSE/backpressure 是否能造成 OOM、GC death、连接耗尽或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+### 验证
+- `codeql query compile dosweb/codeql/pack/dosweb/Lifecycle/*.ql`
+- `python3 -m pytest -q tests/test_lifecycle_guards.py tests/test_lifecycle_bounds.py tests/test_lifecycle_releases.py tests/test_production.py tests/test_certificates_and_reports.py`：83 passed、65 subtests passed。
+- `python3 -m compileall -q dosweb scripts`、`git diff --check`。
+- 后续补强：Guard/Bound/Release lifecycle query 增加 same-callable CFG-shaped complete witness；Netty fixture 覆盖 checked finite queue 与 finally remove；`tests/test_lifecycle_evidence.py` 覆盖跨 handler 候选不可复用。
 
-## [2026-06-26] alibaba/nacos 应用级静态 DoS 挖掘
+## [2026-08-17] Make candidate completeness and assertion applicability fail closed
 
 ### 修改时间
-2026-06-26 12:07
+2026-08-17
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [修复]
+- [分析语义]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `alibaba/nacos` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `8848` HTTP server、默认 `/nacos` context、SDK gRPC 默认 `9848`、`nacos.core.auth.enabled=false` 的 OpenAPI/SDK/gRPC 边界，以及 `admin/console` 默认 auth、AI registry 默认关闭、multipart/form size 默认上限等部署条件。
-- 按用户限定范围排除磁盘/DB/日志/上传/配置导入导出、`/v3/admin/*`、`/v3/console/*`、AI MCP/Skill registry 特殊配置、Config/Naming fuzzy watch bounded paths、RPC ack bounded cache 和其他需要管理权限或非默认开启的路径。
-- 静态复核结论为 0 个 `confirmed`、2 个 `likely`、1 个 `needs_dynamic_probe`：默认开放 Naming instance 注册可驱动 ephemeral client/service/publisher/index 进程内状态增长；默认 SDK gRPC Config batch listen 可驱动 `ConfigChangeListenContext` 双向索引增长；legacy HTTP config long polling 因 10000 listener cap、2MB form cap、timeout cleanup 和路径 wiring 缺口保留为动态探针。
-- 明确所有候选均未执行动态验证，不能提升为 confirmed DoS；`likely` 仅表示默认可达性和 source-to-sink 静态证据较强。
-
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/alibaba__nacos/`
-- 新增报告：`results/applications_static_analysis/alibaba__nacos/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/alibaba__nacos/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 增加 candidate-entry partial association、candidate disposition 和 repeatability/amplification decision artifact schemas；raw Growth 无 Entry 不再 silent continue。
+- 旧 source-order association 明确标为 partial；没有完整 call-graph evidence 时不能伪装为 formal relevant association。无 Entry 的 complete screening 记录 `not_entry_reachable`，不完整 coverage 记录 `unresolved`。
+- flows 对已关联 Growth 的零 CodeQL row 发布 partial flow，而非遗漏；A1 仅接受 direct size demand 或 proven amplification，A2 可接入受约束 reachability/repeatability decision。
 
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/alibaba__nacos` 源码、`databases/applications/alibaba__nacos-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `alibaba/nacos` target 信息。
-- 对后续工作的影响：若后续扩大到动态验证，可优先用默认单机 Nacos、固定 JVM heap 和隔离网络验证 `/nacos/v3/client/ns/instance` 注册状态增长、SDK gRPC `ConfigBatchListenRequest` listener 索引增长和 legacy long-poll `allSubs` 请求窗口压力是否能造成 OOM、GC death、连接/线程耗尽或持续 HTTP/gRPC 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+### 验证
+- `python3 -m pytest -q tests/test_candidate_completeness.py tests/test_production.py tests/test_assertions.py tests/test_certificates_and_reports.py tests/test_flow_verification.py`
+- `python3 -m compileall -q dosweb tests`
+- `git diff --check`
 
-## [2026-06-26] dromara/Jpom 应用级静态 DoS 挖掘
+## [2026-08-17] Wire constrained Auth/Growth provider audit artifacts
 
 ### 修改时间
-2026-06-26 11:42
+2026-08-17
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [修复]
+- [安全]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `dromara/Jpom` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `server`/`agent` 模块、`docker-compose.yml`、`docker-compose-local.yml`、cluster compose、匿名登录前接口、`/api/**` open API、agent authorize 边界、session/cache/map/queue/body-copy sinks。
-- 按用户限定范围排除磁盘存储耗尽、上传/temp file/解压输出、需要管理权限或业务 trigger token 的构建/脚本/SSH/项目触发器、特殊 `transport-encryption=BASE64` 配置和 server-only compose 中未被 `randomIdSign()` 使用的 `jpom.authorize.token`。
-- 保留 2 个 `likely` 候选：匿名 `GET /rand-code` 可创建并保留 1 小时 server servlet sessions；官方 local/cluster compose 默认 `SERVER_TOKEN` 注入 `JPOM_SERVER_TEMP_TOKEN` 时，`/api/node/receive_push` 可按攻击者控制的 `ips` 增长进程级 static `CACHE_RECEIVE_PUSH`。
-- 明确降级/拒绝 agent pre-authorize JSON body copy、build trigger queue、server decryption body copy、WebSocket session maps、bounded LRU/LFU/timed caches 和磁盘/管理面路径。
-
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/dromara__jpom/`
-- 新增报告：`results/applications_static_analysis/dromara__jpom/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/dromara__jpom/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 将 constrained Auth Contract 接入 formal growth：Entry security/configuration facts 是唯一输入；Auth transport/schema/provider failure 沿用 DeepSeek fail-closed 行为；无 transport 的离线 test seam 只能得到 `unknown`。
+- growth 发布 `auth_contracts.jsonl`、`reachability_decisions.jsonl` 与 0600 的 `llm_audit.private.jsonl`。Growth/Auth audit 记录 normalized prompt、bounded raw envelope、parsed contract、非秘密 settings、attestation 和 cache hit；正式 contract/artifact 不含 provider envelope。
+- Growth prompt/cache identity 升为 v2；Auth 使用独立 prompt/schema 与独立内存 identity cache。具体 bounded slice 校验会绑定 configured GitHub origin，防止 standalone provider 调用将无关 checkout 伪装成公开来源。
+- private audit 拒绝 Authorization/API-key 字段；pipeline 对 `.private.jsonl` 强制 0600。
 
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/dromara__jpom` 源码、`databases/applications/dromara__jpom-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `dromara/Jpom` target 信息。
-- 对后续工作的影响：后续可优先用固定小堆和隔离 Docker 网络验证匿名 captcha session 基数增长、local/cluster 默认 token receive-push static cache 增长是否能达到 OOM、GC death 或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+### 验证
+- `python3 -m pytest -q tests/test_configuration_reachability.py tests/test_deepseek_client.py tests/test_production.py`：140 passed、141 subtests passed、2 warnings。
+- `python3 -m compileall -q dosweb`
+- `git diff --check`
 
----
+### 已知限制
+- Auth cache 当前为 process-local；跨进程持久 HMAC auth-cache 和 raw provider body 的 cache-hit 保留需要随下一次 cache-format migration 落地。cache hit audit 明确以空 raw body 标记，不伪造远端响应。
 
-## [2026-06-26] macrozheng/mall 应用级静态 DoS 挖掘
+## [2026-08-17] Modeled defaults and constrained reachability artifacts
 
 ### 修改时间
-2026-06-26 11:41
+2026-08-17
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [修复]
+- [安全]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `macrozheng/mall` 做只静态资源耗尽 DoS 挖掘，覆盖官方 compose 默认发布的 `mall-admin:8080`、`mall-search:8081`、`mall-portal:8085`，以及 `mall-security` 白名单、会员 SSO、商品/首页/品牌公开分页、订单延迟取消队列、Redis cache、Elasticsearch 搜索和对象存储/支付回调降噪项。
-- 按用户限定范围排除磁盘/DB/对象存储持久化耗尽、需要管理权限或管理面语义的后台控制器、`mall-demo` 非默认部署、MinIO/OSS 上传、ES index import/create/delete、Alipay 特殊支付 provider 和 request-local 参数复制。
-- 静态复核结论为 0 个 `confirmed`、1 个 `likely`、4 个 `needs_dynamic_probe`：低权限 `/order/cancelOrder` 可在订单校验前投递 RabbitMQ TTL 消息；匿名 storefront 和 `mall-search` 分页缺少应用级 `pageSize` 上限；匿名 `/sso/getAuthCode` 与自助注册登录可驱动 Redis key/cardinality 增长。
-- 明确将 RabbitMQ/Redis/JVM/ES 影响与磁盘持久化副作用分开标注，所有候选均未执行动态验证，不能提升为 confirmed DoS。
-
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/macrozheng__mall/`
-- 新增报告：`results/applications_static_analysis/macrozheng__mall/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/macrozheng__mall/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- schema/tool 版本升至 2.2/0.3.0；entries 离线发布严格 `modeled_configuration.jsonl` 和 `entry_security_facts.jsonl`，并以 source-root-contained、无 symlink、有限文件/字节数的 extractor 解析 properties/YAML/web.xml 默认配置。
+- 新增 `analysis.modeled_defaults` 和重复 `--modeled-default key=value`，CLI 覆盖配置文件和提取默认值，且 provenance 写入 artifact。
+- 新增受约束 Auth Contract/ReachabilityDecision/LlmAuditRecord 模型与 verifier：模型引用超出 security slice、跨 Entry 或不完整 public-security coverage 时 fail closed/unknown；privileged 产生显式 not-entry-reachable。
+- 更新 README 和 approved design 接口说明；未启动远程 provider、未改写历史 results。
 
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/macrozheng__mall` 源码、`databases/applications/macrozheng__mall-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `macrozheng/mall` target 信息。
-- 对后续工作的影响：若后续扩大到动态验证，可优先用默认 compose、固定 RabbitMQ/Redis/ES/JVM 资源验证 `/order/cancelOrder` TTL queue 堆积、匿名大 `pageSize` 请求、`/sso/getAuthCode` Redis key 增长和会员 cache key 增长是否能造成 OOM、GC death、broker/Redis/ES backpressure 或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+### 验证
+- `python3 -m pytest -q tests/test_configuration_reachability.py tests/test_config_and_cli.py tests/test_production.py`
+- `python3 -m compileall -q dosweb`
 
----
+### 已知限制
+- Auth Contract 的 provider transport/cache/audit JSONL production wiring 将在下一批接入；本批优先完成严格模型、离线提取、schema 和 deterministic verifier。
 
-## [2026-06-26] macrozheng/mall-tiny 应用级静态 DoS 挖掘
+## [2026-08-17] P0 formal/exploratory execution boundary and artifact identity baseline
 
 ### 修改时间
-2026-06-26 11:04
+2026-08-17
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [修复]
+- [安全]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `macrozheng/mall-tiny` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker/MySQL/Redis 部署、Spring Security 白名单、匿名注册/登录、JWT refresh、动态权限资源表、Redis admin/resource cache、Swagger/Actuator/Druid 白名单和 UMS 管理控制器。
-- 按用户限定范围排除磁盘/DB 持久化存储、登录日志、需要 `/admin/**`、`/role/**`、`/menu/**`、`/resource/**` 管理权限的接口、特殊安全配置、上传/temp file 和纯文档/监控面。
-- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、1 个 `needs_dynamic_probe`：匿名注册加成功登录可能制造 24h Redis admin-cache key 基数，但因 Redis TTL、DB 行增长排除、自注册用户无资源权限、缓存异常传播不确定，未提升为 likely。
-- 明确拒绝匿名注册 DB 行增长、自注册用户访问管理端点、成功登录日志、固定成本 BCrypt、resourceList cache、管理大分页/批量 relation list、动态权限 map 膨胀、Swagger/Actuator/Druid 和 JWT header parser 等高噪声路径。
+- formal entries 对选中 CodeQL query failure 改为 fail-closed，不发布 entries manifest；仅显式 `entries --allow-partial-codeql` 可将该失败记录为 coverage gap。
+- exploratory entries 的 config fingerprint、run/stage identity 和 metadata 记录 `analysis_mode=exploratory_entries`、`query_failure_policy=coverage_gap`；formal 使用独立 `formal/fail_closed` identity，避免复用 exploratory stage。
+- schema/tool 版本升至 2.1/0.2.0；stage manifest 增加非秘密 identity、started/ended/duration；run.json 增加 terminal 时间和 error 记录。
+- upstream schema/hash 错误分别映射为 `ARTIFACT_SCHEMA_MISMATCH` 与 `ARTIFACT_UPSTREAM_HASH_MISMATCH`；Markdown report 拒绝 orphan certificate。
+- 新 batch plan schema 使用 immutable `analysis_mode` 与 `query_failure_policy`；旧 v1 plan 保留可读取，不能伪装成新 formal plan。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/macrozheng__mall-tiny/`
-- 新增报告：`results/applications_static_analysis/macrozheng__mall-tiny/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/macrozheng__mall-tiny/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/macrozheng__mall-tiny` 源码、`databases/applications/macrozheng__mall-tiny-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `macrozheng/mall-tiny` target 信息。
-- 对后续工作的影响：若后续扩大到动态验证，可优先用一次性 MySQL/Redis、固定 Redis `maxmemory` 和固定 JVM heap 验证匿名注册/登录驱动的 Redis admin cache key 增长是否能实际造成 Redis OOM、登录失败传播或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+### 验证
+- 覆盖 formal abort、exploratory coverage gap、batch plan identity、artifact hash/schema mapping、certificate 双向一致性和 pipeline recovery 的定向 pytest。
 
-## [2026-06-26] xuxueli/xxl-job 应用级静态 DoS 挖掘
+### 影响与边界
+- 不修改历史 plans/results，不实现 auth/flow/lifecycle/LLM audit 的后续大改；205-target formal full 继续暂停。
 
-### 修改时间
-2026-06-26 10:59
-
-### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+## [2026-08-17] P0 Entry/association/global-flow fourth repair batch
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `xuxueli/xxl-job` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker compose、`xxl-job-admin` SSO/OpenAPI 边界、sample executor 默认 `9999` 暴露面、默认 `default_token`、executor `/trigger`、`JobThread`、GLUE Groovy class cache 和 Netty 聚合/业务线程池。
-- 按用户限定范围排除磁盘存储耗尽、日志/callback/script 文件、DB 表增长、普通 admin UI、需要登录或管理权限的控制器、特殊安全配置和纯命令执行/RCE 语义，只判断默认配置下外部请求可导致的非磁盘资源耗尽问题。
-- 保留 2 个 `likely` 候选：默认 sample executor 弱默认 token 下唯一 `jobId` 可创建进程级 `JobThread`/线程 registry；同一 jobId 唯一 `logId` 可堆积无界 `LinkedBlockingQueue<TriggerRequest>` 与 `triggerLogIdSet`。
-- 保留 2 个 `needs_dynamic_probe` 候选：`GLUE_GROOVY` 唯一 `glueSource` 驱动 `GlueFactory.CLASS_CACHE`/Groovy class metadata 增长；executor Netty `HttpObjectAggregator(5MiB)` 与 content-to-String 在 pre-dispatch 阶段形成 request-burst heap/线程池压力。
-
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/xuxueli__xxl-job/`
-- 新增报告：`results/applications_static_analysis/xuxueli__xxl-job/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/xuxueli__xxl-job/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
-
-### 依赖与影响
-- 依赖：本地 `frameworks/applications/xuxueli__xxl-job` 源码、`databases/applications/xuxueli__xxl-job-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xuxueli/xxl-job` target 信息。
-- 对后续工作的影响：后续可优先用默认 compose 或 executor-only 部署、固定 heap/Metaspace 和隔离网络验证 jobId -> JobThread 基数增长、same-job triggerQueue 积压、GLUE class cache 增长和 pre-auth body aggregation 是否能达到 OOM、GC death、线程耗尽或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 新增 `EntryToGrowthAssociations.ql`，production Growth stage 只接受 complete handler/growth association；遗留 source-order 关系仅为 partial 审计证据。
+- `EntryToGrowth.ql` 改用 CodeQL `DataFlow::Global`；真实 Spring MVC、Servlet、Netty、MQTT qualified API 才是 source，`submit(task)` 标记 value 而非 submission count。
+- Netty complete entry 需要 `ServerBootstrap.childHandler/handler` 安装 initializer；未安装 initializer 产 partial gap。
+- flows 对被 Growth Contract 拒绝的 raw screening row 先过滤，避免为不存在的 verified Growth 构造引用错误。
 
----
+### 验证
+- `codeql query compile`：`NettyEntries.ql`、`EntryToGrowth.ql`、`EntryToGrowthAssociations.ql` 通过。
+- 相关 pytest 与 `compileall` 通过；详见本次工作记录。
 
-## [2026-06-25] cryostatio/cryostat-legacy 应用级静态 DoS 挖掘
+## [2026-08-17] Re-audit v2 production code against the approved P0 design
 
 ### 修改时间
-2026-06-25 16:56
+2026-08-17
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [审计]
+- [文档]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `cryostatio/cryostat-legacy` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `run.sh`/compose 鉴权边界、Vert.x Web/WebSocket、`/api/v1/notifications`、`/api/v2/targets`、JMX target connection manager、GraphQL 和通用 BodyHandler 请求体处理。
-- 按用户限定范围排除磁盘存储耗尽、archive/report/recording/temp file、dev-only GraphiQL、compose BasicAuth 场景、需要 target/recording 权限或特殊安全配置的路径，只判断默认配置下外部 HTTP/WebSocket 请求可导致的非磁盘资源耗尽问题。
-- 保留 2 个 `likely` 候选：`run.sh` 默认 NoopAuthManager 下 WebSocket accepted connections/ping timers 无实际小上限；`POST /api/v2/targets` 唯一失败 `connectUrl` 可能遗留 `TargetConnectionManager.targetLocks` key。
-- 保留 1 个 `needs_dynamic_probe` 候选：多个 `BodyHandler.create(true)` 入口缺少 body limit，普通非 multipart body 可形成 request-burst heap pressure；因请求期释放和 runtime 门槛未测，未提升为 likely。
+- 以 `docs/superpowers/specs/2026-07-18-java-web-dos-p0-analyzer-design.md` 为唯一 P0 标准，对 pipeline、CodeQL E/G/flow、lifecycle、assertions、provider、batch、benchmark 和测试做零信任复核；新增 `docs/research/2026-08-17-v2-p0-design-compliance-audit.md`。
+- 校正上一轮只聚焦 corpus/entries readiness 的结论：205 entries 仍可做覆盖侦察，但 production E→G、candidate completeness、lifecycle path binding/default config、Assertion applicability、provider replay/provenance 尚有 P0 blockers，205-target 正式 full 实验继续暂停。
+- 记录可执行反例：persistent `container_growth(key)` 即使存在 effective synchronous Release，当前 A1 仍 matched，导致 A2 refuted 后最终仍为 `static_vulnerable`。
+- 在 `docs/research/2026-08-14-v2-lifecycle-analyzer-audit.md` 顶部增加后续校正链接，避免 corpus Gate-A 结论被误读为完整 P0 合规。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/cryostatio__cryostat-legacy/`
-- 新增报告：`results/applications_static_analysis/cryostatio__cryostat-legacy/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/cryostatio__cryostat-legacy/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python3 -m pytest -q tests/test_assertions.py tests/test_flow_verification.py tests/test_growth_verification.py tests/test_lifecycle_guards.py tests/test_lifecycle_bounds.py tests/test_lifecycle_releases.py tests/test_certificates_and_reports.py tests/test_p0_end_to_end.py tests/test_production.py tests/test_deepseek_client.py tests/test_batch_plan.py tests/test_batch_runner.py tests/test_benchmark_matching.py`
+- 结果：262 passed、233 subtests passed、2 warnings。
+- 通过静态检查确认 approved design 要求的 `ARTIFACT_SCHEMA_MISMATCH`、`ARTIFACT_UPSTREAM_HASH_MISMATCH` 尚未实现；`run.json` 也未记录完整 CodeQL/provider/prompt/timing identity。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/cryostatio__cryostat-legacy` 源码、`databases/applications/cryostatio__cryostat-legacy-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `cryostatio/cryostat-legacy` target 信息。
-- 对后续工作的影响：后续可优先在隔离 `run.sh` NoopAuthManager 部署、固定 JVM heap 和受限网络/FD 环境下验证 WebSocket accepted connection retention、失败 targetLocks 增长和非 multipart body request-burst heap pressure。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本轮不修改 analyzer 源码、CodeQL 规则或历史 results，只发布审计证据和修复优先级。
+- Assertion 3、异步 Release capacity、TTL、WebSocket、ML/GNN 和动态执行仍按 approved P0 明确 deferred，不误报为本轮 blocker。
 
----
+## [2026-08-16] Repair canonical corpus integrity and restore P0 attestation gates
 
-## [2026-06-24] eclipse-tahu/tahu 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 23:43
+2026-08-16
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [功能改进]
+- [测试]
+- [文档]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `eclipse-tahu/tahu` 做只静态资源耗尽 DoS 挖掘，覆盖 Java reactor、Sparkplug MQTT core/edge/host libraries、edge/host compat 默认运行方式、MQTT callback、topic cache、sequence reorder、edge/device/metric maps、protobuf/DataSet/Template parser 和本地 command listener。
-- 按用户限定范围排除磁盘存储、本地 `/tmp/commands` 文件路径、非 HTTP/Web MQTT broker 消息面、examples 模块和需要宿主应用集成的库路径，只判断默认配置下外部 HTTP/Web 请求可触发的非磁盘资源耗尽问题。
-- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、0 个 `needs_dynamic_probe`；目标默认形态是 Sparkplug/MQTT library 与 MQTT compat application，不是默认可启动 Java Web 应用。
-- 记录 MQTT 范围外复核点：`TopicUtil.SPLIT_TOPIC_CACHE`、`TahuHostCallback` 无界 executor queue、`EdgeNodeManager` / `HostApplicationMetricMap` retained maps、`SequenceReorderMap` buffering 和 Sparkplug payload parser burst memory，均因非 HTTP/Web source 未进入本轮主 findings。
+- tree fingerprint 精确排除 source snapshot 下由分析器生成的 `results/applications_static_analysis/**`，同时继续计入项目自身的其他 `results` 文件；配置层拒绝继续向该保留子树写入新 v2 输出。
+- 重新生成 Java Web 205 inventory，保持 205 个 source/database pair 全部 ready，并同步 README 的 205/0 readiness 口径。
+- 恢复 `public_source_url`、`source_commit_sha`、clean checkout/commit 校验和 detached worktree fallback；full plan 对缺少 Git provenance 的 tree-only targets 标记 paused，entries 仍允许本地分析。
+- Entry preflight 现在区分 framework evidence absent、evidence scan truncated 和 query failed；失败 query 的裁剪诊断写入 stage metadata，所有未覆盖框架显式进入 `coverage.json`。
+- benchmark 唯一匹配结果新增可回放的 finding/entry/growth/flow/certificate ID 链。
+- DeepSeek cache identity/audit 与完整 public-source attestation 契约重新对齐，避免恢复 commit/clean-checkout 证明后 cache 写入被错误拒绝。
+- 发布 205 entries 非执行计划（205 queued）和 full-ready 非执行计划（178 queued、27 tree-only paused；历史口径，后于 2026-08-18 移除 provenance 门槛改为 205 全部 queued）；两者均未调用真实 provider。
+- 将 pytest 默认 collection 根限定为仓库自身 `tests/`，避免误收集 205 source snapshots 内第三方测试插件。
+- PoC-29 benchmark normalization 只读取其冻结的历史 audited batches；现行 binary truth 增长到 33 条时不再悄然改变 PoC-29 oracle 和 18-repository corpus。
+- 全部 Entry query 现在要求入口行来自源码（`fromSource()` / `.java` path），过滤依赖 JAR 里解析出的 `.class` 字节码行；修复 Druid/Presto 上 `JaxRsEntries.ql` 因 `LINE_INVALID`（line=0 的字节码行）触发 "decoded result violates its query contract"、导致整条 query 被 fail-closed 丢弃的问题。
+- 同步 `codeql/dosweb/Entries/` 与 `dosweb/codeql/pack/dosweb/Entries/` 两份 query 镜像，满足字节一致契约。
+- 重算 `config/poc29_full_source_overrides.json` 的 `analysis_tree_sha256` 与 tree fingerprint 新口径一致；PoC-29 full plan digest 由 `35fcae172671ea29b6ceacfeb0a99613ac2b3a3a08d7da3d1b5eaedf4c08d8a4` 更新为 `6c81990e0877c21df662dfba8676ebd133807032816cc9dc200c29ac9b65d808`，同步更新 `docs/java-web-205-corpus.md` 与测试冻结值。
+- `test_benchmark_truth.py` 的 invalid-truth fail-closed 用例补 `source_batch: "p0"`，与冻结 batch 过滤口径一致。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/eclipse-tahu__tahu/`
-- 新增报告：`results/applications_static_analysis/eclipse-tahu__tahu/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/eclipse-tahu__tahu/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python3 -m pytest -q tests/test_config_and_cli.py tests/test_batch_runner.py tests/test_production.py`
+- `DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_codeql_entry_queries.py tests/test_codeql_growth_queries.py tests/test_codeql_lifecycle_queries.py`
+- `python3 -m pytest -q tests/test_deepseek_client.py`（通过，123 tests/subtests）
+- `python3 -m pytest -q tests/test_java_web_205_inventory.py`
+- PoC-18 entries Gate-A batch：`results/java_web_dos_batch/poc18-entries-gatea2-20260816/`，18/18 completed、0 failed；首轮 Druid/Presto 各出现 1 条 JAX-RS `bqrs_decode` 诊断，修复后重跑 `results/java_web_dos_batch/druid-presto-entries-fix-20260816/` 得到 0 diagnostics、`jax_rs` 恢复 `complete`。
+- 全套离线测试：`python3 -m pytest -q` → 572 passed、5 skipped、422 subtests passed；`python3 -m compileall -q dosweb scripts` 通过。
+- 205 entries plan digest：`dff06ae8ccf57c0551735e97cb251551f1b102dede40b5c297471050a16425e5`。
+- 205 full-ready plan digest：`433a0ee83213a45eed5e77dab1d4ac2a112ec1339dfd4a4cb52f9b4c9ade2d5c`。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/eclipse-tahu__tahu` 源码、`databases/applications/eclipse-tahu__tahu-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `eclipse-tahu/tahu` target 信息。
-- 对后续工作的影响：后续若扩大到 MQTT broker DoS，可优先验证 topic cache、executor queue、edge/device/metric retained maps 和 sequence reorder buffering；若继续应用级 Web 主线，应选择真实默认部署宿主应用，确认是否把 HTTP/WebSocket 请求映射到 Tahu MQTT publish/host processing。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 不删除或移动历史 source-local analyzer outputs；只将其从源码身份 hash 中排除，避免运行分析改变 canonical source identity。
+- 本轮不使用真实 DeepSeek；full provider canary 仍需显式凭据和授权。
 
----
+## [2026-08-15] Scope Codex skills to Java Web DoS and research workflows
 
-## [2026-06-24] inspectIT/inspectit-ocelot 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 23:51
+2026-08-15
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [配置]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `inspectIT/inspectit-ocelot` 做只静态资源耗尽 DoS 挖掘，覆盖主 Java Agent 默认部署边界、configuration server 默认 Spring Boot 8090 HTTP 面、Spring Security `permitAll` 列表、agent configuration/command 接口、agent status/config cache、webhook、actuator 和 Swagger/OpenAPI。
-- 按用户限定范围排除磁盘存储耗尽、默认 `admin/admin` 后的管理 API、远程 Git/webhook 特殊配置、认证/管理权限路径、Kapacitor/file/search/YAML documentation 控制面和纯 metadata/static 响应。
-- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、2 个 `needs_dynamic_probe`：默认匿名 `/api/v1/agent/configuration` 可填充有界 configuration/status caches；默认匿名 `/api/v1/agent/command?wait-for-command=true` 可保持 30 秒长轮询请求并创建有界 queue cache entry。
-- 因默认 `max-agents=10000`、`agent-eviction-delay=1h`、`agentCommandCache.maximumSize(1000)`、`command-timeout=2m`、`agent-polling-timeout=30s` 和默认 virtual threads 存在明确边界，未将上述候选提升为 likely/confirmed。
+- 新增项目级 `.codex/config.toml`，仅启用 3 个 Java Web DoS skill 与现有科研、论文、实验和学术检索 skill。
+- 在本项目范围禁用 Sites、Visualize、Superpowers 插件、默认 Apps/Connectors、remote plugin catalog，以及系统、Seagull、Figma、GitHub、模板等无关 skill。
+- 用户级 `~/.codex/config.toml` 未改动；离开本仓库后不受影响。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/inspectit__inspectit-ocelot/`
-- 新增报告：`results/applications_static_analysis/inspectit__inspectit-ocelot/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/inspectit__inspectit-ocelot/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- 使用 Python `tomllib` 解析 `.codex/config.toml`，断言启用 37 个 skill、禁用 66 个 skill，且仅包含 3 个 `java-web-dos-*` skill。
+- 检查插件、Apps/Connectors 与 remote plugin catalog 的项目级禁用开关。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/inspectit__inspectit-ocelot` 源码、`databases/applications/inspectit__inspectit-ocelot-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `inspectIT/inspectit-ocelot` target 信息。
-- 对后续工作的影响：后续可优先用默认 configuration server、固定堆和隔离 HTTP harness 验证 10000 个 agent attribute/status cache entry 与 30 秒匿名 long poll 是否能造成 OOM、GC death、连接/请求耗尽或持续 HTTP 不可用；若扩大到默认弱口令管理面，需单独审计 authenticated 管理 API。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 需要重新启动该仓库中的 Codex 会话，现有会话不会热更新启动时注入的 skill 描述。
 
----
+## [2026-08-15] Archive four newly confirmed application PoCs and refresh current truth counts
 
-## [2026-06-24] xingshuangs/iot-communication 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 23:08
+2026-08-15 01:35
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [文档]
+- [功能改进]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `xingshuangs/iot-communication` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Maven `jar` 目标、生产 `App.main`、README/tutorial 默认使用方式、可选 `TcpServerBasic` / `ModbusTcpServer` / `S7PLCServer`、RTSP/fMP4 client/proxy 和 SDP parser。
-- 按用户限定范围排除磁盘存储耗尽、外部 Web monitor demo、宿主应用显式启动的非默认 server、特殊配置和管理面，只判断当前仓库默认配置下外部请求可触发的非磁盘资源耗尽问题。
-- 静态复核结论为 0 个 `confirmed`、0 个 `likely`、0 个 `needs_dynamic_probe`；目标本身是 IoT 通信库而非默认可启动 Java Web 应用，默认 `App.main` 不启动 HTTP/TCP/UDP 服务。
-- 记录可选库 API 风险边界：Modbus/S7 frame buffer 是 16-bit 协议长度驱动的 request-local parser pressure；RTSP/fMP4 queue 和 SDP attributes 需要宿主创建 outbound client/proxy，不属于当前默认部署外部面。
+- 在 `poc/` 下新增 4 个最新 confirmed application PoC 归档：`grobidorg__grobid-GROBID-STATIC-001`、`grobidorg__grobid-GROBID-STATIC-002`、`jetlinks__jetlinks-community-JL-STAGEA-0001`、`walmartlabs__concord-fnd3`。
+- 为每个新归档补齐双语 advisory、`reproduce.sh` 与 `attachments/` 证据索引，复用 `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/*` 下的 `result.json`、`case_plan.json`、`environment.md`、probe 和关键日志摘录。
+- 将当前现行计数口径从 29 更新到 33，并同步刷新 `poc/README.md`、`poc/manifest.json`、`results/applications_dynamic_validation/binary_truth_collection.json`、`results/applications_dynamic_validation/BINARY_TRUTH_COLLECTION.md` 以及研究笔记中“当前 confirmed positive 数量”的表述。
+- 保留 `PoC-29`、`29 truths`、`29 cases across 18 repositories` 等历史 benchmark 名称不变，不做机械替换。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/xingshuangs__iot-communication/`
-- 新增报告：`results/applications_static_analysis/xingshuangs__iot-communication/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/xingshuangs__iot-communication/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python -m json.tool poc/manifest.json`
+- `python -m json.tool results/applications_dynamic_validation/binary_truth_collection.json`
+- 检查 `poc/README.md` 的数量与目录表是否更新为 33
+- 检查新建 4 个 `poc/` 目录是否包含 advisory、`reproduce.sh` 和 `attachments/ATTACHMENTS.md`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/xingshuangs__iot-communication` 源码、`databases/applications/xingshuangs__iot-communication-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xingshuangs/iot-communication` target 信息。
-- 对后续工作的影响：后续应优先选择真实默认部署的 Web/IoT 宿主应用，确认其是否把外部 HTTP/WebSocket 请求映射到本库的 Modbus/S7 server、RTSP/fMP4 proxy 或 parser API；不建议对当前 library 目标单独做默认部署 OOM harness。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 仅整理 PoC 归档与现行计数字段，不修改业务源码和原始动态验证结果目录。
+- `results/applications_dynamic_validation/binary_truth_collection.*` 的当前真阳性计数现为 33，可继续作为 `poc/` 的现行来源索引。
 
----
+# dos-analysis-web v2 CHANGELOG
 
-## [2026-06-24] Cicizz/jmqtt 应用级静态 DoS 挖掘
+## [2026-08-15] Allow larger source files in Growth excerpts
 
 ### 修改时间
-2026-06-24 22:58
+2026-08-15 01:02
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `Cicizz/jmqtt` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Netty MQTT/TCP、MQTT over WebSocket、匿名认证、CONNECT/SUBSCRIBE/PUBLISH/QoS inflight、订阅树、协议处理器队列、连接 registry 和 retain/message DB 边界。
-- 按用户限定范围排除磁盘/DB 存储耗尽、retain/message/event 表增长、WebSocket 单帧/HTTP 聚合有界路径、特殊鉴权配置和管理隔离假设，只判断默认配置下外部 MQTT 请求可触发的非磁盘资源耗尽问题。
-- 保留 3 个 `likely` 候选：默认匿名 SUBSCRIBE 可增长进程级 CTrie 订阅树且 cleanSession 断开只清 DB 不清内存树；QoS2 PUBLISH 半握手可在 `qos2Receiving` 中保留 payload `byte[]`；恶意订阅端不 ACK 可使 `outboundFlowMessages` 累积待确认消息对象。
-- 保留 2 个 `needs_dynamic_probe` 候选：协议处理器大有界队列和 `ConnectManager.clientCache` 在线连接 registry；二者因存在硬上限或通用连接/OS 边界未提升为 likely。
+- 将 `dosweb/growth/excerpts.py` 的单文件源码摘录上限从 16 KiB 放宽到 1 MiB，避免真实仓库中体积较大的资源类被误判为 `SOURCE_FILE_INVALID`。
+- 保留原有本地源码树安全约束：路径规范化、regular file、UTF-8、读取期间 inode/mtime 不变与 excerpt 自身大小受控；本轮仅移除对正常大型源码文件过严的体积门槛。
+- 该修复直接恢复了 Dependency-Track `BomResource.java` 这类真实 `growth` 入口的 slice 构造，为继续推进 `POST /v1/bom` 的 growth/flows 分析扫清前置阻塞。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/cicizz__jmqtt/`
-- 新增报告：`results/applications_static_analysis/cicizz__jmqtt/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/cicizz__jmqtt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- 计划复跑 `tests/test_source_excerpts.py` 与 Dependency-Track fake/full pipeline，确认大文件不再触发 `SOURCE_FILE_INVALID`。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/cicizz__jmqtt` 源码、`databases/applications/cicizz__jmqtt-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `Cicizz/jmqtt` target 信息。
-- 对后续工作的影响：后续可优先用默认 broker、固定堆和隔离 MQTT harness 验证 CTrie 订阅树清理缺口、QoS2 入站半握手 payload retention、出站 inflight ACK 拖延是否能造成 OOM、GC death 或持续 broker 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 仅放宽本地源码读取上限，不改变 excerpt 输出 schema 与 bounded slice 总体积约束。
+- 对较大的真实源码文件，Growth 阶段不再因为文件体积而提前失败。
 
-## [2026-06-24] megaease/easeagent 应用级静态 DoS 挖掘
+## [2026-08-15] Cap lifecycle decision checks for large candidate sets
 
 ### 修改时间
-2026-06-24 22:32
+2026-08-15 00:38
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `megaease/easeagent` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Java Agent 部署、内置 9900 HTTP server、配置/健康/Prometheus routes、NanoHTTPD fork、Servlet/Tomcat/Spring Gateway 插件和 Dropwizard/Prometheus metric registry。
-- 按用户限定范围排除磁盘 temp file 存储耗尽、配置篡改安全影响、特殊网络暴露假设、需要目标应用特定业务路径证明的中间件 metric key，以及 Servlet/Tomcat 已模板化 route metric 噪声。
-- 保留 2 个 `likely` 候选：默认内置 NanoHTTPD server 对每个外部连接创建无界 daemon thread；默认无鉴权配置 routes 在校验前解析无界 POST/PUT body 并复制到堆/JSON map。
-- 保留 1 个 `needs_dynamic_probe` 候选：Spring Gateway metric fallback 在无 route attr 时可能用攻击者控制的完整 URI 作为进程级 metric key，但需要默认 gateway 运行链路确认 no-route 请求是否触发。
+- 修复 `dosweb/production.py` 中 lifecycle decision artifact 的序列化逻辑：当 guard/bound/release 候选很多时，`checks` 现在按稳定顺序截断到 schema 允许的 64 条，不再因大仓库候选噪声把 `lifecycle_results.jsonl` 写出阶段直接打爆。
+- 保持 `status`、`reason_codes`、`evidence_ids`、`candidate_ids` 与 `classification` 原样输出，只限制诊断性 checks 明细的体积，避免 Zipkin 这类 Armeria handler 恢复 flow 后马上在 lifecycle artifact 上失败。
+- 该修复让本地 verified Growth 合同调试可以继续推进到 conclude/report，用于分离真正的生命周期/结论问题与单纯的 artifact schema 容量问题。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/megaease__easeagent/`
-- 新增报告：`results/applications_static_analysis/megaease__easeagent/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/megaease__easeagent/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- 计划复跑 Zipkin fake verified/full pipeline，检查 `lifecycle_results.jsonl`、`lifecycle_certificates.jsonl`、`static_findings.jsonl` 是否能完整生成。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/megaease__easeagent` 源码、`databases/applications/megaease__easeagent-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `megaease/easeagent` target 信息。
-- 对后续工作的影响：后续可优先用隔离 JVM 验证 9900 thread-per-connection、配置 routes 大 body heap/JSON parser 压力，以及 Spring Gateway no-route metric cardinality 是否能在默认配置、有界堆下造成 OOM、native thread exhaustion、GC death 或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 仅影响 lifecycle artifact 的诊断性 checks 明细大小，不改变 guard/bound/release 决策语义。
+- 同步把 lifecycle artifact schema 中 decision collections/checks 的容量上限从 64 放宽到 256，以匹配真实仓库候选规模，避免 schema 限制把后续 conclude/report 阶段误阻塞。
 
-## [2026-06-24] daoshenzzg/socket-mqtt 应用级静态 DoS 挖掘
+## [2026-08-15] Restore packaged flow forwarding for Armeria helper sinks
 
 ### 修改时间
-2026-06-24 22:07
+2026-08-15 00:20
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `daoshenzzg/socket-mqtt` 做只静态资源耗尽 DoS 挖掘，覆盖 Netty MQTT/MQTT_WS broker 默认 README 启动面、`Server` 默认 executor、MQTT decoder、WebSocket codec、自定义协议 decoder、status 端口、连接 registry 和测试订阅 demo 边界。
-- 按用户限定范围排除磁盘/DB 存储耗尽、`src/test` HSQL 订阅表、center 特殊配置、status 固定响应和需要应用显式安装的 NORMAL JSON/custom protocol 路径作为默认主发现。
-- 保留 2 个 `likely` 候选：默认 MQTT/MQTT_WS PUBLISH 在 `EventDispatcher` 中 `ByteBufHolder.retain()` 后未见 release，远端消息可造成 direct/heap buffer 与队列保留增长；默认业务线程池 `LinkedBlockingQueue` 容量 1,000,000，外部消息速率可填充队列并持有 `ctx/channel/msg`。
-- 保留 2 个 `needs_dynamic_probe` 候选：自定义 `ProtocolDecoder` 无 bodyLength 上限，以及 `Server.channels` 无应用级连接数上限；二者分别因需要显式安装 handler或通用连接容量边界而不提升为 likely。
+- 同步修复打包版 `dosweb/codeql/pack/dosweb/Flows/EntryToGrowth.ql`，补齐与直连版一致的 helper forwarding 语义，不再把 flow 命中限制为 handler 方法体内的同方法 sink。
+- 让 Armeria `@Post` handler 将 `HttpRequest` 继续传给 helper 后，helper 内部的 `aggregateWithPooledObjects(...)` 仍可被识别为 `entry -> growth` 候选，覆盖 Zipkin `uploadSpans(...) -> validateAndStoreSpans(...) -> aggregateWithPooledObjects(...)` 这类真实链路。
+- 本轮保持 growth/local-source 直读模型不变，只修复 packaged CodeQL query 与直连 query 之间的语义漂移，避免 fake/full pipeline 在 `flows` 阶段出现 0 命中。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/daoshenzzg__socket-mqtt/`
-- 新增报告：`results/applications_static_analysis/daoshenzzg__socket-mqtt/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/daoshenzzg__socket-mqtt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- 计划复跑 Zipkin fake/full pipeline，重点检查 `flow_proofs.jsonl`、`lifecycle_results.jsonl`、`static_findings.jsonl` 与 `report.md` 是否恢复非空产物。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/daoshenzzg__socket-mqtt` 源码、`databases/applications/daoshenzzg__socket-mqtt-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `daoshenzzg/socket-mqtt` target 信息，以及本地 `.build-cache` 中 `netty-all-4.1.68.Final` 字节码复核。
-- 对后续工作的影响：后续可优先用默认 MQTT/MQTT_WS server、固定堆和 Netty leak detector 动态验证 PUBLISH retain/no-release 与 executor queue 增长是否造成 direct memory exhaustion、OOM、GC death 或持续 broker 不可用；自定义协议和连接数候选需按隔离 harness 单独验证。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 仅修改仓库内打包版 CodeQL flow 查询与 changelog，不修改目标应用源码。
+- 该修复直接影响 packaged query 驱动的 `flows` 阶段，并为后续 Zipkin 以及同类 handler->helper 路径恢复静态流证明。
 
-## [2026-06-24] dromara/dataCompare 应用级静态 DoS 挖掘
+## [2026-08-15] Tighten rill-flow strict-default blockers after compose and companion re-check
 
 ### 修改时间
-2026-06-24 21:59
+2026-08-15 00:12
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `dromara/dataCompare` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 2.5/Shiro/RuoYi 风格部署、默认账号、Shiro 匿名白名单、默认 `demoEnabled=true`、`swagger.enabled=true`、Druid/JDBC、session/cache、上传、数据对比/探测任务和 demo/test 控制器。
-- 按用户限定范围排除磁盘存储耗尽、Druid 管理面、数据对比/探测管理权限路径、特殊配置和持久化 DB 行增长，只判断默认配置下外部低权限请求可触发的非磁盘资源耗尽问题。
-- 保留 2 个 `likely` 候选：默认 demo `/demo/operate/add` / `importData` 与默认 Swagger test `/test/user/save` 均可由低权限登录用户向进程级 static map 写入无 TTL/容量限制对象。
-- 保留 1 个 `needs_dynamic_probe` 候选：`/system/dbconfig/testConnection` 缺少 `@RequiresPermissions`，低权限用户可同步发起攻击者指定 JDBC 连接并占用 request thread/outbound connection，但可利用性依赖 JDBC/网络超时行为。
+- 继续只处理 `weibocom__rill-flow-F-002` 与 `weibocom__rill-flow-F-003`，先复读两个 case 的 `result.json`，再复核仓库官方 `docker/docker-compose.yml`、`README.md`、`docs/samples/executor/main.py`、`docs/samples/parallel-async-dag.yaml`、`rill-flow-web/src/main/resources/application.properties`、`FlowAuthHeaderGenerator.java` 与当前隔离环境容器状态，专门回答 strict default 下是否还存在被错判为 non-default 的 companion 路径。
+- `F-002`：确认此前 default 与 helper 的边界并未画得过严。官方 compose 仅交付 `rill-flow`、`ui`、`sample-executor`、MySQL、Redis、Jaeger；仓库内没有任何 Kafka broker/ZooKeeper/KRaft companion 或可直接归入 default 的同仓资产，因此 strict default 下只能做到 Kafka 注册路由 reachability，不能形成真实 broker/consumer 语义闭环。
+- `F-003`：确认此前 blocker 还能进一步收紧，但仍不能转成 default 闭环。新证据显示并非“sample-executor 自带 callback 语义天然非默认”，而是 shipped backend 实际读取的 `rill.flow.server.host` 默认值是 `http://127.0.0.1:8080`，而 compose 仅设置了未被该路径消费的 `RILL_FLOW_CALLBACK_URL=http://rill-flow:8080/flow/finish.json`。实测从 `sample-executor` 容器访问 `127.0.0.1:8080/flow/finish.json` 直接 connection refused，而访问 `http://rill-flow:8080/flow/finish.json` 可达，说明 default blocker 精确收敛为“官方 compose 与应用实际 host 配置键不匹配”。
+- 同步更新两个 case 的 `result.json` 与 `environment.md`，把上述更精确 blocker 写回工件；未修改目标业务源码，也未把任何 helper 证据重归类成 default success。
+
+### 验证
+- `docker inspect weibocom__rill-flow-default-rill-flow-1 --format '{{range .Config.Env}}{{println .}}{{end}}'`
+- `docker exec weibocom__rill-flow-default-sample-executor-1 python -c "import requests; ..."` against `http://127.0.0.1:8080/flow/finish.json` and `http://rill-flow:8080/flow/finish.json`
+- `docker logs --tail 120 weibocom__rill-flow-default-sample-executor-1`
+- repository reads of official compose/sample/backend config assets listed above
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/dromara__datacompare/`
-- 新增报告：`results/applications_static_analysis/dromara__datacompare/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/dromara__datacompare/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-002`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-003`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/dromara__datacompare` 源码、`databases/applications/dromara__datacompare-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `dromara/dataCompare` target 信息。
-- 对后续工作的影响：后续可优先动态验证 demo/test static map 的 heap 增长和 `testConnection` 慢 JDBC 目标对 Tomcat worker 的占用是否能在默认配置、有界堆下造成 OOM、GC death、线程耗尽或持续 HTTP 不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本轮未修改任何目标业务代码。
+- 当前最精确结论为：`F-002` strict default 仍缺少仓库内 Kafka companion，无法闭环；`F-003` strict default 仍受 shipped callback host 配置不匹配阻塞，也无法闭环；两案都没有新增可重归入 default 的 companion 证据。
 
-## [2026-06-24] 9tigerio/db2rest 应用级静态 DoS 挖掘
+## [2026-08-14] Tighten dromara lamp-cloud dynamic blocker after assisted sibling-asset replay
 
 ### 修改时间
-2026-06-24 21:42
+2026-08-14 22:20
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `9tigerio/db2rest` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/Docker compose、默认 `ENABLE_AUTH=false`、RDBMS read/bulk/_expand/admin/sql/rpc/actuator 边界。
-- 按用户限定范围排除磁盘/DB 持久化存储耗尽、需要特殊 `SQL_TEMPLATE_PATH` 或数据库 routine 的路径、特殊安全配置和纯环境定义行为，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
-- 保留 2 个 `likely` 候选：默认开放读接口接受任意正 `limit` 并将 JDBC 结果完整 materialize 为 `List<Map<String,Object>>`；默认开放 `/bulk` JSON/CSV 在应用内全量解析并构造整批 JDBC batch 参数。
-- 保留 2 个 `needs_dynamic_probe` 候选：默认开放 `/_expand` join body 无数量/SQL 长度上限；默认开放 `/admin/reloadCache` 可反复触发 JDBC metadata reload。
+- 继续只处理 `dromara__lamp-cloud-FND-001`，先复读既有 `result.json`、`environment.md`、环境目录日志、仓库 `README.md`、`lamp-dependencies-parent/pom.xml`、`OpenApi3Controller.java` 与 docker/Nacos 文档，确认默认结论不能被“可辅助运行”证据覆盖。
+- 在用户授权的最小非默认诊断路径下，新增官方 sibling `lamp-util` `java17/5.x` 源码补齐验证：将其 5.10.0 工件安装到本地 Maven 仓库后，成功重新构建 `lamp-gateway-server`、`lamp-base-server`、`lamp-system-server`，证明此前 default blocker 确为缺失 sibling parent/依赖，而不是业务代码或仓库内容损坏。
+- 继续用隔离辅助栈验证“补齐 sibling 后能否跑通 baseline”：导入仓库自带 Nacos 配置包、拉起独立 MySQL/Redis/Nacos 并启动 gateway。结果显示当前 5.10.0 构建物经 `lamp-util` 引入 `nacos-client 3.2.1`，而仓库文档/资产仍围绕 Nacos 1.1.3/1.3.1；辅助 runtime 中导入结果虽返回 success，但运行时仍将相关 dataId 视为空配置并最终以 `Failed to determine suitable jdbc url` 退出，说明 blocker 已从“完全不可构建”收紧到“官方 sibling 补齐后仍受 control-plane/config 兼容缺口阻塞”。
+- 同步更新 case `result.json`、`environment.md`、环境 `feasibility.json` 与批次 `validation_status.jsonl`：明确 default 结论仍为 `environment_blocked`，辅助路径只作为 separated evidence 记录“可编译但未可运行到语义 preflight”。
 
+### 验证
+- `git clone --depth 1 --branch java17/5.x https://github.com/zuihou/lamp-util.git /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/work/lamp-util-java17-5x`
+- `mvn -q -DskipTests install` (in `.../work/lamp-util-java17-5x`)
+- `mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package`
+- `mvn -q -pl lamp-base/lamp-base-server -am -DskipTests package`
+- `mvn -q -pl lamp-system/lamp-system-server -am -DskipTests package`
+- bounded helper bootstrap with Docker `mysql:8.0`, `redis:7.2-alpine`, `nacos/nacos-server:1.3.1`, then `java -jar` for gateway/base jars
+
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/9tigerio__db2rest/`
-- 新增报告：`results/applications_static_analysis/9tigerio__db2rest/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/9tigerio__db2rest/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 辅助环境证据：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+- 官方 sibling 工作区：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/work/lamp-util-java17-5x`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/9tigerio__db2rest` 源码、`databases/applications/9tigerio__db2rest-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `9tigerio/db2rest` target 信息。
-- 对后续工作的影响：后续可优先动态验证显式大 `limit` 读取真实大表和 `/bulk` 大 JSON/CSV body 在默认 auth=false、默认 Hikari pool、有界堆下是否造成 OOM、GC death、连接/worker 长期占用或持续 HTTP 不可用；`_expand` 和 `reloadCache` 需要使用本地合成 schema 验证。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未把带外补齐 sibling `lamp-util` 或隔离 Nacos/MySQL helper 栈包装成默认验证成功。
+- 当前最精确动态结论为：默认交付链仍 blocked；若仅补齐官方 sibling `lamp-util`，可恢复 5.10.0 构建，但仍会在 Nacos/client 与配置装载兼容层面卡住，因而尚不足以进入 `/v3/api-docs/swagger-config` 的受控动态探测。
 
-## [2026-06-24] s-pms/SPMS-Server 应用级静态 DoS 挖掘
+## [2026-08-14] Re-run final two rill-flow dynamic cases and separate helper-only evidence
 
 ### 修改时间
-2026-06-24 21:31
+2026-08-14 22:20
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `s-pms/SPMS-Server` 做只静态资源耗尽 DoS 挖掘，覆盖 Spring Boot 3 / AirPower 6.3.1 默认 production profile、`@Api` 路由、`@Permission` 权限语义、Redis 验证码/OAuth2 code 缓存、WebSocket、通知队列、全局 request wrapper、MCP/OpenAPI、设备匿名读接口和上传路径。
-- 按用户限定范围排除磁盘/对象存储、DB/Influx 持久化存储耗尽、管理权限路径、特殊配置和非 HTTP 外部入口，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
-- 保留 1 个 `likely` 候选：匿名 `/user/sendSms` 与 `/user/sendEmail` 可用不同手机号/邮箱制造 5 分钟 TTL 的 Redis 验证码 key 高基数增长；其中短信路径当前只写 Redis 与日志，默认触发更稳定。
-- 保留 1 个 `needs_dynamic_probe` 候选：登录后 `/oauth2/createCode` 在有效 `OpenApp` 下每次请求写入两个 5 分钟 TTL Redis code key，但需要登录和已有 OpenApp，不按默认匿名漏洞表述。
+- 继续只处理 `weibocom__rill-flow-F-002` 与 `weibocom__rill-flow-F-003`，先复读既有 case/result/environment/logs 后，在不改默认终态的前提下，各追加一轮严格分离的 helper-only 动态验证。
+- `F-002`：默认口径仍因官方 compose 无 Kafka broker companion 而 `precondition_blocked`；新增 round-2 辅助证据 `kafka_auxiliary_growth_and_consume_20260814.json` / `kafka_auxiliary_cleanup_20260814.json`，记录临时 Kafka KRaft broker 下 trigger task 总数从 1 增至 511、跨过静态 500 worker 阈值，且 1 条 benign message 触发真实 `choiceSample` submit；随后取消 510 个临时 registrations 并停止 helper broker。
+- `F-003`：默认口径仍因 shipped sample-executor async callback 指向 executor 容器内 `127.0.0.1:8080` 而 `precondition_blocked`；新增 round-2 辅助证据 `foreach_auxiliary_callback_and_integer_payload_20260814.json`，记录在 assisted callback completion 下官方 `parallelAsyncTask` 能真实完成 foreach 并得到 `callback_result_list [300, 600, 0]` 与 `sum 900`，从而把 blocker 精确收敛到 callback routing，而不是 payload 本身不可达；helper integer foreach descriptor 则仍在 bounded n=1/50/200 下因 sync dispatch timeout 失败。
+- 同步更新两个 case 的 `result.json`、`environment.md`、`reflection.jsonl`、`rounds/round-2/*`、批次 `validation_status.jsonl`，并重新运行动态聚合脚本刷新汇总产物。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/s-pms__spms-server/`
-- 新增报告：`results/applications_static_analysis/s-pms__spms-server/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/s-pms__spms-server/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python3` bounded HTTP probes against `http://127.0.0.1:18083` for `parallelAsyncTask`, `foreachSyncSample`, and Kafka trigger APIs
+- `docker run --rm apache/kafka:3.7.0 ...` on network `weibocom__rill-flow-default_default` as a temporary helper broker, followed by `kafka-console-producer.sh`
+- `python /home/furina/.qoder-cn/skills/java-web-dos-dynamic-validator/scripts/aggregate_dynamic_validation.py --output-root /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/s-pms__spms-server` 源码、`databases/applications/s-pms__spms-server-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `s-pms/SPMS-Server` target 信息，以及本地 `.build-cache` 中 AirPower 6.3.1 依赖字节码复核。
-- 对后续工作的影响：后续可优先在隔离 Redis/MySQL/SMTP 环境动态验证验证码 key cardinality 是否能在默认 compose、有界 Redis/JVM 下造成 Redis OOM、eviction、GC death 或持续 HTTP 不可用；OAuth2 code 候选需先构造普通用户和有效 OpenApp。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本轮未修改任何目标业务代码，也未把 helper Kafka broker 或 assisted callback completion 包装成默认动态确认。
+- 当前最精确结论为：`F-002` 与 `F-003` 的默认终态都仍是 `precondition_blocked`，但两者都新增了严格分离的 non-default helper 证据，说明默认 blocker 已分别精确收敛到“缺少官方 Kafka companion”和“sample-executor callback 路由错误”。
 
-## [2026-06-24] LiuYuYang01/ThriveX-Server 应用级静态 DoS 挖掘
+## [2026-08-14] Strengthen OpenMeetings assisted upload-conversion probe and keep default blocked verdict
 
 ### 修改时间
-2026-06-24 21:23
+2026-08-14 22:15
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `LiuYuYang01/ThriveX-Server` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/MyBatis-Plus/Docker release 边界、`@NoTokenRequired` 匿名入口、JWT 拦截器、限流、RSS 聚合、评论/留言列表、异步邮件、文件管理和统计代理。
-- 按用户限定范围排除磁盘/对象存储/DB 持久化存储耗尽本身、admin/JWT-gated 控制面、特殊配置和管理权限路径，只判断默认配置下外部请求可触发的非磁盘资源耗尽。
-- 保留 2 个 `likely` 候选：匿名友链 `status` mass assignment 可把攻击者 RSS 直接送入已审核聚合，公开 `/api/rss` 对所有已审核 RSS 做无上限 fan-out 和完整 feed 解析；匿名评论/留言 `status` mass assignment 可进入公开已审核列表，公开列表在分页前全量加载并构树/映射。
-- 保留 1 个 `needs_dynamic_probe` 候选：匿名评论、留言和友链新增会调度 `@Async` 邮件发送，项目未配置显式有界 async executor；但 SMTP 单任务超时有配置，因此需动态确认 executor 队列/线程行为。
+- 继续只处理 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`，先复读既有 `result.json`、`environment.md`、`reflection.jsonl`、`observations.json`、`preflight.json` 与已保存的 non-default `path.office` 辅助证据，确认默认路径 blocker 仍仅是宿主缺少可自动发现的 system-wide LibreOffice/OpenOffice。
+- 在不改业务代码前提下，保留 case-local 官方 LibreOffice + 显式 `path.office` 作为最小 non-default 辅助修复，并把动态测试从先前 4 路极小 benign 上传强化为“真实 browser room context 下 12 路并发、每个约 641 KiB 的 benign `.docx` 同源 upload-conversion”。为避免丢失房间态，本轮使用 headless Chromium DevTools Protocol 在 live `/hash` 页面上下文内执行 `fetch`，而不是脱离浏览器会话直接重放请求。
+- 新增 round-2 结构化产物与证据：一个仅提取 SID 后从浏览器外直连的控制性重放全部返回 `Access denied`，因此被明确记为语义失配对照；真正的 browser-context stronger probe 则 12/12 返回 `SUCCESS`，但线程仅短暂 `218 -> 230`、RSS 约 `792032 -> 802184 -> 799720 KiB`、`/openmeetings/signin` 与 `/openmeetings/ping` 全程 `200`，未见 OOM、重启、5xx、持续不可用或明确 conversion worker 持续堆积。
+- 同步更新 case `result.json`、`environment.md`、`reflection.jsonl` 与批次 `validation_status.jsonl`，把“default-path 仍 blocked；non-default stronger probe 也未见 meaningful growth/failure；不得写成默认 confirmed”写清，并重新运行动态聚合脚本刷新汇总产物。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/liuyuyang01__thrivex-server/`
-- 新增报告：`results/applications_static_analysis/liuyuyang01__thrivex-server/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/liuyuyang01__thrivex-server/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- 新增 round-2 证据：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS/rounds/round-2`
+- 批次状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/liuyuyang01__thrivex-server` 源码、`databases/applications/liuyuyang01__thrivex-server-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `LiuYuYang01/ThriveX-Server` target 信息。
-- 对后续工作的影响：后续可优先动态验证 RSS fan-out/parser 压力和评论/留言公开列表 heap/CPU 曲线是否能在默认配置、有界堆下造成 OOM、GC death、线程/连接耗尽或持续 HTTP 不可用；异步邮件候选需使用受控慢 SMTP，避免对真实邮箱或第三方服务造成影响。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未把 case-local LibreOffice + `path.office` 辅助路径包装成默认部署成功。
+- 当前最精确结论进一步收敛为：默认路径仍因缺少可自动发现的 system-wide office suite 而 `environment_blocked`；在授权的 non-default browser-context 强探针下也未见 meaningful growth/failure，因此该辅助结果仅是否定性补充证据。
 
----
+## [2026-08-14] Re-run minimal Cryostat diagnostic bridge and separate packaged /api WS evidence
 
-## [2026-06-24] shashirajraja/shopping-cart 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 20:17
+2026-08-14 21:45
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `shashirajraja/shopping-cart` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Servlet/JSP WAR、Tomcat/MySQL/Jakarta Mail 运行边界、公开 JSP/contact/register/login、默认 guest 购物/订单路径、JDBC 资源生命周期和邮件发送线程阻塞。
-- 按用户限定范围排除磁盘/DB 持久化存储耗尽、admin-only 产品/库存/发货管理、产品图片 BLOB、表行增长和请求期列表/图片响应对象，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
-- 保留 2 个 `likely` 候选：匿名 JSP 默认 `session=true` 创建 server-side session 且应用未配置 session 数量上限；默认 guest/普通用户路径可在 `DBUtil` static MySQL connection 上累积未关闭 `PreparedStatement`/`ResultSet`。
-- 保留 1 个 `needs_dynamic_probe` 候选：公开 contact、匿名注册和低权限下单邮件路径同步调用 `Transport.send`，且未配置 `mail.smtp.connectiontimeout` / `timeout` / `writetimeout`，可能在 SMTP 慢或不可达时耗尽 request threads。
+- 继续只处理 `cryostatio__cryostat-legacy-F-WS-001`，先复读既有 case/environment/result/logs/source/docs 后，按本轮授权追加一次最小非默认 diagnostic datasource bridge replay，不改目标业务代码，只验证 notifications 语义是否真实存在以及能否进入有界动态探测。
+- 新增 `logs/diagnostic_bridge_probe_20260814.json`、`diagnostic_bridge_app_20260814.log`、`diagnostic_bridge_db_20260814.log`、`diagnostic_bridge_inspect_20260814.json` 与 cleanup 日志；新证据表明在官方镜像 + 文档化 PostgreSQL companion + 未文档化 `QUARKUS_DATASOURCE_*` bridge 下，`/health` 可再次达到 200，但文档要求的 `/api/v1/notifications_url` 与 `/api/v1/notifications` 仍返回 SPA HTML，而原始握手对 `/api/notifications` 返回 `101 Switching Protocols`。
+- 同步更新 `cases/cryostatio__cryostat-legacy-F-WS-001/{environment.md,result.json}`、环境 `readiness.json` / `changes.jsonl` 以及批次 `validation_status.jsonl`，把结论精确收敛为：默认口径仍因 datasource 契约失配 + `/api` vs `/api/v1` notifications 语义分歧而 `environment_blocked`；新拿到的 packaged `/api/notifications` WebSocket 仅作为非默认诊断证据保留，不能当作默认动态验证放行条件。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/shashirajraja__shopping-cart/`
-- 新增报告：`results/applications_static_analysis/shashirajraja__shopping-cart/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/shashirajraja__shopping-cart/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `docker run` official Cryostat image with documented PostgreSQL companion values plus the existing diagnostic `QUARKUS_DATASOURCE_*` bridge on isolated port `18188`
+- `python3` one-shot HTTP/WS semantic probe writing `cases/cryostatio__cryostat-legacy-F-WS-001/logs/diagnostic_bridge_probe_20260814.json`
+- `python /home/furina/.qoder-cn/skills/java-web-dos-dynamic-validator/scripts/aggregate_dynamic_validation.py --output-root /home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/shashirajraja__shopping-cart` 源码、`databases/applications/shashirajraja__shopping-cart-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `shashirajraja/shopping-cart` target 信息，以及本地 Maven 缓存中的 `mysql-connector-j-8.0.33` 和 `jakarta.mail-2.0.1` jar 反编译证据。
-- 对后续工作的影响：后续可优先动态验证匿名 JSP session-count 增长和 Connector/J active statement count 是否能在默认 Tomcat/MySQL/有界堆下造成 OOM、GC death 或持续 HTTP 不可用；邮件线程候选需使用可控 SMTP 故障注入避免外部副作用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本轮仍未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的 diagnostic bridge 路径包装成默认验证成功。
+- 当前最精确结论更新为：非默认 bridge 下确有 packaged `/api/notifications` WebSocket listener，但文档化 `/api/v1` notifications JSON/WS 语义仍未出现，因此 queued default case 不能进入有界动态探测，终态继续保持 `environment_blocked`。
 
----
+## [2026-08-14] Remove pinned-source provenance gate and read local source trees directly
 
-## [2026-06-24] SourceLabOrg/kafka-webview 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 20:11
+2026-08-14 20:10
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `SourceLabOrg/kafka-webview` 做只静态资源耗尽 DoS 挖掘，覆盖官方 Docker/release 默认配置、Spring Security 边界、普通消费 API、STOMP websocket consumer manager、Actuator、登录/重置密码和配置上传边界。
-- 按用户限定范围排除磁盘存储耗尽、admin-only 配置/上传/topic 管理、禁用认证 anonymous-admin 特殊配置和仅由既有 Kafka 集群状态决定的 metadata 放大路径。
-- 保留 3 个 `needs_dynamic_probe` 候选：低权限 `/api/consumer/view/{id}` 按 topic partition 向全局 fixed pool 提交任务且未见 queue cap；`/websocket/consume/{viewId}` 在 executor 提交前写入 `consumers` map 的饱和异常路径；普通 JSON consume/offset API 在业务校验前构造 unbounded request object graph。
-- 明确记录默认首次启动无 cluster/view，`KWV-APP-STATIC-0001/0002` 属于默认配置、正常使用态、有低权限账号和已有 Kafka view 的候选，不能表述为全新空实例匿名触发。
+- 移除 Growth 阶段对 git commit / public source / clean checkout 的前置证明流程，`dosweb/growth/excerpts.py` 现在只忠实读取 `source_checkout` 下的本地源码文件并生成 excerpt，不再要求 pinned blob 一致性。
+- 精简 `dosweb/config.py`、`dosweb/llm/cache.py`、`dosweb/llm/deepseek.py` 与 `dosweb/batch/runner.py` 中的 provenance 字段和校验链，删除 `public_source_url` / `source_commit_sha` 的核心依赖，远端分类只要求显式授权、非空 API key 与输入源码目录可读。
+- 保持 `analysis_source_root` 只用于 CodeQL database source root 一致性校验，不再与 git 证明耦合；同步更新本地回归与真实 CodeQL fixture 测试，确认 Zipkin `growth` 已不再被源码证明阻塞，而是进入真实 provider 调用。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/sourcelaborg__kafka-webview/`
-- 新增报告：`results/applications_static_analysis/sourcelaborg__kafka-webview/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/sourcelaborg__kafka-webview/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python3 -m pytest -q tests/test_source_excerpts.py tests/test_config_and_cli.py tests/test_batch_runner.py tests/test_production.py`
+- `DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_codeql_growth_queries.py::CodeqlGrowthQueryTests::test_g1_through_g4_against_temporary_databases tests/test_codeql_lifecycle_queries.py::CodeqlLifecycleFixtureTests::test_fixture_semantics`
+- `python3 -m dosweb.cli entries --database ...openzipkin__zipkin-db --output ...openzipkin__zipkin_iter5 --source-checkout .../frameworks/applications/openzipkin__zipkin --analysis-source-root .../frameworks/applications/openzipkin__zipkin`
+- `DEEPSEEK_API_KEY=test-key python3 -m dosweb.cli growth --database ...openzipkin__zipkin-db --output ...openzipkin__zipkin_iter5 --source-checkout .../frameworks/applications/openzipkin__zipkin --analysis-source-root .../frameworks/applications/openzipkin__zipkin --allow-remote-llm`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/sourcelaborg__kafka-webview` 源码、`databases/applications/sourcelaborg__kafka-webview-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `SourceLabOrg/kafka-webview` target 信息。
-- 对后续工作的影响：后续可优先动态验证 `/api/consumer/view/{id}` 的 fixed pool queue 增长和 websocket consumers map 饱和异常路径，再测大 JSON request-burst 的 heap/GC 门槛。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本轮改变了 Growth 源码摘录与远端分类的 provenance 模型：后续如果要保留任何 commit 级绑定，需要另行以“本地源码树”语义重新设计，而不是恢复 public-source 证明链。
+- 当前 Zipkin `growth` 的下一真实阻塞已变为 provider 认证，不再是源码摘录或 checkout 证明失败。
 
----
+## [2026-08-14] Restore direct CodeQL Armeria coverage and secure config loading
 
-## [2026-06-24] weibocom/rill-flow 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 17:46
+2026-08-14 19:20
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `weibocom/rill-flow` 做只静态资源耗尽 DoS 挖掘，覆盖官方 Docker compose、UI nginx `/flow/` 反代、默认 `AuthUserResolver` 边界、submit/trigger/convert/dependency_check、触发器、runtime Redis、Aviator cache、Prometheus meter 和默认 executor 队列。
-- 按用户限定范围排除磁盘存储耗尽、后台/管理权限入口、生产默认不会开启或需要特殊基础设施的路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 保留 3 个 `needs_dynamic_probe` 候选：默认无有效鉴权的 `/flow/submit.json` 在存在可提交 descriptor 时驱动 runtime Redis execution/context 增长；匿名 `/flow/trigger.json` 在任务存在性检查和 6144 字节 context 限制前解析 context；`/flow/convert.json` 与 `/flow/dependency_check.json` raw DAG YAML/JSON parser request-burst 压力。
-- 明确拒绝 cron/kafka trigger 管理态 map/consumer、后台 descriptor/template/customized storage、Aviator bounded cache、bounded executor queues、Prometheus meter cardinality 和既有状态列表放大等高噪声或范围外路径。
+- 同步修复直连查询 `codeql/dosweb/Growth/InputMaterialization.ql` 与 `codeql/dosweb/Flows/EntryToGrowth.ql`，补齐 Armeria `HttpRequest.aggregateWithPooledObjects()` 材料化识别、Armeria handler/request 建模以及一跳 handler -> helper 参数转发，使直连查询与嵌入式 query pack 的 Zipkin 风格链路建模重新一致。
+- 修复 `dosweb/config.py` 被破坏的配置加载逻辑：移除硬编码 `DEEPSEEK_API_KEY`，恢复仅在 `allow_remote_llm=true` 时要求非空环境密钥；新增递归 YAML 结构校验，稳定拒绝任意层级 `api_key` 变体、过深嵌套、过大集合、过长字符串与无效 Unicode。
+- 回归确认 `tests/test_config_and_cli.py` 与 `tests/test_production.py` 全部恢复通过；CodeQL fixture 测试当前仍受环境前置条件控制，需要显式设置 `DOSWEB_RUN_CODEQL_FIXTURES=1` 且本机具备 `codeql`/`javac` 才会执行真实查询。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/weibocom__rill-flow/`
-- 新增报告：`results/applications_static_analysis/weibocom__rill-flow/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/weibocom__rill-flow/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python3 -m pytest -q tests/test_config_and_cli.py`
+- `python3 -m pytest -q tests/test_production.py`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/weibocom__rill-flow` 源码、`databases/applications/weibocom__rill-flow-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `weibocom/rill-flow` target 信息。
-- 对后续工作的影响：后续可优先动态验证 submit runtime Redis retained-state 增长是否能造成默认服务不可用，再测 trigger/convert/dependency_check parser request-burst 的 heap/CPU/GC 门槛。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本轮未改变 v2 verdict 口径，只修复直连查询覆盖与配置前置条件校验。
+- Zipkin 下一步仍需在具备真实 CodeQL/LLM 前置条件下继续复跑 `entries -> growth`，确认 `aggregateWithPooledObjects()` 主链是否被恢复命中。
 
----
+## [2026-08-14] Re-run final narrow Cryostat semantic probe and tighten route-mismatch blocker
 
-## [2026-06-24] xnx3/wangmarket 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 17:26
+2026-08-14 19:00
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `xnx3/wangmarket` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/JSP/Shiro、根级匿名 `.do`/`.html`、验证码/登录校验、公开站点页面、UEditor 和安装态边界。
-- 按用户限定范围排除磁盘存储耗尽、后台/管理权限入口、首次安装一次性状态、特殊云存储配置和不属于当前仓库的插件入口，只判断默认配置下外部请求可触发的非磁盘资源耗尽问题。
-- 保留 1 个 `likely` 候选：默认匿名 `/captcha.do` 和带非空 `code` 的 `/wangmarketLoginSubmit.do` 会通过 `CaptchaUtil` 创建 server-side session；默认 Shiro 使用 `MemorySessionDAO` 且 100 分钟超时，未见 session 数量或 per-IP 上限。
-- 保留 1 个 `needs_dynamic_probe` 候选：安装完成并配置站点域名后，公开 `*.html` 站点页面成功命中站点时会把 `SImpleSiteVO` 写入匿名 session，同样可能驱动 session count 增长。
-- 明确拒绝后台模板导入/还原、新闻/站点管理、UEditor 文件存储、云存储页面源缓存、日志持久化、phoneCreateSite 外部插件、安装流程和登录后空间统计线程等高噪声或范围外路径。
+- 继续只处理 `cryostatio__cryostat-legacy-F-WS-001`，先重读既有 `result.json`、`environment.md`、`final_attempts_20260814.json`、`postgres_bridge_probe_20260814.json`、`postgres_bridge_app_20260814.log`、源码 `MessagingServer` / `NotificationsUrlGetHandler`、集成测试 `NotificationsUrlIT` / `StandardSelfTest` 与 `docs/HTTP_API.md`，限定在 notifications base path / auth 前缀 / diagnostic request chain 三类窄问题内收敛证据。
+- 复核确认官方源码、文档与集成测试都一致声明 `GET /api/v1/notifications_url` 应返回 JSON、`/api/v1/notifications` 应提供 WebSocket 语义；但已保存的 packaged-image 启动日志同时记录 `UT026003 ... path /api/notifications`，说明当前 official latest 打包物还存在 `/api` 对 `/api/v1` 的路由前缀分歧，而不是单纯“请求打错 base path”。
+- 新增 `logs/final_semantic_probe_20260814_retry.json`，对上轮唯一 health-ready 的 diagnostic PostgreSQL + `QUARKUS_DATASOURCE_*` bridge 端口仅做定点 HTTP/原始 WebSocket 复探；结果显示该 listener 当时已消失，`/health`、`/api/v1/notifications_url`、`/api/v1/notifications`、`/api/notifications_url`、`/api/notifications` 全部 connection refused。按本轮要求不再重启/泛化环境，因此把它仅作为“即使 diagnostic 路径也无可重复 notifications 语义入口”的收敛证据。
+- 同步更新 case `environment.md`、`result.json`、批次 `validation_status.jsonl`，把 blocker 精确收敛为：official latest 同时存在 datasource 打包契约失配与 notifications 路由语义/前缀失配；随后重新运行动态聚合脚本刷新汇总产物。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/xnx3__wangmarket/`
-- 新增报告：`results/applications_static_analysis/xnx3__wangmarket/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/xnx3__wangmarket/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001`
+- 新增诊断证据：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001/logs/final_semantic_probe_20260814_retry.json`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/xnx3__wangmarket` 源码、`databases/applications/xnx3__wangmarket-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xnx3/wangmarket` target 信息、内置 SQLite 快照和 `wm-3.28.jar` 字节码反编译证据。
-- 对后续工作的影响：后续可优先动态验证匿名验证码/登录校验 session-count 增长在默认堆和默认 Shiro cleanup 下的 OOM/GC/不可用门槛；公开站点页面候选需要先完成默认安装域名/站点态。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的 diagnostic bridge 路径包装成默认验证成功。
+- 当前最精确结论为：官方 latest 不仅 datasource 契约与 README/compose 不一致，notifications 入口本身还存在 `/api` vs `/api/v1` 打包语义分歧；在不再扩展环境的约束下，默认动态验证仍只能保守停在 `environment_blocked`。
 
-## [2026-06-24] xuxueli/xxl-boot 应用级静态 DoS 挖掘
+## [2026-08-14] Fix growth-entry association to skip unmapped noise candidates
 
 ### 修改时间
-2026-06-24 16:50
+2026-08-14 18:40
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `xuxueli/xxl-boot` 做只静态资源耗尽 DoS 挖掘，覆盖 `xxl-boot-api` 默认 Spring Security 匿名面、`RepeatableFilter` JSON body 包装、验证码 Redis key、登录失败异步日志队列，以及 `xxl-boot-admin` SSO 边界。
-- 按用户限定范围排除磁盘存储耗尽、DB 行增长、后台/管理权限入口、生产默认不会开放或需要管理登录的功能，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 保留 1 个 `likely` 候选：默认匿名 `/login` 与 `/register` JSON body 会先经过全局 `RepeatableFilter` 完整读入 `StringBuilder`/`String` 并复制为 `byte[]`，未见应用级 JSON body 上限。
-- 保留 2 个 `needs_dynamic_probe` 候选：匿名 `/captchaImage` 生成 2 分钟 TTL Redis captcha key 和验证码图片；匿名 `/login` 验证码失败路径会在用户名长度校验前提交登录失败 `TimerTask` 到 scheduled executor。
-- 明确拒绝 Druid/Swagger 管理或文档面、`xxl-boot-admin` 后台业务控制器、文件上传/下载、Excel/代码生成、XSS wrapper 认证路径、默认关闭注册账号增长、未使用的 `@RateLimiter`/`@RepeatSubmit` 等高噪声模式。
+- 修复 `dosweb/production.py` 中 growth 阶段的 entry 绑定策略：当 growth 候选完全无法匹配任何已恢复入口时，不再以 `ANALYSIS_GROWTH_ENTRY_AMBIGUOUS` 直接中止整个分析，而是把该候选视为无入口噪声并跳过；仍然保留真正多入口歧义的失败行为。
+- 为 `tests/test_production.py` 增加回归覆盖，显式验证 growth 元数据会区分 `candidate_count`、`mapped_candidate_count` 与 `skipped_unmapped_candidate_count`，并确保重复 registration 场景不回退。
+- 在 Zipkin 首轮自迭代复跑中确认此前阻塞来自可选/非默认 collector 噪声候选无法映射到任何默认入口，而不是 HTTP collector 主链本身缺失。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/xuxueli__xxl-boot/`
-- 新增报告：`results/applications_static_analysis/xuxueli__xxl-boot/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/xuxueli__xxl-boot/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/production.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_production.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/xuxueli__xxl-boot` 源码、`databases/applications/xuxueli__xxl-boot-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `xuxueli/xxl-boot` target 信息。
-- 对后续工作的影响：后续可优先动态验证匿名 JSON body request-burst 的 heap/GC/不可用门槛，再测 `/captchaImage` Redis key 窗口和 `/login` 验证码失败异步队列/DB pool 压力。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 该修复只放宽“零匹配入口”候选的 growth 进入条件，不改变 entries、flow、lifecycle 或最终 verdict 的保守口径。
+- 当前 Zipkin 复跑仍存在后续问题待修：本地 `python -m dosweb.cli` 不会执行 CLI 主入口；真实 CodeQL entries 阶段还会被无关框架查询超时拖慢；远端 LLM 复跑也出现了 provider retries exhausted。
 
----
+## [2026-08-14] Finalize OpenMeetings assisted conversion probe without changing default blocked verdict
 
-## [2026-06-24] dromara/ujcms 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 16:30
+2026-08-14 17:05
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `dromara/ujcms` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker/compose、Spring Boot/Spring MVC/Spring Security、公开前台 API、访问统计、multipart、验证码、注册/留言、投票/问卷、分页和缓存路径。
-- 按用户限定范围排除磁盘存储耗尽、后台/管理权限入口、默认关闭功能、特殊配置和仅数据库行增长路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 保留 1 个 `likely` 候选：默认公开 `POST /frontend/visit/{siteId}` 与 `POST /api/visit/{siteId}` 可将攻击者控制的 `referrer` host 构造为未截断 `source` 字符串，并在写库前保留于 singleton `VisitService.visitLogCache`。
-- 保留 1 个 `needs_dynamic_probe` 候选：同一公开访问统计入口每次请求都构造 `ua_parser.Parser`，反复加载和初始化 `regexes.yaml` 解析规则，可能造成 request-burst CPU/GC 压力。
-- 明确拒绝后台 WebFile/ZIP、头像上传、Captcha/IP 登录/IP SMS bounded cache、默认关闭注册、默认需登录加验证码留言、投票/问卷选项校验、公开列表分页上限和浏览计数静态 map/cache 等高噪声模式。
+- 继续只处理 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`，重读 case `result.json`、`environment.md`、`preflight.json`、`observations.json`、`reflection.jsonl` 与批次 `validation_status.jsonl`，确认默认安装、登录、public room、`/hash` 入房、`omws-upload-sid` 获取和同源 `/room/file/upload` 都已打通，且默认 blocker 仍只是 office suite 自动发现缺失。
+- 复核并采信已完成的单次受控 non-default 辅助验证：使用 case-local 官方 LibreOffice 解包和显式 `path.office` 后，同一 low-privilege presenter 路径可成功接受 4 个并发 benign `.docx` 上传；但配套 `thread_rss_probe_summary.json` 显示 JVM 线程数维持 `152 -> 152`、RSS 仅 `840672 -> 841256 KiB`、signin 健康检查持续 200，未出现 OOM、重启、5xx 或持续不可用。
+- 因此不把该案改写成默认 confirmed，也不把辅助结果单列成 `non_default_only` 成功终态；保持默认口径 `environment_blocked`，并把“non-default 仅用于继续验证且未见增长/故障”的分界更明确写入 `result.json` 与 `validation_status.jsonl`，随后重新运行动态聚合脚本刷新汇总产物。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/dromara__ujcms/`
-- 新增报告：`results/applications_static_analysis/dromara__ujcms/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/dromara__ujcms/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`、`dynamic_probe_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 结果：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS/result.json`
+- 批次状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/dromara__ujcms` 源码、`databases/applications/dromara__ujcms-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `dromara/ujcms` target 信息，以及本地 Maven 缓存中的 `uap-java-1.6.1` jar 反编译证据。
-- 对后续工作的影响：后续可优先动态验证访问统计 `referrer` source 未截断路径在默认 Tomcat/Spring 接受阈值、异步写库失败/积压和有界堆下的服务不可用门槛；`Parser` per-request 构造候选需要对比 singleton 复用前后的 CPU/GC 曲线。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未把 case-local LibreOffice + `path.office` 辅助路径包装成默认部署成功。
+- 当前最精确结论为：默认路径仍因缺少可自动发现的 system-wide LibreOffice/OpenOffice 而 blocked；非默认辅助路径下虽然能继续完成 benign conversion upload，但在已执行的小有界探针中未见增长或故障证据。
 
-## [2026-06-24] ytyht226/taskflow 应用级静态 DoS 挖掘
+## [2026-08-14] Audit v2 lifecycle analyzer and start PoC-29 chain repair loop
 
 ### 修改时间
-2026-06-24 15:54
+2026-08-14 16:45
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [审计]
+- [计划]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `ytyht226/taskflow` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Maven 多模块 jar/pom 目标、DAG `wrapperMap`/依赖集合、`DagContext`、`TaskUtil` 批处理集合、`CustomThreadPool` 无界队列和 Gson/JsonPath/opConfig 参数解析路径。
-- 按用户限定范围排除磁盘/文件存储耗尽、特殊配置、生产默认不开启功能、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 未发现默认配置下可由外部 HTTP 请求直接触发的 `confirmed`、`likely` 或值得保留为 `needs_dynamic_probe` 的 DoS 候选；核心原因是该目标为 DAG 编排 jar library，没有默认 Web server、controller、servlet/filter、JAX-RS resource、request/session/multipart 入口。
-- 明确拒绝 DAG wrapper graph 增长、依赖集合增长、TaskUtil taskList/batch 放大、无界 executor queue、Gson/JsonPath/opConfig 解析、listener map/list 和 DagContext 结果保留等库级误用模式，理由是均需要宿主应用把外部请求映射到 taskflow Java API。
+- 以 2026-07-18 approved P0 design 为唯一实施标准，对照 2026-07-14 lifecycle-centered research idea 完成设计—代码—测试—PoC benchmark 审计；明确异步 Release、Assertion 3 和速率推理仍是 deferred 能力，相关链路必须保守输出 `static_unknown`。
+- 新增 `docs/research/2026-08-14-v2-lifecycle-analyzer-audit.md`，记录模块级已满足项、真实 PoC 项目入口查询超时、默认 CodeQL fixture 未执行、完整 suite 缺少快慢分层、benchmark 缺少逐 PoC E→G→lifecycle 严格映射、失败诊断丢失和 mandatory provider 前置条件等问题。
+- 新增 `docs/superpowers/plans/2026-08-14-poc29-lifecycle-chain-repair.md`，把后续修复拆为诊断保真、查询并发/预算、Spring query 性能、链路 matcher、G/flow 召回、lifecycle 保守结论和四层回归七个任务。
+- 创建并启动 `results/java_web_dos_batch/poc29-lifecycle-audit-20260814` 的 18 项目 entries 基线；首批大型数据库在固定 300 秒 query deadline 下出现 `CODEQL_QUERY_FAILED`，HertzBeat 单 query 的 30 秒最小复现确认 root cause 类型为 `query_run: command deadline exceeded`。
+- 修复 pipeline 失败元数据过度丢失：`run.json` 现在只允许持久化有界的 `stage`、`diagnostic`、`returncode`，拒绝 query path 等额外 details；新增回归测试并确认该行为通过。
 
-### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/ytyht226__taskflow/`
-- 新增报告：`results/applications_static_analysis/ytyht226__taskflow/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/ytyht226__taskflow/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+### 验证
+- `python3 -m pytest -q tests/test_assertions.py tests/test_lifecycle_bounds.py tests/test_lifecycle_guards.py tests/test_lifecycle_releases.py tests/test_flow_verification.py tests/test_growth_verification.py tests/test_p0_end_to_end.py`
+- 结果：`77 passed, 90 subtests passed`。
+- `python3 -m pytest -q tests/test_pipeline_recovery.py::PipelineRecoveryTests::test_codeql_failure_persists_only_bounded_actionable_diagnostics`：`1 passed`。
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/ytyht226__taskflow` 源码、`databases/applications/ytyht226__taskflow-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `ytyht226/taskflow` target 信息和本地 CodeQL build log。
-- 对后续工作的影响：后续若要继续跟 taskflow 相关风险，应转向真实默认部署的宿主 Web 应用，查找匿名或低权限 HTTP 参数是否直接控制 DAG wrapper graph、TaskUtil taskList/batch 参数、opConfig/jsonPathList、递归参数解析、无界 executor queue 或跨请求保留的 DagEngine/DagContext。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本轮只新增审计、计划、基线结果与 changelog，未修改 analyzer verdict 逻辑，也未使用 PoC 动态 truth 改写普通静态结论。
+- 当前环境未设置 `DEEPSEEK_API_KEY`；按 approved design 不允许用 mock 绕过 mandatory Growth Contract。可以继续完成 network-free CodeQL 和 deterministic stages，真实 full acceptance 等待显式 provider 前置条件。
 
-## [2026-06-24] quickmsg/smqtt 应用级静态 DoS 挖掘
+## [2026-08-14] Finalize OpenMeetings blocked verdict as missing default office auto-discovery condition
 
 ### 修改时间
-2026-06-24 15:44
+2026-08-14 16:13
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `quickmsg/smqtt` 做只静态资源耗尽 DoS 挖掘，覆盖官方 Docker 默认 MQTT TCP 1883、no-config fallback、默认匿名认证、CONNECT/PUBLISH/SUBSCRIBE/QoS2/offline session/retain message/topic registry 路径。
-- 按用户限定范围排除磁盘/DB/Redis 持久化存储、需要挂载配置才开启的 HTTP/WS/cluster/admin/API、固定认证/ACL 等非默认配置路径，只判断默认配置下外部 MQTT 请求可触发的非磁盘资源耗尽问题。
-- 保留 6 个 `likely` 默认匿名候选：persistent session 断开后保留 channel registry；retained PUBLISH 填充无界 `retainMessages`；普通 PUBLISH 对未订阅 topic 创建空 topic key；offline persistent subscription 累积 session message 队列；SUBSCRIBE 增长 fixed/wildcard topic index；QoS2 半握手缓存 publish message 与 retry ack state。
-- 明确拒绝 HTTP `/smqtt/*` API、HTTP 管理/UI、WebSocket、cluster、Redis/DB persistent registry、ACL FILE/JDBC、固定认证、boundedElastic 队列和单帧 MQTT parser 大包等高噪声或非默认模式。
+- 继续只针对 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` 做最后一轮严格默认口径复核，先重读既有 `result.json`、`environment.md`、`data_prep.md`、共享环境 `inventory/feasibility/readiness/snapshot` 与批次 `validation_status.jsonl`，确认默认安装、登录、public room、`/hash` 入房、`omws-upload-sid` 获取与同源 `/room/file/upload` 预检都已打通，当前只剩 office conversion 环节阻塞。
+- 新增默认链路审计证据：重读仓库 `openmeetings-server/src/site/xdoc/OpenOfficeConverter.xml`、`openmeetings-install/.../ImportInitvalues.java`、`openmeetings-core/.../DocumentConverter.java`、install wizard office path 校验逻辑，并复查 release runtime/宿主 `libreoffice`、`soffice` 发现路径，确认官方默认语义一致为“运行 OpenMeetings 的机器需要预装 LibreOffice/OpenOffice，默认保持 `officeHome/path.office` 为空，仅在自动发现失败时才显式指定路径”；仓库文档、运行包与默认启动链中均未发现先前未用上的隐含 office 安装器、默认 `path.office` bootstrap 或其他默认 conversion 前置。
+- 因此把该案 `environment_blocked` 精确收敛为“默认 runtime 缺少可自动发现的 system-wide office suite 条件”：当前宿主默认 runtime 既无 `libreoffice/soffice` system-wide 可执行文件，accepted office upload 又会在 `DocumentConverter` 处以 `officeHome must not be null` 提前失败。保留 case-local 官方 LibreOffice 下载/显式 `path.office` 的 supplemental 路径仅作为非默认辅助证据，不把它包装成默认可利用结论。
+- 同步更新 case `result.json`、`environment.md`、`data_prep.md`、共享环境 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、批次 `validation_status.jsonl` 与项目 `CHANGELOG.md`，随后重新运行聚合脚本刷新汇总产物。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/quickmsg__smqtt/`
-- 新增报告：`results/applications_static_analysis/quickmsg__smqtt/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/quickmsg__smqtt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/quickmsg__smqtt` 源码、`databases/applications/quickmsg__smqtt-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `quickmsg/smqtt` target 信息。
-- 对后续工作的影响：后续可优先动态验证 retained message、offline session queue、empty topic key cardinality 三条默认匿名 MQTT 路径，再测 persistent channel registry、subscription trie 和 QoS2 cache/ackMap 的服务不可用阈值。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未把 case-local LibreOffice 解包或显式 `path.office` 辅助配置包装成默认部署成功。
+- 新证据将 OpenMeetings 的剩余 blocker 最终固定为：当前默认 runtime 缺少 JODConverter 可自动发现的 system-wide LibreOffice/OpenOffice 条件，且仓库文档、运行包与默认启动链中不存在隐藏的默认 office bootstrap；只有当宿主按默认方式提供该 system-wide office suite 后，默认 upload-conversion worker 压力验证才能继续。
 
----
+## [2026-08-14] Finalize Cryostat default-path blocker as image-contract plus route-semantics mismatch
 
-## [2026-06-24] michaelliao/itranswarp 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 13:33
+2026-08-14 16:12
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `michaelliao/itranswarp` 做只静态资源耗尽 DoS 挖掘，覆盖默认 quickstart Docker Compose、Spring Boot/Tomcat、全局 Redis rate limiter、`/api` JSON body 解析、Passkey/WebAuthn、external gpt/remoteCodeRun、search、avatar、attachment、Markdown、view counter 和 Redis cache 路径。
-- 按用户限定范围排除磁盘/DB 存储耗尽、特殊配置、生产默认不开启功能、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 保留 2 个 `likely` 候选：可伪造代理 IP 头驱动 Redis rate-limit timestamp key 基数增长并绕过默认限流；`@RequestBody` JSON 在 `@RoleWith` 角色检查或默认禁用 feature flag 前被 Jackson 解析，可能造成 request-burst heap/CPU 压力。
-- 保留 1 个 `needs_dynamic_probe` 候选：匿名 `/api/passkey/signin` 在 challenge/credential 校验前解码并解析攻击者控制的 WebAuthn 字段，需要动态确认 webauthn4j 对大字段的拒绝阶段和资源曲线。
-- 明确拒绝 passkey challenge DB row、search、avatar、attachment 下载/上传存储、Markdown、remote-code-runner executor、ChatGPT outbound、OAuth provider、manage/admin 业务逻辑、public view counters、Redis first-page caches、本地/eth 登录和大 `pageIndex` 等高噪声模式。
+- 仅针对 `cryostatio__cryostat-legacy-F-WS-001` 做最后一轮严格默认口径复核，复查仓库 `README.md`、`compose/compose-cryostat.yaml`、`compose/compose-postgres.yaml`、`run-docker.sh`、`smoketest-docker.sh`，以及 case/environment 既有工件，确认不存在遗漏的官方 auth/profile、路由基址或 companion 参数能把通知语义带回默认路径。
+- 补充本地已拉取官方 latest 镜像的精确锚点：`quay.io/cryostat/cryostat:latest@sha256:80f82599e8aa755cabfb819125332c895ea41f1d265a9819096264cbbc9d1183`；其本地标签显示 build-date 为 `2026-08-04T19:57:50`。该信息仅用于把 blocker 绑定到当前官方 latest，不改变默认/非默认判定。
+- 结合源码 `NotificationsUrlGetHandler`、`MessagingServer` 与 `docs/HTTP_API.md` 的路由约定，再次收紧结论：即便在仅用于诊断的 PostgreSQL + `QUARKUS_DATASOURCE_*` bridge 路径上已拿到 `/health` 200，`/api/v1/notifications_url` 与 `/api/v1/notifications` 仍返回 SPA HTML，而非源码/文档声明的 JSON `notificationsUrl` 与 WebSocket 语义入口，因此 notifications_url / notifications WebSocket 在默认口径下仍不可验证。
+- 保持 `environment_blocked`，并将 case `result.json` 与批次 `validation_status.jsonl` 更新为上述最精确结论；随后重新运行聚合脚本刷新汇总工件。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/michaelliao__itranswarp/`
-- 新增报告：`results/applications_static_analysis/michaelliao__itranswarp/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/michaelliao__itranswarp/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 结果：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001/result.json`
+- 批次状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/michaelliao__itranswarp` 源码、`databases/applications/michaelliao__itranswarp-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `michaelliao/itranswarp` target 信息。
-- 对后续工作的影响：后续可优先动态验证 Redis key cardinality/限流绕过和 pre-auth JSON parser heap 压力；Passkey/WebAuthn parser 候选需要先构造 valid-enough 字段再测量。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的诊断 bridge 路径包装成默认验证成功。
+- 当前最精确结论为：官方 latest 镜像的 datasource 打包契约与 README/compose 不一致，且在唯一 health-ready 的诊断路径上，通知 API 仍未兑现源码/文档声明的 JSON/WebSocket 语义，因此默认动态验证无法继续。
 
-## [2026-06-24] aizuda/flowlong 应用级静态 DoS 挖掘
+## [2026-08-14] Finalize lamp-cloud blocked verdict as missing sibling-only default chain failure
 
 ### 修改时间
-2026-06-24 13:14
+2026-08-14 05:45
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `aizuda/flowlong` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot/Solon example、`/process/deploy`、`/process/instance-start`、固定 `process.json`、流程模型 cache、实例启动、提醒调度、事件发布、ThreadLocal 和 SpEL/SnEL 表达式路径。
-- 按用户限定范围排除磁盘/DB 持久化存储增长、特殊配置、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 未发现默认配置下可由外部 HTTP 请求直接触发的 `confirmed`、`likely` 或值得保留为 `needs_dynamic_probe` 的非磁盘 DoS 候选；核心原因是默认 HTTP 面只暴露固定示例入口，外部请求不能控制模型内容、流程 key、变量大小、缓存 key、表达式、队列/线程或 body/multipart 字节。
-- 明确拒绝默认 `/process/deploy` 任意模型上传、固定 `process.json` parse、`FlowSimpleCache` key cardinality、`/process/instance-start` DB row 增长、per-instance process model cache、reminder scheduler scan、event publish、`FlowDataTransfer` ThreadLocal、SpEL/SnEL eval 和 Solon `maxBodySize=1024mb` 等高噪声模式。
+- 继续只针对 `dromara__lamp-cloud-FND-001` 做最后一轮严格默认口径复核，重读 `result.json`、共享环境 `inventory/feasibility/readiness`、仓库 `README.md`、`lamp-dependencies-parent/pom.xml`、`A极其重要/01-docs/docker/03.docker运行项目.md`、本地 Maven 缓存证据以及批次 `validation_status.jsonl`。
+- 在既有“缺失 sibling lamp-util 派生 parent artifact”基础上，再补充两条最终排除证据：`lamp-dependencies-parent/pom.xml` 仅声明 `dev`/`prod` 两个 profile，二者都不绕过 `top.tangyh.basic:lamp-parent:5.10.0` 父 POM 依赖；官方 GitHub `releases` 页面明确无 release，`tags` 页面仅提供源码 `zip/tar.gz` 归档，没有预构建运行时资产。
+- 因此将该案最终固定为：默认交付链硬依赖缺失 sibling 资产且无默认替代路径。同步更新 `result.json`、`validation_status.jsonl`、共享环境 `changes.jsonl`，并重新运行聚合脚本刷新汇总产物。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/aizuda__flowlong/`
-- 新增报告：`results/applications_static_analysis/aizuda__flowlong/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/aizuda__flowlong/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/aizuda__flowlong` 源码、`databases/applications/aizuda__flowlong-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `aizuda/flowlong` target 信息。
-- 对后续工作的影响：后续若要继续跟 FlowLong 相关风险，应转向真实默认部署的宿主 Web 应用，查找匿名或低权限 HTTP 参数是否直接控制 workflow JSON 部署、process/tenant key、启动变量、dynamicAssignee、条件表达式、提醒/trigger/timer 配置、per-instance model cache 或自定义无界 `FlowCache`/event/executor。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未伪造 sibling 项目、手工补 parent POM、切换非官方镜像或引入非默认交付方式来制造 gateway 就绪。
+- 新证据把 lamp-cloud 的默认阻塞点最终收敛为：只有当官方默认构建所需的 sibling `lamp-util` 派生 `top.tangyh.basic:lamp-parent:5.10.0` 能正常提供时，Nacos + gateway + downstream swagger baseline 才能继续；在此之前该案保持 `environment_blocked`。
 
----
+## [2026-08-14] Tighten Cryostat blocked verdict to image packaging plus notifications-route mismatch
 
-## [2026-06-24] j-easy/easy-flows 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 13:05
+2026-08-14 05:20
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `j-easy/easy-flows` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Maven jar 目标、库 API source、`WorkContext`、`RepeatFlow`、`TimesPredicate`、`ParallelFlow`、`SequentialFlow`、executor/report/context merge 等资源敏感点。
-- 按用户限定范围排除磁盘存储耗尽、特殊配置、管理权限或管理面依赖路径，只判断默认配置下外部 HTTP 请求可触发的非磁盘资源耗尽问题。
-- 未发现默认配置下可由外部 HTTP 请求直接触发的 `confirmed`、`likely` 或值得保留为 `needs_dynamic_probe` 的 DoS 候选；核心原因是该目标为 workflow engine jar library，没有默认 Web server、controller、servlet/filter、JAX-RS resource、request/session/multipart 入口。
-- 明确拒绝 `WorkContext` map 增长、`RepeatFlow.times(0/负数)` 长循环、custom predicate、`ParallelFlow` workUnits/task/future/report cardinality、executor/thread 压力和 `ParallelFlowReport` context merge 等库级误用模式，理由是均需要宿主应用把外部请求映射到 easy-flows API。
+- 继续只针对 `cryostatio__cryostat-legacy-F-WS-001` 做最后一轮官方镜像/README 口径复核，先重读既有 `result.json`、`environment.md`、共享环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl` 与失败日志，再确认旧 blocker 仍主要停留在 “H2 datasource/Flyway 启动失败” 的粒度。
+- 在不修改业务代码、不引入组外 case 的前提下，新增两条最小机械复测：其一是按仓库 `compose/compose-postgres.yaml` 的文档化 PostgreSQL companion 路径重启官方镜像；其二是在同一 PostgreSQL companion 基础上，只额外补入未文档化但与打包 Quarkus 运行时相匹配的 `QUARKUS_DATASOURCE_JDBC_URL/USERNAME/PASSWORD` bridge，目的是压缩 blocker，而不是把该路径当作默认验证成功。
+- 新证据进一步收紧了官方镜像缺陷：镜像 `/deployments/lib/main` 中实际只包含 `io.quarkus.quarkus-jdbc-postgresql`、`org.postgresql.postgresql` 与 PostgreSQL 侧 Flyway 依赖，并无 H2 JDBC jar，因此 README 与 compose 默认声称支持的 `CRYOSTAT_JDBC_*` H2 file / H2 mem 路径在打包镜像里天然不可用；而文档化 PostgreSQL companion 路径本身也仍不会激活默认 datasource，只有补入未文档化 `QUARKUS_DATASOURCE_*` bridge 后 `/health` 才首次返回 200。
+- 即便如此，bridge 仅用于诊断的问题仍未结束：在该 health-ready 诊断路径上，`GET /api/v1/notifications_url` 与 `GET /api/v1/notifications` 依旧返回前端 SPA `text/html`，而不是源码/文档声明的 JSON notificationsUrl 语义或可继续预检的通知 WebSocket 入口。因此保留 `environment_blocked`，但将失败点压缩为 “官方镜像 latest 的打包 datasource 合约与 README/compose 不一致，且即便桥接到健康状态，通知 API 路由仍与文档语义不符”。同步更新 `result.json`、`environment.md`、`data_prep.md`、`rounds/round-1/preflight.json`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 与批次 `validation_status.jsonl`。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/j-easy__easy-flows/`
-- 新增报告：`results/applications_static_analysis/j-easy__easy-flows/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/j-easy__easy-flows/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/j-easy__easy-flows` 源码、`databases/applications/j-easy__easy-flows-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `j-easy/easy-flows` target 信息和本地 CodeQL build log。
-- 对后续工作的影响：后续若要继续跟 easy-flows 相关风险，应转向真实默认部署的宿主 Web 应用，查找匿名或低权限 HTTP 参数是否直接控制 `RepeatFlow.times(...)`、workflow work unit count、长生命周期 `WorkContext` 或 caller-provided executor。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未把带 `QUARKUS_DATASOURCE_*` 的 PostgreSQL bridge 诊断路径包装成默认部署成功。
+- 新证据表明当前 blocker 已精确推进为：官方 latest 镜像与 README/compose 的 datasource/notifications API 契约不一致；只有当官方镜像重新对齐其文档化 datasource 路径，并真实暴露 `/api/v1/notifications_url` JSON 语义后，通知 WebSocket 的默认动态验证才可继续。
 
-## [2026-06-24] getrebuild/rebuild 应用级静态 DoS 挖掘
+## [2026-08-14] Confirm lamp-cloud has no default-compatible prebuilt fallback path
 
 ### 修改时间
-2026-06-24 12:24
+2026-08-14 02:08
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `getrebuild/rebuild` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Docker 部署、Spring Boot/Tomcat session、Ehcache、匿名白名单、验证码、条码/二维码生成、OpenAPI 网关、登录失败 retry cache、`X-ReqRandom` re-entry cache、任务队列、分享/文件/OnlyOffice/邮件/2FA 等路径。
-- 按用户限定范围排除磁盘存储耗尽、需要特殊配置、生产默认不会开启的安全性配置、管理权限或管理面依赖路径；Ehcache `overflowToDisk` 只作为排除项记录，非磁盘判断以 `maxElementsInMemory=10000` 为边界。
-- 保留 2 个 `likely` 默认匿名候选：拦截器在认证前通过 `ServletUtils.getSessionAttribute` 创建 120 分钟 Tomcat session；匿名 `/commons/barcode/render*` 可由长 `t` 和 `w=1200` 放大 ZXing `BitMatrix`/`BufferedImage` request-burst heap/CPU。
-- 保留 4 个 `needs_dynamic_probe` 候选：`/gw/api/**` 在签名验证前读取并 FastJSON parse raw body；`/user/captcha?k=` 的 session/MobKey 增长；`/user/user-login` 失败路径的 `LoginRetry-*` cache 增长；`X-ReqRandom` 预认证 re-entry cache 增长。
-- 明确拒绝文件/磁盘、admin/setup、OnlyOffice、邮件验证码、2FA/temp-auth/auto-login、登录成功队列、API 日志队列、共享仪表盘 token 依赖、map/mermaid/search/metadata auth-gated 路径、头像和 live-wallpaper 固定 upstream 等高噪声模式。
+- 继续只针对 `dromara__lamp-cloud-FND-001` 复核既有 `environment_blocked` 结论，先重读 case `result/environment/logs/changes` 与批次 `validation_status.jsonl`，确认旧 blocker 已收紧到缺失 sibling `lamp-util` 派生 parent artifact，但仍缺少“是否存在官方替代交付路径”的最终证据。
+- 在不修改业务代码前提下，补做默认兼容 fallback 路径审查：重读仓库 `README.md`、`lamp-dependencies-parent/pom.xml`、`A极其重要/01-docs/docker/03.docker运行项目.md`，枚举仓库内 `jar/compose/Dockerfile` 资产，并额外检查 `dromara/lamp-cloud` 官方 GitHub Releases / Packages 页面是否存在 release、镜像或可下载预构建产物。
+- 新证据表明默认路径没有可替代发布方式：仓库只文档化“先编译整个项目再构建镜像”的路径，明确声明编译顺序必须是 `lamp-util -> lamp-cloud -> lamp-job`；仓库内不存在可直接运行的 gateway jar、也不存在自包含 compose；GitHub Releases 页面明确显示 “There aren’t any releases here”，Packages 页面也未显示任何 `lamp-cloud` 包或镜像。
+- 因此该案继续保留 `environment_blocked`，并把阻塞点精确固定为“默认构建硬依赖缺失的 sibling 资产”：即 `top.tangyh.basic:lamp-parent:5.10.0` 既不在 workspace sibling、也不在配置镜像仓库、也不在本地 Maven 缓存中，同时不存在仓库内或官方发布面上的默认兼容预构建替代路径。同步更新 `result.json`、`environment.md`、`data_prep.md`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`notes.txt`、`changes.jsonl` 与批次 `validation_status.jsonl`，随后重新运行聚合脚本刷新汇总。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/getrebuild__rebuild/`
-- 新增报告：`results/applications_static_analysis/getrebuild__rebuild/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/getrebuild__rebuild/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/getrebuild__rebuild` 源码、`databases/applications/getrebuild__rebuild-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `getrebuild/rebuild` target 信息，以及本地 Maven 缓存中的 `easy-captcha` / `devezhao commons` jar 反编译证据。
-- 对后续工作的影响：后续可优先动态验证 `REBUILD-APP-STATIC-0001` 的匿名 session OOM/GC 门槛和 `REBUILD-APP-STATIC-0002` 的条码渲染 OOM 门槛，再验证 `/gw/api/**` pre-auth JSON parse、captcha/LoginRetry/ReqRandom cache 在默认 Ehcache 和有界堆下是否能造成持续服务不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未伪造 sibling 项目、手工补 parent POM、切换非官方镜像或采用未文档化交付方式来制造 gateway 就绪。
+- 新证据将 lamp-cloud 的默认阻塞点最终固定为：默认构建链硬依赖缺失的 sibling `lamp-util` 派生 parent artifact，且仓库内与官方发布面上都不存在默认兼容的预构建替代路径；只有当官方默认构建所需的 `top.tangyh.basic:lamp-parent:5.10.0` 能通过 sibling 项目正常安装到本地仓库后，Nacos + gateway + downstream swagger baseline 才能继续。
 
----
+## [2026-08-14] Tighten lamp-cloud blocked verdict to unresolved sibling parent artifact
 
-## [2026-06-24] Tencent/APIJSON 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 12:36
+2026-08-14 01:43
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `Tencent/APIJSON` 做只静态资源耗尽 DoS 挖掘，覆盖本地 build-mode DB 实际包含的 `APIJSONORM 8.1.8` jar 模块、Parser/Verifier/SQLExecutor/FunctionParser/script executor 等默认资源面。
-- 按用户限定范围排除磁盘存储耗尽、需要特殊配置、生产部署通常不会开启的安全性配置、管理权限或管理面依赖路径，只判断默认配置下外部请求可能导致的非磁盘资源耗尽。
-- 未发现默认配置下可落为 `confirmed`、`likely` 或需要单独动态验证的外部请求直接 DoS 候选；核心原因是该目标为 ORM library 且无默认 HTTP entry，表访问、query count/page、对象/数组/深度、SQL 数量、where/having/combine 复杂度均有默认边界。
-- 明确拒绝任意表 GET/HEAD 查询、超大 count/page、SQL cache/connection map cardinality、compiledScriptMap、FUNCTION_MAP、REQUEST_MAP、`@combine/@having` CPU、`@explain` 和 raw SQL/SQL function 等高噪声模式。
+- 继续只针对 `dromara__lamp-cloud-FND-001` 做最后一轮默认部署/默认流程口径复核，先重读既有 `result.json`、`environment.md`、共享环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl` 与批次 `validation_status.jsonl`，确认旧 blocker 仍停留在“缺失 sibling lamp-util 项目”的较粗粒度表述。
+- 在不修改业务代码、不引入组外 case 的前提下，补做两次环境修复尝试：其一是按文档化路径重跑 `mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package`；其二是 `-o` 离线重试，验证是否已有可复用的本地 Maven 缓存足以支撑默认构建。
+- 新证据表明 blocker 可进一步收紧：两次 Maven 尝试都在 `lamp-dependencies-parent/pom.xml` 处因 `top.tangyh.basic:lamp-parent:5.10.0` 解析失败而在运行前终止；配置的 `aliyunmaven` mirror 不提供该 parent POM，而本机 `~/.m2/repository/top/tangyh/basic/lamp-parent/5.10.0/` 仅有 `lamp-parent-5.10.0.pom.lastUpdated`，并不存在可复用的已安装 parent artifact。
+- 因此该案继续保留 `environment_blocked`，但把阻塞点从泛化的“缺失 sibling lamp-util 源码树”推进为“默认构建所需的 sibling lamp-util 派生 parent POM 既不在镜像仓库中，也不在本地 Maven 缓存中”；同时保留另一默认前提：即便 Nacos export archive 已随仓库提供，仍需成功构建 gateway 与至少一个下游 swagger 服务才能进入 `/v3/api-docs/swagger-config` 语义预检。同步更新 `result.json`、`environment.md`、`data_prep.md`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`notes.txt`、`changes.jsonl` 与批次 `validation_status.jsonl`。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/tencent__apijson/`
-- 新增报告：`results/applications_static_analysis/tencent__apijson/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/tencent__apijson/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/tencent__apijson` 源码、`databases/applications/tencent__apijson-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `Tencent/APIJSON` target 信息。
-- 对后续工作的影响：如果继续分析 APIJSON 生态，应转向官方 APIJSON-Demo 或真实默认部署集成应用，单独记录 HTTP controller、默认 seed/Access/Request/Function 表和是否修改 `MAX_*`、`ENABLE_SCRIPT_FUNCTION`、`Log.DEBUG`、`needVerify` 或 parser/executor 生命周期。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未通过伪造 sibling 项目、手工补 parent POM、切换非官方构建路径或启用非默认 feature flag 来制造 gateway 就绪。
+- 新证据把 lamp-cloud 的默认阻塞点精确推进为：默认构建链在 sibling lamp-util 派生 parent artifact 缺失处即终止；只有当官方默认构建所需的 `top.tangyh.basic:lamp-parent:5.10.0` 能通过 sibling 项目正常安装到本地仓库后，Nacos + gateway + downstream swagger baseline 才能继续。
 
-## [2026-06-24] diyhi/bbs 应用级静态 DoS 挖掘
+## [2026-08-14] Tighten Rill Flow blocked verdict to JDK cgroup v2 deployment failure
 
 ### 修改时间
-2026-06-24 11:57
+2026-08-14 01:25
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `diyhi/bbs` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 4.0.3、Spring Security 前台/后台边界、JCache/Ehcache、Kaptcha、Lucene 搜索、访问量统计队列、登录失败频控、OAuth token、短信/邮箱验证码、异步线程池和文件/视频跳转等资源 sink。
-- 按用户限定范围排除磁盘存储耗尽、需要特殊安全配置、生产默认不会开启的安全性配置、管理权限或管理面依赖路径。
-- 保留 4 个 `likely` 默认外部请求候选：匿名 `/search` 的无上限 `page` 放大 Lucene `TopDocs`/sort collector；匿名 `/captcha/{captchaKey}` 可向高容量 Ehcache 写入攻击者控制 key；匿名 `/login` 失败路径可制造 `submitQuantity` 高基数缓存键；匿名 `/statistic/add` 可填充进程级 100 万容量 PV 队列。
-- 明确拒绝成功注册后的 OAuth token cache、短信/邮箱验证码、第三方登录、文件/富文本上传、文件下载/视频 redirect、range download、`/control/**` 管理接口、install/upgrade、异步会员卡任务和 hot-topic 去重队列等高噪声路径。
+- 继续只针对 `weibocom__rill-flow-F-001`、`weibocom__rill-flow-F-002`、`weibocom__rill-flow-F-003` 做最后一轮默认部署/默认流程复核，先重读既有 `result.json`、共享环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl`、启动日志与批次 `validation_status.jsonl`，确认旧 blocker 仍停留在较粗粒度的 “Micrometer ProcessorMetrics NPE”。
+- 在不修改业务代码、不启用非默认 feature 的前提下，补做一轮运行时兼容性诊断：继续保留官方 compose、官方镜像与仅隔离 host 端口的部署口径，同时新增官方镜像 `--cgroupns=host` + `/sys/fs/cgroup:ro` 诊断采样，记录镜像内 `/proc/self/cgroup`、`/proc/self/mountinfo` 与 `/sys/fs/cgroup` 视图到 `cgroup_diag_20260814.txt`。
+- 新证据把 blocker 收紧为默认镜像/JDK/运行时组合问题：`weibocom/rill-flow:latest` 内置 OpenJDK `17.0.2+8-86` 在当前 cgroup v2 + systemd scope 宿主布局下始终把 controller 解析为空，先在 OpenTelemetry runtime metrics 初始化阶段抛错，再在 Spring Boot Micrometer `processorMetrics` bean 创建时以同一 `anyController=null` 终止 webapp 部署；即便容器状态保持 `running`，最终对 `http://127.0.0.1:18083/flow/bg/manage/descriptor/get_business.json` 的探测也只得到 TCP reset，而不是可用 HTTP 响应。
+- 因此三案继续保留 `environment_blocked`，但阻塞点已从“backend 启动失败”推进为“官方默认镜像绑定的 OpenJDK 17.0.2 无法在当前 cgroup v2/systemd scope 运行时完成部署”；同步更新三份 `result.json`、三份 `environment.md`、共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 与批次 `validation_status.jsonl`，随后重新运行聚合脚本刷新汇总。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/diyhi__bbs/`
-- 新增报告：`results/applications_static_analysis/diyhi__bbs/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/diyhi__bbs/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-001`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-002`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/weibocom__rill-flow-F-003`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/diyhi__bbs` 源码、`databases/applications/diyhi__bbs-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `diyhi/bbs` target 信息。
-- 对后续工作的影响：后续可优先动态验证 `DIYHI-BBS-APP-STATIC-0004` 的匿名 PV 队列 heap/OOM 门槛和 `DIYHI-BBS-APP-STATIC-0001` 的 Lucene page 放大 OOM/GC 门槛，再验证 captcha cache 和 login submitQuantity cache 在默认 JCache/Ehcache、有界堆下是否能造成持续服务不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未通过禁用 tracing、关闭 metrics、切换非官方镜像或引入非默认 feature flag 来制造 backend 就绪。
+- 新证据表明三条候选路径当前都被同一个默认镜像/JDK/cgroup 兼容性问题阻断；只有当官方镜像或宿主运行时允许该镜像不改行为地完成 Spring Boot/Tomcat 部署后，cron trigger、Kafka trigger 与 foreach submit 的默认语义预检才可继续。
 
----
+## [2026-08-14] Tighten Cryostat blocked verdict to packaged datasource bootstrap failure
 
-## [2026-06-24] Yiuman/citrus 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 11:33
+2026-08-14 01:11
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `Yiuman/citrus` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 2.5.2、Spring Security/JWT、验证码 session repository、全局 request wrapper、匿名登录、CRUD/Excel/文件/工作流等资源 sink。
-- 按用户限定范围排除磁盘存储耗尽、需要特殊安全配置、生产默认不会开启的安全性配置、管理权限或管理面依赖路径。
-- 保留 1 个 `likely` 默认匿名候选：`/rest/verify/captcha` 可创建新 `HttpSession` 并保留 `Captcha/BufferedImage`，默认未见 session 数、每 IP 或速率边界。
-- 保留 1 个 `needs_dynamic_probe` 默认匿名候选：`/rest/authenticate` JSON body 在全局 `RequestWrapperFilter` 和认证 `JsonServletRequestWrapper` 中被完整缓存、复制和 Jackson 解析，可能造成 request-burst heap/CPU 压力。
-- 明确拒绝 base64image、sms verify no-op、Redis verify store 特殊配置、文件上传、CRUD import/export、流程部署、ThreadUtils bounded queue 和 CrudHelper class-key cache 等高噪声路径。
+- 继续只针对 `cryostatio__cryostat-legacy-F-WS-001` 做最后一轮默认部署/默认流程口径复核，先重读既有 `result.json`、环境 `inventory/feasibility/readiness/snapshot`、`changes.jsonl` 与失败日志，再确认旧 blocker 仍停留在“datasource 未激活 / build-time db-kind 不匹配”的较粗粒度表述。
+- 在不修改业务代码、不引入组外 case 的前提下，补做两条最终官方镜像路径验证：其一是仓库 `run-docker.sh` 等价的 `NoopAuthManager` 路径；其二是按 `smoketest-docker.sh` 文档化方式补齐 `cryostat-users.properties` 后的 `BasicAuthManager` 路径。两条路径都继续保留隔离端口、官方镜像、官方 bind-mount 目录和仅为满足打包运行时所需的有界 `QUARKUS_S3_*` 值。
+- 新证据表明 blocker 可进一步收紧：在 `quarkus.s3.*` 已补齐后，官方镜像不仅会拒绝此前已见的 README 支持 H2 file URL，连 README 明确支持的 H2 mem URL 也会在 Noop 与带文档化用户文件的 BasicAuth 两条官方路径上，被打包镜像内置 Agroal/Flyway 一致报出 `Driver does not support the provided URL`；容器均在 `/health` 绑定前退出，`/api/v1/notifications_url` 与通知 WebSocket 始终不可达。
+- 因此保留 `environment_blocked`，但把阻塞点从“缺少默认 BasicAuth 用户文件/Quarkus datasource 未激活”推进为“官方镜像打包的 datasource/Flyway 启动链对 README 支持的 H2 file 与 H2 mem URL 都不可用”，并同步更新 `result.json`、`environment.md`、`data_prep.md`、共享环境 `feasibility/readiness/snapshot/changes`、批次 `validation_status.jsonl` 与 `blocked_or_rejected.jsonl`。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/yiuman__citrus/`
-- 新增报告：`results/applications_static_analysis/yiuman__citrus/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/yiuman__citrus/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/yiuman__citrus` 源码、`databases/applications/yiuman__citrus-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `Yiuman/citrus` target 信息。
-- 对后续工作的影响：后续可优先动态验证 `CITRUS-APP-STATIC-0001` 的 session/heap OOM 门槛，再比较 `CITRUS-APP-STATIC-0002` 在 backend 8080 直连和 nginx 80 代理路径下的大 JSON body request-burst 行为。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未通过非默认 feature flag、关闭鉴权或自定义 sibling 资产绕过默认路径。
+- 新证据证明即便按官方 `smoketest-docker.sh` 口径补齐 BasicAuth 用户文件，真正阻塞点仍位于官方镜像自身打包的 datasource/Flyway 启动链，因此当前默认镜像无法进入 WebSocket 语义预检阶段。
 
-## [2026-06-24] hiparker/opsli-boot 应用级静态 DoS 挖掘
+## [2026-08-14] Tighten OpenMeetings blocked verdict from room preconditions to office-conversion environment
 
 ### 修改时间
-2026-06-24 11:33
+2026-08-14 00:55
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `hiparker/opsli-boot` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 3.4.6、默认 `local` profile、匿名登录/验证码/common create-code 入口、默认 WAF、`@Limiter`、Redis captcha/verification-code key、SMTP/SMS 同步调用、Druid、multipart、Excel、代码生成和登录失败计数等路径。
-- 按用户限定范围排除磁盘存储耗尽、生产中不会开启或属于监控/管理面的 Druid 路径、需要管理权限的后台业务接口、上传/Excel/代码生成文件面，以及默认不启用的 WAF SQL filter。
-- 未发现默认配置下可静态确认的 `confirmed` 非磁盘资源耗尽 DoS。
-- 保留 1 个 `likely` 默认匿名候选：默认 WAF 对匿名 JSON request body 完整读入 `String`、执行多轮 XSS regex/string 处理并再创建 `byte[]` / `ByteArrayInputStream`，可造成 request-burst heap/CPU 压力。
-- 保留 3 个 `needs_dynamic_probe`：匿名 `/captcha` Redis key 增长与 spoofable header 限流绕过支撑、匿名 email/mobile create-code 的 5 分钟 Redis key 与同步外部 I/O、`@Limiter` 进程级 cache 可被 spoofed IP header 填充到 100000/5 分钟边界。
-- 明确拒绝登录失败任意 username Redis key 增长、`/system/slipCount`、`/api/*/common/public-key`、Druid、multipart/upload/static file、Excel、代码生成、Swagger/doc 和 WAF 参数/header 过滤 standalone finding。
+- 只针对 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` 继续执行最后一轮默认部署/默认流程口径复核，先重读既有 `result.json`、`environment.md`、`data_prep.md`、`preflight.json`、`observations.json`、共享环境 `readiness/feasibility/inventory/snapshot` 与运行日志，确认旧 `precondition_blocked` 描述已经落后于最新证据。
+- 复核结果表明默认业务前置其实已经补齐：默认 H2 安装和前后台登录均已成功；通过默认 service API 创建 public non-moderated room 后，low-privilege external attendee 已经经正常 `/hash` UI/WebSocket 流程进入房间，页面真实暴露 `omws-upload-sid`，且同源 benign `.docx` `POST /openmeetings/room/file/upload` 返回 `{"status":"SUCCESS","message":"OK"}`。
+- 新终态阻塞不再是 presenter 会话或 room SID，而是默认转换环境：accepted office 文档进入 `DocumentConverter` 后，`openmeetings.log` 记录 `doJodConvert` 在 `DocumentConverter.createOfficeManager()` 处抛出 `java.lang.NullPointerException: officeHome must not be null`；同时宿主侧 `command -v libreoffice` 与 `command -v soffice` 均为空，说明当前 documented source-build release runtime 未自动发现 LibreOffice/OpenOffice，也未完成 `path.office` bootstrap。
+- 因此将该 case 从 `precondition_blocked` 收紧推进为 `environment_blocked`，并同步改写 `result.json`、`case_plan.json`、`environment.md`、`data_prep.md`、共享环境 `readiness.json`、`feasibility.json`、`inventory.json`、`snapshot.json`、`changes.jsonl` 与批次 `validation_status.jsonl`，使 blocker 精确落到默认 office conversion 依赖缺失，随后重新运行聚合脚本刷新批次汇总。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/hiparker__opsli-boot/`
-- 新增报告：`results/applications_static_analysis/hiparker__opsli-boot/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/hiparker__opsli-boot/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- 环境目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/hiparker__opsli-boot` 源码、`databases/applications/hiparker__opsli-boot-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `hiparker/opsli-boot` target 信息。
-- 对后续工作的影响：后续可优先动态验证 `OPSLI-BOOT-APP-STATIC-0001` 的默认匿名 JSON/WAF heap 与 regex CPU 门槛，再验证 `/captcha` 和 create-code Redis/限流/外部 I/O 在默认 Redis/MySQL 与受限 heap 下是否能造成持续服务不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未通过手工设置 `path.office`、安装非文档化自定义组件或绕过默认 room/upload 鉴权来制造成功。
+- 新证据将 OpenMeetings 的剩余 blocked 点从“默认 low-privilege presenter/room 前置未补齐”精确推进为“默认 source-build release runtime 缺少可用 office conversion bootstrap，因此 accepted upload 在进入真正 worker 压力前即失败”。
 
----
+## [2026-08-14] Re-drive Airavata default launch and bounded file-download preflight
 
-## [2026-06-24] javamelody/javamelody 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-24 10:27
+2026-08-14 00:35
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `javamelody/javamelody` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `MonitoringFilter /*`、Spring Boot starter 默认启用、默认 `/monitoring`、JVM 诊断报告、`system-actions-enabled`、`HttpAuth` 默认开放语义和 `javamelody-collector-server` 注册面。
-- 按用户限定范围排除磁盘存储耗尽、需要特殊安全配置、生产中不会默认开启的管理端点配置、管理破坏动作以及宿主应用自身会话/业务状态增长。
-- 未发现默认配置下可静态确认的 `confirmed` 或 `likely` 非磁盘资源耗尽 DoS。
-- 保留 3 个 `needs_dynamic_probe`：默认 HTTP counter request-name cardinality burst、默认开放 `/monitoring` 昂贵 JVM 诊断请求、collector-server 默认 POST 注册面驱动 registry/周期采集负载增长。
-- 明确拒绝 random 404 path、query string cardinality、Spring route variable 聚合后路径、JavaMelody 固定 session metadata、heap dump、RRD/serialized 文件、`authorized-users`、`allowed-addr-pattern`、management endpoint monitoring、mail/exporters/custom reports/sampling 和 clear/kill/pause 等管理动作。
+- 继续只针对 `apache__airavata-FND-200-1` 复核既有 `precondition_blocked` 结论，先重读该 case 的 result/environment/data-prep/log 工件，再在不修改业务代码、不启用非默认 feature 的前提下，重新尝试默认部署与默认流程口径下的实验/文件前置补齐。
+- 新证据表明真正可行的默认路径不是 host-side `AiravataOperator.make_experiment_dir()`：该 SDK 路径仍会把 `default-admin` bearer token 当作 SFTP 密码而失败；但默认 server-side `LaunchExperiment` 会按 seeded storage preference 的 `login_user_name=airavata` 成功创建实验目录、启动 Echo 作业并产出 own-process `Echo.stdout` 文件。
+- 随后完成了目标入口的语义预检：`GET /api/v1/files/list/false/{processId}` 与 `GET /api/v1/files/download/false/{processId}/Echo.stdout` 在 bearer token 下均返回 200，服务端日志明确记录 `AirvataFileService` 通过 SFTP 下载远端 `Echo.stdout` 到本地临时文件后再由 `FileController` 返回响应，说明静态候选路由已真实可达。
+- 在默认路径上执行单轮有界小文件下载爬坡（33B / 129B / 241B 响应体），同步记录 `docker stats` 与健康检查；Airavata 容器内存稳定在约 1.278-1.282 GiB，健康始终 200，未出现 OOM、重启、持续 5xx 或持续不可用，因此该案从 `precondition_blocked` 推进为 `not_reproduced_under_tested_bounds`。
+- 同时记录新的默认业务上界：继续放大同一 seeded Echo 路径时，`CreateExperiment` 会先被默认数据库 `RESEARCH_IO_PARAM.PARAM_VALUE=tinytext` 拦截，1024B 及以上输入直接报 `Data too long`，因此本轮未再进入更大下载压力阶段。
+- 同步更新该 case 的 `result.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`、新增 `rounds/round-1/` 工件，并回写批次 `validation_status.jsonl`，准备重新运行聚合脚本刷新共享汇总报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/javamelody__javamelody/`
-- 新增报告：`results/applications_static_analysis/javamelody__javamelody/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/javamelody__javamelody/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/javamelody__javamelody` 源码、`databases/applications/javamelody__javamelody-db`、项目内 `skills/java-web-dos-hunter`、应用 manifest 中的 `javamelody/javamelody` target 信息。
-- 对后续工作的影响：后续可优先动态验证 `JAVAMELODY-APP-STATIC-0001` 的 60 秒/10000 清理前 burst heap 门槛，再验证默认 `/monitoring` 诊断请求和 collector-server 注册面在受限 heap 下是否能造成持续服务不可用。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未关闭鉴权、伪造 portal、改 seed 或启用非默认配置来制造成功。
+- 新证据把 Airavata 的默认阻塞结论推进为真实可执行后的终态：默认 server-side launch 与文件下载链路可达，但在当前默认 seeded Echo 业务路径下，只观察到有界小文件成功下载，未观察到资源耗尽；更大的同路径输入会先命中默认数据库 tinytext 上界。
 
-## [2026-06-24] yangzongzhuan/RuoYi-Vue-fast 应用级静态 DoS 挖掘
+## [2026-08-14] Remove GitHub attestation fallback from full-mode local commit verification
 
 ### 修改时间
-2026-06-24 10:16
+2026-08-14 00:18
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `yangzongzhuan/RuoYi-Vue-fast` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 2.5.15、Spring Security/JWT、Redis captcha/token、Swagger 测试控制器、全局 JSON repeatable filter、异步登录日志、上传/Excel/缓存监控等资源 sink。
-- 按用户限定范围排除磁盘存储耗尽、默认关闭注册、需要管理权限的 Excel/Redis monitor/Quartz/代码生成路径，以及特殊配置或管理面依赖路径。
-- 保留 2 个 `likely` 默认外部请求候选：低权限 `/test/user/save` 可向进程级 static `LinkedHashMap` 持续写入可控 `UserEntity`；匿名 JSON 请求在全局 `RepeatableFilter` 中被完整读入 `StringBuilder` 并复制为 `byte[]`，默认匿名 `/login` 可触发 request-burst heap 压力。
-- 保留 3 个 `needs_dynamic_probe` 候选：匿名 `/captchaImage` 短 TTL Redis key 增长、匿名登录失败异步日志任务队列压力、成功登录生成 30 分钟 Redis token key。
-- 明确拒绝上传/头像、Excel import/export、Redis cache monitor、Quartz、代码生成、Druid、referer filter、默认关闭 `/register` 等高噪声路径，避免将磁盘存储、管理面或默认关闭功能误报为默认直接 DoS。
+- 继续收紧 `dosweb/llm/deepseek.py` 的 provenance 逻辑：即使旧 `batch_plan.json` 或 target capability 仍带有 `public_source_url`，full 模式也不再回退到 GitHub API 做 public-source attestation，而是统一只验证本地 `source_checkout + source_commit_sha` 的 clean commit 绑定。
+- 同步修正 `dosweb/llm/cache.py` 与 request audit 写入逻辑，确保缓存身份、审计字段和新的本地 commit 证明口径一致，避免 `invalid cache entry` 回归。
+- 新增 `tests/test_deepseek_client.py` 回归测试，覆盖“带 `public_source_url` 但仍只走本地 commit 校验且不访问 GitHub API”的场景。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/yangzongzhuan__ruoyi-vue-fast/`
-- 新增报告：`results/applications_static_analysis/yangzongzhuan__ruoyi-vue-fast/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/yangzongzhuan__ruoyi-vue-fast/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/deepseek.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/cache.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_deepseek_client.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/yangzongzhuan__ruoyi-vue-fast` 源码、项目内 `skills/java-web-dos-hunter`、默认 `application.yml` / `application-druid.yml` / `sql/ry_20260417.sql` 配置证据。
-- 对后续工作的影响：后续可优先动态验证 `RYVF-APP-STATIC-0001` static map heap/OOM 门槛和 `RYVF-APP-STATIC-0002` 匿名大 JSON body request-burst OOM 门槛，再按需验证 Redis captcha/token 与 async login-log 队列的真实服务不可用条件。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 旧 plan 无需重建也能直接受益；只要本地 checkout 和 commit 可验证，full batch 就不会再被 GitHub provenance 卡住。
 
----
+## [2026-08-13] Re-drive Bonita low-privilege default bootstrap and upload probe
 
-## [2026-06-23] prometheus/jmx_exporter 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-23 23:17
+2026-08-14 00:10
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `prometheus/jmx_exporter` 做只静态资源耗尽 DoS 挖掘，覆盖 Java agent / standalone HTTP mode、默认 `/metrics`、JMX scrape、Prometheus exposition、HTTP worker pool、MBean/rule cache、Basic auth 和 SSL/OpenTelemetry 等配置依赖路径。
-- 按用户限定范围排除磁盘存储耗尽、需要生产中不会默认开启的安全配置、特殊启动参数、管理权限或非外部 HTTP 请求驱动的问题。
-- 未发现默认配置下可由外部 HTTP 请求直接导致 confirmed / likely 非磁盘资源耗尽 DoS 的候选。
-- 保留 1 个低可信 `needs_dynamic_probe`：匿名 `/metrics` 可重复触发完整 JMX scrape、per-request response encoding 和最多 10 个默认 worker 占用，但线程/队列有硬边界，资源规模主要由目标 JVM MBean/属性集合和配置决定，不由 HTTP 输入制造长生命周期状态。
-- 明确拒绝 `name[]`、`debug`、`Accept`、`Accept-Encoding`、MBean/rule cache、Basic auth credential cache / PBKDF2、SSL reload、OpenTelemetry 和 isolator 多实例等高噪声路径。
+- 只针对 `bonitasoft__bonita-engine-FND1` 继续复核既有 `auth_blocked` 结论，重读该 case 的 `result.json`、preflight、environment 工件与 Bonita 默认权限/REST 路径源码，不修改业务代码、不启用非默认 feature、不用管理员账号直接代替低权限攻击者。
+- 在官方 `bonita:latest` 默认镜像与兼容 Postgres companion 的隔离复现环境中，确认首次阻塞并非“默认流程无法得到普通用户”，而是默认镜像只暴露 `install/install` bootstrap 技术账号、不会自动 seed 组织成员；但该默认 bootstrap 账号可通过内置 `API/identity/{group,role,user,membership}` 与 `API/portal/profileMember` 路径完成最小组织初始化，创建普通非管理员 `lowuser` 并赋予默认 `User` profile。
+- 进一步以该 `lowuser` 完成语义预检：`GET /portal/fileUpload` 对低权限用户返回 403，但静态入口对应的 `POST /portal/fileUpload` multipart 上传在默认会话下返回 200，因此真正相关的是已认证 POST 语义，而不是 GET 页面访问。
+- 在低权限账号下执行有界 multipart part-count 爬坡（1 / 100 / 400 个 16B 文本 part），同步记录容器内存与 HTTP 可用性；三轮请求全部 200，Bonita 容器内存维持在约 459-460 MiB，未触发 OOM、重启、持续 5xx 或持续不可用，因此该案从 `auth_blocked` 收紧改判为 `not_reproduced_under_tested_bounds`。
+- 同步更新该 case 的 `case_plan.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`、`result.json`、新增 `round-2/` 工件，并回写批次 `validation_status.jsonl`，准备重新运行聚合脚本刷新共享汇总报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/prometheus__jmx_exporter/`
-- 新增报告：`results/applications_static_analysis/prometheus__jmx_exporter/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/prometheus__jmx_exporter/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/bonitasoft__bonita-engine-FND1`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/prometheus__jmx_exporter` 源码、`databases/applications/prometheus__jmx_exporter-db`、项目内 `skills/java-web-dos-hunter`、本地 Maven 缓存中的 `io.prometheus:prometheus-metrics-exporter-common:1.8.0` bytecode 用于 `javap` 复核。
-- 对后续工作的影响：后续如需动态验证，可只聚焦匿名 `/metrics` 并发 scrape 在默认 Java agent / standalone HTTP mode 下的 worker 饱和、heap/GC 峰值、remote JMX 连接占用和持续可用性。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未通过管理员账号直接充当攻击者、关闭鉴权、恢复非默认行为或注入自定义 seed 制造成功。
+- 新证据将 Bonita 的默认阻塞点从“拿不到普通账号”精确收紧为：默认镜像不会自动给出普通用户，但 bootstrap 管理员可经内置默认组织/profile API 创建最小低权限账号；即便如此，在当前有界 part-count 与单请求测试范围内仍未复现动态资源耗尽。
 
-## [2026-06-23] TaleLin/lin-cms-spring-boot 应用级静态 DoS 挖掘
+## [2026-08-13] Tighten Airavata dynamic precondition blocker semantics
 
 ### 修改时间
-2026-06-23 23:01
+2026-08-13 23:59
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `TaleLin/lin-cms-spring-boot` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot 2.5.2、Lin CMS starter 鉴权、匿名 `/v1/book`、登录、multipart、日志、WebSocket 和管理接口。
-- 按用户限定范围排除磁盘存储耗尽、需要管理权限、需要特殊安全配置或默认未启用的路径；不把 DB/disk 持久增长本身作为漏洞结论。
-- 保留 1 个 `likely` 默认外部请求候选：匿名 `/v1/book` 可写入 bounded-size 记录，随后匿名全量列表/LIKE 搜索无分页，造成请求期 MyBatis/Jackson heap、DB scan 和响应字节放大。
-- 保留 1 个 `needs_dynamic_probe` 候选：默认验证码关闭且无登录限速，`/cms/user/login` 对已有用户名执行 PBKDF2-SHA256 64000 轮密码校验，密码字段缺少长度上限。
-- 明确拒绝 `/cms/file` 上传、WebSocket session set、管理/日志分页、权限结构化 Map、MDC/ThreadLocal 和默认关闭 captcha 等高噪声路径，避免把权限依赖、特殊配置或磁盘存储误报为默认直接 DoS。
+- 继续复核 `apache__airavata-FND-200-1` 的既有 `precondition_blocked` 证据，只沿默认文档化 quickstart、默认 Keycloak、默认 SDK 和现有 companion services 检查是否还能补齐 Echo 实验/项目/文件前置，不修改业务代码。
+- 新增宿主侧与容器网络内认证探测工件，明确区分两类现象：宿主 `127.0.0.1:18080` 并未暴露可直接使用的 Keycloak token endpoint；但在默认 Docker 网络内，`keycloak:18080` 可成功签发默认 `pga` client 的 token，且该 token 能通过 gRPC 成功枚举 seeded `Default Project`，说明默认 API 认证链本身并未缺失。
+- 进一步以容器内 `AiravataOperator` 复核默认 SDK 业务链：`get_project_id("Default Project")` 与 `get_preferred_storage()` 都成功返回，且 seeded storage preference 明确解析到 `storage_resource_id=sftp_877f4ac0-0670-4d4e-94dc-726ab14db77a`、`login_user_name=airavata`、`root=/storage`；真正阻塞发生在 `make_experiment_dir()`，SDK 默认以 `username=default-admin` 且 `password=<bearer token>` 对 `sftp:22` 做 Paramiko 认证并返回 `Authentication failed`，因此实验目录、进程文件与下载路由预检仍无法建立。
+- 保留并收紧另一条阻塞：README 文档化的 portal UI 备选路径仍依赖 sibling `airavata-portals` 仓库，而当前 worker 主机缺失 `/home/furina/new_tool/airavata-portals`，因此无法通过该默认 UI 流程补齐 Echo 实验。
+- 同步更新该 case 的 `result.json`、批次 `validation_status.jsonl` 与证据路径，并准备重新运行聚合脚本刷新共享汇总。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/talelin__lin-cms-spring-boot/`
-- 新增报告：`results/applications_static_analysis/talelin__lin-cms-spring-boot/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/talelin__lin-cms-spring-boot/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/talelin__lin-cms-spring-boot` 源码、`databases/applications/talelin__lin-cms-spring-boot-db`、项目内 `skills/java-web-dos-hunter`、本地 Maven 缓存中的 Lin CMS starter/core 与 JHash jar 用于 `javap` 鉴权和 PBKDF2 证据。
-- 对后续工作的影响：后续可优先动态验证匿名 `/v1/book` 无分页结果物化在默认 heap/MySQL 下的服务不可用门槛，再验证登录 PBKDF2 CPU/thread 饱和风险。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未通过关闭鉴权、伪造 portal、手工改 seed、替换 storage 凭据或引入非默认 feature flag 制造成功。
+- 新证据把该案阻塞点从泛化的“默认 SDK 路径缺认证”收紧为：默认 API 鉴权可达，但默认 SDK/seeded storage preference 组合无法为 `default-admin` 建立实验目录所需的 SFTP 认证；同时文档化 UI 备选路径所需 sibling portal 资产缺失。
 
----
+## [2026-08-13] Re-drive OpenMeetings install-to-login transition
 
-## [2026-06-23] LinShunKang/MyPerf4J 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-23 22:59
+2026-08-13 23:59
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `LinShunKang/MyPerf4J` 做只静态资源耗尽 DoS 挖掘，覆盖默认 JavaAgent bootstrap、内置 JDK `HttpServer`、`/switch/debugMode`、HTTP parser、method tag/recorder、Influx exporter 和官方默认配置模板。
-- 按用户限定范围排除磁盘存储耗尽、特殊 exporter 配置和非外部请求驱动路径；不把本地类加载、metrics 日志文件或 InfluxDB 配置依赖路径表述为默认应用 DoS。
-- 保留 1 个 `likely` 默认外部请求候选：默认内置 HTTP server 在 dispatcher 路由判断前对匿名 POST body 执行无应用层大小限制的全量堆内读取。
-- 保留 1 个 `needs_dynamic_probe` 候选：默认 `max_workers=2` 的内置 HTTP server 可能被慢速/大 body POST 占用导致管理 HTTP 面不可用。
-- 明确降级 query/header request-local 解析，并拒绝 method registry、recorder arrays、scheduler queue、Influx async queue 等高噪声路径。
+- 只针对 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` 继续沿文档化 source-build release package / 默认 H2 安装路径排查，不修改业务代码、不切换部署模型。
+- 复读既有 case/environment 工件、运行日志、访问日志与默认 `persistence.xml` 后，确认此前“日志 ready 但前台仍回 install”的根因不是默认 H2 永久不可安装，而是 `startup.sh` 与 `admin.sh` 共用 `jdbc:h2:./omdb`：当二者从不同工作目录执行时，会各自落到不同的相对 H2 文件。
+- 在同一 release runtime 目录内重跑 `./bin/startup.sh` 与 `./admin.sh -i ...` 后，runtime-local `omdb.mv.db` 明确增长，`GET /openmeetings/signin` 返回 200 登录页，前台 `POST /openmeetings/signin` 对 `omadmin` 返回 302 到 `.`，REST `POST /openmeetings/services/user/login` 也返回成功 SID，证明默认安装态已真正推进到可登录前台。
+- 同时收紧该案终态：当前已不再是 `environment_blocked`，而是 `precondition_blocked`。剩余阻塞点是默认低权限 presenter 业务前置仍未补齐——尚未通过默认 room UI/WebSocket 流程建立 low-privilege presenter 房间会话并捕获实时 `omws-upload-sid`，因此仍不能合法执行 `/room/file/upload` 动态探测。
+- 同步更新该 case 的 `result.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`，共享环境 `readiness.json`、`changes.jsonl`，以及批次 `validation_status.jsonl`，并准备重新运行聚合脚本刷新汇总报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/linshunkang__myperf4j/`
-- 新增报告：`results/applications_static_analysis/linshunkang__myperf4j/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/linshunkang__myperf4j/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`
+- environment 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/linshunkang__myperf4j` 源码、`databases/applications/linshunkang__myperf4j-db`、项目内 `skills/java-web-dos-hunter`、README 指向的官方 `MyPerf4J-3.x.properties` 默认配置模板。
-- 对后续工作的影响：后续可优先动态验证 `MYPERF4J-APP-STATIC-0001` 的默认 JavaAgent HTTP body OOM/GC death 门槛，再验证慢 body 对 `2048` 内置 HTTP server worker 的占用效果。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未通过关闭安全控制、管理员替代低权限攻击模型或非默认 feature flag 制造成功。
+- 新证据把 OpenMeetings 的默认阻塞点从“安装未完成”收紧为“安装与管理员登录已成功，但 low-privilege presenter 房间会话 / `omws-upload-sid` 业务前置仍缺失”。
 
-## [2026-06-23] tianshiyeben/wgcloud 应用级静态 DoS 挖掘
+## [2026-08-13] Re-drive Openfire default autosetup and BOSH preflight
 
 ### 修改时间
-2026-06-23 22:29
+2026-08-13 23:59
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `tianshiyeben/wgcloud` 做只静态资源耗尽 DoS 挖掘，覆盖默认 Spring Boot server、`AuthRestFilter`、agent 上报 API、公众看板和登录/static allowlist。
-- 按用户限定范围排除磁盘存储耗尽、管理权限路径和特殊配置路径；不把 DB 行/日志/监控表增长作为主问题。
-- 保留 2 个 `likely` 默认外部请求候选：未登录请求在鉴权前创建 120 分钟服务端 session；默认共享 token 的 `/agent/minTask` 通过 raw JSON 解析、实体列表化和 `BatchData` 静态列表造成 heap/batch-copy 压力。
-- 保留 1 个 `needs_dynamic_probe` 数据依赖候选：公众看板 `dashView` 放行后，`pageSize` 可放大已有监控数据的分页物化和 per-host 明细查询。
-- 明确降级 `/appInfo/agentList`、告警邮件线程池、后台 CRUD、验证码和登录暴力等高噪声路径，避免将管理面、邮件配置依赖或磁盘持久增长误报为默认直接 DoS。
+- 只针对 `igniterealtime__openfire-F0154` 继续沿官方 GHCR 镜像与仓库 `documentation/install-guide.html` 的文档化 autosetup 路径排查，不修改业务代码，不切换非官方镜像，也不关闭任何安全/资源控制。
+- 复盘第一次 case-local autosetup 失败后，进一步提取官方镜像 `/sbin/entrypoint.sh` 与默认 `conf_org`/`security_org` 布局，确认此前的空指针并非“autosetup 本身不可用”，而是第一次修复只替换了 `conf/openfire.xml`，却没有保留镜像默认 `conf/security.xml` 与 `conf/security/` 资产，导致 `JiveGlobals.setupPropertyEncryptionAlgorithm` 在旧算法值为空时崩溃。
+- 新建第二个 case-local `/var/lib/openfire` 数据目录，保留镜像默认 `conf/security.xml`、`conf/security/`、`crowd.properties` 等 entrypoint 期望资产，仅按文档化 autosetup 方式替换 `conf/openfire.xml`。在该布局下，官方镜像成功完成 embedded-database setup、安装 schema，并明确记录 `HTTP bind service started`。
+- 在修通后的默认兼容环境上完成匿名 `/http-bind/` 语义预检：最小有效 BOSH POST 返回 200 且包含正常 `stream:features`。随后执行 3 个单请求体爬坡（128KiB、512KiB、1MiB），分别记录 JVM RSS 与 `docker stats` 容器内存，结果仅出现小幅正增长，未触发 OOM、重启、请求拒绝或持续不可用，因此该案从 `environment_blocked` 改为 `observed_growth_not_confirmed`。
+- 同步更新该 case 的 `result.json`、`reflection.jsonl`、`environment.md`、`data_prep.md`，共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl`，以及批次 `validation_status.jsonl`，并准备重新运行聚合脚本刷新汇总报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/tianshiyeben__wgcloud/`
-- 新增报告：`results/applications_static_analysis/tianshiyeben__wgcloud/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/tianshiyeben__wgcloud/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅新增静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/igniterealtime__openfire-F0154`
+- environment 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/igniterealtime__openfire-default`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/tianshiyeben__wgcloud` 源码、`databases/applications/tianshiyeben__wgcloud-db`、项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可优先动态验证匿名 session retention 和默认 token `/agent/minTask` heap/OOM 门槛，再确认 `dashView: yes` 运行时绑定和公众看板 `pageSize` 数据依赖风险。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未通过管理员-only 路径、非默认 feature flag 或关闭安全控制制造成功。
+- 新证据将 Openfire 的默认安装阻塞点从“官方 autosetup 空指针”精确收紧为“第一次 case-local bootstrap 缺失镜像默认 security 资产”；一旦按官方 entrypoint 预期保留这些资产，默认文档化 autosetup 即可成立，后续阻塞不再是环境，而是仅观察到 bounded growth、尚未达到动态确认阈值。
 
----
+## [2026-08-13] Re-drive rill-flow default-image startup failure group
 
-## [2026-06-23] erupts/erupt 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-23 22:12
+2026-08-13 23:59
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `erupts/erupt` 做只静态资源耗尽 DoS 挖掘，覆盖官方 sample 默认配置、Spring MVC `/erupt-api` 管理 API、UPMS 验证码/登录、默认操作日志过滤器、AI MCP SSE、Excel、Terminal 和 WebSocket。
-- 按用户限定范围排除磁盘存储耗尽、需要管理权限或特殊配置的路径；默认保留非磁盘资源候选，不把静态增长路径表述为已确认 DoS。
-- 保留 3 个 `likely` 候选：匿名 `/erupt-api/code-img` 的 `height` 参数驱动 EasyCaptcha `BufferedImage` 堆分配；默认操作日志过滤器在鉴权前复制 `/erupt-api` JSON body 且可能在线程本地变量中滞留；官方 sample 默认开启的 `/mcp/sse` 匿名连接每连接创建 executor/scheduler 线程并使用无超时 emitter。
-- 明确拒绝或降级 Excel POI 导入/导出、Terminal PTY、普通 WebSocket session map、数据分页和文件上传等高噪声路径，避免将权限依赖、磁盘存储或通用连接生命周期误报为默认直接 DoS。
+- 继续复核 `weibocom__rill-flow-F-001`、`weibocom__rill-flow-F-002`、`weibocom__rill-flow-F-003` 的既有 blocked 原因、环境工件与默认 compose 路径，只允许默认部署、隔离端口/资源、文档化 companion services 和行为中性的运行时兼容修复，不修改业务代码、不关闭安全控制。
+- 在此前已修复 host 端口冲突与 MySQL `setup.sql` 可读性的基础上，确认官方 `weibocom/rill-flow:latest` backend 仍会在默认镜像启动链内于 Spring Boot 2.7 / Micrometer `ProcessorMetrics` 初始化阶段触发 `jdk.internal.platform.cgroupv2.CgroupV2Subsystem.getInstance` 的 `anyController` 空指针，导致 `processorMetrics` bean 创建失败，HTTP 路由始终无法 ready。
+- 新增一次兼容性重试：复用同一默认 companion services、相同环境变量和官方镜像，仅额外施加 `--cgroupns=host` 与只读 `/sys/fs/cgroup` 挂载，验证是否是容器 cgroup 可见性问题。结果该重试仍复现同一 `anyController null -> processorMetrics` 崩溃，说明阻塞点不是启动顺序、伴随服务缺失或简单 cgroup namespace 可见性，而是官方默认镜像内 OpenJDK 17.0.2 与当前 cgroup v2 宿主组合下的运行时缺陷。
+- 同步更新共享环境 `feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 与三个 case 的 `result.json`、`reflection.jsonl`、批次 `validation_status.jsonl`，将 blocked 语义进一步收紧为“默认镜像/运行时组合缺陷导致 backend 无法进入语义预检”，并准备重新运行聚合脚本刷新汇总报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/erupts__erupt/`
-- 新增报告：`results/applications_static_analysis/erupts__erupt/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/erupts__erupt/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：静态挖掘未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- 新增环境日志：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default/backend_cgroupns_host_retry_20260813.log`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/erupts__erupt` 源码、`databases/applications/erupts__erupt-db`、项目内 `skills/java-web-dos-hunter`、本地 Maven 缓存中的 EasyCaptcha 1.6.2 jar 用于 `javap` 分配证据。
-- 对后续工作的影响：后续可优先动态验证 `ERUPT-APP-STATIC-0003` 的匿名 SSE thread exhaustion，再验证 `ERUPT-APP-STATIC-0001` 的验证码 OOM 门槛和 `ERUPT-APP-STATIC-0002` 的大 JSON body/ThreadLocal retained heap。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未通过关闭鉴权、关闭指标、变更 feature flag 或替换非官方镜像制造成功。
+- 新证据把 `weibocom/rill-flow` 三案的默认环境阻塞原因从泛化的“backend 未 ready”进一步收紧为：官方 backend 镜像携带的 OpenJDK 17.0.2 / Micrometer `ProcessorMetrics` 在当前 cgroup v2 宿主上启动即崩，而不是 MySQL、Redis、Jaeger、sample-executor、端口或 descriptor seed 缺失。
 
-## [2026-06-23] jetlinks-community 应用级静态 DoS 挖掘
+## [2026-08-13] Trust local pinned commits for full batch provenance
 
 ### 修改时间
-2026-06-23 21:51
+2026-08-13 23:58
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 本地 ignored 证据产物
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `jetlinks/jetlinks-community` 做只静态资源耗尽 DoS 挖掘，覆盖默认 `run-all` 部署、Spring WebFlux 管理面、文件管理、缩略图、设备物模型导入、Messaging WebSocket 和设备网关配置路径。
-- 按用户补充范围修订结果：磁盘存储耗尽、持久文件增长和 DB 文件元数据增长不纳入问题范围；管理权限、`@SaveAction`、设备/产品配置写入和网关启动等管理面路径不纳入问题范围。
-- 删除原 `JETLINKS-APP-STATIC-0001` 文件上传持久存储候选和原 `JETLINKS-APP-STATIC-0003` 设备/产品 metadata import 管理权限候选，并同步清理 findings、source/sink/flow 结构化结果。
-- 当前仅保留两个默认外部请求相关候选：公开 `/file/{fileId}?thumb=...` 缩略图在解码前整文件入堆，以及 `/messaging/{token}` WebSocket 唯一订阅 id 导致连接生命周期订阅增长。
-- 明确降级或拒绝公开系统信息、配置、菜单、通知、captcha、HTTP device gateway route map、dashboard SSE 等高噪声模式，避免把配置依赖、磁盘存储或管理面路径表述为默认直接 DoS。
+- 调整 `dosweb/llm/deepseek.py` 的 provenance 语义：当 `source_checkout` 与 `source_commit_sha` 已提供时，full 模式允许不再要求每次通过 GitHub public-source API 重新证明；未配置 `public_source_url` 时改为仅校验本地 git checkout 绑定到目标 commit、工作树干净且无 replace refs。
+- 保留已有公开源码校验路径：只有显式提供 `public_source_url` 时才继续执行 GitHub public-source attestation 与 origin 一致性检查，因此公开仓库基线仍可复用原有严格证明逻辑。
+- 调整 `dosweb/batch/runner.py` 与 `dosweb/batch/plan.py`：full batch 不再因为 `provider_eligible=false` 自动 paused；对非 `git-commit` 指纹目标，runner 会直接从本地 provider checkout 解析当前 `HEAD` 作为 provider commit，并在必要时用 detached worktree 固定到该 commit 后继续执行。
+- 调整 `dosweb/llm/cache.py` 与相关测试，使本地 provenance 模式下 `verified_public=false`、`verified_clean_checkout=true` 的缓存身份和校验逻辑保持一致。
+- 新增并更新 `tests/test_deepseek_client.py`、`tests/test_batch_runner.py`、`tests/test_batch_plan.py` 回归测试，覆盖本地 commit 绑定、tree-sha256 full 调度、worktree fallback 与 helper 语义更新。
+- 运行 `python -m pytest -q tests/test_deepseek_client.py tests/test_batch_runner.py tests/test_batch_plan.py tests/test_config_and_cli.py`，结果 `157 passed`。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/jetlinks__jetlinks-community/`
-- 新增报告：`results/applications_static_analysis/jetlinks__jetlinks-community/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/jetlinks__jetlinks-community/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅修订静态结果和文档，未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/deepseek.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/batch/runner.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/batch/plan.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/dosweb/llm/cache.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_deepseek_client.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_batch_runner.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/tests/test_batch_plan.py`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/jetlinks__jetlinks-community` 源码、`databases/applications/jetlinks__jetlinks-community-db`、项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可优先动态验证 `JETLINKS-APP-STATIC-0002`，重点观测缩略图 heap/GC、公开文件前置条件和 `8848` HTTP 可用性；`JETLINKS-APP-STATIC-0004` 可作为低权限 WebSocket 连接生命周期资源 probe。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- full 模式现在默认信任“已在本地固定并可自校验的当前 commit”，不再把重复 GitHub attestation 当作运行前置，因此可继续处理已验证过一轮的本地源码样本。
+- 若调用方仍提供 `public_source_url`，原有公开来源证明链保持启用，不影响需要严格 public-source provenance 的场景。
 
----
+## [2026-08-13] Re-drive lamp-cloud non-simple environment-blocked case
 
-## [2026-06-23] PowerJob/PowerJob 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-23 21:25
+2026-08-13 23:42
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `PowerJob/PowerJob` 默认 compose、Spring Boot 2.7.18 / Undertow 管理面和 Vert.x HTTP remote 面完成只静态资源耗尽 DoS 挖掘。
-- 保留 2 个 `likely` 候选：默认 OpenAPI 鉴权关闭时基于有效 `appId` 的 job/workflow node 持久化增长，以及认证前 `CachingRequestBodyFilter` 对普通 POST body 全量入堆导致默认 512MiB heap 下的 request-burst 内存风险。
-- 保留 2 个 `needs_dynamic_probe` 候选：默认暴露 `10010` 的 HTTP remote worker heartbeat 进程内 cluster map 基数增长，以及匿名 container template 生成导致的临时文件 churn。
-- 明确降级 container jar upload、普通管理端 job/workflow 写入、OpenAPI auth/assert、runJob/workflow run、worker log report 等高噪声或路径证明不足模式，避免把静态增长路径表述为 confirmed DoS。
+- 复核 `dromara__lamp-cloud-FND-001` 的既有 blocked 原因、环境工件、默认部署文档与 round-1 阻塞日志，继续只按默认 `lamp-cloud` 路径检查可补齐的环境前置，不修改业务代码、不启用非默认行为。
+- 重新执行文档化构建命令 `mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package`，再次确认默认启动链在 bootstrap 之前就被 `lamp-dependencies-parent/pom.xml` 的外部前置拦住：该仓库明确要求先单独下载并构建 sibling `lamp-util`，把 `top.tangyh.basic:lamp-parent:5.10.0` 等 artifacts 安装进本地 Maven 仓库；当前 workspace 中缺失该 sibling 源码，且配置镜像也不提供该 parent POM。
+- 纠正此前过泛的“Nacos 配置缺失”表述：仓库实际内置了 `A极其重要/01-third-party/nacos/nacos_config_export_20260615232624.zip`，其中包含 `common.yml`、`redis.yml`、`mysql.yml`、`rabbitmq.yml` 与 `lamp-gateway-server.yml`。因此本轮将 `inventory.json`、`readiness.json`、`notes.txt`、`changes.jsonl`、`environment.md`、`result.json` 与 `validation_status.jsonl` 全部收紧为更精确的阻塞语义——默认路径真正无法补齐的是缺失的 `lamp-util` 构建资产，以及由此无法启动 gateway/downstream services。
+- 保持该案终态为 `environment_blocked`：即使 Nacos seed material 可用，默认 `/v3/api-docs/swagger-config` 聚合路径仍需要 buildable gateway 和至少一个向 Nacos 注册 swagger route 的下游 lamp 服务；在缺失 `lamp-util` sibling 源码的当前 workspace 中，这一步无法通过默认流程完成。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/powerjob__powerjob/`
-- 新增报告：`results/applications_static_analysis/powerjob__powerjob/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/powerjob__powerjob/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：静态挖掘未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- case 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- environment 目录：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/powerjob__powerjob` 源码、`databases/applications/powerjob__powerjob-db`、`skills/java-web-dos-hunter`、本地 Maven 缓存中的 Spring Boot 2.7.18 / Vert.x 4.3.7 依赖。
-- 对后续工作的影响：后续可优先动态验证 `POWERJOB-APP-STATIC-0002` 的默认 512MiB heap OOM 门槛和 `POWERJOB-APP-STATIC-0003` 的 remote heartbeat map 增长，再验证 OpenAPI appId 前提与 MySQL/调度侧服务不可用门槛。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 本次未修改任何目标业务代码，也未通过管理员路径、关闭安全控制、非默认 feature flag 或伪造服务图来制造成功。
+- 新证据把阻塞点从笼统的“默认环境缺配置”收紧为：默认源码构建依赖仓库外的 `lamp-util` sibling 资产，而当前 workspace 未提供它；因此该案属于默认流程下无法机械补齐的外部构建资产缺失。
 
-## [2026-06-23] iflytek/astron-agent 应用级静态 DoS 挖掘
+## [2026-08-13] Re-drive environment-repairable dynamic blocked group
 
 ### 修改时间
-2026-06-23 21:05
+2026-08-13 20:35
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 本地 ignored 证据产物
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `iflytek/astron-agent` 的默认 Docker compose、Spring Boot 3.5.4 console-hub/toolkit 后端、nginx gateway、MinIO/S3、知识库文件处理、SSE 和 MCP 调试入口完成只静态资源耗尽 DoS 挖掘。
-- 保留一个 P1 `needs_dynamic_probe` 候选：认证用户可通过 `/console-api/api/s3/presign` 获取默认 bucket 的 MinIO PUT 预签名 URL，应用层未绑定 object size、object count 或用户配额；因默认 `OSS_REMOTE_ENDPOINT` 对客户端可达性需运行态确认，未提升为 `likely`。
-- 保留两个 `likely` 应用逻辑候选：`/file/embedding` 与 `/file/embedding-back` 使用 `fileIds.size()` 创建未 shutdown 的自建 fixed thread pool，并在任务中无 sleep/backoff 轮询 DB；`/file/create-html-file` 可按无上限 `htmlAddressList` 持久写入 `file_info_v2` 行。
-- 将普通 multipart 上传、skill-file 上传、`sliceFiles`/`retry` 线程池、全局 `@Async` executor、SSE retained map 和 MCP URL list 等路径按默认边界、timeout 或证据缺口降级记录，避免把静态增长线索表述为 confirmed DoS。
+- 复核并重试 `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS`、`cryostatio__cryostat-legacy-F-WS-001`、`igniterealtime__openfire-F0154`、`weibocom__rill-flow-F-001`、`weibocom__rill-flow-F-002`、`weibocom__rill-flow-F-003` 的既有 blocked 原因、环境工件与默认部署路径，只允许默认部署、隔离端口/资源与文档化 companion services。
+- 对 `weibocom/rill-flow` 先修复共享工作站上的 host 端口冲突：把 backend/UI/Jaeger/MySQL 映射改为 `18083/18003/16689/13316` 后，官方 compose 已能完整拉起容器，从而确认早先 `backend_inspect.json` 里的 18080 bind 错误只是外部冲突；但 backend 随后仍在默认镜像启动链内因 OpenTelemetry/Micrometer 访问 cgroup v2 时 `anyController` 为空而空指针退出，`processorMetrics` bean 创建失败，三案继续 `environment_blocked`，阻塞语义已从泛化的“未 ready”收紧为默认镜像内部启动失败。
+- 对 `cryostatio/cryostat-legacy` 继续按官方 `run-docker.sh`/README 路径补齐环境变量：新增三次 bounded retry，分别验证文档化 `CRYOSTAT_JDBC_*`、其与 `QUARKUS_S3_*` 的组合，以及再叠加 `QUARKUS_DATASOURCE_*` 的情况。结果表明官方镜像始终在 HTTP 监听前退出：先要求 `quarkus.s3.*`，再无法激活默认 Quarkus datasource，继续强行叠加后又暴露 `quarkus.datasource.db-kind` 构建期固定与 Agroal/Flyway 拒绝文档化 H2 URL 的不兼容，因此继续 `environment_blocked`，且阻塞点已更精确。
+- 对 `igniterealtime/openfire` 重读仓库 `documentation/install-guide.html`，确认 autosetup 的确是文档化默认路径之一；结合既有容器日志，将 blocked 原因收紧为：official image 的 case-local embedded autosetup 在 `JiveGlobals.setupPropertyEncryptionAlgorithm` 处因旧算法值为空而空指针退出，而不是笼统的“autosetup 失败”。
+- 对 `apache/openmeetings` 复核启动日志后收紧 blocked 原因：clean case-local 源码副本构建出的默认 release 包实际已经启动并记录 `Openmeetings is up and ready to use`，但 `admin.sh -i` 后前台 HTTPS signin 仍回落到 `/install`，说明默认 H2 安装态并未真正完成到可登录 UI，因此仍无法补齐 presenter 房间会话与 upload SID。
+- 同步更新六案 `result.json`、共享环境 `changes.jsonl`、新增 retry 日志工件、批次 `validation_status.jsonl`，并准备重新运行聚合脚本刷新汇总报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/iflytek__astron-agent/`
-- 新增报告：`results/applications_static_analysis/iflytek__astron-agent/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/iflytek__astron-agent/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：静态挖掘未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- 新增环境日志：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default/retry_20260813.log`
+- 新增环境日志：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default/backend_retry_20260813.log`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/iflytek__astron-agent` 源码、`databases/applications/iflytek__astron-agent-db`、默认 Docker/nginx 配置和项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可优先动态验证 `ASTRON-AGENT-APP-STATIC-0002` 的线程/CPU/DB pool 饱和门槛，并确认 `ASTRON-AGENT-APP-STATIC-0001` 返回的 MinIO 预签名 URL 在默认部署中的客户端可达性与对象存储配额状态。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次未修改任何目标业务代码，也未通过管理员-only 路径、非默认 feature flag 或关闭安全控制制造成功。
+- `weibocom/rill-flow` 的 retry 证明当前首要阻塞已不再是 host 端口冲突，而是默认 backend 镜像自身在 cgroup 指标初始化阶段的启动失败。
+- `cryostatio/cryostat-legacy` 的 retry 证明即使沿文档化 JDBC 路径继续补齐，官方镜像仍卡在 Quarkus datasource/build-time 属性不兼容，无法进入 `/health`。
 
----
+## [2026-08-13] Re-drive blocked dynamic preconditions for Airavata, Bonita, and Stirling
 
-## [2026-06-23] halo-dev/halo 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-23 19:16
+2026-08-13 20:20
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `halo-dev/halo` 的默认 Docker / Spring WebFlux HTTP 面完成只静态资源耗尽 DoS 挖掘，覆盖 endpoint profile、默认 RBAC、附件 policy、插件/主题安装、迁移恢复、评论、tracker、session/cache/queue 噪声。
-- 发现 1 个低权限 `likely` 候选：默认本地附件 policy 未配置 `maxFileSize`，UC/console 附件上传和 URL 拉取路径可持续写入 `${halo.work-dir}/attachments/upload`，存在磁盘耗尽风险。
-- 记录 3 个管理面 `needs_dynamic_probe` 候选：插件远程或 multipart JAR 写入临时文件、主题 ZIP 安装/升级解压、迁移恢复备份 ZIP 解压与 workdir/extension restore；均明确标注为管理角色依赖，不能按默认匿名漏洞表述。
-- 明确拒绝公开评论默认匿名路径、tracker 任意 key 基数增长、session index、模板引擎 cache 和 extension queue 等高噪声模式。
+- 复核 `apache__airavata-FND-200-1`、`bonitasoft__bonita-engine-FND1` 与 `stirling-tools__stirling-pdf-F-vulnerable-decompression` 的既有 blocked 原因、环境工件、轮次证据与 `result.json`，重点重新检查默认部署、普通账号/业务前置与默认流程可补齐性。
+- 对 Stirling 进一步排除了持久化配置副作用：保留官方 `latest` 镜像与仅隔离资源余量，清空旧 `/configs` 后按文档化无登录默认模式 `SECURITY_ENABLELOGIN=false` 重启，补做 round-2 单请求语义预检与 round-3 32 路并发有界解压验证。新证据显示匿名 `POST /api/v1/misc/decompress-pdf` 在默认无登录模式下可达，32/32 请求均返回 200，峰值容器内存约 `1.274GiB / 1.5GiB`，但未触发 OOM、重启或持续不可用，因此将该案从 `auth_blocked` 修正为 `not_reproduced_under_tested_bounds`。
+- 对 Bonita 进一步收紧阻塞表述：环境已证明默认镜像可启动且会种入 `Administrator`/`User` profile，但本轮仍未找到默认自助注册或普通非管理员账号创建链路，只有 `install/install` bootstrap 账号有证据，因此继续保持 `auth_blocked`。
+- 对 Airavata 进一步收紧阻塞表述：环境、默认资源与管理员认证仍正常，但默认 Echo 实验/文件前置仍卡在 seeded SFTP 存储认证，且 README 依赖的 sibling `airavata-portals` 仓库仍缺失，故继续保持 `precondition_blocked`。
+- 同步更新三案的 `reflection.jsonl`、Stirling 的新增 `round-2/round-3` 工件、三案 `result.json`/共享 `validation_status.jsonl`，并准备重新运行聚合脚本刷新总表与报告。
 
 ### 交付成果
-- 新增结果目录：`results/applications_static_analysis/halo-dev__halo/`
-- 新增报告：`results/applications_static_analysis/halo-dev__halo/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/halo-dev__halo/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：详见本次最终回复；未执行动态验证，原因是用户明确要求“只静态挖掘”。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- Airavata case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1`
+- Bonita case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/bonitasoft__bonita-engine-FND1`
+- Stirling case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/stirling-tools__stirling-pdf-F-vulnerable-decompression`
 
 ### 依赖与影响
-- 依赖：本地源码 `frameworks/applications/halo-dev__halo`、应用级 CodeQL DB `databases/applications/halo-dev__halo-db`、项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可优先对 `HALO-APP-STATIC-0001` 做默认 Docker 真实 HTTP 动态验证，重点观测附件目录磁盘增长、低权限角色边界、请求延迟、GC 和服务可用性；管理面候选应仅在 disposable 实例中验证。
-- 破坏性变更：无；未修改目标应用源码、CodeQL 查询、ranking、verdict、pipeline 或动态验证 harness。
-
----
+- 本次未修改任何目标业务代码，也未通过非默认 feature flag、关闭安全控制或管理员替代低权限模型来制造成功。
+- Stirling 的修正说明此前 `auth_blocked` 结论受持久化配置副作用干扰；在恢复官方默认无登录路径后，该案已不再 blocked，但在测试边界内仍未动态确认。
+- Airavata 与 Bonita 仍 blocked，且阻塞点已细化到默认流程中具体无法补齐的步骤。
 
-## [2026-06-23] elunez/eladmin 应用级静态 DoS 挖掘
+## [2026-08-13] Final aggressive round for zfile multipart growth-only case
 
 ### 修改时间
-2026-06-23 20:45
+2026-08-13 23:03
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 本地 ignored 证据产物
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `elunez/eladmin` 做只静态资源耗尽 DoS 挖掘，覆盖 Spring Boot 2.7.18 安全配置、匿名认证接口、multipart 配置、本地/S3 存储、代码生成器、Excel 导出和运维上传。
-- 发现一个 P1 `likely` 候选：`POST /api/localStorage/pictures` 只要求认证、无方法级 `@PreAuthorize`，自定义 `MultipartConfigElement` 未设置 max file/request size，且文件持久化缺少总量、用户或 IP 配额。
-- 记录两个 Redis retained-state 候选：匿名 `/auth/code` 按请求创建 TTL captcha key，成功登录在默认 `single-login=false` 下按随机 JWT uid 保留多个 `online_token:*` key。
-- 保留 S3 上传和代码生成下载为 `needs_dynamic_probe` / 配置依赖候选，并将 Excel 导出、数据库/部署上传、限流测试接口等高噪声模式降级记录，避免过度包装为默认低权限 DoS。
+- 复核 `/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zfile-dev__zfile-ZFILE-APP-STATIC-0001/` 的既有 `rounds/`、`reflection.jsonl` 与 `result.json`，确认该案仍处于 `observed_growth_not_confirmed` 且还剩最后一轮预算，因此仅新增并执行唯一允许的 round-3 更激进但仍有界确认尝试。
+- 将默认 local-build 隔离实例在相同 runtime-home 上重启到更低但仍安全的 `-Xmx384m`，为 round-3 新增 `hypothesis.json`、`preflight.json`、`probe.py`、`observations.json`、`metrics.jsonl` 与目标侧日志证据，并把攻击强化为三波连续的 8 路并发 1000-part metadata-only multipart burst。
+- 新证据显示 24 个请求全部继续返回 200，`/api/install/status` 在每波后与最终等待后始终返回 200；目标 RSS 从约 `511512 kB` 台阶式抬升到约 `547392 kB` 并保留，线程/fd 很快回落，但未触发 OOM、重启、默认 parser rejection 或持续不可用，因此终态保持 `observed_growth_not_confirmed`。
+- 同步更新该 case 的 `reflection.jsonl`、`result.json`、批次 `validation_status.jsonl`，并重新运行共享聚合脚本刷新总表与报告。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/elunez__eladmin/`
-- 新增报告：`results/applications_static_analysis/elunez__eladmin/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/elunez__eladmin/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`、`rejected_patterns.csv`
-- 测试/验证结果：静态挖掘未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- zfile case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zfile-dev__zfile-ZFILE-APP-STATIC-0001`
+- zfile environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zfile-dev__zfile-default`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/elunez__eladmin` 源码、`databases/applications/elunez__eladmin-db`、Spring Boot 2.7.18 本地依赖 bytecode 反查和默认配置文件。
-- 对后续工作的影响：后续可优先动态验证 `ELADMIN-APP-STATIC-0001`，重点观测 servlet multipart 临时目录、`/home/eladmin/file` 持久目录、DB 行增长、HTTP 可用性和磁盘耗尽行为。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
+- 本次只执行一轮新增 destructive probe，严格停在第 3 轮上限内，且未通过关闭默认安全控制或启用非默认功能制造成功。
+- 当前证据证明默认路径匿名 multipart metadata burst 仍可带来目标侧 retained RSS growth，但即使在更低隔离堆下连续多波也未跨过失败阈值，因此不得误报为 confirmed。
 
----
+## [2026-08-13] Final aggressive round for GoCD fresh-session growth-only case
 
-## [2026-06-23] dianping/cat 应用级静态 DoS 挖掘
-
 ### 修改时间
-2026-06-23 18:54
+2026-08-13 18:55
 
 ### 变更类型
-- [文档] 应用级静态挖掘结果
-- [新增功能] 本地 ignored 证据产物
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 对 `dianping/cat` 的默认 Docker/Tomcat HTTP 面做静态资源耗尽 DoS 挖掘，聚焦 `/r/*`、`/s/*` Unidal MVC 入口、默认权限配置、持久 DB 写入、进程内 map 和无上限查询物化。
-- 发现两个高价值 `likely` 候选：匿名 `/s/project?op=projectUpdate` 可按唯一 `project.domain` 追加 `project` 表并增长 `ProjectService` 进程内 map；匿名 `/r/alert`、`/r/alteration` 插入可膨胀持久告警/变更表，并可通过无 `LIMIT` 宽时间范围查询放大堆和 CPU。
-- 记录一个 `needs_dynamic_probe` 候选：匿名 `/s/permission?op=resource` 可替换大 `resource-config` 并刷新为 `m_permissions` map，但默认请求体边界和覆盖式写入使其暂不提升为 `likely`。
-- 明确降级 `/s/config`、`/s/business` 等带 `@PreInboundActionMeta("login")` 的配置写入路径，避免把登录态依赖误判为默认匿名 DoS。
+- 复核 `/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/gocd__gocd-F-GOCD-V2HP-001/` 的既有 `rounds/`、`reflection.jsonl` 与 `result.json`，确认该案仍有一轮预算，因此仅新增一轮更激进但仍有界的确认尝试。
+- 为 round-2 新增 `hypothesis.json`、`preflight.json`、`probe.py`、`observations.json`、`metrics.jsonl` 与目标侧日志证据，在 fresh official GoCD 容器上把隔离上限收紧到 `768m` 容器/`512m` JVM heap，并提升到 2048 个匿名 fresh session、并发 32 的 `/go/api/v1/health` burst。
+- 最终轮中全部 2048 个请求仍返回 200 且发放 2048 个唯一 `JSESSIONID`；target-side JVM `VmHWM` 升到 `755076 kB`、线程从 128 升到 150、容器内存升到 `762.6MiB / 768MiB`，20 秒后几乎不回落，但未触发 OOM、重启、拒绝请求或持续不可用，因此终态保持 `observed_growth_not_confirmed`。
+- 更新 `case_plan.json`、`reflection.jsonl`、`result.json`、`validation_status.jsonl`，并准备重新运行共享聚合脚本刷新汇总结果。
 
 ### 交付成果
-- 新增本地结果目录：`results/applications_static_analysis/dianping__cat/`
-- 新增报告：`results/applications_static_analysis/dianping__cat/STATIC_DOS_HUNT_REPORT.md`
-- 新增明细：`results/applications_static_analysis/dianping__cat/source_inventory.csv`、`sink_inventory.csv`、`flow_candidates.csv`、`findings.jsonl`
-- 测试/验证结果：静态挖掘未改 CodeQL、ranking、verdict 或 pipeline 逻辑；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- GoCD case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/gocd__gocd-F-GOCD-V2HP-001`
+- round-2 观测：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/gocd__gocd-F-GOCD-V2HP-001/rounds/round-2/observations.json`
+- 共享状态：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/validation_status.jsonl`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/applications/dianping__cat` 源码、`databases/applications/dianping__cat-db`、默认 Docker compose 与 `resource-config.xml` 静态证据。
-- 对后续工作的影响：后续可优先对 `CAT-APP-STATIC-0001` 和 `CAT-APP-STATIC-0002` 做默认 compose 真实 HTTP 动态验证，重点观测 MySQL 表增长、CAT heap/GC、宽查询延迟和服务可用性。
-- 破坏性变更：无；不修改 analyzer、CodeQL 查询、基座 Phase 3/4 结果或动态验证语义。
-
----
+- 仅执行一轮新增 destructive probe，未新增第 3 轮之后的越界尝试，也未通过关闭默认安全控制制造成功。
+- 当前证据证明更强的默认路径 session/heap/thread growth，但仍不能表述为 confirmed DoS；后续如无新的默认路径证据，应继续保持非 confirmed 口径。
 
-## [2026-06-23] smart-admin 应用级静态资源耗尽 DoS 挖掘
+## [2026-08-13] Re-drive QuickDrop upload-task case
 
 ### 修改时间
-2026-06-23 20:45
+2026-08-13 02:10
 
 ### 变更类型
-- [文档] 应用级静态挖掘报告
-- [新增功能] 应用级 static-analysis 结果归档
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 使用 `skills/java-web-dos-hunter` 工作流对 `1024-lab/smart-admin` Java 17 / Spring Boot 3 后端完成只静态资源耗尽 DoS 审计。
-- 建立目标画像、HTTP source 清单、资源 sink 清单和 source-to-sink 手工路径证据，重点覆盖代码生成、文件下载、Excel 导入导出、验证码、重复提交、分页边界、任务调度和 outbound client 噪声。
-- 记录 4 个保留候选：低权限代码生成大对象生成、文件下载整文件入堆、企业全量 Excel 导出、商品 Excel 同步导入/导出；同时明确拒绝匿名验证码、默认文件上传磁盘填充、内存 RepeatSubmit、分页 page size、outbound client 和 SmartJob 等噪声。
-- 补齐独立 source/sink/flow 明细和后续动态探针计划，并复核 Java 17 后端 `src/main` 中 Excel、文件、ZIP、缓存、线程池、Redis 和 outbound client 相关 sink，未发现比既有 4 个候选更强的默认应用级静态路径。
-- 运行 smart-admin 应用 DB 上的通用 Phase 3 CodeQL 交叉检查，确认现有 retained-state 通用规则 0 条命中，人工候选按应用级路径单独归档。
+- 复核 `roastslav__quickdrop-FND-QUICKDROP-UPLOAD-TASKS` 的既有 `result.json`、`reflection.jsonl`、`preflight.json`、`probe.sh` 与前两轮证据，确认上轮并非语义未打通，而是只做了串行 16 次低强度 staircase，尚未检验 cached-thread burst growth 是否会跨过默认容量阈值。
+- 在不新增第 4 轮的前提下补齐并执行现有 `round-3`：复用官方 `roastslav/quickdrop:latest` 默认镜像与既有持久化数据目录，只提高 distinct incomplete upload 基数到 96、并发到 8，并持续采集 `/proc/1/status` 线程/RSS、fd 数、`/app/files` 文件数、`/actuator/health` 与根路由状态。
+- 新证据显示 96 个匿名不完整上传全部返回 200，threads 从 58 升至 159、fd 从 23 升至 120、持久文件数从 22 升至 118，10 秒后仍几乎完全保留；但健康检查始终 `UP`、root 维持默认 302，未触发 OOM、重启或持续不可用，因此终态仍必须保守维持为 `observed_growth_not_confirmed`。
+- 同步更新该 case 的 `case_plan.json`、`environment.md`、`data_prep.md`、`hypothesis.json`、`preflight.json`、`probe.sh`、`metrics.jsonl`、`observations.json`、`reflection.jsonl`、`result.json` 与批次 `validation_status.jsonl`，并准备重新运行共享聚合脚本刷新总表与报告。
 
 ### 交付成果
-- 新增报告：`results/applications_static_analysis/1024-lab__smart-admin/report.md`
-- 新增 findings：`results/applications_static_analysis/1024-lab__smart-admin/findings.csv`
-- 新增 source 清单：`results/applications_static_analysis/1024-lab__smart-admin/source_inventory.csv`
-- 新增 sink 清单：`results/applications_static_analysis/1024-lab__smart-admin/sink_inventory.csv`
-- 新增 flow 清单：`results/applications_static_analysis/1024-lab__smart-admin/flow_candidates.csv`
-- 新增探针计划：`results/applications_static_analysis/1024-lab__smart-admin/dynamic_probe_plan.md`
-- 新增 inventory：`results/applications_static_analysis/1024-lab__smart-admin/inventory.jsonl`
-- 新增 rejected/noise：`results/applications_static_analysis/1024-lab__smart-admin/rejected.csv`
-- 新增 CodeQL 交叉检查输出：`results/applications_static_analysis/1024-lab__smart-admin/phase3_candidate_features.bqrs`、`results/applications_static_analysis/1024-lab__smart-admin/phase3_candidate_features.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：详见本次最终回复；未执行动态验证，原因是用户明确要求“只静态挖掘”。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- QuickDrop case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/roastslav__quickdrop-FND-QUICKDROP-UPLOAD-TASKS`
+- QuickDrop environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/roastslav__quickdrop-default`
 
 ### 依赖与影响
-- 依赖：本地源码 `frameworks/applications/1024-lab__smart-admin`、应用级 CodeQL DB `databases/applications/1024-lab__smart-admin-db`、项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可优先对 `SMARTADMIN-STATIC-0001` 设计隔离动态探针，量化默认请求体限制、DB 字段长度和堆大小共同作用下的 OOM/GC death 阈值；其余候选需要先确认默认账号权限和数据规模。
-- 破坏性变更：无；未修改目标应用源码、CodeQL 查询、ranking、verdict、pipeline 或动态验证 harness。
+- 依赖官方 `roastslav/quickdrop:latest` 默认镜像、既有一次性 admin setup 结果与持久化 `/app/db` `/app/log` `/app/files` 数据目录；本次未修改业务代码、认证语义或默认路由行为。
+- 该 case 已在三轮上限内完成更强 PoC 重打：第三轮把证据从低强度串行增长推进到 96 请求 burst 后仍保留的高 threads/fd/file growth，但仍不能误报为 confirmed。
+- 后续若继续，只能基于新的 failure 假设或不同默认边界单开任务，不能在本轮再追加第 4 个 destructive round。
 
----
+## [2026-08-13] Re-drive Guacamole dynamic group
 
-## [2026-06-22] 应用级 Java Web 目标采集与 CodeQL 建库
-
 ### 修改时间
-2026-06-23 14:20
+2026-08-13 01:47
 
 ### 变更类型
-- [新增功能] 应用级目标采集
-- [新增功能] build-mode CodeQL 批量建库
-- [功能改进] 国内源与 GitHub fallback
-- [测试] 脚本单元测试
-- [文档] 应用级流程记录
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 新增 GitHub Java Web 应用目标采集脚本，按高星、HTTP/Web 信号、默认部署简单度和 Maven/Gradle 可建库性筛选 50 个真实应用目标。
-- 新增应用级批量 clone 与 build-mode CodeQL 建库脚本，支持本地 `.build-cache/` Maven/Gradle 缓存、clone retry、嵌套 Maven/Gradle build root 自动识别、`--target` 子集重跑、`--java-home-candidate` 多 JDK 重试和 GitHub 加速/archive fallback。
-- 生成中国 Maven settings 与 Gradle init script，优先使用阿里云、腾讯云 Maven/Gradle 相关源，并将 Gradle wrapper distribution URL 重写到腾讯云 Gradle 镜像。
-- Maven/Gradle build-mode 命令默认跳过测试、前端、GPG、license、antrun 等非 Java 抽取步骤，减少真实应用因前端产物或发布插件导致的建库失败。
-- 多轮重试、替换和补充目标后，本地状态中 51 个目标成功创建 build-mode CodeQL 数据库；最终 `intel/applications/java_web_application_targets.json` 固定其中 50 个更贴近 HTTP/Web 应用的成功目标。
+- 复核 `apache__guacamole-client-GUAC-APP-STATIC-0001` 与 `apache__guacamole-client-GUAC-APP-STATIC-0002` 的既有 `result.json`、`reflection.jsonl`、`preflight.json`、`probe.py` 与 round-3 证据，确认两案上轮卡点都不是语义未打通，而是压力与目标特异指标还不够强：0001 仅做到 4000 retained sessions，0002 仅做到 96 tunnel/84 activeConnections。
+- 在不新增第 4 轮的前提下直接重打现有 round-3：0001 提升到 12000 次成功登录、24 并发、180 秒 hold；0002 提升到 256 次 tunnel、32 路 burst、180 秒 keepalive，并保留 fresh-container 默认部署语义。
+- 0001 新证据显示 GuacamoleSession 最终与成功 token 数对齐到 12000，容器内存约从 280.7MiB 升至 539.8MiB、堆升至约 125225 KiB 且 180 秒内未自动回落，但根路径持续 200，仍只能保守维持 `observed_growth_not_confirmed`。
+- 0002 新证据显示 activeConnections 峰值达到 160、guacd TCP 达到 187，active set 清零后 Guacamole RSS/线程仍继续爬升到约 695268 KiB / 250 threads，说明默认路径存在更强的目标侧增长信号；但根路径始终 200，仍未达到 confirmed failure threshold，因此同样维持 `observed_growth_not_confirmed`。
+- 同步更新两个 case 的 `case_plan.json`、`hypothesis.json`、`preflight.json`、`observations.json`、`reflection.jsonl`、`result.json` 与批次 `validation_status.jsonl`，并重新运行共享聚合脚本刷新总表与报告。
 
 ### 交付成果
-- 新增脚本：`scripts/collect_application_targets.py`、`scripts/build_application_databases.py`
-- 新增测试：`tests/test_collect_application_targets.py`、`tests/test_build_application_databases.py`
-- 新增/更新 manifest：`intel/applications/java_web_application_targets.json`（50 个 `build_succeeded` 目标）
-- 本地源码：`frameworks/applications/`
-- 本地数据库：`databases/applications/`
-- 本地状态与日志：`results/application_dbs/application_db_build_status.jsonl`、`results/application_dbs/application_db_build_summary.md`、`results/application_dbs/logs/`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- Guacamole cases：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__guacamole-client-GUAC-APP-STATIC-0001`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__guacamole-client-GUAC-APP-STATIC-0002`
+- Guacamole environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__guacamole-client-default`
 
 ### 依赖与影响
-- 依赖：GitHub clone 或 archive fallback、CodeQL CLI、Maven/Gradle 网络依赖解析、本机 Java 22/21/17。
-- 对后续工作的影响：后续应用级 DoS 挖掘可直接从 50 个成功 build-mode DB 开始；额外成功和失败尝试可按 `results/application_dbs/` 状态日志复核或替换。
-- 破坏性变更：无；不改变基座 Phase 3/4 查询、ranking、verdict 或动态验证语义。
-
----
+- 依赖官方 `guacamole/guacamole:1.6.0`、`guacamole/guacd:1.6.0` 与 PostgreSQL 默认镜像路径；本次未修改业务代码、认证语义或默认部署行为，只强化了现有第 3 轮探针。
+- 两案现都完成了三轮上限内的更强重打：0001 证明更大 retained session 基数仍未触发失败，0002 则把证据从短暂 active-set 增长推进到 cleanup 后仍保留的高 RSS/线程增长，但都不能误报为 confirmed。
+- 后续若继续，只能基于新的 failure 假设或不同默认边界建模单开任务，不能在本轮再追加第 4 个 destructive round。
 
-## [2026-06-22] 冻结基座成果并切换到默认部署应用 DoS 规划
+## [2026-08-13] Correct ZAP proxy dynamic retest outcome
 
 ### 修改时间
-2026-06-22 22:20
+2026-08-13 01:20
 
 ### 变更类型
-- [文档] 研究方向调整
-- [功能删除] 过时过程文档清理
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 将仓库定位从继续扩展 Java Web 框架/基座层 retained-state DoS，调整为冻结现有 `WEB-REAL-*` 基座成果，并把下一阶段主线转向具体 Java Web 应用默认部署下的直接 DoS 挖掘。
-- 在 `AGENTS.md` 中新增 `DefaultDeployAppDoS` 方法论、默认部署真阳性门槛、目标应用选择原则和下一阶段论文 RQ。
-- 在 `README.md` 中记录基座成果冻结口径、权威索引、当前 evidence root 和下一阶段应用级 DoS 规划。
-- 删除早期 Phase 2 顶层过程总结，避免旧入口发现阶段文档继续干扰当前主线。
+- 复核 `zaproxy__zaproxy-FIND-ZAP-001` 的既有三轮工件，确认该 case 并非只执行了早期 8 MiB 单轮，而是已完成 round-2 的 fresh-container 32 MiB plain-vs-gzip 同尺寸对照和 round-3 的 64 MiB 强化探针。
+- 根据 round-2/3 证据修正终态：same-size 32 MiB 对照中 gzip 比 plain 额外抬升约 59.8 MiB cgroup memory 与约 61.6 MiB Java RSS，说明上轮真正卡点是“目标特异指标最初不足、需用同尺寸控制消解语义歧义”，而不是路由未打通；但 round-3 仍未触发 OOM、重启或持续不可用。
+- 同步更新该 case 的 `result.json`、`reflection.jsonl`、`case_plan.json` 与批次 `validation_status.jsonl`，把错误的 `not_reproduced_under_tested_bounds` 修正为 `observed_growth_not_confirmed`，避免遗漏已存在的 growth-only 证据。
+- 准备重新运行共享聚合脚本刷新总表、报告与 findings/blocklist 归档。
 
 ### 交付成果
-- 修改文档：`AGENTS.md`、`README.md`、`CHANGELOG.md`
-- 删除过时文档：`EXECUTION_SUMMARY.md`、`PHASE2_FINAL_SUMMARY.md`
-- 保留权威成果：`intel/regression/web_real_manifest.json`、`results/phase4/verified_vulnerabilities.*`、`results/phase4/dynamic_verification/`、`results/static_hunts/dynamic_verification/`
-- 测试/验证结果：本次变更为文档和过时文件清理；验证见最终回复。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- ZAP case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zaproxy__zaproxy-FIND-ZAP-001`
+- ZAP environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zaproxy__zaproxy-default`
 
 ### 依赖与影响
-- 依赖：现有 12 个 `WEB-REAL-*` manifest、已归档真实 HTTP 动态验证证据和 Dr.D 论文对 Java Web container 层工作的覆盖。
-- 对后续工作的影响：后续默认从真实 Java Web 应用、官方默认部署和低权限 HTTP 入口开始；框架/基座层默认只做回归、证据刷新或披露材料整理。
-- 破坏性变更：删除两个过时 Phase 2 过程总结；不影响 analyzer、CodeQL 查询、动态验证 runner 或权威结果。
+- 依赖既有官方 `zaproxy/zap-stable:latest` 默认镜像、受控上游 companion 与已存档的 round-1/2/3 证据；本次未新增第 4 轮，也未改变默认部署语义。
+- 修正后该 case 被正确计入 growth-only，而非 not reproduced；这会增加聚合层的 `observed_growth_not_confirmed` 计数并减少 `not_reproduced_under_tested_bounds` 计数。
+- 三轮上限已经用尽；如需继续只能基于新的 deployment bound 或 failure 假设单开后续任务，不能在本轮再追加 destructive round。
 
----
 
-## [2026-06-22] 新框架 Static-Hunt 真阳性提升为 WEB-REAL-0010..0012
+## [2026-08-12] Re-drive GROBID dynamic group
 
 ### 修改时间
-2026-06-22 12:05
+2026-08-12 16:35
 
 ### 变更类型
-- [功能改进] WEB-REAL catalog
-- [文档] 利用条件标注
-- [测试] 回归门禁
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 将 `SB3-STATIC-0002`、`MN-STATIC-0002`、`VERTX-STATIC-0003` 提升为稳定 `WEB-REAL-0010`、`WEB-REAL-0011`、`WEB-REAL-0012`，并在 dynamic runner 中保留旧 static ID 到新 WEB-REAL ID 的别名。
-- 在 `intel/regression/web_real_manifest.json` 中为三项新增 `exploitability`，统一记录利用难度、默认是否可利用、必要前置条件和限制因素；三项均为 context-constrained confirmed cases。
-- 将三项 PoC 和 OOM 日志归档到 `results/phase4/dynamic_verification/`，并更新 `verified_vulnerabilities.*` 本地证据库。
-- 同步 README 和 AGENTS 中的动态验证覆盖范围、static ID 兼容映射和 WEB-REAL 真阳性列表。
+- 为 `grobidorg__grobid-GROBID-STATIC-001` 与 `grobidorg__grobid-GROBID-STATIC-002` 补齐 `round-2`/`round-3` 工件，修复上轮仅有路由与响应大小、缺失目标特异 JVM 指标的语义预检缺口。
+- 新 PoC 复用官方 `grobid/grobid:0.9.0-crf` 默认镜像和既有 baseline-memory headroom 修复，只提高有效大 PDF 的并发度，并改从 Dropwizard admin `/metrics` 采集 heap、old-gen、GC 与线程指标。
+- `GROBID-STATIC-001` 在 round-2 的 6 并发 8.2 MiB PDF 下先观察到 1.88 GiB heap / 1.31 GiB old-gen 增长，round-3 的 8 并发下再触发 `processFulltextAssetDocument` 中 `ByteArrayOutputStream`/`ZipOutputStream` 的目标侧 `OutOfMemoryError` 与 HTTP 500，终态更新为 `confirmed_oom`。
+- `GROBID-STATIC-002` 在 round-2 的 8 并发 8.2 MiB PDF + `type=1` 下先观察到 2.13 GiB heap / 2.04 GiB old-gen 增长，round-3 的 10 并发 fresh-container 下再触发容器 `OOMKilled=true`、客户端空回复和健康检查丢失，终态更新为 `confirmed_oom`。
+- 更新两个 case 的 `case_plan.json`、`reflection.jsonl`、`result.json`、`validation_status.jsonl`，并准备重新运行共享聚合脚本刷新总表与报告。
 
 ### 交付成果
-- 修改 runner：`scripts/run_dynamic_verification.py`
-- 修改 manifest：`intel/regression/web_real_manifest.json`
-- 更新测试：`tests/test_run_dynamic_verification.py`、`tests/test_web_real_catalog.py`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 本地 ignored 证据：`results/phase4/verified_vulnerabilities.json`、`results/phase4/verified_vulnerabilities.md`、`results/phase4/dynamic_verification/poc/`、`results/phase4/dynamic_verification/logs/`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- GROBID cases：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/grobidorg__grobid-GROBID-STATIC-001`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/grobidorg__grobid-GROBID-STATIC-002`
+- GROBID environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/grobidorg__grobid-default`
 
 ### 依赖与影响
-- 依赖：上一条 static-hunt 动态验证归档中的真实 HTTP 384MiB heap OOM 日志。
-- 对后续工作的影响：`WEB-REAL-0010..0012` 已进入稳定 catalog，但 Phase 3 专项静态查询覆盖仍待补齐，因此 manifest 标记为 `dynamic_only_pending_query`。
-- 破坏性变更：无；不改变已有 `WEB-REAL-0001..0009` 判定。
+- 依赖官方 `grobid/grobid:0.9.0-crf` 默认镜像与既有 baseline headroom 修复；本次未改业务代码、认证状态或路由行为。
+- 两案现已从“指标不足导致的语义未打通”收敛到默认匿名 HTTP 路径上的目标资源失败证据，不再只是 growth-only 或 probe_semantics_failed。
+- 该修复完成了本 group 在三轮上限内的 PoC 重打；后续如需继续只能针对新的 deployment bound 或 failure 假设，而不是新增第 4 轮。
 
----
+## [2026-08-12] Re-drive HertzBeat anonymous SSE dynamic group
 
-## [2026-06-22] Spring Boot 3 / Micronaut / Vert.x Static-Hunt 动态验证归档
-
 ### 修改时间
-2026-06-22 11:33
+2026-08-12 23:59
 
 ### 变更类型
-- [新增功能] 动态验证 harness
-- [功能改进] static-hunt runner
-- [文档] 验证归档
-- [测试] runner 回归
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 为 Spring Boot 3、Micronaut 和 Vert.x 的 8 个 2026-06-21 static-hunt 候选新增真实 HTTP 动态验证 probe，并接入 `scripts/run_dynamic_verification.py --suite static-hunt`。
-- 扩展 runner 的 static-hunt registry、retained metric 提取、非 OOM verdict 归一化和 Maven 本地仓库路径，保证 `BLOCKED_*`、`NOT_VERIFIED_*` 不会被误提升为真阳性，并将 Maven 依赖缓存固定到项目 `.build-cache/m2/repository`。
-- 完成 smoke 与 384MiB heap OOM profile 验证；严格按“真实 HTTP 请求触发服务 JVM heap OOM”门槛归档，确认 `SB3-STATIC-0002`、`MN-STATIC-0002`、`VERTX-STATIC-0003` 为真阳性，其余 5 项保留为 request-local、configuration-dependent、default-bounded、disk-only 或 timeout-bounded。
-- 生成完整 8 项 consolidated summary 与人工归档报告，记录每项利用条件、限制因素和默认可利用性判断。
+- 为 `apache__hertzbeat-FND1`、`apache__hertzbeat-FND2`、`apache__hertzbeat-FND3` 新增 fresh-container 的 `round-2`/`round-3` 工件，包括 `hypothesis.json`、`preflight.json`、`probe.sh`、`metrics.jsonl`、`observations.json` 与容器日志，按技能要求把三案从仅有 20 连接 growth 证据扩展到更强但有界的 256/1024 SSE 长连接重打。
+- 新 PoC 改为 raw HTTP socket 持续保持匿名 SSE 连接，并在每轮用 fresh 官方 Docker 容器采集 fd、线程、RSS 与 `jcmd 11 GC.class_histogram`；避免旧串行基线污染后，三案在 round-3 都稳定达到约 `+1025` fd 与 `+1025` `SseEmitter`，其中 `FND3` 还达到 `+1025` `LogSseManager$SseSubscriber`。
+- 尽管增长与断连后未及时清理都被重复观察到，但根路径 `/` 在 live/post 阶段始终返回 200，未出现 OOM、重启、持续不可用或 admission failure，因此三案终态统一保守维持为 `observed_growth_not_confirmed`，而不误报 confirmed。
+- 更新 3 个 case 的 `result.json`、`reflection.jsonl`、`case_plan.json` 与 `validation_status.jsonl`，并准备重新运行共享聚合脚本刷新总表与报告。
 
 ### 交付成果
-- 修改 runner：`scripts/run_dynamic_verification.py`
-- 修改依赖：`dynamic-verification/pom.xml`
-- 新增 Spring Boot 3 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/SpringBoot3WebFluxMultipartHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/SpringBoot3ClientObservationHttpProbe.java`
-- 新增 Micronaut probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/MicronautClientPoolHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/MicronautInMemorySessionHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/MicronautMultipartHttpProbe.java`
-- 新增 Vert.x probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/VertxBodyHandlerUploadHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/VertxSockJsSessionHttpProbe.java`、`dynamic-verification/src/main/java/org/example/dos/dynamic/VertxCachingWebClientHttpProbe.java`
-- 更新测试：`tests/test_run_dynamic_verification.py`
-- 本地 ignored 归档：`results/static_hunts/dynamic_verification/static_hunt_dynamic_verification_summary.json`、`results/static_hunts/dynamic_verification/new_framework_static_hunt_dynamic_verification_2026-06-21.md`、`results/static_hunts/dynamic_verification/logs/*.log`
-- 实施计划：`docs/superpowers/plans/2026-06-21-new-framework-static-hunt-dynamic-verification.md`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- HertzBeat cases：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__hertzbeat-FND1`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__hertzbeat-FND2`、`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__hertzbeat-FND3`
+- HertzBeat environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__hertzbeat-default`
 
 ### 依赖与影响
-- 依赖：Maven 可解析 Spring Framework 6.2.19、Micrometer 1.15.12、Micronaut 3.10.8 和 Vert.x 4.5.28 运行时依赖；动态验证需要本地 HTTP socket 权限。
-- 对后续工作的影响：3 个 confirmed static-hunt case 具备真实 HTTP heap OOM 证据，但尚未提升到 `WEB-REAL-*` catalog；如需提升，应同步 `intel/regression/web_real_manifest.json`、`results/phase4/verified_vulnerabilities.*`、`AGENTS.md` 和回归测试。
-- 破坏性变更：无；未修改 CodeQL、ranking、verdict 或 Phase 3/4 pipeline 逻辑。
-
----
+- 依赖官方 `apache/hertzbeat` 单容器默认部署路径；本次未引入任何业务配置或权限变更，只复用既有隔离端口映射。
+- 现有证据说明默认匿名 SSE 路径存在可线性放大的 retained growth，但在三轮上限内仍未触达默认部署 failure threshold，因此不能宣称 confirmed DoS。
+- 该修复把 HertzBeat group 从“单轮压力不足”提升为“三轮上限内已完成强 PoC 重打”的终态，后续若继续只能基于新的 failure 假设而非重复放大同一轮次。
 
-## [2026-06-21] Spring Boot 3 静态资源耗尽 DoS 挖掘
+## [2026-08-12] Validate lamp-cloud dynamic group
 
 ### 修改时间
-2026-06-21 22:10
+2026-08-12 20:50
 
 ### 变更类型
-- [文档] 静态挖掘报告
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 按项目内 `java-web-dos-hunter` 工作流对 Spring Boot 3.5.15 做静态资源耗尽 DoS hunt，覆盖 WebFlux multipart、Servlet multipart、HTTP client observations、server observations、actuator repositories/cache 和 embedded server resource knobs。
-- 运行 Spring Boot 3-only generic Phase 3 CodeQL 交叉检查，确认输出 0 条 data rows，未覆盖本轮源码审计得到的专项 patterns。
-- 确认 `SB3-STATIC-0001`：WebFlux multipart 默认 `maxParts=-1` 与 `maxDiskUsagePerPart=-1` 仍存在，标为 `needs_dynamic_probe`。
-- 确认 `SB3-STATIC-0002`：Boot 3 HTTP client observation 默认只限制 `uri` tag，Spring Framework 6.2.19 默认 convention 仍从 outbound URI host 生成低基数 `client.name`，标为 `needs_path_proof`。
-- 将 Servlet multipart、httpexchanges、audit repository、server observations、MetricsEndpoint、CachingOperationInvoker、embedded server queue/header knobs 和 GraphQL observation 作为 rejected / low-priority patterns 记录。
-- 关键技术决策：只做静态源码、依赖 bytecode 和 CodeQL 交叉检查，不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+- 为 `dromara__lamp-cloud` group 新增 `environments/dromara__lamp-cloud-default/` 下的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl`、`build_attempt.log` 等环境工件，结构化记录默认路径依赖的 Nacos/MySQL/Redis/RabbitMQ/下游服务前置条件与本地构建失败证据。
+- 新增 `dromara__lamp-cloud-FND-001` 的 `case_plan.json`、`environment.md`、`data_prep.md`、`rounds/round-1/`、`reflection.jsonl` 与终态 `result.json`，将该 group 唯一 queued case 收敛到技能规范要求的终态。
+- 受控本地构建 `lamp-gateway/lamp-gateway-server` 时，`mvn -q -pl lamp-gateway/lamp-gateway-server -am -DskipTests package` 因缺失外部父 POM `top.tangyh.basic:lamp-parent:5.10.0` 立即失败；结合仓库未提供已检入的 Nacos 导出与自包含默认 compose/镜像，无法在不臆造部署状态的前提下完成默认环境 bootstrap。
+- 因 `/v3/api-docs/swagger-config` 还依赖下游 lamp 服务注册到 Nacos 并暴露各自 swagger-config，语义预检无法开始；最终将 `dromara__lamp-cloud-FND-001` 保守落为 `environment_blocked`，而非误报 confirmed 或 not_confirmed。
+- 更新 `validation_status.jsonl` 中该 case 的终态与 failure_reason，并重新运行共享聚合脚本刷新 `summary.json`、`summary.csv`、`blocked_or_rejected.jsonl` 与 `DYNAMIC_VALIDATION_REPORT.md`。
 
 ### 交付成果
-- 新增本地静态挖掘报告：`results/static_hunts/spring_boot_3_static_hunt_2026-06-21.md`
-- 新增静态 findings CSV：`results/static_hunts/spring_boot_3_static_findings_2026-06-21.csv`
-- 新增 source/sink inventory：`results/static_hunts/spring_boot_3_static_inventory_2026-06-21.jsonl`
-- 新增 rejected/noise CSV：`results/static_hunts/spring_boot_3_static_rejected_2026-06-21.csv`
-- 新增 Spring Boot 3-only CodeQL 交叉检查输出：`results/static_hunts/spring-boot-3_phase3_candidate_features.bqrs`、`results/static_hunts/spring-boot-3_phase3_candidate_features.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：Spring Boot 3-only CodeQL generic Phase 3 query 成功执行并解码，输出 0 rows；后续一致性和 WEB-REAL 回归验证见本次最终回复。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- lamp-cloud case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/dromara__lamp-cloud-FND-001`
+- lamp-cloud environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dromara__lamp-cloud-default`
 
 ### 依赖与影响
-- 依赖：本地 `frameworks/spring-boot-3.5.15` 源码、`databases/spring-boot-3-db` CodeQL 数据库、现有 Phase 3 查询、项目内 `skills/java-web-dos-hunter`，以及本地 `.build-cache` 中的 Spring Framework 6.2.19 `spring-web` / `spring-webflux` 依赖 jar。
-- 对后续工作的影响：后续可将 WebFlux multipart 默认无限边界和 Observation `client.name` tag cardinality patterns 补进 Spring Boot 3 专项 CodeQL 查询；如果允许动态验证，可优先验证 reactive multipart 默认配置在受控临时目录和小磁盘配额下的增长曲线。
-- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+- 依赖 `frameworks/applications/dromara__lamp-cloud/README.md`、`A极其重要/01-docs/docker/03.docker运行项目.md` 与 gateway `application.yml` 中的默认部署说明；本次未引入源码或行为变更。
+- 当前证据只说明默认环境未能自举，不构成默认部署下的 confirmed DoS，也不能据此反证静态候选无害。
+- 该修复消除了本 group 唯一 queued case，后续若要继续只能先补齐官方可复现的 Nacos 配置与下游服务启动材料。
 
----
+## [2026-08-12] Fix full-batch provenance and entry resolution failures
 
-## [2026-06-21] Micronaut 静态资源耗尽 DoS 挖掘
-
 ### 修改时间
-2026-06-21 22:12
+2026-08-12 21:10
 
 ### 变更类型
-- [文档] 静态挖掘报告
-- [新增功能] Micronaut static-hunt 结果归档
+- [Bug 修复]
+- [测试]
 
 ### 核心改动
-- 对 Micronaut Core `v3.10.8` 的 `http-server-netty`、`http-client`、`session`、`router`、`management`、`websocket` 等模块完成只静态资源耗尽 DoS 审计。
-- 发现三个保留候选：HTTP client `RequestKey` connection pool cardinality、in-memory session active count、multipart/form parser request-burst pressure。
-- 明确利用条件：Micronaut core 默认没有低信任入口直连这些 sink；HTTP client 候选需要应用将入站参数映射为出站 absolute URI，session 候选需要开放 session-creating route 且未配置 `maxActiveSessions`，multipart 候选默认 bounded，仅配置抬高边界后成立。
-- 运行 Micronaut-only generic Phase 3 与 parser Phase 3 CodeQL 交叉检查，均为 0 data rows，结果保存在 `results/static_hunts/`，不覆盖全量 Phase 3 baseline。
-
-### 交付成果
-- 新增报告：`results/static_hunts/micronaut_static_hunt_2026-06-21.md`
-- 新增 findings：`results/static_hunts/micronaut_static_findings_2026-06-21.csv`
-- 新增 inventory：`results/static_hunts/micronaut_static_inventory_2026-06-21.jsonl`
-- 新增 rejected/noise：`results/static_hunts/micronaut_static_rejected_2026-06-21.csv`
-- 新增 CodeQL 交叉检查输出：`results/static_hunts/micronaut_phase3_candidate_features.bqrs`、`results/static_hunts/micronaut_phase3_candidate_features.csv`、`results/static_hunts/micronaut_parser_candidate_features.bqrs`、`results/static_hunts/micronaut_parser_candidate_features.csv`
-
-### 依赖与影响
-- 依赖：Micronaut build-extraction CodeQL 数据库 `databases/micronaut-3-db` 与源码 `frameworks/micronaut-core-3.10.8`。
-- 对后续工作的影响：后续可补 Micronaut 专项 CodeQL 查询，优先寻找 inbound source 到 outbound `DefaultHttpClient` / `ProxyHttpClient` absolute URI 的应用路径，以及开放 session creation route 的配置证明。
-- 破坏性变更：无；未修改 CodeQL 查询、ranking、verdict、pipeline 或动态验证 harness。
+- 为 production/config/CLI 增加独立的 `analysis_source_root` 语义，并让 `dosweb/production.py` 的 preflight 仅用它校验 `database.source_root`，不再把 provider `source_checkout` 误当作 CodeQL database provenance 目标。
+- 保留 `source_checkout` 作为 provider/pinned checkout，用于 Growth excerpt 与公开源码 attestation；同时在 `dosweb/batch/runner.py` full 模式下前移本地 provider checkout 预检，提前暴露 `CONFIG_PUBLIC_SOURCE_UNVERIFIED`，避免 target 跑到 growth 阶段才失败。
+- 强化 `dosweb/production.py` 的 growth→entry 关联逻辑：优先最近 handler，并在必要时按 attacker input / demand input 收窄候选，且对仅 registration 不同的语义重复 entry 做稳定收敛，不再因同一 handler 多 registration 直接报 `ANALYSIS_GROWTH_ENTRY_AMBIGUOUS`。
+- 同步更新 `dosweb/flows/models.py` 的 flow 引用解析，使 flow 阶段对同一 handler 位置的重复 entry 采用与 growth 一致的稳定收敛策略。
+- 扩展 `dosweb/batch/aggregate.py` 输出，新增 `authoritative_status_counts` 并在 gap 摘要中显示 authoritative status / failure reason，便于区分 preflight 失败与普通缺失产物。
+- 补充 `tests/test_config_and_cli.py`、`tests/test_production.py`、`tests/test_batch_runner.py`、`tests/test_batch_aggregation.py`、`tests/test_deepseek_client.py` 回归测试，覆盖 checkout 语义拆分、duplicate registration 收敛、本地 provider 预检与聚合状态可见性。
 
----
+### 验证
+- 运行 `python -m pytest -q tests/test_config_and_cli.py tests/test_production.py tests/test_batch_runner.py tests/test_batch_aggregation.py tests/test_deepseek_client.py`
+- 结果：177 passed, 167 subtests passed
 
-## [2026-06-21] Vert.x 静态资源耗尽挖掘
+## [2026-08-12] Validate Suwayomi GraphQL websocket dynamic group
 
 ### 修改时间
-2026-06-21 22:13
+2026-08-12 20:36
 
 ### 变更类型
-- [文档] 静态挖掘报告
-- [功能改进] static-hunt 证据归档
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 使用 `java-web-dos-hunter` workflow 对 Vert.x 4.5.28 进行只静态资源耗尽型 DoS 挖掘，覆盖 `vert.x` core HTTP、`vertx-web` handler/session/SockJS、`vertx-web-client` cache/session/cookie 和 `vertx-web-proxy`。
-- 将 `BodyHandler` multipart 上传文件默认留存、SockJS attacker-chosen session id map、`CachingWebClient` 无容量 cache/variation registry 作为主候选，并分别标注利用条件、容量边界、生命周期和后续动态探针计划。
-- 明确降级/拒绝项：普通 `SessionHandler` 匿名 session、`StaticHandler` LRU cache、EventBus bridge reply map、CSRF token、WebClient CookieStore 和 core HttpClient endpoint pool，避免后续重复追踪低证据噪声。
-- 归档 Vert.x Phase 3 空结果到 `results/static_hunts`，作为通用查询暂未覆盖本轮 Vert.x 静态候选的交叉检查证据。
+- 为 `suwayomi__suwayomi-server` group 新增 `environments/suwayomi__suwayomi-server-default/` 的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl`，记录本地文档化 `shadowJar` 启动、headless 环境下 jar 路径修正以及禁用可选 browser/system tray/KCEF 钩子的最小环境修复。
+- 新增 `suwayomi__suwayomi-server-F-graphql-ws-retained-operation-state` 的 `case_plan.json`、`environment.md`、`data_prep.md`、两轮 `hypothesis.json`/`preflight.json`/`observations.json`、`reflection.jsonl` 和终态 `result.json`，将该 queued case 收敛到技能要求的终态。
+- 动态语义预检确认默认匿名 `/api/graphql` WebSocket 可完成 `graphql-transport-ws` 握手并返回 `connection_ack`；活动重复 ID 会以 4409 关闭连接，而 `complete` 后可用同一 ID 重新订阅，吻合 static 对 `activeOperations` 与 `sessionToOperationId` 分离的建模。
+- 两轮单连接唯一 subscribe/complete 阶梯（1000 个 128 字节 ID、5000 个 256 字节 ID）在会话存活期间观察到 JVM `java.lang.String` / `[B` 直方图增长，其中第二轮 live-session 增量达到 `+5132` 个 String 与 `+5138` 个 byte array，但 `/api/graphql` 始终健康且断开后大部分增长回落，因此保守落为 `observed_growth_not_confirmed`。
+- 更新 `validation_status.jsonl` 中 Suwayomi case 的终态与 failure_reason，并准备重新运行共享聚合脚本刷新汇总结果。
 
 ### 交付成果
-- 新增报告：`results/static_hunts/vertx_static_hunt_2026-06-21.md`
-- 新增发现表：`results/static_hunts/vertx_static_findings_2026-06-21.csv`
-- 新增库存/拒绝项：`results/static_hunts/vertx_static_inventory_2026-06-21.jsonl`
-- 归档交叉检查：`results/static_hunts/vertx_phase3_candidate_features.csv`、`results/static_hunts/vertx_phase3_candidate_features.bqrs`
-- 验证：仅静态挖掘，未执行动态验证；运行 `python3 scripts/check_phase3_consistency.py` 和 `python3 scripts/check_web_real_regression.py`。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- Suwayomi case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/suwayomi__suwayomi-server-F-graphql-ws-retained-operation-state`
+- Suwayomi environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/suwayomi__suwayomi-server-default`
 
 ### 依赖与影响
-- 依赖：Vert.x 4.5.28 build extraction 数据库和本地源码快照；现有 Phase 3 通用查询仅作交叉检查。
-- 对后续工作的影响：`VERTX-STATIC-0001` 可优先进入隔离 disk-fill/cleanup 动态验证；`VERTX-STATIC-0002` 需要并发/timeout 量化；`VERTX-STATIC-0003` 需要具体应用 proxy/SSRF-like source-to-sink 证明。
-- 破坏性变更：无；未修改 CodeQL、ranking、verdict、pipeline 或动态验证逻辑。
-
----
+- 依赖 `frameworks/applications/suwayomi__suwayomi-server/README.md` 中的本地 jar 运行路径；本次未使用官方 Docker 镜像，而是本地构建并在 headless 环境中关闭可选 GUI/KCEF 钩子。
+- 该证据只证明 live-session retained-ID growth，不构成默认部署 confirmed DoS；后续若要继续只能在不超过三轮的前提下寻找更强的 target-resource failure 信号。
+- 该修复消除了本 group 唯一 queued case，便于统一聚合脚本刷新总表。
 
-## [2026-06-21] WEB-REAL 利用难度标注与 Static-Hunt 提升
+## [2026-08-12] Validate wgcloud dynamic group
 
 ### 修改时间
-2026-06-21 20:25
+2026-08-12 19:52
 
 ### 变更类型
-- [功能改进] WEB-REAL catalog
-- [文档] 利用条件标注
-- [测试] 回归门禁
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 将 `TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 提升为稳定 `WEB-REAL-0007`、`WEB-REAL-0008`、`WEB-REAL-0009`，并在 dynamic runner 中保留旧 static ID 到新 WEB-REAL ID 的别名。
-- 为所有 `WEB-REAL-*` 在 `intel/regression/web_real_manifest.json` 中新增 `exploitability`，统一记录 `difficulty`、`default_exploitable`、`preconditions`、`limiting_factors` 和 `rationale`。
-- 明确高条件样例不能按默认可利用表述：Tomcat dead properties 要求 `readonly=false` 且 PROPPATCH 可达；Jetty push cache 两项要求显式部署 push filter 并具备 HTTP/2 / non-null `PushBuilder` 环境。
-- 扩展 WEB-REAL 回归脚本，允许 `phase3_regression=dynamic_only_pending_query` 的动态已确认项进入 catalog，同时不把暂未进入 Phase 3 查询覆盖的 0007-0009 计为 Phase 3 missing。
+- 为 `tianshiyeben__wgcloud` group 补齐 `environments/tianshiyeben__wgcloud-default/` 的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json`、`changes.jsonl` 以及本地构建配置、MySQL companion、延迟 SMTP stub、MAIL_SET seed 等最小环境工件。
+- 新增 `tianshiyeben__wgcloud-FND1` 与 `tianshiyeben__wgcloud-FND2` 的 `case_plan.json`、`environment.md`、`data_prep.md`、round-1 `hypothesis.json`/`preflight.json`/`observations.json`、`reflection.jsonl` 和终态 `result.json`，并按技能要求将两案从 queued 收敛到终态。
+- 将 `FND1` 保守落为 `non_default_only`：匿名 `/wgcloud/agent/minTask` 可用默认 `wgToken` 推导值命中，但观察到的告警邮件线程池阻塞依赖预置 MAIL_SET 与受控延迟 SMTP harness，不能表述为默认部署 confirmed。
+- 将 `FND2` 落为 `observed_growth_not_confirmed`：受控数组 JSON 能在线性放大 `AppInfo`/`AppState`/`DeskState` 临时对象数量，但计划内 drain 后未见持久积压、数据库堆积或服务不可用。
+- 更新 `validation_status.jsonl` 中 wgcloud 两案状态并准备重新运行共享聚合脚本刷新汇总产物。
 
 ### 交付成果
-- 修改 runner：`scripts/run_dynamic_verification.py`
-- 修改回归脚本：`scripts/check_web_real_regression.py`
-- 修改 manifest：`intel/regression/web_real_manifest.json`
-- 更新测试：`tests/test_run_dynamic_verification.py`、`tests/test_web_real_catalog.py`、`tests/test_web_real_regression.py`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 本地 ignored 摘要：`results/phase4/verified_vulnerabilities.json`、`results/phase4/verified_vulnerabilities.md`
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- wgcloud case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/tianshiyeben__wgcloud-FND1`
+- wgcloud case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/tianshiyeben__wgcloud-FND2`
+- wgcloud environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/tianshiyeben__wgcloud-default`
 
 ### 依赖与影响
-- 依赖：上一轮 static-hunt 真实 HTTP OOM 日志与 probe。
-- 对后续工作的影响：后续论文或披露材料应引用 manifest 中的 `exploitability`，不要把 context-constrained confirmed case 写成默认开放漏洞；Phase 3 查询仍需后续补齐 0007-0009 的静态覆盖。
-- 破坏性变更：`check_web_real_regression.py` 输出新增 `phase3_regression_cases` 和 `dynamic_only_pending_query` 统计字段。
+- 依赖 `frameworks/applications/tianshiyeben__wgcloud/` 仓库自带的本地构建+MySQL 文档路径；无官方 compose/image 可直接复用。
+- `FND1` 的阻塞证据仅作为非默认组件级复现实验保存，不改变静态候选默认部署下未确认的口径。
+- `FND2` 为 growth-only 证据，后续若要继续只能在不突破三轮上限的前提下针对 drain/persistence 吞吐做更强区分。
 
----
+## [2026-08-12] Repair OpenGrok dynamic validation artifacts
 
-## [2026-06-21] Static-Hunt 真实 HTTP 动态验证实现
-
 ### 修改时间
-2026-06-21 19:35
+2026-08-12 19:24
 
 ### 变更类型
-- [新增功能] 动态验证 harness
-- [功能改进] static-hunt runner 输出隔离
-- [文档] 验证结果记录
+- [Bug 修复]
+- [文档]
 
 ### 核心改动
-- 为 `scripts/run_dynamic_verification.py` 新增 `--suite static-hunt` 模式，static-hunt 候选 registry、日志目录和 summary 与现有 `WEB-REAL-*` 动态验证证据分离。
-- 新增 Tomcat WebDAV dead-property、Jetty `PushSessionCacheFilter`、Jetty `PushCacheFilter` 和 Undertow multipart 四类真实 HTTP probe，统一输出 `candidate_id`、`status`、`verdict`、请求数、保留指标和日志路径。
-- 继续执行严格真阳性门槛：只有真实 HTTP 请求驱动服务 JVM heap OOM 才标记 `verified`；非 OOM、cleanup、bounded 或 request-burst 证据保留为 `not_verified`。
-- Jetty push cache probe 在 embedded harness 中包装 push-capable request，用于覆盖 `PushBuilder` 存在的 servlet 环境；日志显式记录该模式。
-- Undertow multipart probe 记录默认 `MAX_PARAMETERS=1000`、配置后的 bounded stress、temp file 指标和 cleanup 状态，最终未提升为真阳性。
+- 修复 `oracle__opengrok-FIND-UI-SEARCH-COLLECTOR` 缺失 `result.json` 导致聚合报错的问题，补齐该 case 的 `case_plan.json`、`environment.md`、`data_prep.md`、`reflection.jsonl`、两轮 `hypothesis.json`/`preflight.json`/`observations.json` 以及终态 `result.json`。
+- 补齐 `environments/oracle__opengrok-default/` 下缺失的 `inventory.json`、`feasibility.json`、`readiness.json`、`snapshot.json` 与 `changes.jsonl`，把已执行的官方 Docker 默认部署、最小一文档索引准备、JFR 重试与环境结论结构化落盘。
+- 根据现有两轮证据将该 case 终态保守落为 `probe_semantics_failed`：默认匿名 `/search` 语义可达，但启动期与显式 `jcmd` 启动的 JFR 都未建立 target-specific collector allocation 遥测，因此不能提升为 confirmed 或 observed growth。
+- 更新 `validation_status.jsonl` 中该 case 的终态与 failure_reason，并在补齐产物后重新运行聚合脚本刷新 `summary.json`、`blocked_or_rejected.jsonl` 与报告统计。
 
 ### 交付成果
-- 修改 runner：`scripts/run_dynamic_verification.py`
-- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/TomcatWebdavDeadPropertiesHttpProbe.java`
-- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyPushSessionCacheHttpProbe.java`
-- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyPushCacheFilterHttpProbe.java`
-- 新增 helper：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyPushProbeSupport.java`
-- 新增 probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/UndertowMultipartHttpProbe.java`
-- 修改依赖：`dynamic-verification/pom.xml`
-- 更新测试：`tests/test_run_dynamic_verification.py`
-- 结果位置：`results/static_hunts/dynamic_verification/static_hunt_dynamic_verification_summary.json` 与 `results/static_hunts/dynamic_verification/logs/*.log`
-- 动态验证：已运行 static-hunt smoke suite，`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004`、`UNDERTOW-STATIC-0003` 均为 `completed_without_oom`；随后运行四个 OOM profile。
-- OOM verdict：`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 达到 `verified` / `CONFIRMED_HEAP_OOM_REAL_HTTP`；`UNDERTOW-STATIC-0003` 保持 `not_verified` / `NOT_VERIFIED_CLEANUP_BOUNDED`。
-- 回归验证：`pytest tests/test_run_dynamic_verification.py -q`、`mvn -q -f dynamic-verification/pom.xml -DskipTests package`、`python3 scripts/check_phase3_consistency.py`、`python3 scripts/check_web_real_regression.py` 均已通过。
+- 修改文件：`/home/furina/new_tool/dos-analysis-web/CHANGELOG.md`
+- 动态验证结果根：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812`
+- OpenGrok case：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/oracle__opengrok-FIND-UI-SEARCH-COLLECTOR`
+- OpenGrok environment：`/home/furina/new_tool/dos-analysis-web/results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/oracle__opengrok-default`
 
 ### 依赖与影响
-- 依赖：本地 Maven 依赖可用，Jetty `jetty-servlets` 11.0.15 作为 dynamic harness 依赖加入。
-- 对后续工作的影响：`TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004` 已具备真实 HTTP heap OOM 证据，可进入后续人工复核和 catalog 提升讨论；`UNDERTOW-STATIC-0003` 当前仅保留为 request-burst / cleanup bounded 证据。
-- 破坏性变更：无；不修改 `WEB-REAL-*` catalog，不覆盖 `results/phase4/dynamic_verification/`。
+- 依赖此前已保留的 OpenGrok 两轮 HTTP/JFR 原始证据文件，不重新执行更强探针。
+- 该修复消除了输出根中的缺失 `result.json` 聚合错误，使 group 结果可被统一汇总。
+- 无破坏性接口变更；仅补齐动态验证工件并收敛终态。
 
----
+## [2026-08-12] Validate JetLinks default captcha dynamic group
 
-## [2026-06-21] Spring Boot 3 / Vert.x / Micronaut Build Mode 建库修正
+### Changed
 
-### 修改时间
-2026-06-21 17:50
+- Added isolated dynamic-validation artifacts for the `jetlinks__jetlinks-community` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflection, and terminal result files.
+- Bootstrapped the repository's checked-in `docker/run-all/docker-compose.yml` default deployment locally with documented Redis and Timescale/Postgres companions, plus isolation-only host-port remapping and bounded JVM/container memory caps for a disposable safety harness.
+- Confirmed that the anonymous default route `GET /authorize/captcha/image` is reachable without login and that a normal `130x40` request returns a Base64 captcha payload under the default compose deployment.
+- Classified `jetlinks__jetlinks-community-JL-STAGEA-0001` as `confirmed_oom` because a bounded single-request staircase showed `15000x15000` driving memory to 98.54% of a 1.5 GiB container, and a follow-up `16384x16384` request immediately triggered repeated `java.lang.OutOfMemoryError: Java heap space` from `DataBufferInt`/`BufferedImage` on the target route while returning HTTP 500.
+- Ran the required aggregate step after writing artifacts; if the shared aggregation script still reports issues on this output root, controller-side follow-up should focus on the aggregate outputs rather than this JetLinks case directory.
 
-### 变更类型
-- [功能改进] CodeQL 数据库构建
-- [文档] 构建流程同步
+### Verification
 
-### 核心改动
-- 将新增的 Spring Boot 3.x、Vert.x 4.x、Micronaut 3.x 数据库构建从 buildless 模式切换为 CodeQL build extraction，通过 `--command` 跟踪真实 Gradle/Maven 编译。
-- 新增三个构建 helper：Spring Boot 3 先编译可稳定落地的 core 模块；Vert.x 在同一次 CodeQL trace 中编译 `vert.x` core 与 `vertx-web` 的 Web 相关模块；Micronaut 编译 core/context/http/server/client/router/session/management/websocket 等 Web 分析相关模块。
-- 将 Gradle/Maven 依赖缓存固定到本仓库 ignored 的 `.build-cache/`，避免受限执行环境写入用户 home，也避免依赖缓存进入 Git。
-- 将 Spring Boot 3 和 Micronaut 的 `source_dir` 指向真实上游源码目录；Vert.x 保留 core + web 聚焦组合源码视图作为 CodeQL `--source-root`，避免把 `frameworks/` 下其他框架归入同一个数据库。
-- 为 Micronaut 3 build helper 注入 Aliyun plugin/public mirror，并将 Gradle wrapper 从本机不完整的 `gradle-7.5.1-bin.zip` 切到可复用的 `gradle-7.5.1-all.zip` 缓存。
-- 扩展框架注册测试，强制新增三类构建目标包含 `--command` 且不再使用 `--build-mode=none`。
+- Preserved compose bootstrap logs, container inspect snapshot, readiness evidence, and environment change records under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/jetlinks__jetlinks-community-default/`.
+- Preserved preflight samples, per-round metrics, observations, OOM log evidence, reflection, and the final result under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/jetlinks__jetlinks-community-JL-STAGEA-0001/`.
 
-### 交付成果
-- 修改构建入口：`scripts/build_databases.sh`
-- 新增构建 helper：`scripts/codeql_build_spring_boot_3.sh`、`scripts/codeql_build_vertx_4.sh`、`scripts/codeql_build_micronaut_3.sh`
-- 更新配置与忽略规则：`config.yaml`、`.gitignore`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 更新测试：`tests/test_framework_registry.py`
-- 测试/验证结果：见本次最终回复。
+## [2026-08-12] Validate ZAP default proxy dynamic group
 
-### 依赖与影响
-- 依赖：GitHub/Maven Central/Gradle distribution 可访问；本机提供 Java 21 和 Java 17，其中 Micronaut 3 的 Gradle 7.5.1 使用 Java 17 运行。
-- 对后续工作的影响：后续刷新这三个数据库会执行真实编译，抽取精度高于 buildless，但耗时和网络依赖更高；若依赖下载失败，应优先检查 `.build-cache/` 和网络代理状态。Spring Boot 3 的 autoconfigure/actuator optional integration 依赖面很宽，本轮先不纳入默认 build-mode 命令，待 Maven/Gradle 缓存或 mirror 稳定后再扩展。Vert.x 的分析源码入口为 build-time 生成的 `frameworks/vertx-4.5.28-build-sources`，真实上游源码仍保留在 `frameworks/vert.x-4.5.28` 与 `frameworks/vertx-web-4.5.28`。
-- 破坏性变更：旧的 Spring Boot 3 `frameworks/*-analysis-sources` 聚焦源码视图不再作为新建库配置入口；本地遗留目录可保留但不参与新建库。
+### Changed
 
----
+- Added isolated dynamic-validation artifacts for the `zaproxy__zaproxy` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflection, and terminal result files.
+- Bootstrapped the official `zaproxy/zap-stable:latest` Docker image locally with isolation-only host-port remapping and a 768 MiB container cap, then added a host-gateway mapping plus a disposable upstream companion container so the default external proxy path could fetch controlled plain and gzip responses without modifying target code or enabling non-default features.
+- Confirmed that anonymous absolute-form proxy requests to the attacker-controlled upstream succeed by default and return client-visible decoded bodies for both plain and gzip responses, resolving the static add-on reachability uncertainty.
+- Conservatively classified `zaproxy__zaproxy-FIND-ZAP-001` as `not_reproduced_under_tested_bounds` because bounded single-request probes up to 8 MiB decoded bodies produced observable target memory growth but no failure, and the clean-slate 8 MiB plain control consumed at least as much immediate memory as the gzip variant, so a stronger decompression-specific amplification effect was not isolated under the tested limits.
 
-## [2026-06-21] 静态挖掘动态验证实施计划
+### Verification
 
-### 修改时间
-2026-06-21 17:45
+- Preserved official-image startup logs, upstream-companion logs, container snapshot metadata, and bootstrap change records under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zaproxy__zaproxy-default/`.
+- Preserved control-vs-gzip probe evidence, semantic preflight, metrics, observations, reflection, and terminal result artifacts under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zaproxy__zaproxy-FIND-ZAP-001/`.
 
-### 变更类型
-- [文档] 实施计划
+## [2026-08-12] Validate zfile multipart metadata dynamic group
 
-### 核心改动
-- 将 `docs/superpowers/specs/2026-06-20-static-hunt-dynamic-verification-design.md` 转换为可执行的静态挖掘动态验证实施计划。
-- 明确后续实现分为 static-hunt runner 输出隔离、Tomcat WebDAV dead-property probe、Jetty push cache probes、Undertow multipart probe 和最终验证五个任务。
-- 保持真阳性门槛不变：只有真实 HTTP 请求触发服务端 JVM heap OOM 才能进入 verified；增长、磁盘填充、request-local buffering 或正常 cleanup 不自动提升为真阳性。
-- 明确新增动态结果写入 `results/static_hunts/dynamic_verification/`，不覆盖现有 `WEB-REAL-*` 证据库。
+### Changed
 
-### 交付成果
-- 新增实施计划：`docs/superpowers/plans/2026-06-21-static-hunt-dynamic-verification.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次只新增计划文档，未修改 harness、CodeQL、ranking、verdict 或 pipeline 逻辑；已运行文档级格式和项目轻量回归检查，详见本次最终回复。
+- Added isolated dynamic-validation artifacts for the `zfile-dev__zfile` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflection, and terminal result files.
+- Built the repository's default Spring Boot jar locally with `mvn -q -DskipTests package` and launched an isolated disposable instance on port `38080` with a case-local `user.home` runtime directory after confirming host port `8080` was already occupied by an unrelated service.
+- Completed the required first-run `POST /api/install` bootstrap against the fresh SQLite runtime, then validated that anonymous `PUT /file/upload/invalidStorageKey/x` requests reach multipart parsing before storage lookup: a non-multipart control failed with `Current request is not a multipart request`, while multipart requests progressed to the modeled invalid-storage error.
+- Conservatively classified `zfile-dev__zfile-ZFILE-APP-STATIC-0001` as `not_reproduced_under_tested_bounds` because a bounded metadata-only staircase at 1/100/500/1000 parts with a 1-byte file payload caused only small transient RSS/thread movement and no meaningful retained growth, parser threshold below defaults, or service unavailability.
 
-### 依赖与影响
-- 依赖：静态挖掘动态验证设计文档、人工复核规格、现有 `dynamic-verification/` Maven harness 和 `scripts/run_dynamic_verification.py`。
-- 对后续工作的影响：下一步应按计划从 Python runner 的 TDD 测试开始实现，随后逐个新增 probe 并执行 smoke/OOM profile。
-- 破坏性变更：无；仅新增计划文档和变更日志记录。
+### Verification
 
----
+- Preserved startup, install-status, and runtime-database evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/zfile-dev__zfile-default/`.
+- Preserved control-vs-attack responses, bounded round metrics, and reflection/result artifacts under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/zfile-dev__zfile-ZFILE-APP-STATIC-0001/`.
 
-## [2026-06-20] 静态挖掘候选动态验证设计
+## [2026-08-12] Validate Openfire dynamic group setup-gated BOSH path
 
-### 修改时间
-2026-06-20 22:51
+### Changed
 
-### 变更类型
-- [文档] 动态验证设计
+- Added isolated dynamic-validation artifacts for the `igniterealtime__openfire` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, blocked semantic preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `ghcr.io/igniterealtime/openfire:latest` image locally with isolation-only host-port remapping for the default BOSH and admin-console listeners; plain default startup reached the admin setup wizard on port `9090` but anonymous `/http-bind/` probes on port `7070` reset the TCP connection before any semantic response.
+- Applied one targeted case-local embedded autosetup repair by bind-mounting a generated `openfire.xml` derived from the repository autosetup example so the official image could move beyond the initial setup gate without editing target code, but the packaged startup path still failed with a `NullPointerException` in `JiveGlobals.setupPropertyEncryptionAlgorithm` before HTTP/BOSH readiness.
+- Conservatively classified `igniterealtime__openfire-F0154` as `environment_blocked` because no default-compatible ready BOSH environment was reached, so the queued anonymous body-materialization candidate could not pass semantic preflight or execute a bounded growth round.
 
-### 核心改动
-- 为 `results/static_hunts/static_hunt_manual_review_spec_2026-06-20.md` 中非 `WEB-REAL-*` 已覆盖候选制定 OOM-first 动态验证设计。
-- 明确真阳性门槛：必须由真实 HTTP 请求进入服务端入口，并触发服务端 JVM heap OOM；仅静态路径、资源增长、磁盘填充或正常 cleanup 不足以标记真阳性。
-- 将第一批验证范围限定为 `TOMCAT-STATIC-0003`、`JETTY-STATIC-0002`、`JETTY-STATIC-0004`、`UNDERTOW-STATIC-0003`，并要求 `TOMCAT-STATIC-0002` 与 `SB-STATIC-0001` 先做默认边界和可达性预筛。
-- 设计独立 static-hunt 动态验证输出目录，避免覆盖现有 `WEB-REAL-*` 动态验证摘要。
+### Verification
 
-### 交付成果
-- 新增设计文档：`docs/superpowers/specs/2026-06-20-static-hunt-dynamic-verification-design.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：本次仅写设计文档，未修改 harness、CodeQL、ranking、verdict 或 pipeline 逻辑；后续实现阶段需运行 dynamic-verification Maven 构建、probe smoke/OOM、`python3 scripts/check_phase3_consistency.py` 和 `python3 scripts/check_web_real_regression.py`。
+- Pulled and launched the official GHCR image locally, captured default setup-page behavior plus BOSH connection-reset evidence, and preserved container logs and inspect output under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/igniterealtime__openfire-F0154/` and `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/igniterealtime__openfire-default/`.
+- Re-ran the image with one case-local embedded autosetup bootstrap repair, then captured the startup `NullPointerException` evidence showing that the official image still failed before a semantically testable `/http-bind/` state.
 
-### 依赖与影响
-- 依赖：目标人工复核规格、现有 `dynamic-verification/` harness 风格和 `WEB-REAL-*` 证据门槛。
-- 对后续工作的影响：后续实现应先做 smoke profile，再做 OOM profile；新增真阳性不会自动入库，必须另行更新 `WEB-REAL-*` catalog。
-- 破坏性变更：无；仅新增设计文档和变更日志记录。
+## [2026-08-12] Validate Cryostat legacy dynamic group bootstrap failure
 
----
+### Changed
 
-## [2026-06-20] 静态挖掘候选人工复核规格
+- Added isolated dynamic-validation artifacts for the `cryostatio__cryostat-legacy` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap change records, per-case planning, blocked semantic preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `quay.io/cryostat/cryostat:latest` image locally with isolation-only host-port remapping and case-local bind mounts that mirror the repository `run-docker.sh` path layout.
+- Applied two targeted environment-side repairs before blocking: first added bounded dummy `quarkus.s3.endpoint-override` and `quarkus.s3.aws.region` runtime values because the packaged image refused to start without them, then added Quarkus default datasource environment keys because the packaged image ignored the legacy `CRYOSTAT_JDBC_*` values alone.
+- Conservatively classified `cryostatio__cryostat-legacy-F-WS-001` as `environment_blocked` because the official image still exited before binding the HTTP listener: after the two repairs it reported an incompatible packaged datasource/db-kind expectation and rejected the documented H2 datasource path, so `/health`, `/api/v1/notifications_url`, and the queued notifications WebSocket semantic preflight never became reachable.
 
-### 修改时间
-2026-06-20 22:13
+### Verification
 
-### 变更类型
-- [文档] 人工复核规格
+- Pulled and launched the official Cryostat image locally, captured all three bounded startup attempts plus final container inspect evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cryostatio__cryostat-legacy-F-WS-001/` and `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cryostatio__cryostat-legacy-default/`.
+- Confirmed that no attempt reached HTTP readiness on `http://127.0.0.1:18181/`, so no WebSocket retention round was executed and the worker stopped after environment diagnosis.
 
-### 核心改动
-- 汇总 `results/static_hunts/` 下 Tomcat、Jetty、Undertow、Jersey、Spring Boot 五个大规模 LLM 静态挖掘报告，整理出 15 个主候选漏洞复核对象。
-- 定义统一人工判定口径，包括必填证据、结果枚举、五轴映射、duplicate / WEB-REAL anchor 处理方式和 request-burst 候选的生命周期标注。
-- 按 P0/P1/P2 优先级给出每个候选的复核目标、关键检查项和预期判定出口，避免把已动态验证 root cause、request-local burst、app-dependent footgun 和 bounded noise 混在同一结论层。
-- 增加 rejected-pattern audit 要求，用于抽查各框架已拒绝项的容量、TTL、LRU、cleanup 或协议边界是否真实存在。
+## [2026-08-12] Validate jmqtt dynamic group WebSocket idle retention
 
-### 交付成果
-- 新增人工复核规格：`results/static_hunts/static_hunt_manual_review_spec_2026-06-20.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：后续一致性和 WEB-REAL 回归验证见本次最终回复；本次未执行动态验证，因为该变更只整理人工复核规格，未修改 CodeQL、ranking、verdict 或 pipeline 逻辑。
+### Changed
 
-### 依赖与影响
-- 依赖：`results/static_hunts/*_static_hunt_2026-06-20.md`、现有 `WEB-REAL-*` 动态验证目录和项目五轴判定语义。
-- 对后续工作的影响：后续人工复核可按该 spec 逐项落地 review note，并将通过复核的新候选推进到专项 CodeQL 查询、Phase 3/4 建模或动态验证。
-- 破坏性变更：无；仅新增 ignored 本地结果规格和更新 `CHANGELOG.md`，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+- Added isolated dynamic-validation artifacts for the `cicizz__jmqtt` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflections, and terminal result files.
+- Followed the repository's documented source-build quickstart (`mvn -Ppackage-all -DskipTests clean install` plus local `jmqtt-broker-3.0.0.jar` startup) instead of switching to a non-documented deployment model, and copied the checked-in default broker config into a case-local runtime directory with isolation-only port remapping.
+- Bootstrapped a disposable `mysql:5.7` companion because the broker's checked-in default config requires MySQL; one compatibility-only repair created `jmqtt_session` with a `CURRENT_TIMESTAMP` default for `online_time` after the bundled `jmqtt.sql` timestamp definition failed under the tested MySQL defaults.
+- Classified `cicizz__jmqtt-FND-002` as `observed_growth_not_confirmed` because anonymous WebSocket handshakes to `/mqtt` succeeded, a handshake-only pre-CONNECT channel remained alive through 70 seconds despite the configured 60-second idle path, and bounded 1/3/5-channel probes increased established sockets proportionally, but the conservative run did not pursue service degradation or target-resource failure.
 
----
+### Verification
 
-## [2026-06-20] Spring Boot 3 / Vert.x / Micronaut CodeQL 数据库扩展
+- Built the broker locally, launched the disposable MySQL companion plus the local jar with copied default config, and captured startup/readiness evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/cicizz__jmqtt-default/`.
+- Executed a raw WebSocket handshake readiness probe, a 70-second idle-retention probe, and a bounded connection staircase, and captured the resulting evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/cicizz__jmqtt-FND-002/rounds/round-1/evidence/`.
 
-### 修改时间
-2026-06-20 22:23
+## [2026-08-12] Validate CommaFeed dynamic group bounded refresh-queue behavior
 
-### 变更类型
-- [功能改进] 框架数据库覆盖扩展
-- [文档] 构建流程同步
+### Changed
 
-### 核心改动
-- 将 Spring Boot 3.x、Vert.x 4.x、Micronaut 3.x 从后续扩展对象推进为当前可构建分析目标，固定版本为 Spring Boot `v3.5.15`、Vert.x `4.5.28`、Micronaut Core `v3.10.8`。
-- 扩展 `scripts/build_databases.sh`，新增 `spring-boot-3`、`vertx`、`micronaut` 三个目标，统一使用 CodeQL buildless 模式生成数据库，降低上游完整构建对本机依赖和发布仓库状态的敏感性。
-- Spring Boot 3 目标生成 `frameworks/spring-boot-3.5.15-analysis-sources` 聚焦源码视图，覆盖 core/autoconfigure/actuator 主模块，避免全仓 buildSrc、docs 和大量 smoke tests 拉长 CodeQL 抽取。
-- Vert.x 目标同时下载 `eclipse-vertx/vert.x` core 与 `vert-x3/vertx-web`，生成 `frameworks/vertx-4.5.28-analysis-sources` 聚焦源码视图后建库，避免缺失 Router、handler、session 等 Web 层源码。
-- 同步 `config.yaml`、Phase 2 数据库列表、legacy Phase 1 Spring Boot 3 路径和 README/AGENTS 运行说明。
-- 新增框架注册回归测试，确保后续新增框架不会只更新部分入口。
+- Added isolated dynamic-validation artifacts for the `athou__commafeed` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, bootstrap changes, per-case planning, semantic preflight, bounded round artifacts, reflections, and terminal result files.
+- Bootstrapped the official `athou/commafeed:latest-h2` Docker image locally with only isolation-only host-port remapping and a fixed session-encryption key for repeatable local login cookies; the default deployment otherwise remained unchanged and used the built-in H2 database.
+- Completed the default `POST /rest/user/initialSetup` flow to create the first admin account, then created one ordinary `USER` account through the default admin API because `commafeed.users.allow-registrations=false` in the default deployment.
+- Tried a case-local delayed mock feed first, but the default fetch path rejected `host.docker.internal` as a local address, so the executed bounded probe conservatively switched to five public RSS/Atom feeds reachable under the default deployment.
+- Classified `athou__commafeed-F0002` as `not_reproduced_under_tested_bounds` because two overlapping authenticated `GET /rest/feed/refreshAll` calls over five persisted subscriptions caused `FeedRefreshEngine.queue.size` to rise only transiently to `5`, with default `worker.active` peaking at `3` and draining back to `0` within about two seconds, without sustained retained queue growth or service unavailability.
 
-### 交付成果
-- 新增/修改构建入口：`scripts/build_databases.sh`、`scripts/download_frameworks.sh`
-- 更新 pipeline 配置：`config.yaml`
-- 更新分析脚本注册：`scripts/run_phase2.py`、`scripts/run_phase1.sh`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 新增测试：`tests/test_framework_registry.py`
-- 新增本地源码快照：`frameworks/spring-boot-3.5.15`、`frameworks/spring-boot-3.5.15-analysis-sources`、`frameworks/vert.x-4.5.28`、`frameworks/vertx-web-4.5.28`、`frameworks/vertx-4.5.28-analysis-sources`、`frameworks/micronaut-core-3.10.8`
-- 新增本地 CodeQL 数据库：`databases/spring-boot-3-db`、`databases/vertx-4-db`、`databases/micronaut-3-db`
-- 测试/验证结果：见本次最终回复。
+### Verification
 
-### 依赖与影响
-- 依赖：GitHub 可访问对应固定 tag；CodeQL CLI 2.23.8+；Java 21 本地运行环境。
-- 对后续工作的影响：Phase 2/3 全量运行会自动看到新数据库，后续需要为 Vert.x/Micronaut 增强 Web entry 和 retained-state 专项建模，以提高非 Servlet/Spring/JAX-RS 风格框架的召回。
-- 破坏性变更：无；源码快照和数据库目录保持 ignored，不进入版本库。
+- Launched the official CommaFeed Docker image locally, verified `/rest/server/get`, completed initial setup, authenticated as both admin and ordinary user, and collected `/rest/admin/metrics` evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/athou__commafeed-F0002/`.
+- Executed a bounded concurrency-2 `refreshAll` probe and captured queue-depth, worker-activity, feed-fetch meter, server info, container logs, and container inspect evidence under the CommaFeed case directory.
 
----
+## [2026-08-12] Validate Bonita dynamic group auth preflight
 
-## [2026-06-20] Undertow 静态资源耗尽 DoS 挖掘
+### Changed
 
-### 修改时间
-2026-06-20 21:45
+- Added isolated dynamic-validation artifacts for the `bonitasoft__bonita-engine` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, changes, startup/container logs, route/auth probe evidence, per-case plan, blocked preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `bonita:latest` Docker image locally with a disposable `postgres:15-alpine` companion on an isolated Docker network. Two targeted compatibility-only repairs were required before readiness: retrying startup after the Postgres companion became ready, and creating the expected `businessdb` / `businessuser` companion database objects required by the image defaults.
+- Confirmed that the default deployment serves `/bonita/` and redirects anonymous `/bonita/portal/fileUpload` requests to `login.jsp`. The default `install/install` account can authenticate and complete a tiny multipart upload, but this run did not establish a documented ordinary non-admin account for the queued low-privilege attacker model.
+- Conservatively classified `bonitasoft__bonita-engine-FND1` as `auth_blocked` because the static probe plan requires an ordinary authenticated non-admin user for `/portal/fileUpload`, and only installer-level credentials were validated before semantic preflight stopped.
+- Ran the required aggregate step after writing artifacts; the shared `aggregate_dynamic_validation.py` script still exited non-zero on this output root without emitting diagnostics, so the worker preserved artifacts and updated `validation_status.jsonl` directly.
 
-### 变更类型
-- [文档] 静态挖掘报告
+### Verification
 
-### 核心改动
-- 按 `java-web-dos-hunter` 工作流对 Undertow `2.3.7.Final` 做静态资源耗尽 DoS hunt，覆盖 `LearningPushHandler`、mod_cluster MCMP、multipart parser、path cache、stuck-thread monitor、resource cache、session manager、WebSocket/SSE 和 HTTP/2 state。
-- 复核并确认 `LearningPushHandler` per-referer inner map 静态路径，与 `WEB-REAL-0003` / `WEB-P4-0006` 对齐；外层 `LRUCache` 只限制 referer entries，内层 `Map<String,PushedRequest>` 未见容量上限。
-- 复核并确认 mod_cluster MCMP registration state 静态路径，与 `WEB-REAL-0004` / `WEB-P4-0010` 对齐；`CONFIG` form data 可驱动 `balancers`、`nodes`、`hosts` 和 context mappings 增长，暴露面依赖 management endpoint 部署配置。
-- 将 `MultiPartParserDefinition` 记录为 request-burst heap/temp storage `needs_dynamic_probe` 候选；明确它不是 process-lifetime retained-state finding。
-- 将 `PathHandler.cache`、`StuckThreadDetectionHandler`、resource cache、session manager、WebSocket/SSE 和 HTTP/2 stream/priority state 作为 rejected / low-priority patterns 记录，理由是存在 LRU、固定池、max session、timeout、remove、close 或协议 accounting。
-- 关键技术决策：只做静态源码审计和现有 CodeQL 交叉检查；不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+- Pulled and launched the official Bonita image with an isolated Postgres companion, captured successful Tomcat/Bonita startup evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/bonitasoft__bonita-engine-default/`, and recorded the compatibility repairs applied during bootstrap.
+- Verified anonymous login redirection, successful `install/install` authentication, and a tiny authenticated multipart upload under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/bonitasoft__bonita-engine-FND1/rounds/round-1/evidence/auth_and_upload_probe.json`, while preserving the low-privilege auth gap as the terminal blocker.
 
-### 交付成果
-- 新增本地静态挖掘报告：`results/static_hunts/undertow_static_hunt_2026-06-20.md`
-- 新增静态 findings CSV：`results/static_hunts/undertow_static_findings_2026-06-20.csv`
-- 新增 Undertow-only CodeQL 交叉检查输出：`results/static_hunts/undertow_phase3_candidate_features.bqrs`、`results/static_hunts/undertow_phase3_candidate_features.csv`、`results/static_hunts/undertow_learning_push_candidate_features.bqrs`、`results/static_hunts/undertow_learning_push_candidate_features.csv`、`results/static_hunts/undertow_mcmp_candidate_features.bqrs`、`results/static_hunts/undertow_mcmp_candidate_features.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：Undertow-only CodeQL generic Phase 3 query 输出 3 条并全部降级/拒绝；LearningPush 专项 query 输出 1 条并匹配 `UNDERTOW-STATIC-0001`；MCMP 专项 query 输出 2 条并匹配 `UNDERTOW-STATIC-0002`。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+## [2026-08-12] Validate OpenMeetings dynamic group startup and preflight
 
-### 依赖与影响
-- 依赖：本地 `frameworks/undertow-2.3.7` 源码快照 `b7c54c4`、`databases/undertow-2-db` CodeQL 数据库和现有 Phase 3 / Undertow 专项查询。
-- 对后续工作的影响：后续可对 multipart request-burst 候选做部署 body-limit 静态审计或隔离动态 probe；也可补充更细的 MCMP context/host registry 专项 CodeQL 输出。
-- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+### Changed
 
----
+- Added isolated dynamic-validation artifacts for the `apache__openmeetings` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, changes, clean rebuild workspace notes, per-case plans, blocked semantic preflight, observations, reflection, and terminal result files.
+- The repository snapshot’s local static-analysis artifacts under `frameworks/applications/apache__openmeetings/results/` caused the documented `mvn ... -PallModules` build path to fail the ASF RAT gate, so one targeted mechanical repair rebuilt the official release package from a clean case-local source copy that excluded those non-upstream result files.
+- Bootstrapped the clean official `apache-openmeetings-9.2.0-SNAPSHOT` release package locally with isolation-only port remapping from `5080/5443` to `15080/15443`; Tomcat and the OpenMeetings webapp reached runtime startup, but the bundled `admin.sh` default-H2 install attempt still left the application redirecting `/openmeetings/signin` back to `/openmeetings/install`.
+- Conservatively classified `apache__openmeetings-FND-UPLOAD-CONVERSION-WORKERS` as `environment_blocked` because the candidate requires a fully installed deployment plus an authenticated presenter already inside a room with a live `omws-upload-sid`, and that semantic room bootstrap could not begin while the default deployment remained in install mode.
+- Ran the required aggregate step after writing artifacts; as with other groups on this shared output root, central re-aggregation may still need controller-side review if the shared script continues exiting non-zero without detailed diagnostics.
 
-## [2026-06-20] Jersey 静态资源耗尽 DoS 挖掘
+### Verification
 
-### 修改时间
-2026-06-20 21:44
+- Rebuilt the documented release package from a clean case-local source copy, extracted the official tarball, applied only isolated port remaps, and captured successful Tomcat/OpenMeetings startup plus persistent install-mode evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__openmeetings-default/`.
+- Verified that `/openmeetings/services/UserService?wsdl` was deployed while `/openmeetings/signin` still redirected to `/openmeetings/install`, preventing any valid presenter-room upload preflight.
 
-### 变更类型
-- [文档] 静态挖掘报告
+## [2026-08-12] Validate Airavata dynamic group bootstrap and block state
 
-### 核心改动
-- 按项目内 `java-web-dos-hunter` 工作流对 Jersey 3.1.3 做静态资源耗尽 DoS hunt，覆盖 OAuth1 server、multipart provider、默认 message body providers、core-server monitoring/async/runtime 和主要 HTTP containers。
-- 运行 Jersey-only generic/parser/OAuth Phase 3 CodeQL 交叉检查，确认 generic 查询 0 条数据行，parser 专项 3 条数据行，OAuth 专项 1 条数据行。
-- 复核并确认现有 `WEB-REAL-0001` OAuth1 request token map 与 `WEB-REAL-0002` multipart MIME parser 两类静态路径；本轮未重新执行动态验证。
-- 新增 app-dependent 静态候选：默认 `FileProvider` 将任意请求实体流写入 `Utils.createTempFile()`，框架层只注册 `deleteOnExit()`，需要具体应用 `File` 实体参数或 `readEntity(File.class)` 路径证明。
-- 将 OAuth nonce cache、OAuth helper/admin maps、monitoring queues、sliding-window reservoirs、Broadcaster/ChunkedOutput、request-local property maps 和 response/header copying 作为 rejected / low-priority patterns 记录。
-- 关键技术决策：只做静态源码和 CodeQL 交叉检查，不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+### Changed
 
-### 交付成果
-- 新增本地静态挖掘报告：`results/static_hunts/jersey_static_hunt_2026-06-20.md`
-- 新增静态 findings CSV：`results/static_hunts/jersey_static_findings_2026-06-20.csv`
-- 新增 Jersey-only CodeQL 交叉检查输出：`results/static_hunts/jersey_phase3_candidate_features.bqrs`、`results/static_hunts/jersey_phase3_candidate_features.csv`、`results/static_hunts/jersey_parser_candidate_features.bqrs`、`results/static_hunts/jersey_parser_candidate_features.csv`、`results/static_hunts/jersey_oauth_candidate_features.bqrs`、`results/static_hunts/jersey_oauth_candidate_features.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：Jersey-only CodeQL 查询均成功执行并解码；后续一致性和 WEB-REAL 回归验证见本次最终回复。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+- Added isolated dynamic-validation artifacts for the `apache__airavata` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, compose override/bootstrap records, container inspection, token/bootstrap evidence, per-case planning, environment/data-prep notes, reflection, launch-attempt logs, and terminal result files.
+- Built the repository-native `airavata-server:dev` and `airavata-slurm:dev` images from the checked-out source and bootstrapped a case-local approximation of the documented quickstart stack (`compose.yml`) in isolated Docker networking because this worker host lacks the repository's expected Tilt/Colima/mkcert devstack substrate.
+- Applied one targeted environment-side repair by changing the case-local Keycloak hostname override from `localhost` to the in-network service name `keycloak`, so JWT `iss` values became resolvable by the Airavata server container for JWKS verification without changing target business code.
+- Classified `apache__airavata-FND-200-1` as `precondition_blocked` because the default documented stack became healthy and the seeded default-admin token could enumerate the seeded `Default Project`, `Echo`, `slurm`, and `sftp` resources, but the only safe default-flow route to an own-process file failed earlier at the SDK's seeded SFTP experiment-directory bootstrap with `paramiko` SSH protocol-banner errors, so no semantic preflight or bounded file-download probe could begin.
+- Recorded that the shared `aggregate_dynamic_validation.py` script still exits with status `1` and no diagnostics on this output root, so the Airavata worker preserved all artifacts and updated `validation_status.jsonl` directly after executing the required aggregation step.
 
-### 依赖与影响
-- 依赖：本地 `frameworks/jersey-3.1.3` 源码、`databases/jersey-3.1-db` CodeQL 数据库、现有 Phase 3 parser/OAuth 查询和项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可将 `FileProvider`、`EntityPartReader` 和 `@FormDataParam File` alias patterns 补进 Jersey 专项 CodeQL 查询；如果允许动态验证，可优先验证 `FileProvider` 在受控临时目录和小磁盘配额下的增长曲线。
-- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+### Verification
 
----
+- Built the Airavata server and SLURM images locally, launched the documented dependency stack plus the local server image in isolated Docker networking, and captured healthy HTTP, Keycloak, SFTP, MariaDB, and SLURM readiness evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/apache__airavata-default/`.
+- Retrieved a real default-admin Keycloak token over the Docker network, verified the repaired issuer claim, confirmed seeded project/application/resource visibility over the live Airavata gRPC API, and captured the blocking SFTP bootstrap failure under `results/applications_dynamic_validation/java_web_46_candidates_20260812/cases/apache__airavata-FND-200-1/`.
 
-## [2026-06-20] Spring Boot 静态资源耗尽 DoS 挖掘
+## [2026-08-12] Validate Dependency-Track dynamic group outcomes
 
-### 修改时间
-2026-06-20 21:40
+### Changed
 
-### 变更类型
-- [文档] 静态挖掘报告
+- Added isolated dynamic-validation artifacts for the `dependencytrack__dependency-track` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, compose/bootstrap files, startup logs, container inspect data, scoped auth/data bootstrap evidence, per-case plans, semantic preflights, observations, evidence, reflections, and terminal result files.
+- Bootstrapped the official Dependency-Track quickstart-equivalent image set (`ghcr.io/dependencytrack/apiserver:5.0.4`, `ghcr.io/dependencytrack/frontend:5.0.4`, `postgres:18-alpine`) in an isolated local compose stack. Two targeted compatibility-only mechanical repairs were required before readiness: remapping the PostgreSQL 18 bind mount from `/var/lib/postgresql/data` to `/var/lib/postgresql`, and switching removed v4/v5 transitional database environment variable names to the exact v5 `DT_DATASOURCE_DEFAULT_*` keys expected by the apiserver.
+- Completed the default first-login password change for `admin/admin`, then used only official REST APIs to create the low-privilege `dosval_user`, scoped `DosvalTeam`, team API key, and an accessible `dosval-project` so the queued authenticated routes could be exercised without changing target business code.
+- Classified `dependencytrack__dependency-track-DTRACK-APP-STATIC-0001` as `not_reproduced_under_tested_bounds` because the low-privilege scoped API key reached `PUT /api/v1/bom` and all bounded stepped JSON BOM uploads up to roughly 100 KiB decoded content were accepted with `200` responses and import tokens, but no default rejection bound, target-specific growth signal, or service-failure evidence was observed in the conservative single-request staircase.
+- Classified `dependencytrack__dependency-track-DTRACK-APP-STATIC-0004` as `not_reproduced_under_tested_bounds` because the same scoped API key reached `POST /api/v1/vex` and all bounded stepped multipart VEX uploads up to roughly 100 KiB decoded content were accepted with `200` responses and import tokens, but no multipart rejection bound, target-specific growth signal, or service-failure evidence was observed in the conservative single-request staircase.
+- The required aggregate step will still be executed after artifact publication for this group; existing evidence indicates the shared aggregator may continue to exit with status `1` and no diagnostics on this output root, so the worker preserved all case/environment artifacts and updated `validation_status.jsonl` directly.
 
-### 核心改动
-- 按项目内 `java-web-dos-hunter` 工作流对 Spring Boot 2.7.x 做静态资源耗尽 DoS hunt，覆盖 actuator trace、actuator metrics、WebFlux multipart、Servlet multipart、WebClient metrics 和 WebMvc/WebFlux request instrumentation。
-- 运行 Spring Boot-only generic Phase 3 CodeQL 交叉检查，确认输出 2 条候选均来自 `src/test` blocking servlet fixture，生产源码候选为 0。
-- 新增高价值静态候选：WebFlux multipart 默认 `maxParts=-1` 与 `maxDiskUsagePerPart=-1` 的 part-count / disk-burst 风险。
-- 新增 app-dependent 静态候选：WebClient metrics 默认 `client.name=request.url().getHost()` 进入 `MeterRegistry`，而默认自动配置只对 `uri` tag 安装 100 个值上限；该项需要具体应用入口证明。
-- 将 HTTP trace、server metrics、Servlet multipart、long-task timer samples 和 actuator endpoint read operations 作为 rejected/default-bounded patterns 记录，避免误报默认有界路径。
-- 关键技术决策：本轮只做静态源码和 CodeQL 交叉检查，不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+### Verification
 
-### 交付成果
-- 新增本地静态挖掘报告：`results/static_hunts/spring_boot_static_hunt_2026-06-20.md`
-- 新增静态 findings CSV：`results/static_hunts/spring_boot_static_findings_2026-06-20.csv`
-- 新增 source/sink inventory：`results/static_hunts/spring_boot_static_inventory_2026-06-20.jsonl`
-- 新增 rejected/noise CSV：`results/static_hunts/spring_boot_static_rejected_2026-06-20.csv`
-- 新增 Spring Boot-only CodeQL 交叉检查输出：`results/static_hunts/spring-boot_phase3_candidate_features.bqrs`、`results/static_hunts/spring-boot_phase3_candidate_features.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：Spring Boot-only CodeQL generic Phase 3 query 成功执行并解码，输出 2 rows，均为 `src/test` 噪声；`spring_boot_static_inventory_2026-06-20.jsonl` 逐行 JSON 解析通过，10 records；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched, pass=True`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit, 0 partial, 0 missing`；`git diff --check` 通过。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+- Launched the official quickstart-equivalent image set locally with isolation-only host port remapping and bounded resources; captured both initial startup failures and repaired ready-state evidence under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/dependencytrack__dependency-track-default/`.
+- Verified default API/frontend readiness, admin first-login force-change semantics, scoped low-privilege project access, and bounded accepted BOM/VEX upload responses under the two Dependency-Track case directories.
 
-### 依赖与影响
-- 依赖：本地 `frameworks/spring-boot` 2.7.x 源码、`databases/spring-boot-2.7-db` CodeQL 数据库、现有 Phase 3 查询和项目内 `skills/java-web-dos-hunter`。
-- 对后续工作的影响：后续可将 WebFlux multipart 和 WebClient metrics tag cardinality patterns 补进 Spring Boot 专项 CodeQL 查询；如果允许动态验证，可优先验证 reactive multipart 默认配置在受控临时目录和小磁盘配额下的增长曲线。
-- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+## [2026-08-12] Validate GoCD dynamic group outcomes
 
-## [2026-06-20] Tomcat 静态资源耗尽 DoS 挖掘
+### Changed
 
-### 修改时间
-2026-06-20 21:09
+- Added isolated dynamic-validation artifacts for the `gocd__gocd` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, startup logs, container inspect data, per-case plans, semantic preflights, observations, evidence, reflections, and terminal result files.
+- Bootstrapped the official `gocd/gocd-server:v26.1.0` Docker image locally in isolation. The first attempt failed because a bind-mounted `/godata` path was not writable by the container entrypoint, so one targeted mechanical repair switched only the persistence mount to a Docker named volume and the default image then became ready on `http://127.0.0.1:18153/go`.
+- Classified `gocd__gocd-F-GOCD-V2HP-001` as `observed_growth_not_confirmed` because anonymous fresh requests to `/go/api/v1/health` repeatedly received new `JSESSIONID` cookies while a cookie-reusing control stopped receiving fresh cookies, confirming pre-auth session creation semantics without collecting internal Jetty session-cardinality or failure evidence.
+- Classified `gocd__gocd-F-GOCD-V2HP-002` as `not_reproduced_under_tested_bounds` because tiny anonymous POSTs to `/go/api/webhooks/github/notify` and `/go/api/webhooks/hosted_bitbucket/notify` reached HMAC-mismatch rejection in the default deployment, but the bounded probe did not escalate body size or observe any resource-failure signal.
+- Recorded that the shared `aggregate_dynamic_validation.py` script still exits with status `1` and no diagnostics on this output root, so the GoCD worker preserved all artifacts and updated `validation_status.jsonl` directly after executing the required aggregation step.
 
-### 变更类型
-- [文档] 静态挖掘报告
+### Verification
 
-### 核心改动
-- 按 `java-web-dos-hunter` 工作流对 Tomcat `9.0.x` 做静态资源耗尽 DoS hunt，覆盖 WebDAV、multipart、静态资源 cache、WebSocket、HTTP/2、Form Auth saved request、CSRF nonce 和 SSO cache 等模块。
-- 复核并确认现有 `WebdavServlet` LOCK retained lock maps 静态路径，与 `WEB-REAL-0006` / `WEB-P4-0025..0027` 对齐；本轮未重新执行动态验证。
-- 新增源码级静态候选：`WebdavServlet.doProppatch` 未复用 `readRequestBody()` 的请求体完整缓冲路径，以及默认 `MemoryPropertyStore.deadProperties` 对 PROPPATCH dead properties 的 process-lifetime retention。
-- 将 multipart parser、static resource cache、WebSocket session maps、HTTP/2 stream maps、Form Auth saved request、CSRF nonce cache 和 SSO cache 作为 rejected / low-priority patterns 记录，理由是源码中存在容量、TTL、timeout、LRU、覆盖、unregister 或部署 gate。
-- 关键技术决策：只做静态源码和 CodeQL 交叉检查；不刷新 Phase 3/4 全量 baseline，不执行真实 HTTP 动态 harness。
+- Launched the official GoCD server image locally with isolation-only host port remapping and bounded container resources; captured startup failure evidence for the unwritable bind mount, then captured ready-state HTTP probes plus final container logs under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/gocd__gocd-default/`.
+- Executed bounded anonymous health-route cookie probes and tiny invalid-signature webhook probes, and captured Set-Cookie behavior plus 401 mismatch responses under the two GoCD case directories.
 
-### 交付成果
-- 新增本地静态挖掘报告：`results/static_hunts/tomcat_static_hunt_2026-06-20.md`
-- 新增静态 findings CSV：`results/static_hunts/tomcat_static_findings_2026-06-20.csv`
-- 新增 Tomcat-only CodeQL 交叉检查输出：`results/static_hunts/tomcat_phase3_candidate_features.bqrs`、`results/static_hunts/tomcat_phase3_candidate_features.csv`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：Tomcat-only CodeQL generic Phase 3 query 成功执行并解码，输出 24 rows，其中生产源码候选为 3 条 `WebdavServlet` lock-map rows，其余为 examples/tests 噪声；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched, pass=True`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit, 0 partial, 0 missing`。未运行动态验证，原因是用户明确要求“只静态挖掘”。
+## [2026-08-12] Validate Ant Media dynamic group outcomes
 
-### 依赖与影响
-- 依赖：本地 `frameworks/tomcat` 源码快照 `55fdb4f`、`databases/tomcat-9.0-db` CodeQL 数据库和现有 Phase 3 查询。
-- 对后续工作的影响：后续可将 `doProppatch` body buffering 与 `MemoryPropertyStore.deadProperties` 候选补进 Tomcat 专项 CodeQL 查询，并在隔离 harness 中选择性验证。
-- 破坏性变更：无；仅新增 ignored 本地静态结果和报告，未修改 analyzer 代码、ranking、pipeline 或 verdict 语义。
+### Changed
 
----
+- Added isolated dynamic-validation artifacts for the `ant-media__ant-media-server` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including official-image environment inventory, feasibility, readiness, snapshot, startup logs, container inspect evidence, per-case plans, preflights, observations, evidence, reflections, and terminal result files.
+- Attempted the repository-native packaged build path first, but the checked-in source snapshot could not resolve the required `io.antmedia:parent:4.0.0-SNAPSHOT` parent POM; to stay within default-deployment guidance, the worker then switched to the official `antmedia/community:latest` Docker image rather than editing build files or target code.
+- Confirmed that the official community image boots successfully in isolation and auto-deploys the `live`, `WebRTCApp`, and `LiveApp` contexts on HTTP port `5080`, resolving the earlier static uncertainty about packaged route availability.
+- Classified `ant-media__ant-media-server-AMS-V2HP-UNKNOWN-001` as `default_not_reachable` because the default `live` app does deploy `ChunkedTransferServlet` on `/chunked/*` and `*.m4s`, but the first tiny external HTTP POST was rejected by the default `IPFilter` with `403 Not allowed IP` before `AtomParser` execution could be observed.
+- Classified `ant-media__ant-media-server-AMS-V2HP-UNKNOWN-002` as `not_reproduced_under_tested_bounds` because the default `live` websocket endpoint accepted an anonymous publish handshake and started the adaptor lifecycle, yet the bounded single-session probe observed immediate stop/cleanup after close and no persistent retained thread or adaptor growth.
+- Recorded that the shared `aggregate_dynamic_validation.py` script still exits with status 1 and no diagnostics on this output root, so the Ant Media worker preserved all artifacts and updated `validation_status.jsonl` directly after running the required aggregation step.
 
-## [2026-06-20] Jetty 静态资源耗尽 DoS 挖掘
+### Verification
 
-### 修改时间
-2026-06-20 20:52
+- Pulled and launched the official `antmedia/community:latest` Docker image locally with isolation-only port remapping and bounded container resources; captured startup logs, container inspect output, deployed `web.xml` route mappings, and HTTP readiness probes under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/ant-media__ant-media-server-default/`.
+- Executed a bounded tiny `ChunkedTransferServlet` POST preflight and a raw WebSocket upgrade plus single publish-command lifecycle probe, and captured the `403 Not allowed IP`, HTTP `101` upgrade, websocket `start` reply, and post-close cleanup log evidence under the Ant Media case directories.
 
-### 变更类型
-- [文档] 静态挖掘报告
+## [2026-08-12] Validate OpenKM dynamic group outcomes
 
-### 核心改动
-- 按 `java-web-dos-hunter` 工作流对 Jetty 11.0.15 做静态资源耗尽 DoS hunt，先建立 target profile，再枚举 retained-state sinks、HTTP sources、source-to-sink 路径和拒绝项。
-- 复核并确认现有 Jetty `ProxyServlet -> HttpClient.destinations` 静态候选，同时新增源码级静态候选：`PushSessionCacheFilter` 的全局 path cache / per-target association map / session timestamp map，以及 `PushCacheFilter` 的 primary-resource cache。
-- 将 `DoSFilter`、`QoSFilter`、session cache internals 和 request-local buffering 作为低优先级或 rejected patterns 记录，理由是存在 timeout、poll/remove、scheduler cleanup、session eviction/scavenging 或 request-local 生命周期约束。
-- 关键技术决策：本轮只做静态证据整理，不执行动态 harness，也不修改 CodeQL 查询、ranking、verdict 或 pipeline 逻辑。
+### Changed
 
-### 交付成果
-- 新增本地静态挖掘报告：`results/static_hunts/jetty_static_hunt_2026-06-20.md`
-- 刷新本地静态结果以恢复全量 baseline：`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase4/`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：`python3 scripts/run_phase3.py --framework jetty` 显示 Jetty generic query 0 rows、Jetty proxy auxiliary query 1 row、Phase 3 consistency 1/1 matched；随后运行 `./dos-web-analyzer analyze --refresh-phase3` 恢复全量结果，输出 37 total candidates、Phase 3 consistency 37/37 matched、Phase 4 ranked 37 candidates。未运行动态验证，原因是用户明确要求“先只静态”。
+- Added isolated dynamic-validation artifacts for the `openkm__document-management-system` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including official-image environment inventory, feasibility, readiness, snapshot, runtime configuration capture, changes, per-case plans, preflights, observations, evidence, reflections, and terminal result files.
+- Bootstrapped the official `openkm/openkm-ce:latest` Docker image locally in isolation, confirmed the default admin login, and created one ordinary `ROLE_USER` account through the authenticated REST admin API so the queued low-privilege routes could be exercised without changing target business code.
+- Classified `openkm__document-management-system-F-OPENKM-002` as `observed_growth_not_confirmed` after a bounded single-request staircase with unique ZIP archives showed clear entry-count-driven latency growth on `/frontend/FileUpload?importZip=true`, but no sustained unavailability or explicit target-resource failure.
+- Classified `openkm__document-management-system-F-OPENKM-003` as `not_reproduced_under_tested_bounds` because the default authenticated frontend converter admitted two concurrent `toPdf` requests and executed `soffice`, yet no timeout, lingering process retention, or service degradation appeared under the bounded concurrency-2 probe.
+- Classified `openkm__document-management-system-F-OPENKM-004` as `not_reproduced_under_tested_bounds` because the default authenticated REST `doc2pdf` endpoint accepted two concurrent valid multipart DOCX conversions and returned PDFs without provider rejection or target-resource failure under the bounded concurrency-2 probe.
+- Recorded that the shared `aggregate_dynamic_validation.py` script still exits with status 1 and no diagnostics on this output root, so the OpenKM worker preserved all artifacts and updated `validation_status.jsonl` directly after running the required aggregation step.
 
-### 依赖与影响
-- 依赖：本地 `frameworks/jetty-11.0.15` 源码、`databases/jetty-11-db` CodeQL 数据库和现有 Phase 3/4 pipeline。
-- 对后续工作的影响：后续可将 `PushSessionCacheFilter` / `PushCacheFilter` 候选补进 Jetty 专项 CodeQL 查询，再选择性做真实 HTTP 动态验证。
-- 破坏性变更：无；仅新增 ignored 本地报告并刷新 ignored 本地结果，未修改 analyzer 代码或 verdict 语义。
+### Verification
 
----
+- Pulled and launched the official OpenKM image locally, captured container logs plus runtime `OpenKM.cfg` and `OpenKM.xml`, verified low-privilege frontend and REST authentication, and enumerated seeded root documents for converter probes.
+- Executed bounded unique-entry ZIP import probes plus concurrent frontend and REST DOCX-to-PDF conversion probes, and captured timing, HTTP headers, PDF outputs, route responses, and server-side converter evidence under the OpenKM case directories.
 
-## [2026-06-20] Java Web 资源耗尽 DoS 挖掘技能
+## [2026-08-12] Validate Rill Flow dynamic group startup feasibility
 
-### 修改时间
-2026-06-20 19:15
+### Changed
 
-### 变更类型
-- [文档] Agent 技能
+- Added isolated dynamic-validation artifacts for the `weibocom__rill-flow` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, startup logs, container inspect evidence, per-case plans, blocked preflights, reflections, and terminal result files.
+- Bootstrapped the documented official compose quickstart twice in a local isolated environment. The first attempt failed on a host `8080` port collision, so a case-local compose copy remapped only the host ports while preserving the documented images and environment variables.
+- Applied one targeted dependency-side mechanical repair by mounting a readable case-local copy of `setup.sql` after the checked-in MySQL bind mount failed with `Permission denied` during initialization.
+- Conservatively classified `weibocom__rill-flow-F-001`, `weibocom__rill-flow-F-002`, and `weibocom__rill-flow-F-003` as `environment_blocked` because the official `weibocom/rill-flow:latest` backend image never reached readiness: Tomcat/Spring Boot startup aborted in OpenTelemetry/Micrometer system-metrics initialization with a cgroup-related `NullPointerException`, so no route-level semantic preflight could begin.
 
-### 核心改动
-- 新增项目内技能 `java-web-dos-hunter`，用于指导 agent 在 Java Web/HTTP 服务中大规模、证据驱动地挖掘资源耗尽型 DoS。
-- 技能与当前 Phase 3/4 analyzer 代码脱钩，不依赖本仓库 CodeQL 库、pipeline 或结果格式；仅沉淀可迁移的 source/sink/flow/verdict 工作流。
-- 明确 sink 全量枚举、HTTP source 全量枚举、source-to-sink 关联、真阳性判定、动态验证计划和低强度 subagent 委派纪律。
-- 关键技术决策：采用“先清单、再路径、后判定”的 evidence-driven pipeline，避免把局部可增长操作直接误判为可利用漏洞。
+### Verification
 
-### 交付成果
-- 新增技能正文：`skills/java-web-dos-hunter/SKILL.md`
-- 新增技能 UI 元数据：`skills/java-web-dos-hunter/agents/openai.yaml`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：`python3 /home/furina/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/java-web-dos-hunter` 通过；`grep` 结构检查确认技能包含 Stage 0-5、subagent 纪律、输出报告和真阳性判定字段；使用合成 Java Web 场景做轻量 forward-test，技能能将 Spring singleton registry header-key 增长判为 likely，并拒绝 response-local header copy 与 `maxParts=32` 的 part-count multipart 路径，随后补充 header 值空间、singleton retained-state、multipart 多维度 bound 和 `needs_path_proof` 口径说明。
+- Pulled and launched the documented compose images locally, captured compose/container state, backend startup logs, MySQL startup logs, and container inspect output under `results/applications_dynamic_validation/java_web_46_candidates_20260812/environments/weibocom__rill-flow-default/`.
+- Verified that the dependency-side SQL readability issue could be repaired in isolation, but the backend startup crash remained and prevented any successful HTTP probe to `/flow/trigger/add_trigger.json` or `/flow/submit.json`.
 
-### 依赖与影响
-- 依赖：无运行时依赖；后续 agent 可按技能说明自行选择 `rg`、AST、CodeQL、调用图或 subagent。
-- 对后续工作的影响：可作为独立于当前 analyzer 的通用漏洞挖掘流程，用于后续 Java Web/HTTP 框架或服务的大规模资源耗尽 DoS hunting。
-- 破坏性变更：无；未修改 analyzer 查询、脚本、pipeline、结果或 verdict 语义。
+## [2026-08-12] Validate Concord dynamic group outcomes
 
----
+### Changed
 
-## [2026-06-20] WEB-REAL 私有披露材料准备
+- Added isolated dynamic-validation artifacts for the `walmartlabs__concord` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including compose-based environment inventory, feasibility, readiness, snapshot, changes, bootstrap records, per-case plans, preflights, observations, evidence, reflections, and terminal result files.
+- Bootstrapped the official Concord compose quickstart in an isolated local environment with a deterministic admin token only for reproducible first-start authorization, then created one ordinary local user and API key to exercise the queued authenticated routes without changing target business code.
+- Classified `walmartlabs__concord-fnd1`, `walmartlabs__concord-fnd2`, and `walmartlabs__concord-fnd3` as `not_reproduced_under_tested_bounds` after bounded default-route probes observed successful request handling but no attributable resource failure or meaningful degradation under the safe attachment/log payloads.
+- Classified `walmartlabs__concord-fnd4` as `probe_semantics_failed` because the multipart form route was reached but the crafted JSON field payload failed the form schema before becoming a semantically valid stress case.
+- Classified `walmartlabs__concord-fnd5` as `probe_semantics_failed` after a two-step WebSocket preflight: the first attempt exposed required Concord agent headers, and the corrected second attempt proved deserializer reachability but failed on a missing `messageType` semantic requirement instead of a size-bound or resource effect.
+- Recorded that the central `aggregate_dynamic_validation.py` script currently exits with status 1 on this shared output root without emitting diagnostics, so the Concord worker preserved all case/environment artifacts and updated `validation_status.jsonl` directly for manual or controller-side re-aggregation.
 
-### 修改时间
-2026-06-20 19:10
+### Verification
 
-### 变更类型
-- [文档] 私有漏洞报告材料
+- Launched the official `docker-images/compose/docker-compose.yml` stack locally, captured compose/server logs, verified authenticated access with the isolated admin token, created an ordinary API key, and started reusable test processes plus a v2 log segment for route-specific probes.
+- Executed bounded probes for attachment ZIP upload, v1 log append, v2 log-segment append, multipart form submission, and WebSocket upgrade/message handling; captured route responses and server-side error evidence under the Concord case directories.
 
-### 核心改动
-- 新增本地私有披露材料目录 `security-disclosures/`，按 `WEB-REAL-0001` 至 `WEB-REAL-0006` 分别准备上游安全团队报告草稿、附件清单、复跑命令和 CVE 请求措辞。
-- 按项目拆分报告入口：Jersey 走 Eclipse/Jersey 安全流程，Undertow 走 Red Hat Product Security，Jetty 走 Jetty Security Team，Tomcat 走 Tomcat Security Team。
-- 将每个 `WEB-REAL` 整理为独立目录，内含 `REPORT.md` 与 `attachments/`；附件包括对应 PoC、验证日志和裁剪版 evidence JSON。
-- 清理报告与 evidence JSON 中的内部结果目录引用，统一改为 `attachments/...` 相对路径，便于直接打包提交给上游安全团队。
-- 将 `security-disclosures/` 加入 `.gitignore`，避免 PoC 附件、日志摘要、厂商往来和未公开漏洞细节误入版本库。
-- 关键技术决策：报告正文使用英文，便于直接提交给上游；本地步骤和注意事项使用中文，便于后续执行和复核。
+## [2026-08-12] Validate Stirling PDF dynamic group startup feasibility
 
-### 交付成果
-- 新增本地忽略目录：`security-disclosures/`
-- 新增私有披露 runbook：`security-disclosures/README.md`
-- 新增 6 份本地报告草稿：`security-disclosures/WEB-REAL-0001-jersey-oauth1-request-token-map/REPORT.md` 至 `security-disclosures/WEB-REAL-0006-tomcat-webdav-lock-maps/REPORT.md`
-- 新增 6 组本地附件目录：每组 `attachments/` 包含 PoC、日志和 `evidence-WEB-REAL-*.json`
-- 修改忽略规则：`.gitignore`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：`git check-ignore -v security-disclosures/README.md` 确认命中 `.gitignore:18:security-disclosures/`；`git check-ignore -v security-disclosures/WEB-REAL-0001-jersey-oauth1-request-token-map/attachments/JerseyOAuth1HttpProbe.java` 确认附件也被忽略；`rg -n "results/phase4" security-disclosures` 无匹配；附件引用存在性校验通过；`jq -e . security-disclosures/WEB-REAL-*/attachments/evidence-WEB-REAL-*.json` 通过；`git status --short --ignored security-disclosures .gitignore CHANGELOG.md` 显示披露目录为 ignored，仅 `.gitignore` 与 `CHANGELOG.md` 为可跟踪变更；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched, pass=True`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit, 0 partial, 0 missing`。
+### Changed
 
-### 依赖与影响
-- 依赖：当前 `results/phase4/verified_vulnerabilities.json`、动态验证 PoC 和日志作为证据来源。
-- 对后续工作的影响：后续向上游报告时可直接从本地私有目录复制正文并附对应 PoC/log；发送前仍应按报告内命令复跑对应 case。
-- 破坏性变更：无；新增披露材料目录被 Git 忽略，不会进入公开版本历史。
+- Added isolated dynamic-validation artifacts for `stirling-tools__stirling-pdf` under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including environment inventory, feasibility, readiness, snapshot, changes, crafted PDF probe input, preflight, observations, reflection, and terminal result files.
+- Bootstrapped the official `docker.stirlingpdf.com/stirlingtools/stirling-pdf:latest` image in documented login-disabled Docker mode and attempted one targeted mechanical repair by increasing startup memory headroom.
+- Conservatively classified `stirling-tools__stirling-pdf-F-vulnerable-decompression` as `environment_blocked` because the official image terminated during startup with `OutOfMemoryError: Metaspace` before any readiness or route-level semantic validation could occur.
 
----
+### Verification
 
-## [2026-06-20] 真实 HTTP 动态验证 harness 与 WEB-REAL-0006 入库
+- Pulled and launched the official latest image locally with isolated port remapping and case-local config/log volumes; captured startup logs, container inspect state, and failed readiness evidence for both bootstrap attempts.
+- Generated a bounded valid `FlateDecode` PDF probe artifact and recorded that the prepared single-request probe only encountered connection refusal because the service never became healthy.
 
-### 修改时间
-2026-06-20 18:19
+## [2026-08-12] Validate Hackpad dynamic group outcomes
 
-### 变更类型
-- [新增功能] 真实 HTTP 动态验证 harness
-- [功能改进] WEB-REAL 动态证据刷新
-- [文档] 验证结果记录
+### Changed
 
-### 核心改动
-- 新增 `dynamic-verification/` Maven 项目，使用真实本地 HTTP server/request 路径复现 Jersey、Undertow、Jetty 和 Tomcat retained-state DoS 行为。
-- 新增 `scripts/run_dynamic_verification.py`，支持 `smoke` 与 `oom` profile、单 case 选择、受控 JVM 堆和统一日志/summary 输出。
-- 将 `WEB-REAL-0001`、`WEB-REAL-0002`、`WEB-REAL-0004` 从 direct/半 direct harness 补齐为真实 HTTP 入口验证；保留旧默认堆日志作为对照。
-- 新增 `WEB-REAL-0006` Tomcat `WebdavServlet` 真实 WebDAV `LOCK` 验证，覆盖 `WEB-P4-0025` 的 `sharedLocks` token put，以及 `WEB-P4-0026`、`WEB-P4-0027` 的 `resourceLocks` path put。
-- 将 Tomcat WebDAV 从 Phase4 补充证据提升为正式 WEB-REAL catalog 条目，并在 `intel/regression/web_real_manifest.json` 中加入静态回归规则。
-- runner 会识别服务线程日志中的 `java.lang.OutOfMemoryError: Java heap space`，用于处理 Jersey/Grizzly 等容器在线程内吞掉 OOM、main 线程只看到客户端写失败的真实 HTTP 场景。
-- 关键技术决策：OOM profile 使用 384MiB 受控堆，降低对本机默认大堆和系统资源的依赖；结果日志记录 `maxHeapBytes`，需要默认堆复现实验时可用同一 harness 调整 `--heap` 重跑。
+- Added isolated dynamic-validation artifacts for the `dropbox__hackpad` environment group under `results/applications_dynamic_validation/java_web_46_candidates_20260812/`, including default Docker environment inventory/feasibility/readiness snapshots and per-case plans, preflights, observations, evidence, reflections, and terminal results.
+- Confirmed that the documented default Hackpad Docker deployment boots successfully under isolation, but the modeled anonymous comet transport is not default-reachable in this setup: `/comet` returns `404` and `/newcomet` redirects to sign-in, so `dropbox__hackpad-F-HACKPAD-COMET` was conservatively classified as `default_not_reachable`.
+- Added a case-local component harness for `ExpiringMapping` to validate the Hackpad session sink semantics, showing one retained entry per novel ES2-like identifier plus lazy expiry on subsequent mutation; because this stayed mechanism-level and non-destructive, `dropbox__hackpad-F-HACKPAD-SESSION` remains `observed_growth_not_confirmed` rather than a confirmed target failure.
 
-### 交付成果
-- 新增 Maven harness：`dynamic-verification/pom.xml`
-- 新增 Java probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JerseyOAuth1HttpProbe.java`
-- 新增 Java probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JerseyMultipartHttpProbe.java`
-- 新增 Java probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/UndertowLearningPushHttpProbe.java`
-- 新增 Java probe：`dynamic-verification/src/main/java/io/undertow/server/handlers/proxy/mod_cluster/UndertowModClusterHttpProbe.java`
-- 新增 Java probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/JettyProxyServletHttpProbe.java`
-- 新增 Java probe：`dynamic-verification/src/main/java/org/example/dos/dynamic/TomcatWebdavLocksHttpProbe.java`
-- 新增 runner 与测试：`scripts/run_dynamic_verification.py`、`tests/test_run_dynamic_verification.py`
-- 更新文档：`README.md`、`AGENTS.md`、`CHANGELOG.md`
-- 更新本地结果：`results/phase4/dynamic_verification/dynamic_verification_summary.json`、`results/phase4/dynamic_verification/logs/*real-http*.log`、`results/phase4/verified_vulnerabilities.json`、`results/phase4/verified_vulnerabilities.md`
-- 测试/验证结果：`pytest tests/test_run_dynamic_verification.py tests/test_web_real_catalog.py -q` 8 passed；`mvn -q -DskipTests package dependency:build-classpath -Dmdep.outputFile=target/classpath.txt` 通过；`python3 scripts/run_dynamic_verification.py --profile smoke --heap 384m --port-base 28800` 覆盖 6/6 case；`python3 scripts/run_dynamic_verification.py --profile oom --heap 384m --port-base 28900` 输出 6/6 `verified (CONFIRMED_HEAP_OOM_REAL_HTTP)`；`python3 scripts/check_phase3_consistency.py` 输出 `37/37 matched`；`python3 scripts/check_web_real_regression.py` 输出 `6/6 hit`。
+### Verification
 
-### 依赖与影响
-- 依赖：Maven、Java 17+，以及 Maven Central 可下载 Tomcat 9.0.106、Jersey 3.1.3、Undertow 2.3.7.Final、Jetty 11.0.15 依赖。
-- 对后续工作的影响：后续论文 RQ4 和漏洞报告可用真实 HTTP harness 复跑，不再依赖临时 direct harness；Tomcat WebDAV 0025~0027 已从 pending 复核候选升级为 `WEB-REAL-0006`。
-- 破坏性变更：无；`dynamic-verification/target/` 为本地构建/运行产物并已忽略。
+- Built the official Hackpad Dockerfile, launched the documented volume-mounted quickstart locally, verified HTTP root reachability with the application's expected `Host` header, and captured route-specific evidence for `/comet` and `/newcomet`.
+- Compiled and ran a local JDK 21 harness against the repository's `infrastructure/net.appjet.common/util/ExpiringMapping.java` to record retained-cardinality and lazy-expiry evidence for the session case.
 
----
+## [2026-08-10] Bind batch plans to exact CodeQL databases
 
-## [2026-06-20] 旧文档与旧结果清理
+### Changed
 
-### 修改时间
-2026-06-20 11:04
+- New batch plans now bind each target's validated CodeQL database fingerprint into the immutable plan digest and per-target binding while retaining load compatibility for historical plans that predate this field.
+- Batch execution revalidates fingerprint-bound databases and their exact source-root correspondence before creating the target pipeline, so a database replaced after plan publication fails closed before CodeQL or a remote provider is invoked.
+- The PoC-29 evaluator now reflects the repaired 18/18 default databases and can request a strict full plan that pins `deepseek-v4-pro`, temperature `0`, the DeepSeek base URL, 60-second timeout, three retries, explicit plan-time remote intent, and `pilot_skipped=true`. It refuses to publish the plan unless all 18 targets are provider-eligible and queued.
+- PoC-29 corpus conversion now carries the validated CodeQL database fingerprint rather than the database-marker digest into batch targets.
+- Strict PoC source overrides can bind a tree-attested analysis source/database pair to a separate clean public Git checkout only when the checkout HEAD, origin, clean state, full commit, canonical GitHub URL, and excluded-path tree digest all match. The provider checkout and commit are included in the immutable target capability while database validation remains bound to the canonical analysis source.
 
-### 变更类型
-- [文档] 清理记录
-- [功能改进] 本地结果目录维护
+### Verification
 
-### 核心改动
-- 清理过时的 `docs/superpowers/` 设计/计划过程文档，仅保留当前核心设计文档 `docs/drd_inspired_rearchitecture_plan.md`。
-- 清理旧 Phase 1/2 结果、临时 test 查询结果，以及 Phase 3 单框架/辅助查询的中间 BQRS 和 CSV。
-- 保留最新权威产物：Phase 3 合并候选、一致性报告、WEB-REAL 回归结果、Phase 4 排序/复核队列/评估摘要、已验证漏洞库、动态验证 PoC 和日志。
-- 同步更新 `AGENTS.md`，修正当前全量框架、运行命令、保留产物、WEB-REAL Phase4 ID 和清理约束。
-- 关键技术决策：只删除可再生成的旧中间产物和过程文档，不删除框架源码、CodeQL 数据库、查询、脚本、已验证漏洞证据或最新 Phase 3/4 汇总结果。
+- Added plan serialization/legacy compatibility coverage and runner checks for successful database revalidation, database fingerprint drift, and database source-root drift.
+- Resolved the eight PoC tree-attested targets to exact public commits and clean independent Git checkouts: Druid `c2d15dfc55d965e63b55dd11d698ca10ced99b4e`, HertzBeat `87062df97d01d14ea857b76936e97f4385cf609e`, SkyWalking `bb16533009a597dbb41ab6f013ac300509abbb3e`, Solr `c54251ea1614a6635410083839011cf20bfe189b`, Dependency-Track `f4bffa0aee1980387e1c40d7f01f13622a4c7720`, Zipkin `878ce2a1fad54ca941d17fdcf2e1d924b148eb1f`, Presto `913a64110299a3ae0f6314af1558255c1488fec8`, and ThingsBoard `e70298792acaa41b986ed8662fb2a760c35ee5e6`. Each checkout passes exact HEAD/origin/clean-worktree/Git-object validation; the override manifest separately binds the canonical analysis tree SHA-256 and default native database fingerprint.
+- Published the nonexecuting immutable 29-case/18-target full plan at `results/java_web_dos_batch/poc29-full-plan-20260810/`. All 18 targets are queued, all 18 database fingerprints are bound, the provider is fixed to `deepseek-v4-pro` with temperature `0`, timeout `60`, retries `3`, and `pilot_skipped=true`; plan digest is `35fcae172671ea29b6ceacfeb0a99613ac2b3a3a08d7da3d1b5eaedf4c08d8a4`.
+- The first authorized full execution of that published PoC-29 plan completed with `completed_with_failures` and produced no aggregate summary or static findings. All 18 targets failed: the 8 provider-override repositories hit `CODEQL_DATABASE_INVALID` because `dosweb/production.py` still requires the validated CodeQL database source root to equal the configured provider checkout even when the plan intentionally separates canonical analysis source from provider provenance, 9 targets hit `ANALYSIS_GROWTH_ENTRY_AMBIGUOUS`, and `tianshiyeben/wgcloud` hit `CONFIG_PUBLIC_SOURCE_UNVERIFIED`. The preserved state under `results/java_web_dos_batch/poc29-full-plan-20260810/` is the handoff baseline for the next tool-development session.
 
-### 交付成果
-- 删除旧文档目录：`docs/superpowers/`
-- 删除旧结果：`results/phase1/`、`results/phase2/`、`results/phase1_report.md`、`results/phase2_report.md`、`results/test_*.bqrs`、`results/test_*.csv`
-- 删除 Phase 3 中间结果：`results/phase3/*_candidate_features.bqrs`、`results/phase3/*_candidate_features.csv`（保留 `phase3_candidate_features.csv`）
-- 保留最新结果：`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3/web_real_regression.json`、`results/phase3_report.md`、`results/phase4/`
-- 修改文档：`AGENTS.md`、`CHANGELOG.md`
-- 测试/验证结果：`find docs -maxdepth 4 -type f` 仅显示核心设计文档；`find results -maxdepth 5 -type f` 仅显示最新 Phase 3/4 汇总产物、verified vulnerabilities、PoC 和日志；`python3 scripts/check_phase3_consistency.py` 输出 `Phase 3 consistency: 1.000 (37/37 matched), pass=True`；`python3 scripts/check_web_real_regression.py` 输出 5/5 hit。
+## [2026-08-04] Prepare strict native repair for Java Web 205
 
-### 依赖与影响
-- 依赖：2026-06-20 10:49 全量 Web 分析结果刷新已经完成。
-- 对后续工作的影响：结果目录更聚焦，后续复核默认从最新 Phase 3/4 汇总和 WEB-REAL 证据开始；若需要旧 Phase 1/2 或单框架中间 CSV，可通过现有 CLI/脚本重新生成。
-- 破坏性变更：删除 ignored 本地旧结果和过程文档；未删除源码、数据库、动态验证证据或最新权威汇总结果。
+### Added
 
----
+- Added a Java Web 205 native CodeQL database repair path with a frozen 55-target scope, Maven/Gradle-only discovery, safe nested build roots, multi-JDK attempts, strict source/database fingerprint validation, resumable attestations, and quarantine-based atomic promotion into the default `databases/applications/` paths.
+- The repair path explicitly rejects CodeQL autobuild, `build-mode=none`, bounded javac, compilation-failure suppression, tests, application launch, deployment, Docker tasks, cloning, symlinked targets, and shell-composed commands.
+- Added reviewed build-root overrides for the ten archived repositories whose Maven/Gradle roots are nested below the canonical source directory.
 
-## [2026-06-20] 全量 Web 分析结果刷新
+### Verification
 
-### 修改时间
-2026-06-20 10:49
+- A non-network preflight fixed the exact current scope at 55 `JAVA_DATABASE_REQUIRED` targets and discovered 44 Maven and 11 Gradle native build specifications with no unresolved build roots. No database was modified during preflight.
+- Native repair unit tests, Python compilation, and diff validation passed. The first authorized Sentinel attempt exposed a stale active loopback proxy in the workstation Maven settings; a subsequent attempt exposed a corrupt artifact in the shared Maven cache. Native Maven captures now use a repository-owned empty settings file, a run-local Maven repository, and sanitized Java/Maven/Gradle option variables so they do not inherit workstation mirrors, credentials, proxy state, injected build arguments, or corrupt shared-cache entries. No database was promoted by either failed attempt.
+- Resume now verifies attestation digests and binds the current source, database, build command/root, and JDK set; malformed attestation lines are isolated. Promotion failures are recorded per target, quarantine paths are attempt-specific, and a single target exception no longer aborts the remaining repair scope. A completed CodeQL candidate rejected solely for source-fingerprint drift is now preserved under an attempt-specific `.source-drift` recovery path instead of being deleted, allowing generated-file quarantine, exact fingerprint restoration, strict revalidation, and guarded forensic promotion without rerunning a multi-hour native capture.
+- The first repaired default database, `alibaba/sentinel`, completed a 94-module native Maven capture under CodeQL with source fingerprint unchanged, passed strict validation and `codeql resolve database`, and was atomically promoted while the prior invalid directory was retained under the run-specific quarantine path.
+- The first five-target tranche exposed two invocation defects now corrected: CodeQL requires an explicit `--working-dir` for nested build roots, and Maven wrappers do not reliably honor `MAVEN_ARGS`, so controlled settings and the run-local repository are now injected directly into the native Maven command. The corrected retry natively repaired `lenve/vhr` and `undera/perfmon-agent`; both promoted databases pass strict resolution. Remaining project-specific failures are retained fail-closed: `ikismail/shoppingcart` has an uncompilable/missing `GetMapping` import, `merikbest/ecommerce-spring-reactjs` uses a Lombok processor incompatible with the installed JDK 17+, and `stevensouza/automon` references an internal `2.0.0-SNAPSHOT` artifact while its reactor builds `2.0.1-SNAPSHOT`.
+- The second five-target tranche natively repaired and promoted `erudika/para`. Its other four targets remain fail-closed for checkout/build constraints: Quarkus extension dependency injection failure in `athou/commafeed`, old Lombok plus missing Java 8 system artifacts in `kalvingit/kvf-admin`, an absent internal `yuzi-generator-maker:1.0` artifact in `liyupi/yuzi-generator`, and a wrong local parent binding in `wxiaoqi/spring-cloud-platform`.
+- The third five-target tranche produced no valid database. Failures were old Lombok on JDK 17+ (`dengsinkiang/sk-admin`), a late reactor compilation failure after most modules succeeded (`dromara/warm-flow`), a missing local parent (`exrick/xboot`), a timed-out direct GitHub asset download (`nitorcreations/nflow`), and a CodeQL Kotlin extractor ceiling because the project uses Kotlin 2.3.20 while the installed CodeQL supports versions below 2.2.30 (`suwayomi/suwayomi-server`).
+- The fourth five-target tranche also produced no valid database. Blockers were an Apache RAT property mismatch (`apache/guacamole-client`, retried with the project-specific RAT ignore property), a missing private/non-Central parent (`dromara/lamp-cloud`), a required Java 24 release with only JDK 17/21/22 installed (`jamebal/jmal-cloud-server`), a missing frontend build output required by an Ant move step (`runify-dev/runify`), and an annotation processor incompatible with the installed javac (`zmops/zeus-iot`). The Guacamole retry passed the RAT gate but then failed on an absent reactor-produced `guacamole-common-js:zip:1.6.1`; it also generated non-excluded Node launcher files in the source tree, so the source-fingerprint drift gate correctly rejected the attempt before validation or promotion. Those generated files were preserved in the run artifact quarantine, and the canonical source fingerprint was restored.
+- The fifth five-target tranche natively repaired and promoted `grimmory-tools/grimmory`, `jeecgboot/jeecgboot`, and `kerwincui/fastbee`; FastBee succeeded on the JDK 17 fallback after JDK 22/21 failures. `openremote/openremote` remains blocked by a required but unavailable Yarn task, and `tess1o/geopulse` requires Java release 25 while the host provides JDK 17/21/22.
+- The sixth five-target tranche natively repaired and promoted `stirling-tools/stirling-pdf`. Its failures were Java release 25 without JDK 25 (`apache/hertzbeat`), a required JDK 11 Gradle toolchain (`hivemq/hivemq-community-edition`), a CodeQL Kotlin ceiling for Kotlin 2.4.0 (`micrometer-metrics/micrometer`), and Gradle 8.1.1 incompatibility with Java 22 bytecode during settings-script analysis (`sanluan/publiccms`).
+- The seventh tranche initially reported five failures, but forensic recovery showed that `jenkinsci/jenkins` had completed its full native Maven reactor and CodeQL finalization before generated Node/Yarn/frontend files triggered the tree-fingerprint gate. Those generated files were preserved in the run artifact quarantine, the exact preflight fingerprint was restored, and the completed candidate passed repeated strict validation before guarded promotion and a recovery attestation. The other blockers were Java release 25 (`dependencytrack/dependency-track`), a Gradle task dependency validation error after compilation (`kestra-io/kestra`), a project plugin type-resolution failure (`modelengine-group/app-platform`), and an old Scala Maven plugin failing to load `javax.tools.ToolProvider` (`scouter-project/scouter`).
+- The eighth five-target tranche natively repaired and promoted `kiegroup/jbpm` and `mqttsnet/thinglinks`, each after roughly 12–13 minutes of Maven/CodeQL capture. The failures were an unavoidable frontend `pnpm install` execution (`metersphere/metersphere`), a Liquibase goal requiring a live local PostgreSQL service (`walmartlabs/concord`), and missing generated protocol `Command` classes (`apache/skywalking`).
+- The ninth five-target tranche produced no valid database. Blockers were a required Java 25 release (`apache/syncope`), an incomplete Maven wrapper checkout (`apache/incubator-kie-kogito-runtimes`), a missing `server-ee` reactor module (`theonedev/onedev`), an absent local `skyeye-parent:1.0-SNAPSHOT` parent (`dromara/skyeye`), and the CodeQL Kotlin extractor ceiling for Kotlin 2.3.20 (`apache/solr`). Solr's generated `.kotlin` diagnostics were preserved in the run artifact quarantine and the exact preflight source fingerprint was restored; no ninth-tranche default database was promoted.
+- A targeted native retry avoided Solr's unrelated Kotlin UI module by capturing `:solr:server:assemble`; the Java server build completed under CodeQL, retained the exact source fingerprint, passed strict validation and `codeql resolve database`, and was atomically promoted with database fingerprint `2541f63b47573bbcd6170146c5beb896929052fab4d202fac9195a58939800f0`. Switching Kogito from its incomplete wrapper to system Maven exposed the underlying checkout blocker: its root requires the absent `org.kie:drools-build-parent:999-SNAPSHOT`, so it remains fail-closed.
+- The tenth tranche natively repaired and promoted `apereo/cas` after a roughly 32-minute Gradle/CodeQL capture; its database fingerprint is `e23ed318723a249aab86ba4d9a95c4362de83da954ecc53e6c998c2c5e10ce81`, and strict validation plus `codeql resolve database` passed. `dotcms/core` compile was initially blocked by absent reactor ZIP artifacts; a native `package` retry produced those artifacts but then failed in its `process-annotations` compiler execution. `entropy-cloud/nop-entropy` compile lacked a reactor tests JAR and is being retried with test compilation enabled. `geoserver/geoserver` reached a real source/dependency API mismatch in `gs-gwc`; its generated Spotless index files were preserved in the run artifact quarantine and the exact preflight source fingerprint was restored. These three targets remain fail-closed unless their targeted native retries complete successfully.
+- To address targets blocked solely by unavailable Java toolchains, JDK 8, 11, and 25 were installed locally under `/usr/lib/jvm/` and verified with `java -version`. The strict native builder now includes these system toolchains in its per-target fallback sequence while retaining per-attempt JDK attestation and source/database validation; previously staged repository-local archives are not executed by the builder. The first legacy tranche natively repaired and promoted `dengsinkiang/sk-admin`, `kalvingit/kvf-admin`, `merikbest/ecommerce-spring-reactjs`, and `scouter-project/scouter` under JDK 8; all four pass strict validation and `codeql resolve database`. HiveMQ's current Gradle wrapper itself requires JDK 17 despite requesting a JDK 11 compilation toolchain; the JDK 17 Gradle-runtime retry succeeded natively, retained its exact Git commit fingerprint, passed strict validation and `codeql resolve database`, and was atomically promoted with database fingerprint `21e13ba3275709689375bd3349cfd61121961efccef6ad1998dcd712fe15165b`. `zmops/zeus-iot` remains blocked by missing `JettyJsonHandler` symbols rather than its Java runtime.
+- `entropy-cloud/nop-entropy` was natively repaired by retaining test compilation while skipping test execution, allowing the reactor tests JAR to be produced. Its 27-minute Maven/CodeQL capture retained the exact Git commit fingerprint, passed strict validation and `codeql resolve database`, and was atomically promoted with database fingerprint `7245a483cd57e9a44786d0b771c1d8d3e47fd90622145f5266e53f2aaad997fa`.
+- Druid's corresponding native package capture completed successfully under CodeQL but generated 54 fingerprint-relevant distribution/frontend files. Those exact paths were digest-manifested and moved to run-specific generated-source quarantine, restoring the original source fingerprint. A later capture accidentally attested the generated-source state because it began before the generated files were removed; that database was quarantined as noncanonical. The final system-JDK-only recapture preserved its completed candidate on source drift, the same 54 exact files were quarantined, the original fingerprint `86263208a9038f00928b837c2df8fa7e4b18125ff6d411cd8212a87bb0c841c9` was restored, and the candidate passed repeated strict validation before guarded promotion. The canonical Druid database fingerprint is `f65bffa3fbfe9ba3ba967ee10b63a9328d7c7e9eb2e05cfc39c139a856d61d4c`; `codeql resolve database` also passed.
+- The eleventh tranche produced no valid database. `thingsboard/thingsboard` requires Java release 25; `sonarsource/sonarqube` reached the unrelated distribution JRE download task; `apache/druid` compile could not resolve its reactor-produced `druid-processing` tests JAR; `keycloak/keycloak` compile did not generate its reactor Maven plugin descriptor; and `prestodb/presto` compile lacked a reactor tests JAR while an unrelated UI module attempted a timed-out Yarn download. A targeted SonarQube retry using the native aggregate `classes` task with build cache disabled succeeded under CodeQL, retained the exact source fingerprint, passed strict validation and `codeql resolve database`, and was atomically promoted with database fingerprint `09f781aadca5f82386845a7e9b61ce953df749d9502b9945393e7e8f1d8b6481`. Druid and Keycloak were retried with the native `package` lifecycle; both exposed missing reactor tests JARs because `maven.test.skip=true` suppressed test compilation, so follow-up retries retain test compilation while still skipping test execution. Presto's generated OpenAPI specification was preserved in the run artifact quarantine and the exact preflight source fingerprint was restored. Its targeted core-package retries excluded the UI from the selected reactor but still activated the UI frontend build through dependencies; all JDK attempts failed on Yarn download timeouts, with the first also encountering a truncated Central download, so Presto remains fail-closed. All retries retain the same strict source-fingerprint and promotion gates.
+- The system-JDK-25 tranche natively repaired and promoted `apache/hertzbeat`, `apache/syncope`, `dependencytrack/dependency-track`, `jamebal/jmal-cloud-server`, and `tess1o/geopulse`; each build exited zero under CodeQL, retained its exact source fingerprint, and produced a strict native attestation. `thingsboard/thingsboard` entered its native Maven build and generated fingerprint-relevant Angular compiler-cache output, but the build ultimately failed because `maven-dependency-plugin:unpack (extract-web-ui)` could not find the expected packaged web-UI artifact. CodeQL therefore did not finalize a usable database; the drift gate retained only the failed skeleton candidate under an attempt-specific `.source-drift` path and withheld promotion. Because this archived source is not an independent Git checkout, recovery quarantined only the three files whose timestamps fell inside the failed build interval, recorded their sizes and SHA-256 digests, and reproduced the exact pre-build tree fingerprint `bf92109a4da088ac1d2fcfaf78fe5d3a3ba76badb6164e00fc0cc5d48a469672`; no broad `target`, Node, or source-tree deletion was performed. The tranche therefore completed with five successes and one fail-closed build failure.
+- A Kestra retry excluding the known Gradle 9 `sourcesJar` validation failure completed the native `assemble` task, but all Java compilation tasks were `UP-TO-DATE`; CodeQL correctly rejected the database because no compilation was captured. The authorized follow-up forced `--rerun-tasks --no-build-cache`, completed the native Gradle build under JDK 25, retained its exact Git fingerprint, and promoted a strict database with fingerprint `34d4303bfa8835966f3e0a90b9b68e25afe73ad88d3c4c4e539738ee62adcdb1`. Runify's first JDK 25 retry cleared the previous compiler-release blocker but exposed its backend Antrun move of an absent skipped `frontend/dist`; the authorized follow-up selected only `backend` and used the plugin-supported `maven.antrun.skip` property, retaining native backend javac capture without building the frontend. It passed strict validation and promoted database fingerprint `cc91de8ecdef4bc63bf3d2cea39a2ec56d54a7b56e22514120250ab05e28ab07`. Both databases also pass `codeql resolve database`.
+- Guacamole's targeted `guacamole-common-js,guacamole` Maven reactor generated the required JavaScript ZIP before compiling the Java WAR and exited zero under CodeQL. The build produced 510 fingerprint-relevant Node/frontend distribution files; each was size/SHA-256 manifested and moved to run-specific generated-source quarantine, restoring the exact pre-build tree fingerprint `169232ebca426df1cdf6073439673251733959dfd16542443f1131b4d24f3710`. The preserved candidate then passed repeated strict validation and `codeql resolve database` before guarded promotion. Its canonical database fingerprint is `39f09db71c8032ee0531eb7385c62178423b926cdfe5a0e7cc86e68c5889799c`.
+- ThingsBoard's targeted `msa/web-ui,application` Maven reactor initially failed because `maven.test.skip=true` suppressed the reactor-produced `dao` tests JAR. Retaining test compilation while skipping test execution allowed the 20-minute JDK 25 Maven/CodeQL build to complete successfully, including real `application` Java compilation. The three generated Angular compiler-cache files were size/SHA-256 manifested and quarantined, restoring exact source fingerprint `bf92109a4da088ac1d2fcfaf78fe5d3a3ba76badb6164e00fc0cc5d48a469672`. The preserved candidate passed repeated strict validation and `codeql resolve database` before guarded promotion with canonical database fingerprint `94e071350840d32bdf161d364273a59378fe752ea8a02ce77b773d8664d3caa6`.
+- PublicCMS succeeded through its complete JDK 17 Maven reactor rather than the previously attempted Gradle or isolated OAuth entry. The native package capture retained its exact Git fingerprint and promoted strict database fingerprint `da7e7e0172a194cb489b157d7b2fb83fff593f4bc41dd7f766b744d42f848a57`.
+- GeoServer avoided the incompatible GWC module by selecting the `main`, `security`, `ows`, `rest`, and `restconfig` Maven reactor under `src`. The native JDK 17 build and CodeQL finalization exited zero. Seven generated `.spotless-index` files were size/SHA-256 manifested and quarantined, restoring exact tree fingerprint `2abc7df0a2bc5751ab80f608d74dd7a78311c43e4b349a4b1cf4464e66d727fa`; the candidate then passed repeated strict validation and `codeql resolve database` before guarded promotion with database fingerprint `0a992f4fd75bb9e7dca9c718cc6ee069251a74f3983310b4d5fd5717f47064a2`.
++- App Platform avoided the failing `tool-maven-plugin:build-tool` execution by selecting the substantial `waterflow-service` Java module and its native reactor dependencies. The JDK 17 `clean compile` capture exited zero, retained exact Git commit `dd242b21cb136c871b1658b9594616a29a2f8246`, passed strict validation and `codeql resolve database`, and atomically replaced the invalid default database while preserving it in run-specific quarantine. The promoted database fingerprint is `cf3f0312d97763e55611dc4bcec922b8dc1ff3baefa0b73ce3789a369fbac11b`.
++- Concord avoided incremental no-source capture by selecting the production `server/plugins/webapp` and `server/impl` reactor union, running `clean compile`, and disabling Maven incremental compilation. The JDK 17 Maven/CodeQL build exited zero, retained exact Git commit `9caa877161aff11501bc01c9a2ea51d99f7e1d80`, passed strict validation and `codeql resolve database`, and atomically replaced the invalid default database with fingerprint `65ed6b413e4f2786a58ccd78c4a79ea287a6a43e83547232ef9f30e815266ac9`; the prior directory remains in run-specific quarantine.
++- MeterSphere's targeted `backend/app` JDK 21 reactor used the project-specific `skipAntRunForJenkins` property, compiled the production backend modules, exited zero, and completed CodeQL finalization. Forensic comparison against the preserved local source archive identified nine generated flattened POMs responsible for the remaining drift; each was SHA-256 manifested and moved to run-specific generated-source quarantine, restoring frozen source fingerprint `c41596653a795eed0d274a371b0b1bf93edecd7e1aa0c15b269456ac90d7e55f`. The preserved candidate then passed repeated strict validation and `codeql resolve database` before guarded promotion with database fingerprint `e7c072c7fa8d53d1056b649b6f8061afa89b564a67544d7d9a1cbdd17fa7dced`.
++- Micrometer's Kotlin-bearing core remains beyond the installed extractor's Kotlin ceiling, so the strict native capture selected the production `micrometer-commons` module, which contains Java sources and does not require a Kotlin compilation task. A forced no-cache JDK 17 Gradle `compileJava` run exited zero, retained exact Git commit `24b886850814780f5f7bcdeb7d35cf25bc8ccd8a`, passed strict validation and `codeql resolve database`, and replaced the invalid default database with fingerprint `575df0ea46062711ae03f3d8cee30ec78f1461ac304c86d370a45b62ffa4d5bc`; no Kotlin task was excluded from the selected module's native task graph.
++- Yuzi Generator's checked-in backend Maven wrapper was incomplete and its web backend required an uninstalled maker artifact, so the strict capture selected the repository's real `yuzi-generator-maker` Maven project using system Maven. Its JDK 17 `clean compile` exited zero, retained exact Git commit `a2a0edb2cbbb6a869196b6b8a85e6ad30bbb635c`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `8b34ad27602685fe7990229b3934aebe6cb4d9307b2c424215db16c149482696`.
++- Automon's aggregate build previously failed when a sample module attempted to resolve the reactor's snapshot core artifact externally. Selecting the production `automon` module directly allowed a JDK 17 native `clean compile` capture to exit zero while retaining exact Git commit `815e9d0ea1360d8a93e6f241ada1f76c4fb9dfb6`. The database passed strict validation and `codeql resolve database` and was promoted with fingerprint `e085a453df4444c3de9cc5fef651c74c45106f980cf5c0a0e777a56066031234`.
++- Zeus IoT's aggregate `iot-server` path reached a real source/dependency API defect in `server-core`, so the strict native capture selected the concrete production `server-client` JAR and its Maven reactor dependencies rather than the POM-only aggregator. The JDK 17 `clean compile` capture exited zero, retained exact Git commit `b314c05a497dc0901cb658f8704e2efa62953cb4`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `e7ec38cdc0eafe3982580a02620bd7046d9760fb1f35efe9aabbbc3769533a91`.
++- Warm Flow's first narrowed selection was still a POM-only aggregator and correctly produced no CodeQL source capture. Selecting the concrete `warm-flow-easy-query-core` production JAR and its reactor dependencies executed a JDK 17 Maven `clean compile`, retained exact Git commit `5d04c41835302b9a3ec4e01d04a8481339497efd`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `31561b9e1fcbc6d7b5a6c976dbb12035d204f643bdfb69e24566a457ba88e559`.
++- dotCMS required JDK 25 and reactor-produced package artifacts rather than the earlier JDK 17 compile attempt. A targeted `dotCMS -am package` build ran for roughly 24 minutes under CodeQL, exited zero, retained exact Git commit `48102262b97e9fc510562f0eaeb5f83b54370a28`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `69b74184671393d4ce01dab091dec679b77ba036e7bc7f099646d65c373ccb5d`.
++- CommaFeed's empty client module did not create the directory expected by the server's Quarkus generate-code phase. After staging that native reactor precondition under the build-excluded `target` tree, the JDK 25 `commafeed-server -am compile` capture executed the production server compilation, exited zero, retained exact Git commit `77b3c609f33564398b099a652e0aa3fcdc43c3a4`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `6f568f1ecc91e995136cdc6e508c7fc217cb4aafa347bbd7bc8a5185a02e3e38`.
++- OneDev's root reactor was incomplete because the declared `server-ee` module was absent, but its existing production `server-core` project was independently buildable. A roughly 21-minute JDK 17 Maven `clean compile` capture exited zero, retained exact Git commit `5beff944c99e514f327eafa7d35bb65725449cf0`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `f0e22defe290eb072abe6663cea0f71a3b81fb7700c3fe91fa3c6fc1099984a7`.
++- Keycloak's archived source contained a generated pnpm symlink unsupported by canonical tree fingerprinting. The link was moved to run-specific source quarantine, yielding stable source fingerprint `6e8970b3568e538f57753178a773698285eaaff0c03723a70e91cc3b65a99013`. A clean JDK 17 native build of the `theme-verifier` Maven plugin then compiled production and test-support Java while skipping test execution, exited zero, and finalized a strict database. The candidate passed repeated validation and `codeql resolve database` before guarded promotion with database fingerprint `57ba15d240a141c26cdbcdd999b5a70acf0f2d1e8a187af8e4d365a0e1da89f8`.
++- Presto's `presto-server` Provisio assembly requires 44 reactor-produced plugin ZIPs that Maven dependency closure alone does not schedule. The final JDK 17 native package capture selected all 44 modules extracted from `presto-server/src/main/provisio/presto.xml`, plus `presto-flight-shim`, `presto-main`, and `presto-server`. The roughly 15-minute Maven/CodeQL build exited zero, retained exact source fingerprint `85510e107d6906bf3dc6f2303cfdbe507e3094720928389cf2119fb757935558`, passed strict validation and `codeql resolve database`, and promoted database fingerprint `65e73b7598f3b40fd7c8dc9e5c2cc54e39e55971716e53224b98a56f652b596b`.
++- XBoot's modular reactor could not resolve the deliberately repository-only `xboot-admin` parent, while the same repository's standalone production `xboot-fast` application contains 162 Java sources and is independently native-buildable. Its JDK 8 Maven `clean compile` exited zero under CodeQL, retained exact Git commit `5277af0ea7db3cf085f8ef3be21329df5bb12cd9`, passed repeated strict validation, and atomically promoted database fingerprint `2e37267443decff808b7527867259c8bd2135346d74e49afae997c71bf5496f0`; the prior invalid database remains in run-specific quarantine.
++- Native repair overrides now support an ordered `setup_commands` list for repository-native Maven/Gradle/Ant prerequisite lifecycles. Setup commands use the same selected JDK, sanitized environment, build root, controlled Maven settings, and run-local Maven repository as the CodeQL-captured command; they remain outside capture, fail closed before capture, are source-fingerprint gated, and are bound into resumable attestations.
++- Spring Cloud Platform avoided the broken `ace-nlp` child model by staging only the root parent, `ace-dev-base`, `ace-common`, `ace-auth-sdk`, and `ace-api` into one isolated Maven repository before capturing the concrete `ace-gate` production module. All five JDK 8 setup lifecycles and the final native `clean compile` exited zero, retained source fingerprint `0039e468f6df61cf9f397edd8ec7aacd7cddd6c634da2a79c846047fb82cf49b`, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `b182361c89d81da54f0726b1be0abb616743d9af9f6bc70043892d0668047bea`.
++- SkyEye's primary Maven hierarchy was blocked by the unavailable `skyeye-parent:1.0-SNAPSHOT`, but the repository contains an independent, parent-complete XXL-Job 2.3.0 production reactor. A JDK 8 native `xxl-job-admin -am clean package` capture compiled the 114-source admin/core application, exited zero, retained exact Git commit `217901aeb65b433c5f9d27c64896c2dfde649dc5`, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `d7e69cad4284959a7962ea7b2a27f5d3c3ec293df23328979b5ac6a05eed3e8a`.
++- Suwayomi Server required Kotlin 2.4.0, beyond the prior CodeQL 2.23.8 extractor ceiling. The official CodeQL CLI 2.26.0 bundle was integrity-checked, restored with its archived executable modes, and used in isolation without replacing `/opt/codeql`. A forced no-cache JDK 21 Gradle `:server:compileKotlin` run captured the production Kotlin reactor and dependencies, exited zero in roughly four minutes, retained exact Git commit `c8f5d83e9cca295a5a00f792de87354131e40052`, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `fc870233011d78784a3a892956447becd58b27349d39e24768762f21778c384f`.
++- Lamp Cloud's unavailable 5.10.0 parent and utility artifacts were reproduced from the exact companion `zuihou/lamp-util` commit `124a9ea320304d7994879f056117f67e108773d0` in an isolated Java 17 Maven reactor and run-local repository. The unchanged canonical Lamp Cloud commit `ee893ed6f43cd2551b5cc8bb48ea70160681f1f7` then completed a native `clean compile` under CodeQL in roughly three minutes, retained its exact source fingerprint, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `321bdd40f18b7844c879e9c51c071621a55d36db117dbf7a59abfc3e26781fea`.
++- Kogito Runtimes' `999-SNAPSHOT` parent and dependency chain was reproduced from exact contemporaneous `apache/incubator-kie-drools` commit `b6fc3f0050bd1e818392bef0597ac488c05ffc19` in an isolated Java 17 Maven reactor. A full Kogito package attempt reached unrelated Quarkus integration-test dependency timeouts after 161 modules, so the strict capture selected the substantial production `jbpm-bpmn2` module and its required native reactor closure. The targeted `clean package` compiled the 115-source BPMN module, exited zero, retained canonical commit `acd78d9249ee75923a0e5e43a332bbc6c1fd0c1b`, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `218b67327964bbcdb055ad0f268cc0647aa9417ac7d57c898ea34d7a343e5873`.
++- SkyWalking's GitHub source archive omitted its protocol gitlink content. Exact root commit `bb16533009a597dbb41ab6f013ac300509abbb3e` and protocol commit `07882d57becb37e341f7fc492c11f9f5a5f311cf` were recovered and built in an isolated upstream reactor, including `apm-network`, the `oap-server-bom`, and the internal dependencies required by `server-core`. Three historical generated flattened POMs absent from the original archive were digest-manifested and moved to run-specific source quarantine. The canonical 793-source `server-core` compile then exited zero under CodeQL with flattening disabled, retained source fingerprint `bb3201bdb276009e02cb11ff07b0f661cdae31381a39d065fef369e0bcc5dcbb`, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `c6ee05dddd5972e85b55972eefcc45c48530c0ce11071884ba205087ef476b20`.
++- ShoppingCart's former canonical merge commit `4ea0067bf2520ddd9b3332b627e5e01d50b4907b` contains an upstream regression that replaces two valid `RequestMapping` annotations with `GetMapping` without importing the latter, making the sole Maven source set unbuildable. Following an explicit corpus decision, the source was provenance-recorded and repinned to public pre-regression commit `c992c54bde6af51f67d8cfec5cdba6cbcda19f6c`. Its JDK 8 native Maven compile exited zero, retained the new exact Git fingerprint, passed repeated strict validation and `codeql resolve database`, and promoted database fingerprint `2a4b27ab10c5a54909305a34837eb850b2579a17700db93407799c040df6d04f`.
++- The regenerated canonical Java Web 205 inventory now reports `205/205` strict databases, zero incomplete targets, and `batch_ready: true`, with inventory digest `94cda8008abaa0126eb6dfa65b7fa1c68c153086e26d427a32269bbb99e038db`. The strict corpus loader accepts all targets, and a nonexecuting 205-target batch plan was generated with plan digest `408f9d861f75fcd5560a8a9ea0af8093624a5ec193d79c1efa682c0482d931e4`.
 
-### 变更类型
-- [文档] 全量分析运行记录
+This changelog starts at the v2 cleanup baseline. Older analyzer runs and case-level research history remain available in Git history and preserved result directories rather than in the active project changelog.
 
-### 核心改动
-- 使用当前统一 CLI 对 `config.yaml` 中登记的 Tomcat、Spring Boot、Jetty、Undertow、Jersey 五个 Web 框架重新运行 Phase 3/4 分析链路。
-- 重新生成 Phase 3 候选合并结果、verdict 一致性报告、Phase 4 排序候选、top-50 复核队列和评估摘要。
-- 关键技术决策：本轮只刷新分析产物和运行记录，不修改 CodeQL 查询、ranking 权重、verdict 语义或 pipeline 逻辑；`results/` 仍作为 ignored 本地产物保留。
+## [2026-08-04] Add JAX-RS and gRPC Entry identities
 
-### 交付成果
-- 重新生成结果：`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3_report.md`
-- 重新生成结果：`results/phase4/ranked_candidates.csv`、`results/phase4/ranked_candidates.json`、`results/phase4/review_queue_top50.md`、`results/phase4/review_queue_top50.json`、`results/phase4/evaluation_summary.json`、`results/phase4_report.md`
-- 更新回归结果：`results/phase3/web_real_regression.json`
-- 修改文档：`CHANGELOG.md`
-- 测试/验证结果：`./dos-web-analyzer analyze --refresh-phase3` 生成 37 条候选，Phase 3 consistency 37/37 matched；`./dos-web-analyzer report` 和 `./dos-web-analyzer verify --top 50` 正常刷新 Phase 4 产物；`python3 scripts/check_phase3_consistency.py` 输出 `Phase 3 consistency: 1.000 (37/37 matched), pass=True`；`python3 scripts/check_web_real_regression.py` 与 `python3 scripts/check_web_real_coverage.py` 均为 5/5 hit；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 输出 `OK: 0 regression(s)`。
+### Added
 
-### 依赖与影响
-- 依赖：当前本地 CodeQL 数据库和 `config.yaml` 中登记的五个框架数据库。
-- 对后续工作的影响：复核队列和评估摘要已同步到最新 Phase 3/4 结果，可直接用于人工复核和论文统计。
-- 破坏性变更：无。
+- Added first-class `jax_rs/http` and `grpc/grpc` Entry identities with strict model, decoder, normalization, artifact-schema, coverage, and benchmark compatibility while preserving the exact 17-column contract.
+- Added direct and embedded byte-identical `JaxRsEntries.ql` and `GrpcEntries.ql` queries. JAX-RS recognizes javax/jakarta Path, HTTP verbs, parameter/entity-body inputs, and statically provable ResourceConfig/register, Airlift binder, and Druid-style resource registrations; annotation-only resources remain coverage-only.
+- Added conservative gRPC `BindableService` registration for unary/server-streaming-shaped handlers using the real `io.grpc.stub.StreamObserver` API. Request materialization remains `in_handler`; client/bidirectional streaming and descriptor-derived wire identity remain unresolved rather than inferred from response `onNext` calls.
+- Added focused registered-positive, unregistered/lookalike-negative fixtures and benchmark identity regressions. gRPC matching now requires exact `grpc` protocol and full case-sensitive route identity; HTTP route-only truth remains valid and case-sensitive, while explicit method conflicts fail closed. Title, handler-name, resource-token, class-name, callback-name, and port guesses are not matching evidence. Multiple handler facts are merged only when they share one complete registration identity; otherwise ambiguity is preserved.
+- Corrected JAX-RS route canonicalization, parameter-kind exclusivity, multi-argument registration scanning, and complete/partial overlap. Registered JAX-RS and gRPC handlers no longer also emit unresolved coverage rows.
+- Corrected Spring input-kind exclusivity so explicitly annotated parameters and servlet request infrastructure are not simultaneously emitted as model attributes; real-database smoke scans are treated as coverage observations, not dynamic confirmation.
 
----
+### Verification
 
-## [2026-06-20] 第三部分 WEB-REAL 回归门禁实现
+- Corrected Spring MVC, JAX-RS, and gRPC queries compiled under the local CodeQL Java pack, and the final opt-in real CodeQL fixture run passed all seven controlled framework fixtures in 191 seconds, including exact JAX-RS routes and registered-versus-unresolved separation.
+- Focused Entry, decoder, artifact, production, benchmark, and query-contract validation passed 103 Python tests; direct/embedded query parity, Python compilation, and whitespace validation also passed.
+- A fresh local-only PoC-29 Entry batch completed 18/18 targets with the seven isolated database overrides and `max-workers=1`; no remote LLM, application startup, dynamic PoC, attack traffic, clone, or network database rebuild was used. The run produced 1,832 Entry facts (`spring_mvc`: 1,828; `netty`: 4), with Entry diagnostics of 6 `entry_hit`, 1 `entry_ambiguous`, 22 `no_entry_match`, 0 `target_not_run`, and 98 coverage gaps. These are Entry-stage diagnostics only; the entries-only run has 29 expected `artifact_missing` final-static states and does not establish static recall or dynamic confirmation.
+- The same run produced no JAX-RS or gRPC facts on the current bounded databases. That result is retained as an explicit coverage limitation: generated/DI registration and descriptor-derived gRPC identities remain unresolved rather than guessed.
 
-### 修改时间
-2026-06-20 00:38
+## [2026-08-04] Expand existing Java Web Entry extraction coverage
 
-### 变更类型
-- [新增功能] WEB-REAL manifest 回归门禁
-- [功能改进] WEB-REAL coverage 兼容入口
-- [文档] 回归验证记录
+### Changed
 
-### 核心改动
-- 新增 `intel/regression/web_real_manifest.json`，将 5 个已动态验证真阳的静态期望从 Python lambda 迁移到可审计 manifest。
-- 新增 `scripts/check_web_real_regression.py`，支持 `equals`、`contains`、`one_of` 规则，输出 `hit`、`partial`、`missing` 和机器可读 JSON 报告。
-- 将 `scripts/check_web_real_coverage.py` 改为兼容 wrapper，保留现有命令入口并委托给新 regression checker。
-- 加强 manifest、输入 CSV 和输出报告路径的错误处理，确保 CLI 对预期 I/O 和 manifest 错误返回 exit 2 且不泄露 traceback。
-- 关键技术决策：本轮只固定 known-vuln regression gate，不改变 Phase 4 排序权重或 CodeQL 查询；`results/` 仍按当前仓库策略作为 ignored 本地产物保留。
+- Expanded the existing Spring MVC, Netty, MQTT, Servlet, and filter Entry queries conservatively while retaining the exact 17-column table contract and byte-identical direct/embedded query copies.
+- Spring mappings now recognize compile-time route arrays, mapping verbs, servlet request parameters, explicit model attributes, and uniquely typed unannotated command objects while excluding common framework infrastructure parameters.
+- Netty recognizes statically registered `channelRead0` callbacks alongside `channelRead`; JMQTT `Object` callbacks remain complete only when a local MQTT-message cast is consumed by a processor, and SMQTT remains a partial dispatch gap.
+- Servlet query support includes Jetty-style static holder bindings and verb-bearing servlet routes where the Java binding is unique; dynamic/reflection registrations remain coverage-only.
+- Added verb-aware route canonicalization for HTTP Entry identities without changing non-HTTP event routes.
 
-### 交付成果
-- 新增 manifest：`intel/regression/web_real_manifest.json`
-- 新增脚本：`scripts/check_web_real_regression.py`
-- 修改脚本：`scripts/check_web_real_coverage.py`
-- 生成结果：`results/phase3/web_real_regression.json`（ignored 本地产物，未提交）
-- 重新生成结果：`results/phase3/phase3_consistency.json`、`results/phase4/`、`results/phase4_report.md`（ignored 本地产物，未提交）
-- 修改文档：`CHANGELOG.md`
-- 测试/验证结果：`python3 scripts/check_web_real_regression.py` 5/5 hit，0 partial，0 missing；`python3 scripts/check_web_real_coverage.py` 5/5 hit，0 partial，0 missing；`python3 scripts/check_phase3_consistency.py` 输出 `Phase 3 consistency: 1.000 (37/37 matched), pass=True`；`./dos-web-analyzer analyze` 输出 `Phase 4 complete: 37 candidates, top 37 queued, outputs under results/phase4`；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 输出 `OK: 0 regression(s)`。
+### Verification
 
-### 依赖与影响
-- 依赖：当前 Phase 3 proof/request-flow schema、5/5 WEB-REAL smoke hit 基线，以及 AOSP 侧权威 verdict 模型。
-- 对后续工作的影响：Phase 4 evaluation summary、capacity/lifespan proof 和 Dr.D compatibility manifest 可复用该 regression report 结构。
-- 破坏性变更：无；旧 coverage 命令仍可使用。
+- The earlier broad opt-in fixture sweep was not a reliable completion claim because Spring MVC, Servlet, and Netty each reached the 300-second per-test timeout in that run. A later controlled seven-fixture Entry run completed successfully after the JAX-RS/gRPC corrections described above.
+- Query compilation, whitespace validation, and direct/embedded parity checks passed for the corrected JAX-RS/gRPC queries; focused Python Entry/benchmark tests passed.
+- Descriptor-only `web.xml`, dynamic/reflection/DI registrations, descriptor-derived gRPC identities, client/bidirectional gRPC streaming, and unproven MQTT conversions remain deliberately unresolved.
 
----
+## [2026-08-03] Migrate the active canonical corpus to Java Web 205
 
-## [2026-06-19] 隔离 worktree 忽略规则
+### Changed
 
-### 修改时间
-2026-06-19 23:16
+- Defined the active corpus as the case-insensitive repository union of the preserved canonical Java Web 200 inventory and the PoC-29 repository set: 200 original targets plus exactly five additions at indices 201 through 205.
+- Added a deterministic Java Web 205 inventory generator and tracked manifest while preserving the historical Java Web 200 manifest, repair utility, generated results, and target identity fields at indices 1 through 200 unchanged; readiness fields are deliberately recalculated.
+- Switched the canonical corpus loader and batch CLI default to `intel/applications/java_web_205_targets.json`; strict loading now rejects a manifest whose recorded database readiness is incomplete.
+- Added active-corpus documentation and regressions for union construction, ordering, case-insensitive deduplication, default paths, and readiness reporting.
 
-### 变更类型
-- [功能改进] 仓库维护
-- [文档] 忽略规则
+### Readiness
 
-### 核心改动
-- 将项目内 `.worktrees/` 加入 `.gitignore`，用于后续按 subagent-driven 流程创建隔离实现工作区。
-- 关键技术决策：worktree 目录只承载本地执行环境，不作为项目源码或可复现实验产物版本化。
-- 影响范围仅限仓库忽略规则和变更日志。
+- The generator strictly revalidates all 205 default databases and source-root bindings instead of carrying forward historical marker-based readiness. On the current filesystem the tracked manifest records 150 strictly valid default paths, 55 incomplete default paths with an explicit repository/reason list, and `batch_ready: false`; dataset membership remains 205.
+- Separately, the seven incomplete PoC-29 databases were rebuilt under `build/poc29-codeql-dbs/` using explicitly risk-marked, PoC-relevant bounded CodeQL extraction after native Maven/Gradle attempts exposed dependency, generated-source, proxy, and JDK 25 blockers. All seven isolated databases pass the production validator and source-root checks, allowing PoC-29 to reach 18/18 readiness through explicit overrides without modifying historical default databases.
+- A complete local entries run then finished 18/18 targets with no remote LLM or dynamic execution. Entry extraction produced 7 facts, all from Zipkin; the `/api/v2/spans` truth remains a deterministic three-overload `entry_ambiguous`, while the other 28 truths remain `no_entry_match`. The bounded rebuilds therefore remove `target_not_run` but do not by themselves expand framework Entry coverage.
 
-### 交付成果
-- 修改忽略规则：`.gitignore`
-- 修改文档：`CHANGELOG.md`
-- 测试/验证结果：仓库维护变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+## [2026-08-03] Expand MQTT broker and Armeria entry extraction
 
-### 依赖与影响
-- 依赖：`superpowers:using-git-worktrees` 要求项目内 worktree 目录必须被忽略。
-- 对后续工作的影响：允许在 `.worktrees/` 下创建隔离分支执行 WEB-REAL regression gate 实现。
-- 破坏性变更：无。
+### Added
 
----
+- Added end-to-end MQTT `broker_registration` entry support without changing the 17-column CodeQL table contract; partial and dynamic rows remain coverage-only and never become entry facts.
+- Added high-confidence JMQTT anonymous `ChannelInitializer` broker recognition and conservative SMQTT Reactor Netty coverage gaps where connection-to-protocol dispatch cannot be uniquely bound, plus statically registered Armeria `@Post`/`@Get` annotated services including Zipkin `/api/v2/spans`.
+- Added broker/Armeria fixtures, registration/schema regressions, and benchmark matching for MQTT protocol-service descriptions without port-only matches.
 
-## [2026-06-19] 仓库忽略规则与生成产物清理
+### Verification
 
-### 修改时间
-2026-06-19 22:37
+- A fresh local-only 11-target entries run completed 11/11 targets with remote LLM and dynamic execution disabled. Entry facts increased from 1 to 7; all seven were Zipkin entries, and the PoC `/api/v2/spans` truth produced a deterministic three-overload `entry_ambiguous` result. JMQTT remained a coverage gap on the historical database, and SMQTT remained an explicit `smqtt_protocol_dispatch_binding_unresolved` partial gap rather than a guessed hit.
+- Real CodeQL fixtures passed 2 tests; focused Entry/benchmark coverage passed 86 tests; query-pack parity, Python compilation, and diff validation passed.
 
-### 变更类型
-- [功能改进] 仓库维护
-- [文档] 忽略规则
+## [2026-08-03] Diagnose PoC-29 entries-only benchmark runs
 
-### 核心改动
-- 扩展 `.gitignore`，递归忽略 `frameworks/`、`databases/`、`results/`、`docs/superpowers/` 以及本地数据/临时分析产物。
-- 将已跟踪的结果产物和 agent 流程文档从 Git 索引移除但保留本地文件，避免后续提交混入可再生成数据。
-- 保留 `README.md`、`CHANGELOG.md`、`AGENTS.md` 和 `docs/drd_inspired_rearchitecture_plan.md` 作为核心项目文档继续纳入版本控制。
+### Added
 
-### 交付成果
-- 修改忽略规则：`.gitignore`
-- 修改文档：`CHANGELOG.md`
-- 从索引移除：`results/`、`docs/superpowers/`
-- 测试/验证结果：仓库维护变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+- Renamed the independent benchmark manifest identity to `poc-29` and added strict entries-stage artifact extraction with run/stage binding, digest, byte-count, record-count, and schema validation.
+- Added deterministic repository/route/method/protocol entry diagnostics, coverage-gap reporting, and CLI `entry_diagnostics.jsonl` / `entry_summary.json` outputs without treating entry hits as static recall.
+- Added runtime validation against the preserved local entries-only archive.
 
-### 依赖与影响
-- 依赖：当前工作区已有多轮 Phase 1-4 结果与 agent 设计/计划文档。
-- 对后续工作的影响：后续提交默认只包含源码、脚本、配置和核心说明文档；结果产物仍保留在本地用于复核和复现实验。
-- 破坏性变更：无；未删除本地结果文件。
+## [2026-08-03] Add PoC-29 benchmark baseline
 
----
+### Added
 
-## [2026-06-19] 第三部分 WEB-REAL 回归门禁实施计划
+- Added network-free PoC-29 truth normalization for 29 cases across 18 repositories, independent source/database asset binding, explicit repository spelling normalization, deterministic P0 candidate snapshots, fail-closed matching states, recall-only evaluation, and a baseline CLI.
+- Database validation now uses the strict CodeQL validator: the real baseline exposes 7 incomplete databases and 11/18 ready entries. Truth remains valid at 29/18, while complete batch readiness is false; ready-only plans are explicitly diagnostic and not complete recall runs.
+- Added strict repository-relative database overrides and fail-closed complete-plan checks.
+- Added synthetic and real-inventory benchmark regression tests.
 
-### 修改时间
-2026-06-19 22:12
+## [2026-07-28] Add canonical Java Web 200 batch orchestration
 
-### 变更类型
-- [文档] 实施计划
+### Added
 
-### 核心改动
-- 使用 writing-plans 将已批准的 WEB-REAL regression gate 设计拆成可执行任务。
-- 明确新增 manifest、通用 checker、coverage 兼容 wrapper、验证和 changelog 更新的实施顺序。
-- 计划采用 manifest 驱动的 `hit` / `partial` / `missing` 判定，第一轮保持 Phase 4 排序不变。
-- 关键技术决策：现有项目没有 Python 单测框架，本计划使用临时 fixture/真实 Phase 3 CSV 加 CLI 断言完成 TDD 式验证。
+- Added strict canonical-corpus validation, source/database provenance checks, immutable batch plans, target identity bindings, bounded concurrency, atomic batch state, failure isolation, and resumable per-target production execution.
+- Added local-only `entries` batches and explicitly authorized `full` batches. Environment provider credentials are stripped from Entry-only workers, while tree-fingerprint targets remain paused when public Git commit attestation is unavailable.
+- Added format-separated normative P0 aggregation with target/run/stage binding, artifact hash/count/size validation, structured gap accounting, atomic publication, and exact three-value static-verdict totals while preserving historical hunter aggregation. Aggregation now rejects ambiguous format auto-detection instead of silently treating P0 records as historical.
+- Added digest-bound non-secret provider settings to batch plans and a non-executing `full --plan-only` path; full execution still requires explicit remote consent and an environment-only provider key.
 
-### 交付成果
-- 新增实施计划：`docs/superpowers/plans/2026-06-19-web-real-regression-gate.md`
-- 修改文档：`CHANGELOG.md`
-- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+### Verification
 
-### 依赖与影响
-- 依赖：`docs/superpowers/specs/2026-06-19-web-real-regression-gate-design.md` 已通过用户 review。
-- 对后续工作的影响：下一步可按计划使用 subagent-driven 或 inline execution 落地第三部分第一轮实现。
-- 破坏性变更：无。
+- Added network-free batch plan, runner, aggregation, resume, authorization, identity, concurrency, stale-artifact recovery, and compatibility regressions; the complete default suite now passes 494 tests with 6 guarded integrations skipped.
+- No real DeepSeek request, corpus analysis run, service launch, attack traffic, or dynamic DoS validation was performed.
 
----
+## [2026-07-28] Complete the production P0 analyzer
 
-## [2026-06-19] 第三部分 WEB-REAL 回归门禁设计
+### Added
 
-### 修改时间
-2026-06-19 22:01
+- Connected all six default production executors for Entry extraction, G1–G4 Growth classification, E→G flow proof, lifecycle evaluation, deterministic conclusions, and certificate-consistent reporting.
+- Added durable strict round trips for Growth, Flow, Guard, Bound, Release, lifecycle decision, certificate, and finding artifacts, with authoritative resume reconstruction and downstream invalidation.
+- Added a complete immutable query-pack snapshot across Entry, Growth, Flow, and Lifecycle query families and a network-free injected full-graph production test.
 
-### 变更类型
-- [文档] 第三部分回归基准设计
+### Security and correctness
 
-### 核心改动
-- 使用 brainstorming 梳理 `docs/drd_inspired_rearchitecture_plan.md` 第三部分的启动方式，确认第一轮采用回归门禁优先路线。
-- 明确将现有 `scripts/check_web_real_coverage.py` 的 hard-coded smoke check 升级为 manifest 驱动的 known-vuln regression gate。
-- 设计 `intel/regression/web_real_manifest.json`、`scripts/check_web_real_regression.py`、`results/phase3/web_real_regression.json` 的职责边界和判定语义。
-- 关键技术决策：第一轮只固定 5 个 `WEB-REAL-*` 的静态覆盖事实，不同时重写 Phase 4 排序或生成完整 validation recipe，避免扩大范围。
+- Preserved pinned-source excerpt validation, explicit remote consent, environment-only API keys, atomic provider-stage publication, conservative partial-coverage handling, and static-only verdict wording.
+- Required the selected commit to be reachable from the public repository's default branch, required the CodeQL database source root to match the pinned checkout, and blocked credential assignments in comments and credential-bearing Java mutator/header calls before provider use.
+- Made lifecycle decisions durable and schema-validated, rejected forged nested decision summaries/IDs, and ensured any partial sibling flow forces `static_unknown` rather than being discarded from conclusion evidence.
 
-### 交付成果
-- 新增设计文档：`docs/superpowers/specs/2026-06-19-web-real-regression-gate-design.md`
-- 修改文档：`CHANGELOG.md`
-- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或 AOSP regression。
+### Verification
 
-### 依赖与影响
-- 依赖：第一部分 proof-carrying schema、第二部分 bridge 覆盖和当前 `python3 scripts/check_web_real_coverage.py` 5/5 hit 基线。
-- 对后续工作的影响：下一步可按该设计新增 manifest 和 checker，并把 WEB-REAL smoke 升级为第三部分正式回归门禁。
-- 破坏性变更：无。
+- Final default discovery ran 462 tests successfully with 6 guarded integrations skipped.
+- All 6 opt-in real-CodeQL Entry, Growth, and Lifecycle fixture tests passed.
+- Python compilation, every CLI subcommand help path, and `git diff --check` passed.
+- No real DeepSeek request, service launch, attack traffic, or dynamic DoS validation was performed.
 
----
+## [2026-07-25] Migrate active consumers and document the P0 interface
 
-## [2026-06-19] 第二部分 Jetty ProxyServlet Bridge 接入
+### Changed
 
-### 修改时间
-2026-06-19 21:40
+- Migrated active static aggregation and dynamic-scaffold traceability to the exact `static_vulnerable`, `bounded_under_modeled_assumptions`, and `static_unknown` vocabulary, rejecting the retired value and static-verdict field aliases rather than retaining a compatibility path.
+- Preserved static/dynamic independence: the dynamic scaffold copies a static verdict only under traceability metadata while retaining `paused`/`blocked` dynamic defaults.
+- Reworked README and agent guidance to document Python and CodeQL requirements, mandatory DeepSeek behavior for complete P0 runs, the current fail-closed production executor boundary, stage/resume semantics, normative artifacts, exact verdict meanings, P0 framework/assertion scope, asynchronous Release limitations, coverage gaps, test opt-ins, and static/dynamic separation.
+- Added dedicated verdict-migration regressions and physical JSONL source-location checks for rejected values and field aliases, including inputs with blank lines.
 
-### 变更类型
-- [新增功能] Jetty ProxyServlet / HttpClient destination bridge 查询
-- [功能改进] WEB-REAL 静态覆盖 smoke
-- [文档] 第一/二部分状态复核
+### Verification
 
-### 核心改动
-- 使用 brainstorming 复核 `docs/drd_inspired_rearchitecture_plan.md` 第一/二部分与当前实现，确认剩余核心缺口是 `WEB-REAL-0005` Jetty ProxyServlet / HttpClient destination map 路径。
-- 新增 `codeql/lib/JettyRetention.qll`，建模 `ProxyServlet.service -> newProxyRequest/sendProxyRequest -> HttpClient.resolveDestination -> destinations.compute`。
-- 新增 `codeql/queries/phase3_jetty_proxy_candidate_features.ql`，通过 Phase 3 auxiliary query 输出 `candidate_family=client_destination`、`request_flow_kind=client_request_flow`、`growth_driver_kind=origin_key` 和 `receiver_proof=servlet_field:AbstractProxyServlet._client -> HttpClient.destinations`。
-- 新增 `scripts/check_web_real_coverage.py`，将 5 个已动态验证真阳作为轻量静态 coverage smoke；实现前该检查仅缺 `WEB-REAL-0005`，实现后 5/5 hit。
-- 更新 `docs/drd_inspired_rearchitecture_plan.md` 和 `README.md`，说明当前通用 `RequestFlow.qll` 仍只覆盖 direct/one-hop，跨组件真实路径暂由 Jersey/OAuth、Jersey/parser、Undertow 和 Jetty 窄 bridge 承担，最新 Phase 3 基线为 37 条候选。
+- Final default discovery ran 416 tests successfully with 6 guarded integrations skipped.
+- `codeql pack install codeql` succeeded with CodeQL CLI 2.23.8, and all 6 opt-in Spring MVC, Servlet, Netty, and MQTT entry/Growth/lifecycle fixture tests passed.
+- Focused migration tests, Python compilation, CLI help, terminology scan, and `git diff --check` passed.
+- Verification made no real DeepSeek request, did not start target services, did not send attack traffic, and did not run dynamic DoS validation.
+- At that checkpoint, Task 7 remained partial because the production CodeQL/DeepSeek stage-executor factory was still deliberately unconnected; the 2026-07-28 entry records its completion.
+- Per explicit user direction, the obsolete 2026-07-02 baseline design remains deleted as an approved preservation exception; the ignored 2026-07-18 design and plan remain unstaged until commit authorization.
 
-### 交付成果
-- 新增设计/计划记录：`docs/superpowers/specs/2026-06-19-jetty-proxy-bridge-design.md`、`docs/superpowers/plans/2026-06-19-jetty-proxy-bridge.md`
-- 新增 CodeQL 库：`codeql/lib/JettyRetention.qll`
-- 新增查询：`codeql/queries/phase3_jetty_proxy_candidate_features.ql`
-- 新增脚本：`scripts/check_web_real_coverage.py`
-- 修改配置与文档：`config.yaml`、`README.md`、`docs/drd_inspired_rearchitecture_plan.md`、`CHANGELOG.md`
-- 更新结果：`results/phase3/jetty_proxy_candidate_features.csv`、`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3_report.md`、`results/phase4/`、`results/phase4_report.md`
-- 测试/验证结果：`python3 scripts/check_web_real_coverage.py` 在实现前缺 `WEB-REAL-0005`，实现后 5/5 hit；`python3 scripts/run_phase3.py --framework jetty` 生成 1 条 Jetty `client_destination` 候选；`python3 scripts/run_phase3.py` 生成 37 条候选，Phase 3 consistency 37/37 matched；`./dos-web-analyzer analyze` 生成 37 条 Phase 4 候选；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression(s)。
+## [2026-07-24] Add static conclusions, certificates, reports, and resumable orchestration
 
-### 依赖与影响
-- 依赖：Phase 3 auxiliary query 合并机制、第一部分 proof-carrying schema 和第二部分已接入的 parser/provider/listener bridge 模式。
-- 对后续工作的影响：5 个 `WEB-REAL-*` 已全部有静态 coverage smoke 命中；第三部分可将该 smoke 升级为正式 regression manifest，并把专用 bridge 中可复用的 bounded multi-hop/client request flow 上沉到通用 `RequestFlow.qll`。
-- 破坏性变更：无；Phase 3 schema 未新增字段，只新增 Jetty auxiliary query 结果和 coverage smoke 脚本。
+### Added
 
----
+- Added deterministic Assertion 1 and Assertion 2 evaluation with the exact `static_vulnerable`, `bounded_under_modeled_assumptions`, and `static_unknown` vocabulary. Partial flow, unresolved lifecycle evidence, and relevant coverage gaps remain unknown; provider confidence never changes a verdict.
+- Added canonical lifecycle certificates, certificate-derived static findings, deterministic summaries, and static-only Markdown reports with strict finding/certificate/verdict consistency.
+- Added generic injected stage execution for `entries -> growth -> flows -> lifecycle -> conclude -> report`, deterministic fingerprints, exact resume reuse, mismatch invalidation, bounded canonical local payloads, strict manifest/artifact recovery validation, output-root locking, symlink refusal, stale-artifact reconciliation, and transactional publication/rollback.
+- Added fail-closed CLI subcommand dispatch with controlled `AnalyzerError` and injected-factory failure handling. Production CodeQL/DeepSeek stage executors are not yet connected by the default factory, so direct production commands fail closed rather than claiming analysis success.
+- Added network-free P0 scenario coverage for materialization, allocation, persistent-map growth, queues, finite rejection, late Guards, incomplete Release, asynchronous consumers, Netty, and MQTT.
 
-## [2026-06-19] 第二部分 Undertow LearningPush/MCMP Bridge 接入
+### Verification
 
-### 修改时间
-2026-06-19 21:14
+- Final default discovery ran 356 tests successfully with 6 guarded integrations skipped.
+- Focused assertion, certificate/report, pipeline recovery, artifact, configuration, and P0 end-to-end suites passed; Python compilation, CLI help, and `git diff --check` passed.
+- Independent review findings became regressions for scoped coverage, overlapping coverage patterns, forged assertion/verdict/certificate identity, strict lifecycle booleans, active verdict vocabulary, report disagreement, malformed resume metadata, manifest/hash/count tampering, duplicate and symlinked paths, stale artifacts, rollback, factory errors, and bounded payload handling.
 
-### 变更类型
-- [新增功能] Undertow listener/management bridge 查询
-- [功能改进] WEB-REAL 静态覆盖
-- [文档] 运行基线更新
+## [2026-07-24] Prove entry-to-growth flows and evaluate lifecycle evidence
 
-### 核心改动
-- 使用 brainstorming 继续推进第二部分，按只读源码复核结果补入 Undertow `LearningPushHandler` completion listener 和 MCMP management endpoint 两类真实路径。
-- 新增 `codeql/lib/UndertowRetention.qll`，建模 `LearningPushHandler.handleRequest -> PushCompletionListener.exchangeEvent -> pushes.put(fullPath, ...)`，以及 `MCMPHandler.handleRequest/processConfig -> ModClusterContainer.addNode -> balancers/nodes.put`。
-- 新增 `codeql/queries/phase3_undertow_learning_push_candidate_features.ql` 和 `codeql/queries/phase3_undertow_mcmp_candidate_features.ql`，通过 Phase 3 auxiliary query 机制输出 `candidate_family=listener_state` 与 `candidate_family=management_state`。
-- LearningPush 候选显式区分外层 bounded `LRUCache` 和内层 per-referer unbounded map；MCMP 候选输出 `mcmp_management_endpoint_exposed` 部署条件，并落到 `ModClusterContainer.balancers/nodes` 的真实 retained map 行号。
+### Added
 
-### 交付成果
-- 新增 CodeQL 库：`codeql/lib/UndertowRetention.qll`
-- 新增查询：`codeql/queries/phase3_undertow_learning_push_candidate_features.ql`、`codeql/queries/phase3_undertow_mcmp_candidate_features.ql`
-- 修改配置与文档：`config.yaml`、`README.md`、`CHANGELOG.md`
-- 更新结果：`results/phase3/undertow_learning_push_candidate_features.csv`、`results/phase3/undertow_mcmp_candidate_features.csv`、`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3_report.md`、`results/phase4/`、`results/phase4_report.md`
-- 测试/验证结果：`python3 scripts/run_phase3.py --framework undertow` 生成 6 条 Undertow 候选，其中 LearningPush 1 条、MCMP 2 条；`python3 scripts/run_phase3.py` 生成 36 条候选，Phase 3 consistency 36/36 matched；`./dos-web-analyzer analyze` 生成 36 条 Phase 4 候选，LearningPush 为 `WEB-P4-0005`，MCMP 为 `WEB-P4-0008`/`WEB-P4-0009`；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression(s)。
+- Added normalized E→G `FlowProof` construction with stable identities, strict attacker source/demand mapping, dangling-reference failures, canonical artifact validation, and audited proven/partial verification.
+- Added deterministic Guard, Bound, and synchronous Release decisions with structured checks, stable reasons, modeled finite-configuration matching, receiver/dimension/scope joins, and unresolved asynchronous-release retention.
+- Added exact-column candidate-only CodeQL queries for direct entry-to-growth flow, Guard, Bound, and synchronous Release evidence, plus Spring, Servlet, Netty, and MQTT lifecycle fixtures.
 
-### 依赖与影响
-- 依赖：Phase 3 auxiliary query 合并机制和第一部分 proof-carrying schema。
-- 对后续工作的影响：已覆盖 `WEB-REAL-0003`、`WEB-REAL-0004` 的静态候选入口；后续仍需补 Jetty ProxyServlet / HttpClient destination flow，以及把部分专用 bridge 上沉为通用 bounded callback/multi-hop flow。
-- 破坏性变更：无；Phase 3 schema 未新增字段，只新增 Undertow auxiliary query 结果。
+### Verification
 
----
+- Final default discovery passed 295 tests with 6 guarded integrations skipped; focused Task 6 tests, Python compilation, and `git diff --check` passed.
+- Explicit local CodeQL lifecycle fixture verification passed across all four framework databases, and all four Task 6 queries compiled against the local CodeQL Java pack graph.
+- Independent reviews drove regressions and remediation for same-handler false flow proofs, incomplete coverage upgrades, forged flow identities, configuration mismatches, cross-receiver Bounds, Release scope/dimension/key semantics, mixed asynchronous Release evidence, and malformed flow artifacts.
 
-## [2026-06-19] 第二部分 Jersey OAuth1 Provider Flow 接入
+## [2026-07-24] Verify four resource growth classes
 
-### 修改时间
-2026-06-19 21:01
+### Added
 
-### 变更类型
-- [新增功能] OAuth provider-state 查询
-- [功能改进] Phase 3 辅助查询合并
-- [文档] 运行基线更新
+- Added frozen G1–G4 Growth candidate normalization with deterministic resource/growth identifiers, sorted demand/evidence merging, strict raw-row validation, and exact `growth_candidates` artifact serialization.
+- Added canonical bounded-slice construction and deterministic Growth Contract verification with audited `verified|rejected|unresolved` results, stable reason codes/checks, strict slice/index evidence identity, and no fabricated static facts.
+- Added exact-column CodeQL screening queries for request/message materialization, direct buffer and array allocation, persistent container growth, and field-backed asynchronous work submission.
+- Extended Spring, Servlet, Netty, and MQTT fixtures with G1–G4 positives, request-local/lookalike negatives, finite/unbounded queue forms, and guarded real-CodeQL semantic tests.
 
-### 核心改动
-- 使用 brainstorming 继续推进第二部分，将 `RequestTokenResource.postReqTokenRequest -> OAuth1Provider.newRequestToken -> DefaultOAuth1Provider.requestTokenByTokenString.put` 建模为独立 provider-state 候选流。
-- 新增 `codeql/lib/OAuthRetention.qll` 和 `codeql/queries/phase3_oauth_candidate_features.ql`，覆盖 `WEB-REAL-0001` 的 request token static map retained-state 路径，输出 `candidate_family=provider_state`、`request_flow_kind=provider_field`、`proof_source=static_field`。
-- 扩展 `scripts/run_phase3.py`，从硬编码 parser query 升级为 `auxiliary_queries` 列表，同时保留 `parser_query` 兼容路径，为后续 Jetty/Undertow 独立 bridge 查询预留接入口。
-- 更新 `config.yaml` 和 `README.md`，显式登记 Jersey OAuth auxiliary query 和当前 Phase 3/4 基线。
+### Verification
 
-### 交付成果
-- 新增 CodeQL 库：`codeql/lib/OAuthRetention.qll`
-- 新增查询：`codeql/queries/phase3_oauth_candidate_features.ql`
-- 修改脚本：`scripts/run_phase3.py`
-- 修改配置与文档：`config.yaml`、`README.md`、`CHANGELOG.md`
-- 更新结果：`results/phase3/jersey_oauth_candidate_features.csv`、`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3_report.md`、`results/phase4/`、`results/phase4_report.md`
-- 测试/验证结果：`python3 scripts/run_phase3.py --framework jersey` 生成 4 条 Jersey 候选，其中 OAuth provider-state 1 条；`python3 scripts/run_phase3.py` 生成 33 条候选，Phase 3 consistency 33/33 matched；`./dos-web-analyzer analyze` 生成 33 条 Phase 4 候选，OAuth 候选为 `WEB-P4-0007`；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression(s)。
+- Final default discovery ran 255 tests successfully with 5 guarded integrations skipped; focused Growth/artifact suites and Python compilation passed.
+- Explicit `DOSWEB_RUN_CODEQL_FIXTURES=1` verification passed both Growth query tests across temporary fixture databases; all four Growth queries compiled against the local CodeQL pack graph.
+- Independent reviews drove regressions and remediation for fabricated evidence, empty/cross-candidate evidence verification, malformed identifiers, evidence-ID collisions, array-allocation coverage, collection demand roles/scopes, local async receivers, G1 lookalikes, and nested artifact validation.
 
-### 依赖与影响
-- 依赖：第二部分最小实现中的 Jersey 聚焦 buildless DB 和统一 Phase 3 schema。
-- 对后续工作的影响：已覆盖 `WEB-REAL-0001` 的静态候选入口；下一步可沿用 auxiliary query 机制补 Jetty ProxyServlet destination flow、Undertow LearningPush 和 MCMP helper flow。
-- 破坏性变更：无；Phase 3 schema 未新增字段，仅增加一个辅助查询族和 1 条 Jersey provider-state 候选。
+## [2026-07-24] Extract registered framework entries
 
----
+### Added
 
-## [2026-06-19] 第二部分 Entry/Data Flow/Parser 最小实现
+- Added frozen registered-entry, attacker-input, registration, handler, and framework-coverage models with deterministic semantic identifiers, strict framework/protocol pairings, canonical HTTP routes, sorted input deduplication, and bounded analyzer errors.
+- Added deterministic entry-row normalization that separates unresolved dynamic registrations from reachable entries, validates both supported and gap rows, and emits explicit coverage records for Spring MVC, Servlet, Netty, and MQTT even when a framework has no extracted rows.
+- Added four exact-column CodeQL table queries requiring framework-specific registration/type evidence: Spring controller mappings, Servlet annotation registrations, Netty pipeline registrations, and MQTT subscribe/listener bindings. Recognized unresolved registration patterns emit partial coverage rather than fabricated reachability.
+- Added self-contained Java source fixtures with registered handlers, unregistered/lookalike negatives, and dynamic-registration gaps, plus guarded real-CodeQL semantic tests.
 
-### 修改时间
-2026-06-19 20:52
+### Verification
 
-### 变更类型
-- [新增功能] Request flow proof
-- [新增功能] Parser/body 候选查询
-- [功能改进] Phase 3/4 schema 与结果合并
-- [功能改进] Jersey buildless 数据库
+- Final focused Task 3/4 verification ran 41 tests with 39 passed and 2 guarded CodeQL fixture tests skipped by default; the complete default suite ran 243 tests with 240 passed and 3 guarded integrations skipped.
+- Explicit `DOSWEB_RUN_CODEQL_FIXTURES=1` verification passed both real-CodeQL tests across all four temporary Java databases, exact decoded columns, registered-entry expectations, lookalike exclusion, and forcing coverage gaps.
+- All four entry queries compiled against the locally installed `codeql/java-all` dependency graph, all Java source fixtures compiled without leaving `.class` artifacts, changed Python files compiled, and `git diff --check` passed. Independent reviews drove remediation for framework lookalikes, protocol mismatches, incomplete coverage validation, sparse coverage records, unresolved registration gaps, and unrelated-reflection coverage poisoning.
 
-### 核心改动
-- 新增 `codeql/lib/RequestFlow.qll`，将 Phase 3 retained-state 主查询迁移到 direct / one-hop helper 的 request-flow proof 输出，补充 `request_flow_proof`、`call_path`、`request_carrier_kind`、`source_expr` 等字段。
-- 新增 `codeql/lib/ParserRetention.qll` 和 `codeql/queries/phase3_parser_candidate_features.ql`，将 Jersey multipart `MessageBodyReader.readFrom/readMultiPart -> getMimeParts/getAttachments -> getBodyParts().add(bodyPart)` 作为独立 `candidate_family=parser_body` 查询族接入。
-- 修改 `scripts/run_phase3.py`，支持 retained-state query 与 parser/body query 合并为统一 Phase 3 schema；修改 `scripts/check_phase3_consistency.py`，把 proof/request-flow/parser 字段纳入 schema 校验。
-- 修改 `scripts/run_phase4.py`，透传 request-flow/parser 字段并对 `request_flow_proof` 给出排序信号；Phase 4 top 队列现在可直接展示 Jersey multipart parser/body 候选。
-- 修改 `scripts/build_jersey_db.sh`，使用聚焦 buildless 源码视图 `frameworks/jersey-3.1.3-analysis-sources`，稳定抽取 `media/multipart` 与 `security/oauth1-*`，避免全仓 Maven trace 漏掉 multipart 源码。
+## [2026-07-24] Add strict Task 3 CodeQL execution contracts
 
-### 交付成果
-- 新增 CodeQL 库：`codeql/lib/RequestFlow.qll`、`codeql/lib/ParserRetention.qll`
-- 修改 CodeQL 库：`codeql/lib/SessionState.qll`
-- 新增查询：`codeql/queries/phase3_parser_candidate_features.ql`
-- 修改查询：`codeql/queries/phase3_candidate_features.ql`
-- 修改脚本：`scripts/run_phase3.py`、`scripts/run_phase4.py`、`scripts/check_phase3_consistency.py`、`scripts/build_jersey_db.sh`
-- 修改配置与文档：`config.yaml`、`README.md`、`CHANGELOG.md`
-- 更新结果：`results/phase3/phase3_candidate_features.csv`、`results/phase3/jersey_parser_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase4/`、`results/phase4_report.md`
-- 测试/验证结果：`./scripts/build_jersey_db.sh --force` 成功生成聚焦 Jersey DB；`python3 scripts/run_phase3.py` 生成 32 条候选，其中 3 条 Jersey multipart parser/body 候选，Phase 3 consistency 32/32 matched；`./dos-web-analyzer analyze` 生成 32 条 Phase 4 候选；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression(s)。
+### Added
 
-### 依赖与影响
-- 依赖：第一部分 proof-carrying retention sink schema 和第二部分 brainstorming 设计。
-- 对后续工作的影响：已覆盖 `WEB-REAL-0002` 的 parser/body 静态候选入口；后续应继续补 Jersey OAuth1 provider flow、Jetty ProxyServlet client flow、Undertow LearningPush/MCMP helper flow。
-- 破坏性变更：Phase 3 schema 继续向后扩展；Jersey 数据库改为第二部分聚焦源码视图，适合当前 parser/OAuth 分析但不是全仓 Jersey 统计。
+- Added bounded CodeQL database validation with strict metadata parsing, stable metadata-file fingerprints, source-root provenance, symlink rejection, and controlled `CODEQL_DATABASE_INVALID` failures.
+- Added a two-stage CodeQL query/BQRS runner with minimal secret-free environment inheritance, one shared deadline, bounded diagnostics, descriptor-validated immutable root-query snapshots in the original pack context, database-drift checks, TERM/KILL process-group cleanup, and atomic per-generation publication after validation and BQRS hashing succeed.
+- Added fixed ordered `QuerySpec` contracts for entry, growth, flow, Guard, Bound, and synchronous Release candidates, with strict result-set, row, primitive type, enum, path, line, row-count, and string-budget validation.
+- Added the minimal `dosweb/p0-java-resource-dos` query pack manifest using the installed CodeQL CLI's modern `dependencies` field, without query suites; individual queries remain deferred to later tasks.
+- Added real-CodeQL compatibility remediation for timestamped database metadata, `{name, kind}` decoded column descriptors, strict decoded-result validation before publication, original pack-context query execution with persisted snapshots, and deadline propagation through bounded database and file hashing.
 
----
+### Verification
 
-## [2026-06-19] 第二部分 Entry/Data Flow/Parser Brainstorming 完成
+- Final focused Task 3 verification passed 25 tests; the full default suite ran 227 tests with 1 guarded online integration skipped. `codeql pack ls codeql` resolved `dosweb/p0-java-resource-dos@0.1.0` under CodeQL CLI 2.23.8.
+- Concurrent generation initialization/publication passed 10 repeated rounds; an additional focused stress sequence passed 5 rounds and 90 test executions.
+- Changed Python modules/tests compiled and `git diff --check` passed. Independent Task 3 reviews drove regressions for query provenance drift, descendant-held process pipes, SIGTERM-ignoring descendants, and post-publication hashing; all were fixed within the root-query adapter contract.
 
-### 修改时间
-2026-06-19 20:18
+## [2026-07-22] Complete fourth Task 2 consolidated remediation
 
-### 变更类型
-- [文档] 改造计划
-- [文档] 设计细化
+### Changed
 
-### 核心改动
-- 使用 brainstorming 方式补全 `docs/drd_inspired_rearchitecture_plan.md` 第二部分，将 entry/data-flow/parser 支撑从提纲扩展为可执行工程蓝图。
-- 基于第一部分实现后的 25 条 proof-carrying 候选基线，明确剩余缺口集中在 Jersey provider/interface dispatch、Jersey multipart parser、Jetty ProxyServlet client flow、Undertow listener callback 和 MCMP command/helper flow。
-- 新增 `RequestCarrier`、`WebRequestFlowPath`、bounded call path、interface dispatch、provider field、listener callback、client request flow、parser/body 独立查询族和双查询合并方案。
-- 明确 `candidate_family`、`request_flow_proof`、`call_path`、`request_carrier_kind`、`deployment_condition`、`capacity_hint` 等 Phase 3 输出字段，以及 5 个 `WEB-REAL-*` 的第二部分覆盖路径。
+- Serialized cross-stripe cold cache production behind one fixed private process-shared capacity lock, preserving fixed key stripes, pre-provider capacity failure, immutable entries, and non-destructive no-eviction behavior.
+- Replaced single-shot provider/GitHub body reads with incremental bounded reads under recomputed absolute deadlines, and propagated one shared verification budget across GitHub API and local Git operations.
+- Added process-local same-key sharing for sanitized deterministic response failures without persistent negative caching; later independent calls may retry normally.
+- Replaced plaintext provider request-ID audit persistence with a domain-separated API-keyed HMAC digest and bumped the authenticated cache format.
+- Added high-confidence SSN-like PII rejection, complete Java compound-assignment coverage, annotation-aware Java declarator scanning, Java comment/octal/text-block literal reconstruction, component-aware credential identifiers, and bounded UTF-8 prechecks for hostile slice strings.
+- Hardened independent-review boundaries: authenticated incompatible cache entries now receive capacity-gated live refresh without overwrite; crash temporaries count toward cache bytes; cache-entry HMACs have an explicit domain; timeout values are upper-bounded; permanent response-read failures do not retry; and complete GitHub slice verification shares one deadline.
 
-### 交付成果
-- 修改设计文档：`docs/drd_inspired_rearchitecture_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或动态验证。
+### Verification
 
-### 依赖与影响
-- 依赖：第一部分 proof-carrying retention sink 实现结果和当前 Phase 3 基线。
-- 对后续工作的影响：后续实现应优先新增 `RequestFlow.qll`、`ParserRetention.qll`、parser/body 查询和 `WEB-REAL-*` coverage smoke，再改造 `SessionState.qll` 消费 request-flow proof。
-- 破坏性变更：无。
+- Final focused Task 2 verification passed 169 tests; the full default suite ran 202 tests with 1 guarded online integration skipped; concurrency/deadline/publication stress passed 10 rounds and 90 test executions.
+- Modified Python modules/tests compiled, parser-only CLI boundaries returned 0/2 as expected, and `git diff --check` passed. Independent review gate results are recorded in the Task 2 implementation report.
 
----
+## [2026-07-19] Complete third Task 2 consolidated remediation
 
-## [2026-06-19] Proof-Carrying Retention Sink 第一部分实现
+### Changed
 
-### 修改时间
-2026-06-19 20:10
+- Hardened provider request-ID credential rejection, unbounded Java assignment scanning, Credential(s) classification, response echo filtering, permanent-network error handling, and one monotonic request deadline.
+- Bound aliases and formal evidence to current config/growth identities; made cache fact IDs mandatory and authenticated audit fields fully identity-bound.
+- Replaced per-key cache locks with 64 immutable stripes, removed memory growth, closed inherited flock descriptors, imposed non-destructive global capacity limits, and made unsafe/capacity/publication failures fail closed before provider use where required.
+- Hardened Git deadlines/config overrides, JSONL mapping/publication/count behavior, strict config keys/Unicode handling, and explicit CLI remote-consent revocation.
 
-### 变更类型
-- [新增功能] CodeQL retention sink proof
-- [功能改进] Phase 3 proof-carrying schema
-- [功能改进] Phase 4 proof 字段透传
+### Verification
 
-### 核心改动
-- 新增 `codeql/lib/RetentionSinks.qll`，实现 `WebRetentionSink`、collection/attribute/registry/nested/parser sink 形态，以及 `growth_driver`、`sink_shape`、`receiver_proof` 等 proof-carrying 接口。
-- 扩展 `codeql/lib/Persistence.qll`，新增 lifecycle root、retained field 和 receiver proof 基础规则，覆盖 static field、Web lifecycle field、getter/字段链的保守证明。
-- 修改 `codeql/lib/SessionState.qll`，让 Phase 3 主候选只消费带 proof 的 `WebRetentionSink`；未知裸 `WebContainerWrite` 不再默认标为 `static_container`。
-- 扩展 `codeql/queries/phase3_candidate_features.ql` 和 `scripts/run_phase3.py`，在旧字段兼容基础上追加 proof schema；扩展 `scripts/run_phase4.py`，透传 proof 字段并对 receiver proof / unknown container 做 proof-aware 排序调整。
-- 收紧 parser/header 规则，避免 `HeaderMap`、response headers 和 request-local 写入进入 proof-carrying 主候选。
+- Focused Task 2 command passed 146 tests; race/fork/cache/publication stress passed 10 consecutive iterations; full discovery passed 178 tests with 1 guarded online integration skipped.
+- Changed Python modules/tests compiled, `git diff --check` passed, and parser-only CLI runtime accepted `--no-remote-llm` while rejecting conflicting consent flags with exit 2.
 
-### 交付成果
-- 新增 CodeQL 库：`codeql/lib/RetentionSinks.qll`
-- 修改 CodeQL 库：`codeql/lib/Persistence.qll`、`codeql/lib/SessionState.qll`
-- 修改查询：`codeql/queries/phase3_candidate_features.ql`
-- 修改脚本：`scripts/run_phase3.py`、`scripts/run_phase4.py`
-- 更新结果：`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3/<framework>_candidate_features.*`
-- 更新报告：`results/phase3_report.md`、`results/phase4_report.md`、`results/phase4/`
-- 测试/验证结果：`python3 scripts/run_phase3.py` 生成 25 条 proof-carrying 候选，Phase 3 consistency 25/25 matched；`./dos-web-analyzer analyze` 生成 25 条 Phase 4 候选；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过 288 个积格点；`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression(s)。
+## [2026-07-18] Fix cold cache hierarchy creation race
 
-### 依赖与影响
-- 依赖：第一部分 brainstorming 设计和现有 Phase 3/4 pipeline。
-- 对后续工作的影响：第二部分需要补 bounded multi-hop data flow / listener flow / provider flow，以覆盖 Jetty ProxyServlet、Jersey OAuth1 和 Undertow LearningPush 等跨组件路径。
-- 破坏性变更：Phase 3 schema 向后兼容旧字段但追加 proof 字段；候选集合从裸 sink 扫描收敛为 proof-carrying sink，候选数量由旧结果收敛为 25 条。
+### Changed
 
----
+- Made descriptor-relative private cache hierarchy creation tolerate a concurrent trusted creator winning the `mkdir` race, so every same-key cold process reaches the shared `flock` instead of bypassing single-flight.
+- Added a deterministic concurrent hierarchy-creation regression preserving the guarantee that exactly one cold producer publishes and a fresh cache reconstructs the durable contract.
 
-## [2026-06-19] Proof-Carrying Retention Sink 第一部分 Brainstorming 完成
+### Verification
 
-### 修改时间
-2026-06-19 00:18
+- The process single-flight test passed 20 consecutive post-fix iterations; the focused Task 2 suite passed 126 tests; full discovery ran 159 tests with 158 passed and 1 guarded online integration skipped.
 
-### 变更类型
-- [文档] 改造计划
-- [文档] 设计细化
+## [2026-07-18] Complete second Task 2 consolidated remediation
 
-### 核心改动
-- 使用 brainstorming 方式补全 `docs/drd_inspired_rearchitecture_plan.md` 第一部分，将 proof-carrying retention sink 从概念方案细化为可执行设计蓝图。
-- 增加 CodeQL 落地接口草案、Phase 3 proof schema、候选分层策略、第一阶段实现顺序、known-vuln sink/proof 对照表和风险约束。
-- 关键技术决策：第一阶段优先产出 `confirmed_sink` / `needs_flow` / `debug_rejected` 三层结果，确保只有带 `receiver_proof` 与 `growth_driver` 的具体 mutation call 进入 Phase 3/4 主候选。
-- 影响范围：后续实现应新增 `RetentionSinks.qll`，扩展 `Persistence.qll` 的 lifecycle/proof fact，并让 `SessionState.qll` 从裸 `WebContainerWrite` 迁移到 `WebRetentionSink`。
+### Changed
 
-### 交付成果
-- 修改设计文档：`docs/drd_inspired_rearchitecture_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或动态验证。
+- Replaced regex-only Java credential assignment handling with Unicode-aware lexical scanning that preserves string/comment boundaries and detects sensitive identifiers independently of value syntax.
+- Hardened YAML/config loading with bounded descriptor reads, regular-file and symlink refusal, duplicate-key/alias/tag rejection, path normalization, boolean precedence preservation, and strict URL-authority validation.
+- Removed unbounded HTTP read fallback, normalized injected transport failures into retry exhaustion, added deadline-aware Git output collection and nonzero-runner rejection, bounded cache publication, and descriptor-relative private cache hierarchy creation for Linux/Python 3.11+.
+- Added strict JSONL duplicate-key, structure, record-count, per-record, and aggregate limits; enforced artifact ID syntax/uniqueness and bounded `fact:` evidence IDs; preserved deterministic atomic publication.
+- Preserved same-file relationships in provider aliases, exposed one canonical typed response schema, and strengthened fabricated-cache evidence validation with a recomputed valid HMAC.
 
-### 依赖与影响
-- 依赖：当前已验证漏洞库、现有 Phase 3/4 噪声分析和 Dr.D-inspired 改造计划。
-- 对后续工作的影响：为第一部分实现提供稳定接口、输出字段、known-vuln 验收样例和降级规则。
-- 破坏性变更：无。
+### Verification
 
----
+- Task 2 focused command passes 125 tests. Per-module discovery passes 26 artifact, 6 bounded-slice, 9 strict-growth, 21 config/CLI, and 63 DeepSeek tests.
+- Full discovery passes 158 tests with 1 explicitly guarded online integration skipped. Changed Python modules/tests compile and `git diff --check` passes.
+- Runtime CLI observation confirms the current Task 1/2 boundary remains parser-only: both explicit remote-consent arguments and default parsing exit 0 without analysis or network access.
 
-## [2026-06-19] Proof-Carrying Retention Sink 方案替换
+## [2026-07-18] Harden Java Web DoS skill routing and dynamic validation
 
-### 修改时间
-2026-06-19 00:13
+### Changed
 
-### 变更类型
-- [文档] 改造计划
-- [文档] 论文方法论路线
+- Routed bulk inventory, environment setup, probe execution, and fleet screening to `claude-haiku-4-5`; bounded semantic analysis and PoC engineering to `claude-sonnet-5`; and cross-stage reflection and final review to `claude-opus-4-8`, with evidence-coded escalation and model-usage artifacts.
+- Made dynamic environment preparation reusable and autonomous within isolation boundaries, with explicit deployment classification and repair evidence required before `environment_blocked`.
+- Added semantic preflight and a hard three-round PoC reflection loop that treats growth-only and no-growth observations as hypotheses to diagnose rather than final answers.
+- Strengthened the user-level dynamic aggregator to discover missing results, validate status/schema/deployment/round/evidence/termination contracts, and derive verdicts centrally.
 
-### 核心改动
-- 将 `docs/drd_inspired_rearchitecture_plan.md` 的第一部分从 long-lived object 建模清单替换为 proof-carrying retention sink 改造方案。
-- 关键技术决策：第一部分的直接产物定义为可供后续污点分析消费的具体 `WebRetentionSink`，每个 high-risk sink 必须携带 `receiver_proof` 与 `growth_driver`。
-- 明确 Dr.D long-life class 识别结果作为 `LifecycleRootFact` / `proof_source=drd` 接入，但不能绕过 receiver proof 直接把类内所有 collection 写入升级为 sink。
-- 影响范围：后续 CodeQL 改造应优先新增 `RetentionSinks.qll`、proof-carrying Phase 3 schema，以及 HeaderMap/request-local collection 的过滤降级。
+### Verification
 
-### 交付成果
-- 修改设计文档：`docs/drd_inspired_rearchitecture_plan.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：文档变更，未运行 CodeQL、Phase 3/4 pipeline 或动态验证。
+- Added user-level skill and aggregator contract coverage for model aliases, worker-role separation, semantic preflight, the three-round cap, missing results, verdict conflicts, deployment classification, evidence paths, and split safety termination fields.
+- Verified 22 focused dynamic-validation tests, Python compilation, and repository diff whitespace checks.
 
-### 依赖与影响
-- 依赖：当前已验证漏洞库和 Dr.D-inspired 改造讨论。
-- 对后续工作的影响：第一阶段实现目标从“识别 long-lived object”收敛为“产出带生命周期证明的具体 taint sink 清单”。
-- 破坏性变更：无。
+## [2026-07-18] Consolidate Task 2 independent-review remediation
 
----
+### Changed
 
-## [2026-06-18] Dr.D 启发式改造计划落库
+- Made provider response-body read failures retryable, bounded all slice/YAML/Git materialization and process output, reset inherited locks after fork, and safely create private nested cache paths.
+- Added deterministic provider-facing aliases with local evidence restoration, exact final-request credential scanning with Java normalization, a complete typed prompt schema, strict formal Growth Contract artifact validation, IPv6-safe URL canonicalization, and stable malformed-URL errors.
+- Exposed the Task 2 `--allow-remote-llm` consent/provenance CLI arguments without adding later-stage analyzer orchestration.
 
-### 修改时间
-2026-06-18 23:53
+### Verification
 
-### 变更类型
-- [文档] 改造计划
-- [文档] 论文方法论路线
+- Added regression coverage for all verified review findings. The focused suite passes 90 tests; full discovery runs 134 tests with 133 passed and the guarded online integration skipped. Changed Python files compile and `git diff --check` passes.
 
-### 核心改动
-- 新增 Dr.D-inspired 改造计划，将任务按论文优先级重排为三部分：第一部分优先实现 long-lived object proof，第二部分补 entry/data-flow/parser 工程覆盖，第三部分再做回归、capacity/lifespan 证明和 Phase 4 排序。
-- 关键技术决策：把 P2 作为首要创新点，要求候选成立必须证明 sink receiver 可追溯到跨请求保留对象；P1/P3/P4 作为支撑该证明的工程化需求；P0/P5/P6 放到最后，避免过早调分掩盖基础建模错误。
-- 影响范围：后续 CodeQL 设计、Phase 3 schema、Phase 4 排序和论文方法章节应以该计划为优先级依据。
+## [2026-07-18] Authenticate and harden DeepSeek contract cache
 
-### 交付成果
-- 新增设计文档：`docs/drd_inspired_rearchitecture_plan.md`
-- 修改文档入口：`README.md`
-- 修改变更日志：`CHANGELOG.md`
-- 测试/验证结果：文档变更，无需运行 CodeQL 或动态验证。
+### Changed
 
-### 依赖与影响
-- 依赖：`results/phase4/verified_vulnerabilities.json` 和已完成的 Phase 3/4 设计审查。
-- 对后续工作的影响：明确下一步首先重构 `codeql/lib/Persistence.qll` 与 `codeql/lib/SessionState.qll` 的 long-lived object 模型，再补 source/data-flow/parser，最后重做排序。
-- 破坏性变更：无。
+- Bound Growth Contract cache entries to the in-memory DeepSeek API key with HMAC-SHA256; cache files contain the authenticator but never the key, and unkeyed SHA-256 fields now provide integrity metadata only.
+- Made cache use fail closed for unsafe local paths: cache directories must be current-user-owned `0700` directories, and lock, temporary, and entry files must be current-user-owned regular `0600` files. Directory-descriptor relative operations and `O_NOFOLLOW` are used where supported.
+- Treat symlinked, permission-unsafe, or foreign-owned cache paths as cache misses with cache publication disabled, while allowing an authorized live classification to proceed. Preserved thread and cross-process single-flight behavior for safe caches.
 
----
+### Verification
 
-## [2026-06-18] 独立 AGENTS 工作指南落库
+- Added focused cache coverage for HMAC tampering despite recomputed unkeyed hashes, wrong-key misses, owner checks, private modes, and symlinked directory, entry, and lock handling.
+- Ran `python -m unittest tests.test_deepseek_client.DeepSeekClientTests.test_cache_entry_requires_hmac_bound_to_the_api_key tests.test_deepseek_client.DeepSeekClientTests.test_cache_with_a_different_api_key_is_a_miss tests.test_deepseek_client.DeepSeekClientTests.test_cache_files_are_private_and_regular tests.test_deepseek_client.DeepSeekClientTests.test_symlinked_cache_directory_is_not_used tests.test_deepseek_client.DeepSeekClientTests.test_symlinked_cache_entry_is_a_miss_and_is_not_replaced tests.test_deepseek_client.DeepSeekClientTests.test_unsafe_permissions_and_lock_symlink_disable_cache_writes tests.test_deepseek_client.DeepSeekClientTests.test_cache_rejects_foreign_owner_when_lstat_is_mocked -v`, `python -m unittest tests.test_deepseek_client.DeepSeekClientTests.test_same_key_process_single_flight_publishes_once_durably tests.test_deepseek_client.DeepSeekClientTests.test_same_key_thread_single_flight_makes_one_provider_request -v`, and `python -m unittest tests.test_deepseek_client.DeepSeekClientTests.test_cache_entry_requires_hmac_bound_to_the_api_key -v` successfully.
 
-### 修改时间
-2026-06-18 23:30
+## [2026-07-18] Add audited DeepSeek Growth Contract adapter
 
-### 变更类型
-- [文档] 项目级自动化助手工作指南
+### Added
 
-### 核心改动
-- 为 `dos-analysis-web` 单独新增 `AGENTS.md`，将原先依赖上层或 AOSP 项目的协作约束移植为 Web 项目本地规则。
-- 关键技术决策：保留简体中文交流、五轴 verdict 复用、可复现性、验证和变更日志要求；同时裁剪 AOSP 专用目录和 Binder 语义，改为 Web source、session/state retention、Phase 4 产物和动态验证真阳说明。
-- 影响范围：后续自动化助手直接在 `dos-analysis-web/` 下工作时，可以按本项目语境设计非 AOSP 的 Java Web 分析任务。
+- Added an opt-in DeepSeek OpenAI-compatible Growth Contract client with strict schema validation, bounded retry policy, cache identity/integrity checks, atomic successful-response publication, and local mock coverage.
+- Added a pre-network remote-source gate requiring explicit authorization, canonical public GitHub repository provenance, a full commit SHA, and a clean matching local checkout; default GitHub verification uses unauthenticated API requests and read-only Git checks, while authorization and provenance are captured only in non-secret request audit metadata.
+- Restricted production provider endpoints to canonical `https://api.deepseek.com/`; loopback endpoints are permitted solely for local mocks, and all other endpoints fail before an Authorization header can be constructed.
+- Added bounded-slice and Growth Contract models, constrained prompts, redaction of API keys, authorization values, and `sk-...` strings, plus a dual-guarded artificial-fixture integration test.
 
-### 交付成果
-- 新增文档：`AGENTS.md`
-- 修改文档：`CHANGELOG.md`
-- 测试/验证结果：文档变更，无需运行 CodeQL 或动态验证。
+### Verification
 
-### 依赖与影响
-- 依赖：现有 `README.md`、Phase 4 结果和 verified 漏洞库。
-- 对后续工作的影响：降低 Web 项目工作对 `dos-analysis/AGENTS.md` 的上下文依赖，避免将 AOSP 专用规则误用于非 AOSP 设计。
-- 破坏性变更：无。
+- Verified with `python -m unittest tests.test_deepseek_client -v` and `python -m unittest discover -s tests -v`; default tests use localhost mocks and make no external provider request.
 
----
+### Security remediation report (Task B: items 4, 5)
 
-## [2026-06-18] Phase 4 动态验证真阳落库
+- Validated every LLM Growth Contract evidence reference against the static fact IDs in its bounded slice. Fabricated live references fail as `LLM_RESPONSE_SCHEMA_INVALID` before a cache write, while fabricated cached references are treated as cache misses.
+- Applied strict byte, UTF-8, duplicate-key/non-finite-value, nesting, node, collection, and string limits consistently to provider-envelope, inner-contract, GitHub, and cache JSON. Reads request at most `limit + 1` bytes and map malformed, incomplete, or oversized data to controlled errors/cache misses.
+- Preserved the cache HMAC and filesystem-authentication implementation without modification.
 
-### 修改时间
-2026-06-18 22:58
+### Verification
 
-### 变更类型
-- [新增功能] verified 漏洞库
-- [文档] 动态验证证据摘要
+- Verified the Task B fact-reference and JSON-boundary regressions with local mock/seam tests only; no live DeepSeek or GitHub endpoint was contacted.
 
-### 核心改动
-- 将 5 个已经动态验证的 Web 资源耗尽型漏洞落入 Phase 4 verified 漏洞库，统一分配 `WEB-REAL-0001` 至 `WEB-REAL-0005` 编号。
-- 新增机器可读 JSON 与 Markdown 摘要，并把临时 PoC 源码和 OOM 原始日志复制到 `results/phase4/dynamic_verification/`，避免后续依赖 `/tmp` 临时目录。
-- 关键技术决策：verified 库与 Phase 4 静态候选队列分离；能对应静态候选的记录保留 `phase4_ids`，直接 agent 动态挖掘确认的记录不强行绑定候选 ID。
+### Security remediation report (Task C: items 3, 6, 7, 8)
 
-### 交付成果
-- 新增漏洞库：`results/phase4/verified_vulnerabilities.json`
-- 新增摘要：`results/phase4/verified_vulnerabilities.md`
-- 新增 PoC 归档：`results/phase4/dynamic_verification/poc/`
-- 新增日志归档：`results/phase4/dynamic_verification/logs/`
-- 验证结果：Jersey OAuth1、Jersey multipart、Undertow LearningPush、Undertow mod_cluster、Jetty ProxyServlet destination 均有默认堆 OOM 证据；其中 Undertow LearningPush 和 Jetty ProxyServlet 使用真实 HTTP 请求验证。
+- Validated Git object metadata before reading a source blob, rejected non-blobs and blobs over the bounded excerpt limit, and retained exact blob and excerpt hashes.
+- Added the finite `MAX_LLM_RETRIES` bound at configuration and client runtime; blank API keys are accepted only while remote LLM access is disabled, while enabled access requires a nonblank environment key. YAML now rejects case and separator variants of `api_key` at every nesting level.
+- Routed verifier Git commands through one hardened command form that disables fsmonitor and hooks, disables system/global configuration, replacement objects, and pagers; a local malicious `core.fsmonitor` regression confirms its helper is not executed.
+- Ran `git fsck --strict --no-dangling --no-reflogs <full-sha>` through that hardened runner before any local source object access.
 
-### 依赖与影响
-- 依赖：Phase 4 静态候选和本轮动态验证 PoC。
-- 对后续工作的影响：后续 CVE/issue 报告、论文 RQ4、复现实验应以 `verified_vulnerabilities.json` 为权威入口。
-- 破坏性变更：无；不修改 CodeQL 查询、排序 pipeline 或既有 Phase 1-4 结果语义。
+### Verification
 
----
+- Passed focused Task C regressions with `python -m unittest tests.test_config_and_cli.ConfigTests.test_configuration_rejects_api_key_spelling_variants_at_any_depth tests.test_config_and_cli.ConfigTests.test_disabled_remote_llm_allows_a_missing_environment_key tests.test_config_and_cli.ConfigTests.test_enabled_remote_llm_requires_a_nonblank_environment_key tests.test_config_and_cli.ConfigTests.test_max_retries_has_an_explicit_upper_bound_in_cli_and_yaml tests.test_deepseek_client.DeepSeekClientTests.test_empty_api_key_is_rejected_before_verifier_or_network tests.test_deepseek_client.DeepSeekClientTests.test_runtime_config_rejects_max_retries_above_the_explicit_limit tests.test_deepseek_client.GitHubPublicSourceVerifierTests.test_hardened_git_invocation_disables_checkout_configured_helpers tests.test_deepseek_client.GitHubPublicSourceVerifierTests.test_validate_slice_rejects_oversized_git_blob_without_reading_it tests.test_deepseek_client.GitHubPublicSourceVerifierTests.test_verify_runs_strict_fsck_before_any_local_object_read -v`.
 
-## [2026-06-18] Phase 4 Large-Scale Mining 启动
+## [2026-07-18] Consolidate P0 implementation authority
 
-### 修改时间
-2026-06-18 13:48
+### Changed
 
-### 变更类型
-- [新增功能] Phase 4 候选排序与复核队列
-- [新增功能] dos-web-analyzer 统一 CLI 入口
-- [文档] Phase 4 运行说明和结果报告
+- Declared `docs/superpowers/specs/2026-07-18-java-web-dos-p0-analyzer-design.md` the sole implementation standard and updated repository guidance and README links accordingly.
+- Hardened artifact recovery validation so a stage requires a non-empty artifact list and every artifact path is a safe relative path within the run output root.
+- Completed lifecycle artifact contracts, canonical JSONL ordering, recursive YAML secret rejection, strict blank/UTF-8 JSONL failure handling, and output-root-relative artifact metadata serialization.
 
-### 核心改动
-- 新增 Phase 4 pipeline，消费 Phase 3 统一候选 CSV，生成排序候选、top-N 人工复核队列、评估摘要和 Markdown 报告。
-- 排序策略以五轴 verdict 为主信号，叠加 R/V/M/C/L、sink/container 类型、key 可控性，并对测试/示例路径和疑似请求局部 evidence 做降权，保证 Phase 4 优先服务人工复核和动态验证。
-- 新增 `dos-web-analyzer` 入口，支持 `phase1`、`phase2`、`phase3`、`analyze`、`report`、`verify --top N`，将 Phase 4 的 expected workflow 固化为可复现命令。
+### Verification
 
-### 交付成果
-- 新增脚本：`scripts/run_phase4.py`
-- 新增 CLI：`dos-web-analyzer`
-- 修改配置：`config.yaml`
-- 更新文档：`README.md`
-- 结果产物：`results/phase4/ranked_candidates.csv`、`results/phase4/ranked_candidates.json`、`results/phase4/review_queue_top50.md`、`results/phase4/review_queue_top50.json`、`results/phase4/evaluation_summary.json`、`results/phase4_report.md`
-- 验证结果：`./dos-web-analyzer analyze` 基于 Phase 3 的 103 条候选生成 Phase 4 产物
+- Added regression coverage for missing, empty, malformed, absolute, and escaping artifact paths during stage reuse.
+- Added focused contract coverage for lifecycle artifact minima, deterministic JSONL bytes, nested YAML secrets, and strict JSONL input failures.
 
-### 依赖与影响
-- 依赖：Phase 3 已生成的 `results/phase3/phase3_candidate_features.csv`
-- 对后续工作的影响：为 top-50 人工复核、动态验证和论文 RQ4 漏洞发现提供统一队列
-- 破坏性变更：无；不修改 Phase 1-3 查询语义和 AOSP 工具
+## [2026-07-18] Design the complete P0 analyzer
 
----
+### Added
 
-## [2026-06-16] Phase 3 Unified Modeling 实施完成
+- Added the approved full-P0 analyzer design for Spring MVC, Servlet, Netty, and MQTT.
+- Defined the Python and CodeQL module boundaries, versioned artifact contracts, bounded-slice DeepSeek Growth Contract, deterministic lifecycle rules, assertions 1 and 2, lifecycle certificates, recovery model, and test strategy.
 
-### 修改时间
-2026-06-16 23:59
+### Changed
 
-### 变更类型
-- [新增功能] Web 统一五轴候选提取
-- [新增功能] Phase 3 自动化运行与一致性验证
-- [文档] Phase 3 结果报告
+- Chose `bounded_under_modeled_assumptions` to replace the unconditional `static_safe` label during implementation; active tooling and documentation will be migrated together without a legacy compatibility mode.
+- Required DeepSeek through an environment-only API key for complete P0 runs while keeping default tests network-free and provider calls auditable.
 
-### 核心改动
-- 实现 Web 侧 `CommonDoS.qll` 五轴抽象、`SessionState.qll` retained state 写入模型、`WebGuards.qll` 可达性模型和 `phase3_candidate_features.ql` 主查询。
-- 新增 `scripts/run_phase3.py` 批量运行 5 个 Web 数据库并生成统一候选 CSV；新增 `scripts/check_phase3_consistency.py` 使用 AOSP `eval/verdict.py` 校验 CodeQL verdict。
-- 第一版采用方法内与一层 helper call 的最小统一闭环，输出 evidence 和保守假设，为 Phase 4 排序与人工复核提供输入。
+### Verification
 
-### 交付成果
-- 新增 CodeQL：`codeql/lib/CommonDoS.qll`、`codeql/lib/SessionState.qll`、`codeql/lib/WebGuards.qll`、`codeql/queries/phase3_candidate_features.ql`
-- 修改 CodeQL：`codeql/lib/WebSources.qll`、`codeql/lib/Persistence.qll`
-- 新增脚本：`scripts/run_phase3.py`、`scripts/check_phase3_consistency.py`
-- 新增结果：`results/phase3/phase3_candidate_features.csv`、`results/phase3/phase3_consistency.json`、`results/phase3_report.md`
-- 验证结果：`python3 scripts/run_phase3.py` 对 Tomcat、Spring Boot、Jetty、Undertow、Jersey 运行完成，生成 103 条候选；`phase3_consistency.json` 记录 103/103 matched，consistency 100%
-- 验证结果：`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 -m eval.monotonicity` 通过，288 个积格点单调性成立
-- 验证结果：`PYTHONPATH=/home/furina/new_tool/dos-analysis python3 /home/furina/new_tool/dos-analysis/intel/regression/check_regression.py` 通过，0 regression(s)
+- Reviewed the design for placeholders, internal contradictions, ambiguous verdict behavior, secret handling, and scope boundaries.
+- Added P0 package, environment-only configuration, strict JSONL artifact contracts, deterministic identifiers, and resumable-stage primitives.
+- Verified with `python -m unittest tests.test_config_and_cli tests.test_artifact_contracts -v` and `python -m unittest discover -s tests -v`.
 
-### 依赖与影响
-- 依赖：Phase 2 已完成的 5 个 Web CodeQL 数据库和 `results/phase2_report.md`。
-- 输出：为 Phase 4 大规模挖掘、top candidate 排序、人工复核和论文 RQ1/RQ3/RQ4 评估提供统一候选 schema。
-- 影响：不修改 AOSP 工具语义；仅复用 AOSP `eval/verdict.py` 作为 verdict 权威实现。
-- 破坏性变更：无。
+## [2026-07-17] Prepare the v2 tool-development baseline
 
----
+### Changed
 
-## [2026-06-17] Phase 2 补齐 Spring Boot 与 JAX-RS 入口结果
+- Restored the preserved v2 engineering specification and retired the obsolete one-time cleanup plan and Stage 0–5 research design.
+- Adopted the lifecycle-centered analysis direction based on bounded slices, Growth Contracts, lifecycle evidence, and effective Guard/Bound/Release reasoning.
+- Normalized paper material under `docs/paper/` and repaired active documentation links.
+- Kept the existing `poc/` evidence archive unchanged and stopped implicitly admitting new disclosure logs and probes into version control.
+- Added a static CodeQL batch-build foundation and a static-only batch aggregator with configuration validation and regression tests.
+- Kept dynamic-validation preparation and status synchronization as explicit opt-in helpers, isolated from the ordinary v2 static pipeline.
 
-### 修改时间
-2026-06-17 00:20
+### Verification
 
-### 变更类型
-- [功能改进] Source discovery 覆盖扩展
-- [Bug 修复] Spring Boot 数据库构建修复
-- [文档] Phase 2 结果报告更新
+- Python and shell syntax checks.
+- Unit tests for manifest/config validation, path handling, dry-run behavior, static aggregation, case identity, overwrite protection, and status synchronization.
+- Markdown-link, JSON, gzip, and Git workspace hygiene checks.
 
-### 核心改动
-- 修复 Spring Boot 数据库构建：原先 Gradle 7.6.3 在 Java 21 下触发 `Unsupported class file major version 65`，改为使用 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk` 并采用 CodeQL `--build-mode=none`，成功生成 `finalised: true` 数据库。
-- 扩展 JAX-RS 入口识别：`phase2_source_discovery.ql` 与 `WebSources.qll` 同时支持 `javax.ws.rs` 和 `jakarta.ws.rs`，覆盖 Jersey 3.x 的 Jakarta 包名。
-- 将 Spring Boot 与 Jersey/JAX-RS 结果补入 Phase 2：Spring Boot 产生 278 条参数记录，其中 Spring controller 89 条、JAX-RS 3 条；Jersey 产生 31 条参数记录，其中 JAX-RS 3 条。
+## [2026-07-02] Reset the workspace for v2 implementation
 
-### 交付成果
-- 修改查询：`codeql/queries/phase2_source_discovery.ql`
-- 修改模型：`codeql/lib/WebSources.qll`
-- 新增测试查询：`codeql/queries/test_jaxrs_entries.ql`
-- 新增/修改构建脚本：`scripts/build_springboot_db.sh`、`scripts/build_jersey_db.sh`
-- 新增结果：`results/phase2/spring-boot_sources.csv`、`results/phase2/spring-boot_sources.bqrs`
-- 新增结果：`results/phase2/jersey_sources.csv`、`results/phase2/jersey_sources.bqrs`
-- 更新报告：`results/phase2_report.md`
+### Changed
 
-### 依赖与影响
-- 依赖：本机 `/usr/lib/jvm/java-17-openjdk`，CodeQL 2.23.8。
-- 影响：Phase 2 结果覆盖从 3 个数据集扩展到 5 个数据集；总参数记录达到 1328 条，其中 Spring controller 89 条、JAX-RS 6 条。
-- 后续：Phase 3 可以基于 Spring/JAX-RS source 清单继续做 L3 write target / retention sink 检测。
-
----
+- Established the v2 static model:
+  `Vulnerable(E, G) := Reach(E, G) ∧ AttackerControls(E, G) ∧ Growth(G) ∧ ¬EffectiveB(E, G)`.
+- Preserved framework sources, CodeQL databases, PoC evidence, static-hunt results, application results, and Java Web batch results.
+- Removed legacy phase-oriented analyzer implementation from the active development context.

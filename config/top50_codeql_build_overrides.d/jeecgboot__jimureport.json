@@ -1,0 +1,11 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh -c \"mkdir -p target/codeql-classes && find jimureport-example/src/main/java -name '*.java' -print0 | xargs -0 -r javac -proc:none -d target/codeql-classes; true\"",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk",
+    "/usr/lib/jvm/java-22-openjdk"
+  ],
+  "slug": "jeecgboot/jimureport"
+}

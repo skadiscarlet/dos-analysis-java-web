@@ -1,0 +1,232 @@
+{
+  "apache/guacamole-client": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-22-openjdk"],
+    "command": "mvn -B -ntp -pl guacamole-common-js,guacamole -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Drat.ignoreErrors=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true package"
+  },
+  "apache/skywalking": {
+    "kind": "maven",
+    "working_directory": "oap-server/server-core",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "sh ../../mvnw -B -ntp -Drevision=11.0.0-SNAPSHOT -Dflatten.skip=true -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "apache/incubator-kie-kogito-runtimes": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -pl jbpm/jbpm-bpmn2 -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true clean package"
+  },
+  "apache/solr": {
+    "kind": "gradle",
+    "command": "sh ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g :solr:server:assemble -x test"
+  },
+  "athou/commafeed": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-25-openjdk"],
+    "command": "sh ./mvnw -B -ntp -pl commafeed-server -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "ikismail/shoppingcart": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dmaven.compiler.source=8 -Dmaven.compiler.target=8 -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "undera/perfmon-agent": {
+    "kind": "maven",
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dmaven.compiler.source=8 -Dmaven.compiler.target=8 -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "dotcms/core": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-25-openjdk"],
+    "command": "sh ./mvnw -B -ntp -pl dotCMS -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true package"
+  },
+  "dromara/lamp-cloud": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "dromara/skyeye": {
+    "kind": "maven",
+    "working_directory": "xxl-job-2.3.0",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"],
+    "command": "mvn -B -ntp -pl xxl-job-admin -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean package"
+  },
+  "dromara/warm-flow": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -pl warm-flow-orm/warm-flow-easy-query/warm-flow-easy-query-core -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "entropy-cloud/nop-entropy": {
+    "kind": "maven",
+    "command": "sh ./mvnw -B -ntp -DskipTests -DskipITs -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true package"
+  },
+  "exrick/xboot": {
+    "kind": "maven",
+    "working_directory": "xboot-fast",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "geoserver/geoserver": {
+    "kind": "maven",
+    "working_directory": "src",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -pl main,security,ows,rest,restconfig -am -DskipTests -DskipITs -Dmaven.test.skip=true -DskipRemoteTests -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "apache/druid": {
+    "kind": "maven",
+    "java_homes": [
+      "/usr/lib/jvm/java-22-openjdk",
+      "/usr/lib/jvm/java-21-openjdk",
+      "/usr/lib/jvm/java-17-openjdk",
+      "/usr/lib/jvm/default"
+    ],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true package"
+  },
+  "grimmory-tools/grimmory": {
+    "kind": "gradle",
+    "working_directory": "backend",
+    "command": "sh ./gradlew --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g assemble -x test"
+  },
+  "jeecgboot/jeecgboot": {
+    "kind": "maven",
+    "working_directory": "jeecg-boot",
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true compile"
+  },
+  "keycloak/keycloak": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "sh ./mvnw -B -ntp -pl misc/theme-verifier -am -DskipTests -DskipITs -DskipIT -DskipIntegrationTests -Dlicense.skip=true -Drat.skip=true -DskipRat=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean package"
+  },
+  "kestra-io/kestra": {
+    "kind": "gradle",
+    "java_homes": ["/usr/lib/jvm/java-25-openjdk"],
+    "command": "sh ./gradlew --no-daemon --max-workers=2 --no-build-cache --rerun-tasks -Dorg.gradle.jvmargs=-Xmx2g assemble -x test -x sourcesJar"
+  },
+  "kerwincui/fastbee": {
+    "kind": "maven",
+    "working_directory": "springboot",
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true compile"
+  },
+  "lenve/vhr": {
+    "kind": "maven",
+    "working_directory": "vhr",
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "liyupi/yuzi-generator": {
+    "kind": "maven",
+    "working_directory": "yuzi-generator-maker",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "mqttsnet/thinglinks": {
+    "kind": "maven",
+    "working_directory": "thinglinks-cloud",
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -Ddocker.skip=true compile"
+  },
+  "metersphere/metersphere": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-21-openjdk"],
+    "command": "mvn -B -ntp -pl backend/app -am -DskipTests -DskipITs -Dmaven.test.skip=true -DskipAntRunForJenkins=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "micrometer-metrics/micrometer": {
+    "kind": "gradle",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "sh ./gradlew --no-daemon --max-workers=2 --no-build-cache --rerun-tasks -Dorg.gradle.jvmargs=-Xmx2g :micrometer-commons:compileJava"
+  },
+  "modelengine-group/app-platform": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -pl :waterflow-service -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "nitorcreations/nflow": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -pl nflow-rest-api-spring-web -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "sonarsource/sonarqube": {
+    "kind": "gradle",
+    "command": "sh ./gradlew --no-daemon --max-workers=2 --no-build-cache -Dorg.gradle.jvmargs=-Xmx2g classes"
+  },
+  "suwayomi/suwayomi-server": {
+    "kind": "gradle",
+    "java_homes": ["/usr/lib/jvm/java-21-openjdk"],
+    "command": "sh ./gradlew --no-daemon --max-workers=2 --no-build-cache --rerun-tasks -Dorg.gradle.jvmargs=-Xmx2g :server:compileKotlin -x ktlintFormat"
+  },
+  "thingsboard/thingsboard": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-25-openjdk"],
+    "command": "mvn -B -ntp -pl msa/web-ui,application -am -DskipTests -DskipITs -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true install"
+  },
+  "prestodb/presto": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -DskipUI -DskipTests -DskipITs -DskipIT -DskipIntegrationTests -Dlicense.skip=true -Drat.skip=true -DskipRat=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -pl presto-flight-shim,presto-resource-group-managers,presto-password-authenticators,presto-openlineage-event-listener,presto-file-session-property-manager,presto-db-session-property-manager,presto-node-ttl-fetchers,presto-cluster-ttl-providers,presto-function-namespace-managers,presto-jmx,presto-cassandra,presto-pinot,presto-example-http,presto-hana,presto-hive-hadoop2,presto-memory,presto-blackhole,presto-kafka,presto-kudu,presto-atop,presto-ml,presto-mysql,presto-singlestore,presto-oracle,presto-postgresql,presto-prometheus,presto-redshift,presto-sqlserver,presto-redis,presto-tpch,presto-tpcds,presto-teradata-functions,presto-mongodb,presto-local-file,presto-accumulo,presto-thrift-connector,presto-elasticsearch,presto-druid,presto-bigquery,presto-iceberg,presto-hive-function-namespace,presto-delta,presto-hudi,presto-clickhouse,presto-native-sidecar-plugin,presto-main,presto-server -am package"
+  },
+  "openremote/openremote": {
+    "kind": "gradle",
+    "java_homes": ["/usr/lib/jvm/java-21-openjdk"],
+    "command": "sh ./gradlew --no-daemon --max-workers=2 --no-build-cache --rerun-tasks -Dorg.gradle.jvmargs=-Xmx2g :model:compileJava"
+  },
+  "sanluan/publiccms": {
+    "kind": "maven",
+    "working_directory": "publiccms-parent",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -DskipIT -DskipIntegrationTests -Dlicense.skip=true -Drat.skip=true -DskipRat=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true package"
+  },
+  "runify-dev/runify": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-25-openjdk"],
+    "command": "mvn -B -ntp -pl backend -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dmaven.antrun.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true compile"
+  },
+  "dengsinkiang/sk-admin": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"]
+  },
+  "hivemq/hivemq-community-edition": {
+    "kind": "gradle",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"]
+  },
+  "kalvingit/kvf-admin": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"]
+  },
+  "merikbest/ecommerce-spring-reactjs": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"]
+  },
+  "scouter-project/scouter": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"]
+  },
+  "stevensouza/automon": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -pl automon -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "theonedev/onedev": {
+    "kind": "maven",
+    "working_directory": "server-core",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "wxiaoqi/spring-cloud-platform": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-8-openjdk"],
+    "setup_commands": [
+      "mvn -B -ntp -N -DskipTests -DskipITs -Dmaven.test.skip=true install",
+      "mvn -B -ntp -f ace-dev-base/pom.xml -N -DskipTests -DskipITs -Dmaven.test.skip=true install",
+      "mvn -B -ntp -f ace-dev-base/ace-common/pom.xml -DskipTests -DskipITs -Dmaven.test.skip=true install",
+      "mvn -B -ntp -f ace-dev-base/ace-auth-sdk/pom.xml -DskipTests -DskipITs -Dmaven.test.skip=true install",
+      "mvn -B -ntp -f ace-api/pom.xml -DskipTests -DskipITs -Dmaven.test.skip=true install"
+    ],
+    "command": "mvn -B -ntp -f ace-gate/pom.xml -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "walmartlabs/concord": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "sh ./mvnw -B -ntp -pl server/plugins/webapp,server/impl -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dmaven.compiler.useIncrementalCompilation=false -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  },
+  "zmops/zeus-iot": {
+    "kind": "maven",
+    "java_homes": ["/usr/lib/jvm/java-17-openjdk"],
+    "command": "mvn -B -ntp -Pserver -pl iot-server/server-client -am -DskipTests -DskipITs -Dmaven.test.skip=true -Dlicense.skip=true -Drat.skip=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dspotless.check.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true clean compile"
+  }
+}

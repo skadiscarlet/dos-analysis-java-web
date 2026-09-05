@@ -1,0 +1,11 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh -c \"mkdir -p target/codeql-classes && find flink-core/src/main/java flink-rpc/flink-rpc-core/src/main/java flink-rpc/flink-rpc-akka/src/main/java flink-runtime/src/main/java flink-clients/src/main/java flink-streaming-java/src/main/java flink-table/flink-sql-gateway-api/src/main/java flink-table/flink-sql-gateway/src/main/java flink-runtime-web/src/main/java -name '*.java' -print0 | xargs -0 -r javac -proc:none -d target/codeql-classes; true\"",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk",
+    "/usr/lib/jvm/java-22-openjdk"
+  ],
+  "slug": "apache/flink"
+}

@@ -1,0 +1,11 @@
+{
+  "allow_compilation_failure": true,
+  "build_risks": [
+    "bounded_javac_is_extractor_coverage_only_and_may_continue_after_javac_errors"
+  ],
+  "command": "sh \"$CODEQL_BOUNDED_JAVAC_HELPER\" grobid-core/src/main/java grobid-service/src/main/java",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk"
+  ],
+  "slug": "grobidOrg/grobid"
+}

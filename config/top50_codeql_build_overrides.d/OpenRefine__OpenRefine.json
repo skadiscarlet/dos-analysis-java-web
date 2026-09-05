@@ -1,0 +1,14 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [
+    "clean_goal_can_remove_generated_outputs",
+    "test_compile_may_activate_test_annotation_processors",
+    "tests_are_not_explicitly_disabled"
+  ],
+  "command": "mvn -B -ntp -DskipTests=false -DskipITs -DskipIntegrationTests -Dlicense.skip=true -Drat.skip=true -DskipRat=true -Dcheckstyle.skip=true -Dspotbugs.skip=true -Dpmd.skip=true -Dcpd.skip=true -Dspotless.check.skip=true -Dspotless.apply.skip=true -Denforcer.skip=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -Dskip.npm=true -DskipNode=true -Dfrontend.skip=true -DskipFrontend=true -Ddocker.skip=true -DskipDocker=true -DskipDockerBuild=true -pl modules/core,modules/grel,main,server -am clean test-compile",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk"
+  ],
+  "slug": "OpenRefine/OpenRefine"
+}

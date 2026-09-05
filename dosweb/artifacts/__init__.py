@@ -1,0 +1,1 @@
+"""Versioned analysis artifact primitives."""

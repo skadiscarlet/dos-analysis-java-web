@@ -1,0 +1,10 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh ./gradlew --no-daemon :moco-core:compileJava :moco-runner:compileJava :moco-junit:compileJava :moco-junit5:compileJava",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk"
+  ],
+  "slug": "dreamhead/moco"
+}

@@ -2,7 +2,7 @@
 frameworks/
 databases/
 
-# Generated analysis results, reports, PoC logs, and review queues.
+# Generated analysis results and reports.
 results/
 
 # Agent workflow drafts/plans/specs are local process artifacts.
@@ -11,15 +11,32 @@ docs/superpowers/
 # Local git worktrees created for isolated implementation work.
 .worktrees/
 
-# Local Gradle/Maven dependency caches for framework build-mode extraction.
+# Local build and dependency caches.
 .build-cache/
-
-# Maven build outputs for the real-HTTP dynamic verification harness.
 dynamic-verification/target/
+build/
+codeql/
+# Source-controlled v2 query additions remain visible despite local CodeQL cache ignore.
+!codeql/
+!codeql/dosweb/
+!codeql/dosweb/Entries/
+!codeql/dosweb/Entries/EntryInterpositions.ql
+!dosweb/codeql/
+!dosweb/codeql/pack/
+!dosweb/codeql/pack/dosweb/
+!dosweb/codeql/pack/dosweb/Entries/
+!dosweb/codeql/pack/dosweb/Entries/EntryInterpositions.ql
+dos_analysis_web.egg-info/
 
-# Private coordinated vulnerability disclosure drafts and vendor correspondence.
+# Local Qoder state.
+.qoder-cn/
+.qoder/
+
+# Private coordinated disclosure material. Existing tracked PoC evidence remains
+# in Git, but new disclosure artifacts are not added implicitly.
 security-disclosures/
 poc/
+
 # Keep core project docs tracked by name even if broader doc ignores are added later.
 !README.md
 !CHANGELOG.md
@@ -34,11 +51,19 @@ poc/
 *.sqlite
 *.db
 
-# Python
+# Python and test caches.
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# Temp files
+# Temp and local log files.
 *.tmp
 *.log
+*.txt
+
+# Local agent state.
+.codex/
+.claude/
+
+# Local provider credentials (API key). Never commit.
+config/local_secrets.json

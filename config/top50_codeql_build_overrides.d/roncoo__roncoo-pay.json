@@ -1,0 +1,10 @@
+{
+  "allow_compilation_failure": false,
+  "build_risks": [],
+  "command": "sh -c \"mkdir -p target/codeql-classes && find roncoo-pay-* -path '*/src/main/java/*' -name '*.java' -print0 | xargs -0 -r javac -proc:none -source 8 -target 8 -d target/codeql-classes; true\"",
+  "java_homes": [
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/java-21-openjdk"
+  ],
+  "slug": "roncoo/roncoo-pay"
+}

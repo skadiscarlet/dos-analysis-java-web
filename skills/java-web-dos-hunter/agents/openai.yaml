@@ -1,4 +1,0 @@
-interface:
-  display_name: "Java Web DoS Hunter"
-  short_description: "Hunt Java Web resource-exhaustion DoS flaws"
-  default_prompt: "Use $java-web-dos-hunter to hunt resource-exhaustion DoS vulnerabilities in this Java Web HTTP service."
