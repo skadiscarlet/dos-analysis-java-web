@@ -9,7 +9,9 @@ from typing import Any
 
 from dosweb.errors import AnalyzerError
 
-_COMMANDS = ("analyze", "entries", "growth", "flows", "lifecycle", "conclude", "report")
+_P0_COMMANDS = ("analyze", "entries", "growth", "flows", "lifecycle", "conclude", "report")
+_RESOURCE_COMMANDS = ("resource-extract", "resource-analyze", "resource-replay", "resource-evaluate")
+_COMMANDS = _P0_COMMANDS + _RESOURCE_COMMANDS
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -26,6 +28,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("command", nargs="?", choices=_COMMANDS)
     parser.add_argument("--database", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--facts", type=Path)
+    parser.add_argument("--run", type=Path)
+    parser.add_argument("--suite", type=Path)
+    parser.add_argument("--llm", choices=("off", "live", "replay"))
     parser.add_argument("--config", type=Path)
     remote = parser.add_mutually_exclusive_group()
     remote.add_argument("--allow-remote-llm", dest="allow_remote_llm", action="store_true")
@@ -86,6 +94,10 @@ def dispatch(
     command = values.get("command")
     if not isinstance(command, str) or command not in _COMMANDS:
         raise AnalyzerError("CONFIG_INVALID_COMMAND", "A valid pipeline subcommand is required.")
+    if command in _RESOURCE_COMMANDS:
+        from dosweb.resource_lifecycle.commands import dispatch_resource_command
+
+        return dispatch_resource_command(values)
     if values.get("allow_partial_codeql") and command != "entries":
         raise AnalyzerError("CONFIG_INVALID_VALUE", "--allow-partial-codeql is only valid for the entries command.")
     if pipeline_factory is None:

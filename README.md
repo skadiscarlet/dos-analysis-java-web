@@ -27,6 +27,58 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
+## Resource Lifecycle v1 离线工作流
+
+Resource Lifecycle v1 是并行的离线状态分析链，不修改现有 P0 schema/tool `2.5/0.4.0`，也不把 lifecycle property 映射为 vulnerability 布尔量。干净 checkout 不需要 API key 或网络即可运行仓库内人工 IR、重放证据并重新生成固定评价：
+
+```bash
+dos-web-analyzer resource-extract \
+  --manifest tests/fixtures/resource_lifecycle/manual-manifest.json \
+  --out /tmp/resource-lifecycle-facts
+
+dos-web-analyzer resource-analyze \
+  --facts /tmp/resource-lifecycle-facts/facts.json \
+  --out /tmp/resource-lifecycle-run \
+  --llm off
+
+dos-web-analyzer resource-replay \
+  --run /tmp/resource-lifecycle-run
+
+dos-web-analyzer resource-evaluate \
+  --suite tests/fixtures/resource_lifecycle/regression-suite.json \
+  --out /tmp/resource-lifecycle-evaluation
+```
+
+对用户提供的离线 Java CodeQL database，使用以下严格 manifest 并传给 `resource-extract`；`database` 只在本地解析，不启动目标服务：
+
+```json
+{
+  "schema_version": "1.0",
+  "mode": "codeql_database",
+  "database": "/absolute/path/to/offline-java-codeql-db",
+  "entry_methods": [
+    "java-callable-v1:com.example.Handler.handle()V"
+  ],
+  "budget": {"max_steps": 1024, "max_updates_per_event": 32, "timeout_ms": 5000}
+}
+```
+
+`entry_methods` 是显式选择的 canonical callable id 数组；不指定外部入口时仍必须写空数组 `[]`，提取到的方法会作为 local method unit 分析。
+
+录制摘要回放使用下面的独立命令；`--config` 指向严格的 recording JSON，而不是 provider 配置：
+
+```bash
+dos-web-analyzer resource-analyze \
+  --facts /path/to/facts.json \
+  --out /tmp/resource-lifecycle-recorded-run \
+  --llm replay \
+  --config /path/to/recording.json
+```
+
+`resource-analyze` 写出 `facts.snapshot.json`、`run-manifest.json`、`lifecycle-results.json`、`evidence.json` 和 `summary.md`。replay 模式还写出 owner-only `0600` 的 `llm-recording.private.json` 与 `llm-summaries.json`；它们可能包含局部源码摘要，不属于可公开评价报告。recording identity 绑定目标 unknown call、源码路径/行/列、caller 文件 SHA、完整 Java source snapshot SHA、canonical exact callee、model、contract 和 budget。当前 CodeQL adapter 尚未提取与 caller executable Effect 分离的 callee-summary witness，因此已验证的同位 `create`/`retain`/`dispatch` 仅保留为 audit/display，并以 `llm_proposed_effect_already_static` 阻止重复执行；它不会增强生产 solver。`drop`/`release` 永不作为消除或有界证明。`--llm live` 明确未实现并会拒绝运行。复用同一个 `--out` 时，工具只清理自身已知的 mode-specific/stale artifact 并保留未知用户文件；已知 artifact 若被替换成 symlink 或目录则在改写旧 run 前 fail closed。
+
+`resource-replay` 校验 facts、完整 source snapshot、extractor、contract、tool、budget、私有 recording/summary 权限与 identity，并重新计算 result、evidence 和 `summary.md`。已跟踪评价报告位于 `reports/lifecycle-v1/`；状态语义和准确支持边界见 `docs/analysis-semantics.md` 与 `docs/limitations.md`。
+
 
 ## Analysis model
 

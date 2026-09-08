@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0",
+  "mode": "manual_fixture",
+  "programs": [
+    {
+      "unit_id": "manual:fixture.lifecycle.LifecycleFixture.syncClosed",
+      "executor_contracts": [],
+      "program": {
+        "schema_version": "1.0",
+        "families": [
+          {
+            "family_id": "family:sync-resource",
+            "allocation": {
+              "path": "tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java",
+              "start_line": 14,
+              "end_line": 14,
+              "source_sha256": "235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12",
+              "extractor_version": "manual-fixture-v1",
+              "source_kind": "manual_fixture"
+            },
+            "context": ["fixture.lifecycle.LifecycleFixture.syncClosed"],
+            "resource_type": "fixture.lifecycle.LifecycleFixture.TrackedResource",
+            "requires_close": true,
+            "item_size_upper": null
+          }
+        ],
+        "instances": [
+          {"instance_id": "instance:sync-resource", "family_id": "family:sync-resource", "abstraction": "recent", "identity_confidence": "exact"}
+        ],
+        "holders": [
+          {"holder_id": "holder:request", "kind": "request_stack", "scope": "request", "identity_precision": "exact"}
+        ],
+        "events": [
+          {"event_id": "event:entry", "kind": "request", "callable": "fixture.lifecycle.LifecycleFixture.syncClosed", "activation_condition": "true"},
+          {"event_id": "event:normal", "kind": "request_exit", "callable": "fixture.lifecycle.LifecycleFixture.syncClosed#normal", "activation_condition": "normal"},
+          {"event_id": "event:error", "kind": "request_exit", "callable": "fixture.lifecycle.LifecycleFixture.syncClosed#exceptional", "activation_condition": "exceptional"}
+        ],
+        "transitions": [
+          {
+            "transition_id": "transition:normal",
+            "source_event_id": "event:entry",
+            "target_event_id": "event:normal",
+            "guard": "normal completion",
+            "effects": [
+              {"effect_id":"effect:normal:create","kind":"create","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":null,"target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":14,"end_line":14,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-14"],"size_lower":null,"size_upper":null,"contract_id":null},
+              {"effect_id":"effect:normal:retain","kind":"retain","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":"holder:request","target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":14,"end_line":14,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-14"],"size_lower":null,"size_upper":null,"contract_id":null},
+              {"effect_id":"effect:normal:release","kind":"release","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":null,"target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":18,"end_line":18,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-18"],"size_lower":null,"size_upper":null,"contract_id":null},
+              {"effect_id":"effect:normal:drop","kind":"drop","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":"holder:request","target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":20,"end_line":20,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-20"],"size_lower":null,"size_upper":null,"contract_id":null}
+            ],
+            "exit_kind": "normal",
+            "assumptions": ["manual IR mirrors the finally close path"]
+          },
+          {
+            "transition_id": "transition:exceptional",
+            "source_event_id": "event:entry",
+            "target_event_id": "event:error",
+            "guard": "exceptional completion after allocation",
+            "effects": [
+              {"effect_id":"effect:error:create","kind":"create","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":null,"target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":14,"end_line":14,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-14"],"size_lower":null,"size_upper":null,"contract_id":null},
+              {"effect_id":"effect:error:retain","kind":"retain","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":"holder:request","target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":14,"end_line":14,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-14"],"size_lower":null,"size_upper":null,"contract_id":null},
+              {"effect_id":"effect:error:release","kind":"release","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":null,"target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":18,"end_line":18,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-18"],"size_lower":null,"size_upper":null,"contract_id":null},
+              {"effect_id":"effect:error:drop","kind":"drop","instance_id":"instance:sync-resource","family_id":"family:sync-resource","holder_id":"holder:request","target_event_id":null,"condition":"true","location":{"path":"tests/fixtures/resource_lifecycle/src/main/java/fixture/lifecycle/LifecycleFixture.java","start_line":20,"end_line":20,"source_sha256":"235a4b5244943a7b4099d7f5fe9bb975257921e39aae0b657062477edf2e5b12","extractor_version":"manual-fixture-v1","source_kind":"manual_fixture"},"evidence_ids":["manual:line-20"],"size_lower":null,"size_upper":null,"contract_id":null}
+            ],
+            "exit_kind": "exceptional",
+            "assumptions": ["manual IR mirrors the finally close path"]
+          }
+        ],
+        "entry_event_ids": ["event:entry"],
+        "exit_event_ids": ["event:normal", "event:error"],
+        "coverage_complete": true,
+        "contracts_version": "resource-lifecycle-contracts-v1"
+      },
+      "invariants": []
+    }
+  ],
+  "budget": {"max_steps": 128, "max_updates_per_event": 16, "timeout_ms": 1000}
+}

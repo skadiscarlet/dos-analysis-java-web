@@ -66,6 +66,12 @@ LIFECYCLE_SUMMARY_COLUMNS: Final = (
     "representation", "phase", "covers_materialization", "dominates_growth",
     "reject_path_reaches_growth", "evidence", "cfg_relation", "coverage_status", "coverage_note",
 )
+RESOURCE_LIFECYCLE_COLUMNS: Final = (
+    "unit_id", "site_file", "site_start_line", "site_start_column", "fact_kind", "instance_key",
+    "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
+    "capacity", "normal_path", "exceptional_path", "source_evidence",
+    "coverage_status", "coverage_note",
+)
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_ROWS: Final = 4096
@@ -89,6 +95,7 @@ class QuerySpec:
     enum_fields: Mapping[str, frozenset[str]]
     path_fields: frozenset[str]
     line_fields: frozenset[str]
+    column_fields: frozenset[str]
 
 
 def _types(columns: tuple[str, ...], *, integers: set[str] = set(), booleans: set[str] = set()) -> Mapping[str, str]:
@@ -108,6 +115,7 @@ def _spec(
     enums: Mapping[str, frozenset[str]] | None = None,
     paths: frozenset[str] = frozenset(),
     lines: frozenset[str] = frozenset(),
+    columns_positions: frozenset[str] = frozenset(),
 ) -> QuerySpec:
     return QuerySpec(
         name=name,
@@ -117,6 +125,7 @@ def _spec(
         enum_fields=MappingProxyType(dict(enums or {})),
         path_fields=paths,
         line_fields=lines,
+        column_fields=columns_positions,
     )
 
 
@@ -126,6 +135,20 @@ _SCOPES = frozenset({"request", "session", "connection", "instance", "global", "
 
 QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
     {
+        "resource_lifecycle": _spec(
+            "resource_lifecycle", RESOURCE_LIFECYCLE_COLUMNS,
+            integers={"site_start_line", "site_start_column"},
+            booleans={"requires_close", "normal_path", "exceptional_path"},
+            enums={
+                "fact_kind": frozenset({"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant"}),
+                "holder_kind": frozenset({"none", "local", "field", "queue", "task"}),
+                "holder_scope": frozenset({"none", "instance", "global", "task"}),
+                "coverage_status": _COVERAGE,
+            },
+            paths=frozenset({"site_file"}),
+            lines=frozenset({"site_start_line"}),
+            columns_positions=frozenset({"site_start_column"}),
+        ),
         "entries": _spec(
             "entries", ENTRY_COLUMNS,
             integers={"handler_start_line", "registration_start_line"},
@@ -322,6 +345,12 @@ def decode_rows(
                 and not 1 <= value <= _MAX_LINE_NUMBER
             ):
                 raise _invalid("LINE_INVALID", query_name, row=row_number, column=column)
+            if (
+                column in spec.column_fields
+                and isinstance(value, int)
+                and not 1 <= value <= _MAX_LINE_NUMBER
+            ):
+                raise _invalid("COLUMN_INVALID", query_name, row=row_number, column=column)
             allowed = spec.enum_fields.get(column)
             if allowed is not None and value not in allowed:
                 raise _invalid("ENUM_INVALID", query_name, row=row_number, column=column)
@@ -334,10 +363,14 @@ def decode_rows(
             prefix = column.removesuffix("_file")
             line_column = f"{prefix}_start_line"
             if line_column in fact:
-                fact[f"{prefix}_location"] = {
+                location = {
                     "file": fact[column],
                     "start_line": fact[line_column],
                 }
+                start_column = f"{prefix}_start_column"
+                if start_column in fact:
+                    location["start_column"] = fact[start_column]
+                fact[f"{prefix}_location"] = location
         decoded.append(fact)
     return decoded
 

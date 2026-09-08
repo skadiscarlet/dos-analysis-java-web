@@ -1,0 +1,152 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "resource-lifecycle-semantic-pairs-v1",
+  "source_kind": "manual_fixture",
+  "budget": {"max_steps": 128, "max_updates_per_event": 16, "timeout_ms": 1000},
+  "cases": [
+    {
+      "case_id": "g01-method-local-end", "group": 1, "pair": "method-local-end", "property": "方法内持有在返回前解除",
+      "resource": {"requires_close": true, "item_size_upper": 128}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}, {"kind": "drop", "holder": "request"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g01-extra-field-hold", "group": 1, "pair": "extra-field-hold", "property": "方法返回后字段仍持有资源",
+      "resource": {"requires_close": true, "item_size_upper": 128}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}, {"kind": "retain", "holder": "field"}, {"kind": "drop", "holder": "request"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "no_verified_count_invariant"}
+    },
+    {
+      "case_id": "g02-single-holder-drop", "group": 2, "pair": "single-holder", "property": "唯一持有边被精确删除",
+      "resource": {"requires_close": false, "item_size_upper": 64}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}, {"kind": "drop", "holder": "field"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g02-multiple-holder-drop", "group": 2, "pair": "multiple-holders", "property": "删除请求边不删除字段边",
+      "resource": {"requires_close": false, "item_size_upper": 64}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}, {"kind": "retain", "holder": "field"}, {"kind": "drop", "holder": "request"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "no_verified_count_invariant"}
+    },
+    {
+      "case_id": "g03-unique-instance", "group": 3, "pair": "unique-instance", "property": "recent exact 实例允许强更新",
+      "resource": {"requires_close": true, "item_size_upper": 256}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}, {"kind": "drop", "holder": "field"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "close_obligation", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g03-summary-instance", "group": 3, "pair": "summary-instance", "property": "summary 实例的一次释放只能弱更新",
+      "resource": {"requires_close": true, "item_size_upper": 256}, "instance": {"abstraction": "summary", "identity_confidence": "family"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}, {"kind": "drop", "holder": "field"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "close_obligation", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "weak_update:"}
+    },
+    {
+      "case_id": "g04-close-handle", "group": 4, "pair": "close-handle", "property": "close 满足显式关闭义务",
+      "resource": {"requires_close": true, "item_size_upper": 128}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "close_obligation", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g04-drop-reference", "group": 4, "pair": "drop-reference", "property": "解除堆引用不等于 close",
+      "resource": {"requires_close": true, "item_size_upper": 128}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}, {"kind": "drop", "holder": "field"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "close_obligation", "lifecycle_status": "obligation_gap", "upper_bound": null, "reason_contains": "open_obligation_at_exit"}
+    },
+    {
+      "case_id": "g05-normal-only-cleanup", "group": 5, "pair": "normal-only-cleanup", "property": "只在正常出口清理会留下异常义务",
+      "resource": {"requires_close": true, "item_size_upper": 512}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "release"}]}, {"id": "exceptional", "source": "entry", "target": "error", "exit_kind": "exceptional", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}]}],
+      "exit_events": ["normal", "error"], "invariants": [], "expected": {"dimension": "close_obligation", "lifecycle_status": "obligation_gap", "upper_bound": null, "reason_contains": "open_obligation_at_exit"}
+    },
+    {
+      "case_id": "g05-all-exit-cleanup", "group": 5, "pair": "all-exit-cleanup", "property": "正常和异常出口均满足关闭义务",
+      "resource": {"requires_close": true, "item_size_upper": 512}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "release"}]}, {"id": "exceptional", "source": "entry", "target": "error", "exit_kind": "exceptional", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "release"}]}],
+      "exit_events": ["normal", "error"], "invariants": [], "expected": {"dimension": "close_obligation", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g06-request-inline", "group": 6, "pair": "request-inline", "property": "请求内执行在请求出口解除持有",
+      "resource": {"requires_close": true, "item_size_upper": 256}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}, {"kind": "drop", "holder": "request"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g06-task-transfer", "group": 6, "pair": "task-transfer", "property": "明确任务移交后由完成事件解除捕获",
+      "resource": {"requires_close": true, "item_size_upper": 256}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "submit", "source": "entry", "target": "task_queue", "exit_kind": "internal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}, {"kind": "retain", "holder": "task"}, {"kind": "drop", "holder": "request"}]}, {"id": "complete", "source": "task_queue", "target": "normal", "exit_kind": "normal", "cross_event": true, "effects": [{"kind": "drop", "holder": "task"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g07-task-dequeue", "group": 7, "pair": "task-dequeue", "property": "任务出队只是阶段变化，任务仍持有捕获",
+      "resource": {"requires_close": false, "item_size_upper": 128}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "submit", "source": "entry", "target": "task_queue", "exit_kind": "internal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "task"}]}, {"id": "start", "source": "task_queue", "target": "task_run", "exit_kind": "normal", "cross_event": true, "effects": []}],
+      "exit_events": ["task_run"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "no_verified_count_invariant"}
+    },
+    {
+      "case_id": "g07-task-complete", "group": 7, "pair": "task-complete", "property": "任务完成按可信契约解除捕获",
+      "resource": {"requires_close": false, "item_size_upper": 128}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "submit", "source": "entry", "target": "task_queue", "exit_kind": "internal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "task"}]}, {"id": "start", "source": "task_queue", "target": "task_run", "exit_kind": "internal", "cross_event": true, "effects": []}, {"id": "complete", "source": "task_run", "target": "normal", "exit_kind": "normal", "cross_event": true, "effects": [{"kind": "drop", "holder": "task"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g08-submit-success", "group": 8, "pair": "submit-success", "property": "提交成功建立任务捕获",
+      "resource": {"requires_close": false, "item_size_upper": 96}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "accepted", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": true, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "task"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "no_verified_count_invariant"}
+    },
+    {
+      "case_id": "g08-submit-rejected", "group": 8, "pair": "submit-rejected", "property": "拒绝提交分支不建立任务捕获",
+      "resource": {"requires_close": false, "item_size_upper": 96}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "rejected", "source": "entry", "target": "rejected", "exit_kind": "rejected", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "request"}, {"kind": "drop", "holder": "request"}]}],
+      "exit_events": ["rejected"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g09-fixed-replacement", "group": 9, "pair": "fixed-replacement", "property": "固定槽位替换由容量一契约限制",
+      "resource": {"requires_close": false, "item_size_upper": 80}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}]}],
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "field", "upper_bound": 1, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": null, "writer_holder_id": null, "writer_target_event_id": null}], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 1, "reason_contains": null}
+    },
+    {
+      "case_id": "g09-retain-new-item", "group": 9, "pair": "retain-new-item", "property": "保留新项且无容量契约不能证明上界",
+      "resource": {"requires_close": false, "item_size_upper": 80}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "container"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "no_verified_count_invariant"}
+    },
+    {
+      "case_id": "g10-atomic-capacity", "group": 10, "pair": "atomic-capacity", "property": "已验证原子容量支持局部上界",
+      "resource": {"requires_close": false, "item_size_upper": 72}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "dispatch", "holder": "task", "target_event": "task_queue", "contract_id": "bounded-queue-capacity:4"}]}],
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "task_queue", "upper_bound": 4, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": "bounded-queue-capacity:4", "writer_holder_id": "holder:task", "writer_target_event_id": "event:task_queue"}], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 4, "reason_contains": null}
+    },
+    {
+      "case_id": "g10-non-atomic-check", "group": 10, "pair": "non-atomic-check", "property": "普通 check-then-add 不证明并发容量",
+      "resource": {"requires_close": false, "item_size_upper": 72}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "container"}]}],
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "task_queue", "upper_bound": 4, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": false, "source_kind": "static_verified", "executor_contract_id": "bounded-queue-capacity:4", "writer_holder_id": "holder:task", "writer_target_event_id": "event:task_queue"}], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "capacity_not_atomic"}
+    },
+    {
+      "case_id": "g11-known-item-size", "group": 11, "pair": "known-item-size", "property": "个数和单项大小分别具有上界",
+      "resource": {"requires_close": false, "item_size_upper": 1024}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "dispatch", "holder": "task", "target_event": "task_queue", "contract_id": "bounded-queue-capacity:4"}]}],
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "task_queue", "upper_bound": 4, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": "bounded-queue-capacity:4", "writer_holder_id": "holder:task", "writer_target_event_id": "event:task_queue"}], "expected": {"dimension": "item_size_bytes", "lifecycle_status": "bounded", "upper_bound": 1024, "reason_contains": null}
+    },
+    {
+      "case_id": "g11-unknown-item-size", "group": 11, "pair": "unknown-item-size", "property": "个数有界不能掩盖单项大小未知",
+      "resource": {"requires_close": false, "item_size_upper": null}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "dispatch", "holder": "task", "target_event": "task_queue", "contract_id": "bounded-queue-capacity:4"}]}],
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "task_queue", "upper_bound": 4, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": "bounded-queue-capacity:4", "writer_holder_id": "holder:task", "writer_target_event_id": "event:task_queue"}], "expected": {"dimension": "item_size_bytes", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "item_size_unknown"}
+    },
+    {
+      "case_id": "g12-known-contract", "group": 12, "pair": "known-contract", "property": "完整可信契约支持任务完成后解除",
+      "resource": {"requires_close": true, "item_size_upper": 160}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "submit", "source": "entry", "target": "task_queue", "exit_kind": "internal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "task"}]}, {"id": "complete", "source": "task_queue", "target": "normal", "exit_kind": "normal", "cross_event": true, "effects": [{"kind": "drop", "holder": "task"}, {"kind": "release"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+    },
+    {
+      "case_id": "g12-unknown-call", "group": 12, "pair": "unknown-call", "property": "未知调用或取消保持相关状态并降级 unknown",
+      "resource": {"requires_close": true, "item_size_upper": 160}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
+      "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "cancelled", "cross_event": true, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "task"}, {"kind": "unknown_call"}]}],
+      "exit_events": ["normal"], "invariants": [], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "unknown_call:"}
+    }
+  ]
+}

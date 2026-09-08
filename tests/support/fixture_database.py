@@ -34,7 +34,12 @@ def fixture_database(source_root_text: str) -> DatabaseInfo:
     if not java_files:
         raise AssertionError(f"fixture has no Java sources: {source_root}")
     _CACHE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
-    slug = hashlib.sha256(str(source_root).encode("utf-8")).hexdigest()[:16]
+    source_identity = hashlib.sha256()
+    source_identity.update(str(source_root).encode("utf-8"))
+    for relative in java_files:
+        source_identity.update(relative.as_posix().encode("utf-8"))
+        source_identity.update(hashlib.sha256((source_root / relative).read_bytes()).digest())
+    slug = source_identity.hexdigest()[:16]
     database = _CACHE_ROOT / f"{slug}.db"
     classes = _CACHE_ROOT / f"{slug}.classes"
     if database.exists():
