@@ -29,7 +29,8 @@
 - lifecycle Program/facts 及全部 `resource-*` JSON 输出统一为 schema `1.1`，tool identity 为 `resource-lifecycle-v1.1`；旧 `1.0` Program/facts 只在无 v1.1 relation/population/executor 字段时兼容读取，legacy raw facts 会在旧 ID/snapshot/derived-unit 校验后归一化为当前模型；旧 named-v1 recording 只由 exact-field/typed loader 受限读取，新 private recording 与 validation 输出均为 `1.1`。P0 schema/tool `2.5/0.4.0` 未改。
 - 关系/群体 IR 定向：`8 passed, 44 deselected, 2 subtests passed`；solver/CLI/CodeQL 非 Fixture：`77 passed, 4 deselected, 13 subtests passed`。
 - Task 2 reviewer 四项定向：`5 passed, 6 subtests passed`；CodeQL + recorded LLM：`62 passed, 4 skipped, 23 subtests passed`；lifecycle 全量：`209 passed, 4 skipped, 48 subtests passed`。
-- 真实 CodeQL：query compile `Done [1/1]`，四个 source fixture 为 `31 passed, 12 subtests passed`；direct/embedded QL 字节一致。
+- Task 2 第二次 spec 复审补齐版本绑定：真实旧 `1.0` executor contract identity 先按不含 `max_workers/rejection_policy` 的旧字段集合核对 derived units，再归一化为 `1.1` identity；schema `1.1` Program 必须显式携带四组 relation collection 和每条 transition 的 `population_effects`，外层 facts 与 nested Program schema 必须精确一致，缺省兼容只保留给 `1.0`。legacy migration RED 为 `1 failed`，严格 parser RED 为 `6 failed, 1 passed`；定向 GREEN 为 `3 passed, 5 subtests passed`，lifecycle 全量为 `214 passed, 4 skipped, 58 subtests passed`。
+- 真实 CodeQL：query compile `Done [1/1]`，四个 source fixture 为 `32 passed, 12 subtests passed`；direct/embedded QL 字节一致。
 
 ## G1–G8 当前状态
 

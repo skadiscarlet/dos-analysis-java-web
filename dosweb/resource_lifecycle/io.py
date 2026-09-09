@@ -81,10 +81,19 @@ def effect_from_dict(value: object) -> Effect:
     return _exact(Effect, record, "effect")
 
 
-def transition_from_dict(value: object) -> Transition:
+def transition_from_dict(
+    value: object, *, schema_version: str = SCHEMA_VERSION
+) -> Transition:
     record = dict(_mapping(value, "transition"))
-    if "population_effects" not in record:
+    if schema_version == "1.0":
+        if record.get("population_effects") not in (None, []):
+            raise ValueError("legacy schema cannot contain v1.1 population effects")
         record["population_effects"] = []
+    elif schema_version == SCHEMA_VERSION:
+        if "population_effects" not in record:
+            raise ValueError("schema 1.1 transition requires population_effects")
+    else:
+        raise ValueError("transition schema is unsupported")
     effects_value = _sequence(record.get("effects"), "transition effects")
     population_effects_value = _sequence(
         record.get("population_effects"), "transition population effects"
@@ -114,23 +123,26 @@ def program_to_dict(program: Program) -> dict[str, object]:
 
 def program_from_dict(value: object) -> Program:
     record = dict(_mapping(value, "program"))
+    input_schema = record.get("schema_version")
     expected = {item.name for item in fields(Program)}
-    optional = {
-        "coverage_gaps",
+    relation_fields = {
         "program_points",
         "call_bindings",
         "task_bindings",
         "task_exits",
     }
+    if input_schema == SCHEMA_VERSION:
+        missing_relations = relation_fields - set(record)
+        if missing_relations:
+            raise ValueError("schema 1.1 program requires all relation fields")
+        optional = {"coverage_gaps"}
+    elif input_schema == "1.0":
+        optional = {"coverage_gaps"} | relation_fields
+    else:
+        raise ValueError("program schema is unsupported")
     if not set(record) <= expected or not expected - optional <= set(record):
         raise ValueError("program fields are invalid")
-    if record.get("schema_version") == "1.0":
-        relation_fields = {
-            "program_points",
-            "call_bindings",
-            "task_bindings",
-            "task_exits",
-        }
+    if input_schema == "1.0":
         has_relation = any(record.get(name) not in (None, []) for name in relation_fields)
         transitions = record.get("transitions")
         has_population = isinstance(transitions, list) and any(
@@ -140,8 +152,9 @@ def program_from_dict(value: object) -> Program:
         if has_relation or has_population:
             raise ValueError("legacy schema cannot contain v1.1 relations")
         record["schema_version"] = SCHEMA_VERSION
-    for name in optional:
-        record.setdefault(name, [])
+        for name in relation_fields:
+            record.setdefault(name, [])
+    record.setdefault("coverage_gaps", [])
     record["families"] = tuple(
         ResourceFamily(
             family_id=str(item_record.get("family_id")),
@@ -205,7 +218,10 @@ def program_from_dict(value: object) -> Program:
         )
         for item in _sequence(record["task_exits"], "task exits")
     )
-    record["transitions"] = tuple(transition_from_dict(item) for item in _sequence(record["transitions"], "program transitions"))
+    record["transitions"] = tuple(
+        transition_from_dict(item, schema_version=input_schema)
+        for item in _sequence(record["transitions"], "program transitions")
+    )
     record["entry_event_ids"] = tuple(str(item) for item in _sequence(record["entry_event_ids"], "entry_event_ids"))
     record["exit_event_ids"] = tuple(str(item) for item in _sequence(record["exit_event_ids"], "exit_event_ids"))
     coverage_gaps = _sequence(record["coverage_gaps"], "coverage_gaps")

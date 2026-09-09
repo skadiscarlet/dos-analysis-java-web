@@ -86,6 +86,220 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
     return row
 
 
+_V1_1_FACT_FIELDS = {
+    "site_callable",
+    "program_point",
+    "related_point",
+    "relation_depth",
+    "binding_index",
+    "max_workers",
+    "rejection_policy",
+}
+
+
+def _legacy_fact(current_fact):
+    semantic = {
+        "unit_id": current_fact.unit_id,
+        "site_file": current_fact.location.path,
+        "site_start_line": current_fact.location.start_line,
+        "site_start_column": current_fact.site_start_column,
+        "fact_kind": current_fact.fact_kind,
+        "instance_key": current_fact.instance_key,
+        "resource_type": current_fact.resource_type,
+        "requires_close": current_fact.requires_close,
+        "holder_kind": current_fact.holder_kind,
+        "holder_scope": current_fact.holder_scope,
+        "holder_key": current_fact.holder_key,
+        "target_event": current_fact.target_event,
+        "capacity": current_fact.capacity,
+        "normal_path": current_fact.normal_path,
+        "exceptional_path": current_fact.exceptional_path,
+        "source_evidence": current_fact.source_evidence,
+        "coverage_status": current_fact.coverage_status,
+        "coverage_note": current_fact.coverage_note,
+    }
+    return replace(
+        current_fact,
+        fact_id=stable_identifier(
+            "lifecycle-fact",
+            {
+                **semantic,
+                "source_sha256": current_fact.location.source_sha256,
+                "query_sha256": "a" * 64,
+            },
+        ),
+    )
+
+
+def _legacy_facts_payload(current, *, legacy_executor_identity: bool = False):
+    facts = tuple(_legacy_fact(fact) for fact in current.facts)
+    grouped = {
+        unit_id: tuple(fact for fact in facts if fact.unit_id == unit_id)
+        for unit_id in sorted({fact.unit_id for fact in facts})
+    }
+    selected = set(current.coverage["requested_entry_methods"])
+    units = [
+        _unit_from_rows(
+            unit_id,
+            grouped[unit_id],
+            external_entry=unit_id in selected,
+        )
+        for unit_id in grouped
+    ]
+    if legacy_executor_identity:
+        migrated_units = []
+        for unit in units:
+            contract_ids: dict[str, str] = {}
+            for fact in grouped[unit.unit_id]:
+                if fact.fact_kind != "dispatch":
+                    continue
+                holder_id = stable_identifier(
+                    "holder",
+                    {
+                        "unit_id": unit.unit_id,
+                        "holder_key": fact.holder_key,
+                        "kind": "task",
+                        "scope": fact.holder_scope,
+                    },
+                )
+                target_event_id = stable_identifier(
+                    "event",
+                    {
+                        "unit_id": unit.unit_id,
+                        "phase": "task_queue",
+                        "target_event": fact.target_event,
+                    },
+                )
+                current_id = stable_identifier(
+                    "executor-contract",
+                    {
+                        "unit_id": unit.unit_id,
+                        "holder_id": holder_id,
+                        "holder_key": fact.holder_key,
+                        "target_event": fact.target_event,
+                        "target_event_id": target_event_id,
+                        "capacity": fact.capacity,
+                        "max_workers": fact.max_workers,
+                        "rejection_policy": fact.rejection_policy,
+                    },
+                )
+                contract_ids[current_id] = stable_identifier(
+                    "executor-contract",
+                    {
+                        "unit_id": unit.unit_id,
+                        "holder_id": holder_id,
+                        "holder_key": fact.holder_key,
+                        "target_event": fact.target_event,
+                        "target_event_id": target_event_id,
+                        "capacity": fact.capacity,
+                    },
+                )
+            transitions = tuple(
+                replace(
+                    transition,
+                    effects=tuple(
+                        replace(
+                            effect,
+                            contract_id=contract_ids.get(
+                                effect.contract_id, effect.contract_id
+                            ),
+                        )
+                        for effect in transition.effects
+                    ),
+                )
+                for transition in unit.program.transitions
+            )
+            coverage_gaps = tuple(
+                (
+                    dimension,
+                    family_id,
+                    next(
+                        (
+                            scope.replace(current_id, legacy_id)
+                            for current_id, legacy_id in contract_ids.items()
+                            if current_id in scope
+                        ),
+                        scope,
+                    ),
+                    reason,
+                    evidence_id,
+                )
+                for dimension, family_id, scope, reason, evidence_id in unit.program.coverage_gaps
+            )
+            migrated_units.append(
+                replace(
+                    unit,
+                    program=replace(
+                        unit.program,
+                        transitions=transitions,
+                        coverage_gaps=coverage_gaps,
+                    ),
+                    invariants=tuple(
+                        replace(
+                            invariant,
+                            executor_contract_id=contract_ids.get(
+                                invariant.executor_contract_id,
+                                invariant.executor_contract_id,
+                            ),
+                        )
+                        for invariant in unit.invariants
+                    ),
+                    executor_contracts=tuple(
+                        replace(
+                            contract,
+                            contract_id=contract_ids.get(
+                                contract.contract_id, contract.contract_id
+                            ),
+                        )
+                        for contract in unit.executor_contracts
+                    ),
+                )
+            )
+        units = migrated_units
+    legacy_fact_payloads = [
+        {
+            key: value
+            for key, value in asdict(fact).items()
+            if key not in _V1_1_FACT_FIELDS
+        }
+        for fact in facts
+    ]
+    legacy = ExtractedFacts(
+        current.source_kind,
+        hashlib.sha256(canonical_json(legacy_fact_payloads)).hexdigest(),
+        current.extractor_version,
+        current.budget,
+        tuple(units),
+        facts,
+        {
+            **current.coverage,
+            "end_to_end_mode": "imported_static_facts",
+            "source_snapshot_sha256": "b" * 64,
+        },
+    )
+    payload = json.loads(json.dumps(extracted_to_dict(legacy)))
+    payload["schema_version"] = "1.0"
+    for unit in payload["units"]:
+        unit["program"]["schema_version"] = "1.0"
+        for field in (
+            "program_points",
+            "call_bindings",
+            "task_bindings",
+            "task_exits",
+        ):
+            unit["program"].pop(field)
+        for transition in unit["program"]["transitions"]:
+            transition.pop("population_effects")
+        for contract in unit["executor_contracts"]:
+            contract.pop("max_workers")
+            contract.pop("rejection_policy")
+            contract.pop("termination")
+    for fact in payload["facts"]:
+        for field in _V1_1_FACT_FIELDS:
+            fact.pop(field)
+    return payload
+
+
 class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
     def test_schema_1_0_facts_loader_defaults_missing_relation_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,93 +312,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                 source_root=source_root,
                 query_sha256="a" * 64,
             )
-        current_fact = current.facts[0]
-        legacy_semantic = {
-            "unit_id": current_fact.unit_id,
-            "site_file": current_fact.location.path,
-            "site_start_line": current_fact.location.start_line,
-            "site_start_column": current_fact.site_start_column,
-            "fact_kind": current_fact.fact_kind,
-            "instance_key": current_fact.instance_key,
-            "resource_type": current_fact.resource_type,
-            "requires_close": current_fact.requires_close,
-            "holder_kind": current_fact.holder_kind,
-            "holder_scope": current_fact.holder_scope,
-            "holder_key": current_fact.holder_key,
-            "target_event": current_fact.target_event,
-            "capacity": current_fact.capacity,
-            "normal_path": current_fact.normal_path,
-            "exceptional_path": current_fact.exceptional_path,
-            "source_evidence": current_fact.source_evidence,
-            "coverage_status": current_fact.coverage_status,
-            "coverage_note": current_fact.coverage_note,
-        }
-        legacy_fact = replace(
-            current_fact,
-            fact_id=stable_identifier(
-                "lifecycle-fact",
-                {
-                    **legacy_semantic,
-                    "source_sha256": current_fact.location.source_sha256,
-                    "query_sha256": "a" * 64,
-                },
-            ),
-        )
-        relation_fields = {
-            "site_callable",
-            "program_point",
-            "related_point",
-            "relation_depth",
-            "binding_index",
-            "max_workers",
-            "rejection_policy",
-        }
-        legacy_fact_payload = {
-            key: value
-            for key, value in asdict(legacy_fact).items()
-            if key not in relation_fields
-        }
-        legacy = ExtractedFacts(
-            current.source_kind,
-            hashlib.sha256(canonical_json([legacy_fact_payload])).hexdigest(),
-            current.extractor_version,
-            current.budget,
-            (_unit_from_rows(current_fact.unit_id, (legacy_fact,)),),
-            (legacy_fact,),
-            {
-                **current.coverage,
-                "end_to_end_mode": "imported_static_facts",
-                "source_snapshot_sha256": "b" * 64,
-            },
-        )
-        payload = json.loads(json.dumps(extracted_to_dict(legacy)))
-        payload["schema_version"] = "1.0"
-        for unit in payload["units"]:
-            unit["program"]["schema_version"] = "1.0"
-            for field in (
-                "program_points",
-                "call_bindings",
-                "task_bindings",
-                "task_exits",
-            ):
-                unit["program"].pop(field)
-            for transition in unit["program"]["transitions"]:
-                transition.pop("population_effects")
-            for contract in unit["executor_contracts"]:
-                contract.pop("max_workers")
-                contract.pop("rejection_policy")
-                contract.pop("termination")
-        for fact in payload["facts"]:
-            for field in (
-                "site_callable",
-                "program_point",
-                "related_point",
-                "relation_depth",
-                "binding_index",
-                "max_workers",
-                "rejection_policy",
-            ):
-                fact.pop(field)
+        payload = _legacy_facts_payload(current)
 
         rebuilt = validate_extracted(extracted_from_dict(payload))
 
@@ -194,6 +322,43 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertEqual(-1, rebuilt.facts[0].binding_index)
         self.assertEqual("unknown", rebuilt.facts[0].max_workers)
         self.assertEqual("unknown", rebuilt.facts[0].rejection_policy)
+
+    def test_schema_1_0_facts_migrates_legacy_executor_contract_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "final class Fixture {}\n", encoding="utf-8"
+            )
+            current = adapt_codeql_rows(
+                (
+                    lifecycle_row(),
+                    lifecycle_row(
+                        fact_kind="dispatch",
+                        site_start_column=2,
+                        program_point="point:Fixture.java:1:2:dispatch",
+                        holder_kind="queue",
+                        holder_scope="task",
+                        holder_key="queue:jobs",
+                        target_event="Fixture.task",
+                        capacity="2",
+                        source_evidence="dispatch",
+                    ),
+                ),
+                source_root=source_root,
+                query_sha256="a" * 64,
+            )
+        payload = _legacy_facts_payload(current, legacy_executor_identity=True)
+        legacy_contract_id = payload["units"][0]["executor_contracts"][0][
+            "contract_id"
+        ]
+
+        rebuilt = validate_extracted(extracted_from_dict(payload))
+
+        self.assertEqual(1, len(rebuilt.units[0].executor_contracts))
+        self.assertNotEqual(
+            legacy_contract_id,
+            rebuilt.units[0].executor_contracts[0].contract_id,
+        )
 
     def test_schema_1_1_is_used_for_lifecycle_facts_and_program_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

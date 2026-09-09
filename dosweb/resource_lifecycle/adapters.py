@@ -374,6 +374,7 @@ def _unit_from_rows(
     rows: Sequence[RawLifecycleFact],
     *,
     external_entry: bool = False,
+    legacy_executor_identity: bool = False,
 ) -> AnalysisUnit:
     creates_by_instance_key: dict[str, list[RawLifecycleFact]] = defaultdict(list)
     for fact in rows:
@@ -460,18 +461,24 @@ def _unit_from_rows(
         )
 
     def queue_contract_id(fact: RawLifecycleFact, holder_id: str) -> str:
+        identity = {
+            "unit_id": unit_id,
+            "holder_id": holder_id,
+            "holder_key": fact.holder_key,
+            "target_event": fact.target_event,
+            "target_event_id": queue_event_id(fact),
+            "capacity": fact.capacity,
+        }
+        if not legacy_executor_identity:
+            identity.update(
+                {
+                    "max_workers": fact.max_workers,
+                    "rejection_policy": fact.rejection_policy,
+                }
+            )
         return stable_identifier(
             "executor-contract",
-            {
-                "unit_id": unit_id,
-                "holder_id": holder_id,
-                "holder_key": fact.holder_key,
-                "target_event": fact.target_event,
-                "target_event_id": queue_event_id(fact),
-                "capacity": fact.capacity,
-                "max_workers": fact.max_workers,
-                "rejection_policy": fact.rejection_policy,
-            },
+            identity,
         )
 
     for fact in sorted(
@@ -982,10 +989,16 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
             or not isinstance(item["executor_contracts"], list)
         ):
             raise ValueError("analysis unit is invalid")
+        program_value = item["program"]
+        if (
+            not isinstance(program_value, Mapping)
+            or program_value.get("schema_version") != value.get("schema_version")
+        ):
+            raise ValueError("facts nested schema must match the outer schema")
         units.append(
             AnalysisUnit(
                 str(item["unit_id"]),
-                program_from_dict(item["program"]),
+                program_from_dict(program_value),
                 tuple(_invariant_from_dict(row) for row in item["invariants"]),
                 tuple(_executor_contract_from_dict(row) for row in item["executor_contracts"]),
             )
@@ -1061,6 +1074,7 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
                 unit_id,
                 grouped_legacy[unit_id],
                 external_entry=unit_id in set(requested_entries),
+                legacy_executor_identity=True,
             )
             for unit_id in sorted(grouped_legacy)
         )

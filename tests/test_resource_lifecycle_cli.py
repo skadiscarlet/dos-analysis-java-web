@@ -324,6 +324,70 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "legacy schema"):
             program_from_dict(payload)
 
+    def test_schema_1_1_program_requires_every_relation_and_population_field(self) -> None:
+        program = replace(
+            program_for(()),
+            transitions=(
+                Transition(
+                    "transition:empty-population",
+                    "event:entry",
+                    "event:normal",
+                    "true",
+                    (),
+                    "normal",
+                    (),
+                ),
+            ),
+        )
+        payload = json.loads(json.dumps(program_to_dict(program)))
+        cases = (
+            ("program_points", lambda value: value.pop("program_points")),
+            ("call_bindings", lambda value: value.pop("call_bindings")),
+            ("task_bindings", lambda value: value.pop("task_bindings")),
+            ("task_exits", lambda value: value.pop("task_exits")),
+            (
+                "population_effects",
+                lambda value: value["transitions"][0].pop("population_effects"),
+            ),
+        )
+
+        for field, remove in cases:
+            invalid = json.loads(json.dumps(payload))
+            remove(invalid)
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, "schema 1.1"
+            ):
+                program_from_dict(invalid)
+
+    def test_schema_1_1_facts_rejects_nested_schema_1_0_program(self) -> None:
+        extracted = ExtractedFacts(
+            "manual_fixture",
+            "a" * 64,
+            "manual-fixture-import-v1",
+            AnalysisBudget(),
+            (AnalysisUnit("manual:legacy-nested", program_for(()), ()),),
+            (),
+            {
+                "units": 1,
+                "facts": 0,
+                "partial_or_unsupported": 0,
+                "end_to_end_mode": "manual_ir",
+            },
+        )
+        payload = json.loads(json.dumps(extracted_to_dict(extracted)))
+        nested = payload["units"][0]["program"]
+        nested["schema_version"] = "1.0"
+        for field in (
+            "program_points",
+            "call_bindings",
+            "task_bindings",
+            "task_exits",
+        ):
+            nested.pop(field)
+
+        with self.assertRaisesRegex(ValueError, "nested schema"):
+            extracted_from_dict(payload)
+
     def test_schema_1_0_facts_rejects_nested_v1_1_relations(self) -> None:
         program = self._schema_1_1_relation_program()
         contract = ExecutorContract(
