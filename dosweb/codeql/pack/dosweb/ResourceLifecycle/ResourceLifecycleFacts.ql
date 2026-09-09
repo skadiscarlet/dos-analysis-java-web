@@ -24,14 +24,35 @@ predicate allocationRequiresClose(Expr allocation) {
   )
 }
 
-string canonicalCallableIdentity(Callable callable) {
+string declaredCallableIdentity(Callable callable) {
   result = "java-callable-v1:" + callable.getQualifiedName() + callable.getMethodDescriptor()
 }
 
+string canonicalCallableIdentity(Callable callable) {
+  exists(LambdaExpr lambda |
+    lambda.asMethod() = callable and
+    result = declaredCallableIdentity(lambda.getEnclosingCallable()) + "#lambda:" +
+      lambda.getLocation().getFile().getRelativePath() + ":" +
+      lambda.getLocation().getStartLine().toString() + ":" +
+      lambda.getLocation().getStartColumn().toString() + ":" +
+      lambda.getLocation().getEndLine().toString() + ":" +
+      lambda.getLocation().getEndColumn().toString() + callable.getMethodDescriptor()
+  )
+  or
+  not exists(LambdaExpr lambda | lambda.asMethod() = callable) and
+  result = declaredCallableIdentity(callable)
+}
+
+Callable enclosingCallable(ExprParent site) {
+  site instanceof Expr and result = site.(Expr).getEnclosingCallable()
+  or
+  site instanceof Stmt and result = site.(Stmt).getEnclosingCallable()
+}
+
 bindingset[site]
-string programPointIdentity(Expr site) {
+string programPointIdentity(ExprParent site) {
   exists(Callable callable |
-    callable = site.getEnclosingCallable() and
+    callable = enclosingCallable(site) and
     result = canonicalCallableIdentity(callable) + "#site:" +
       site.getLocation().getFile().getRelativePath() + ":" +
       site.getLocation().getStartLine().toString() + ":" +
@@ -41,11 +62,71 @@ string programPointIdentity(Expr site) {
   )
 }
 
+bindingset[parameter]
+string parameterPointIdentity(Parameter parameter) {
+  result = canonicalCallableIdentity(parameter.getCallable()) + "#site:" +
+    parameter.getLocation().getFile().getRelativePath() + ":" +
+    parameter.getLocation().getStartLine().toString() + ":" +
+    parameter.getLocation().getStartColumn().toString() + ":" +
+    parameter.getLocation().getEndLine().toString() + ":" +
+    parameter.getLocation().getEndColumn().toString()
+}
+
+string allocationInstanceKey(Expr allocation) {
+  result = allocation.getLocation().getFile().getRelativePath() + ":" +
+    allocation.getLocation().getStartLine().toString() + ":" +
+    allocation.getLocation().getStartColumn().toString()
+}
+
 predicate exactSourceCallee(Method method) {
-  method.fromSource() and
+  method.fromSource() and not method.isNative() and
   (
     method.isStatic() or method.isPrivate() or method.isFinal() or
     method.getDeclaringType().(Class).isFinal()
+  )
+}
+
+predicate exactArgumentBinding(Expr value, MethodCall call, Parameter parameter) {
+  exists(int position |
+    position = parameter.getPosition() and position >= 0 and
+    parameter = call.getMethod().getParameter(position) and
+    exactSourceCallee(call.getMethod()) and
+    allocationFlowsTo(value, call.getArgument(position))
+  )
+}
+
+predicate rootCallBinding(
+  Expr allocation, MethodCall call, Parameter parameter, int depth
+) {
+  (
+    depth = 1 and exactArgumentBinding(allocation, call, parameter) and
+    call.getEnclosingCallable() = allocation.getEnclosingCallable() and
+    call.getMethod() != call.getEnclosingCallable()
+  )
+  or
+  exists(MethodCall firstCall, Parameter firstParameter, VarAccess parameterAccess |
+    depth = 2 and exactArgumentBinding(allocation, firstCall, firstParameter) and
+    firstCall.getEnclosingCallable() = allocation.getEnclosingCallable() and
+    firstCall.getMethod() != firstCall.getEnclosingCallable() and
+    parameterAccess.getVariable() = firstParameter and
+    parameterAccess.getEnclosingCallable() = firstParameter.getCallable() and
+    exactArgumentBinding(parameterAccess, call, parameter) and
+    call.getEnclosingCallable() = firstParameter.getCallable() and
+    call.getMethod() != call.getEnclosingCallable() and
+    call.getMethod() != firstCall.getEnclosingCallable()
+  )
+}
+
+predicate rootDepthLimitExceeded(Expr allocation, MethodCall thirdCall) {
+  exists(
+    MethodCall secondCall, Parameter secondParameter, VarAccess parameterAccess,
+    int depth, Parameter thirdParameter
+  |
+    depth = 2 and rootCallBinding(allocation, secondCall, secondParameter, depth) and
+    parameterAccess.getVariable() = secondParameter and
+    parameterAccess.getEnclosingCallable() = secondParameter.getCallable() and
+    exactArgumentBinding(parameterAccess, thirdCall, thirdParameter) and
+    thirdCall.getEnclosingCallable() = secondParameter.getCallable()
   )
 }
 
@@ -311,13 +392,27 @@ predicate lifecycleFact(
         not autoCloseableReleaseMethod(unknown.getMethod())
       ) and
       not exists(Field queue | queueSubmission(unknown, queue)) and
+      not exists(Parameter parameter, int depth |
+        rootCallBinding(allocation, unknown, parameter, depth)
+      ) and
       site = unknown and factKind = "unknown_call" and holderKind = "none" and
       holderScope = "none" and holderKey = "none" and
       targetEvent = canonicalCallableIdentity(unknown.getMethod()) and capacityValue = "unknown" and
       normalPath = true and exceptionalPath = true and evidence = "codeql_unmodeled_argument_escape" and
       coverageStatus = "partial" and
       (
-        exactSourceCallee(unknown.getMethod()) and
+        unknown.getMethod() = owner and
+        coverageNote = "recursive_call_target_unresolved"
+        or
+        unknown.getMethod().isNative() and
+        coverageNote = "native_callee_resource_effects_unmodeled"
+        or
+        unknown.getMethod().getDeclaringType().hasQualifiedName(
+          "java.lang.reflect", ["Method", "Constructor"]
+        ) and
+        coverageNote = "reflection_dispatch_target_unresolved"
+        or
+        exactSourceCallee(unknown.getMethod()) and unknown.getMethod() != owner and
         coverageNote = "callee_resource_effects_unmodeled"
         or
         unknown.getMethod().fromSource() and not exactSourceCallee(unknown.getMethod()) and
@@ -349,28 +444,105 @@ predicate lifecycleFact(
   )
 }
 
-from Expr allocation, Expr site, Callable owner, string factKind, boolean requiresClose,
-  string holderKind, string holderScope, string holderKey, string targetEvent, string capacityValue,
+predicate allocationCloseFlag(Expr allocation, boolean requiresClose) {
+  allocationRequiresClose(allocation) and requiresClose = true
+  or
+  not allocationRequiresClose(allocation) and requiresClose = false
+}
+
+predicate lifecycleRelationFact(
+  Expr allocation, ExprParent site, Callable owner, string factKind,
+  boolean requiresClose, string holderKind, string holderScope, string holderKey,
+  string targetEvent, string capacityValue, string maxWorkersValue,
+  string rejectionPolicyValue, boolean normalPath, boolean exceptionalPath,
+  string evidence, string coverageStatus, string coverageNote,
+  string programPoint, string relatedPoint, int relationDepth, int bindingIndex
+) {
+  trackedAllocation(allocation) and owner = allocation.getEnclosingCallable() and
+  owner.fromSource() and allocationCloseFlag(allocation, requiresClose) and
+  (
+    exists(MethodCall call, Parameter parameter, int depth |
+      rootCallBinding(allocation, call, parameter, depth) and site = call and
+      factKind = "call_binding" and holderKind = "none" and holderScope = "none" and
+      holderKey = "none" and targetEvent = canonicalCallableIdentity(call.getMethod()) and
+      capacityValue = "unknown" and maxWorkersValue = "unknown" and
+      rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = true and
+      evidence = "codeql_exact_argument_parameter_binding" and
+      coverageStatus = "complete" and coverageNote = "exact_non_virtual_source_callee" and
+      programPoint = programPointIdentity(call) and
+      relatedPoint = parameterPointIdentity(parameter) and relationDepth = depth and
+      bindingIndex = parameter.getPosition()
+    )
+    or
+    exists(MethodCall call, Parameter parameter |
+      rootDepthLimitExceeded(allocation, call) and
+      parameter = call.getMethod().getParameter(parameter.getPosition()) and
+      site = call and factKind = "unknown_call" and holderKind = "none" and
+      holderScope = "none" and holderKey = "none" and
+      targetEvent = canonicalCallableIdentity(call.getMethod()) and
+      capacityValue = "unknown" and maxWorkersValue = "unknown" and
+      rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = true and
+      evidence = "codeql_call_depth_coverage_gap" and coverageStatus = "partial" and
+      coverageNote = "exact_call_depth_exceeds_2" and
+      programPoint = programPointIdentity(call) and
+      relatedPoint = parameterPointIdentity(parameter) and relationDepth = 2 and
+      bindingIndex = parameter.getPosition()
+    )
+  )
+}
+
+predicate resourceLifecycleRow(
+  Expr allocation, ExprParent site, Callable owner, string factKind,
+  boolean requiresClose, string holderKind, string holderScope, string holderKey,
+  string targetEvent, string capacityValue, string maxWorkersValue,
+  string rejectionPolicyValue, boolean normalPath, boolean exceptionalPath,
+  string evidence, string coverageStatus, string coverageNote,
+  string programPoint, string relatedPoint, int relationDepth, int bindingIndex
+) {
+  exists(Expr expressionSite |
+    site = expressionSite and
+    lifecycleFact(
+      allocation, expressionSite, owner, factKind, requiresClose, holderKind,
+      holderScope, holderKey, targetEvent, capacityValue, normalPath, exceptionalPath,
+      evidence, coverageStatus, coverageNote
+    ) and
+    programPoint = programPointIdentity(expressionSite) and relatedPoint = "none" and
+    relationDepth = 0 and bindingIndex = -1 and maxWorkersValue = "unknown" and
+    rejectionPolicyValue = "unknown"
+  )
+  or
+  lifecycleRelationFact(
+    allocation, site, owner, factKind, requiresClose, holderKind, holderScope, holderKey,
+    targetEvent, capacityValue, maxWorkersValue, rejectionPolicyValue, normalPath,
+    exceptionalPath, evidence, coverageStatus, coverageNote, programPoint, relatedPoint,
+    relationDepth, bindingIndex
+  )
+}
+
+from Expr allocation, ExprParent site, Callable owner, string factKind, boolean requiresClose,
+  string holderKind, string holderScope, string holderKey, string targetEvent,
+  string capacityValue, string maxWorkersValue, string rejectionPolicyValue,
   boolean normalPath, boolean exceptionalPath, string evidence,
-  string coverageStatus, string coverageNote
-where lifecycleFact(
-  allocation, site, owner, factKind, requiresClose, holderKind, holderScope, holderKey, targetEvent, capacityValue,
-  normalPath, exceptionalPath, evidence, coverageStatus, coverageNote
+  string coverageStatus, string coverageNote, string programPoint, string relatedPoint,
+  int relationDepth, int bindingIndex
+where resourceLifecycleRow(
+  allocation, site, owner, factKind, requiresClose, holderKind, holderScope, holderKey,
+  targetEvent, capacityValue, maxWorkersValue, rejectionPolicyValue, normalPath,
+  exceptionalPath, evidence, coverageStatus, coverageNote, programPoint, relatedPoint,
+  relationDepth, bindingIndex
 )
 select
   canonicalCallableIdentity(owner) as unit_id,
-  canonicalCallableIdentity(site.getEnclosingCallable()) as site_callable,
+  canonicalCallableIdentity(enclosingCallable(site)) as site_callable,
   site.getLocation().getFile().getRelativePath() as site_file,
   site.getLocation().getStartLine() as site_start_line,
   site.getLocation().getStartColumn() as site_start_column,
-  programPointIdentity(site) as program_point,
-  "none" as related_point,
-  0 as relation_depth,
-  -1 as binding_index,
+  programPoint as program_point,
+  relatedPoint as related_point,
+  relationDepth as relation_depth,
+  bindingIndex as binding_index,
   factKind as fact_kind,
-  allocation.getLocation().getFile().getRelativePath() + ":" +
-    allocation.getLocation().getStartLine().toString() + ":" +
-    allocation.getLocation().getStartColumn().toString() as instance_key,
+  allocationInstanceKey(allocation) as instance_key,
   allocation.getType().toString() as resource_type,
   requiresClose as requires_close,
   holderKind as holder_kind,
@@ -378,8 +550,8 @@ select
   holderKey as holder_key,
   targetEvent as target_event,
   capacityValue as capacity,
-  "unknown" as max_workers,
-  "unknown" as rejection_policy,
+  maxWorkersValue as max_workers,
+  rejectionPolicyValue as rejection_policy,
   normalPath as normal_path,
   exceptionalPath as exceptional_path,
   evidence as source_evidence,

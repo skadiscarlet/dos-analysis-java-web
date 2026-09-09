@@ -133,6 +133,21 @@ def _spec(
 _COVERAGE = frozenset({"complete", "partial", "unsupported"})
 _RESOURCE_DIMENSIONS = frozenset({"entries", "bytes", "tasks", "connections", "objects", "unknown"})
 _SCOPES = frozenset({"request", "session", "connection", "instance", "global", "unknown"})
+_RESOURCE_LIFECYCLE_BASE_FACT_KINDS = frozenset(
+    {
+        "create",
+        "retain",
+        "drop",
+        "release",
+        "dispatch",
+        "unknown_call",
+        "invariant",
+        "call_binding",
+    }
+)
+_RESOURCE_LIFECYCLE_TASK_FACT_KINDS = frozenset(
+    {"dispatch", "unknown_call", "invariant", "cfg_edge", "task_exit"}
+)
 
 QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
     {
@@ -141,7 +156,22 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
             integers={"site_start_line", "site_start_column", "relation_depth", "binding_index"},
             booleans={"requires_close", "normal_path", "exceptional_path"},
             enums={
-                "fact_kind": frozenset({"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant", "call_binding", "cfg_edge", "task_exit"}),
+                "fact_kind": _RESOURCE_LIFECYCLE_BASE_FACT_KINDS,
+                "holder_kind": frozenset({"none", "local", "field", "queue", "task"}),
+                "holder_scope": frozenset({"none", "instance", "global", "task"}),
+                "rejection_policy": frozenset({"abort", "caller_runs", "discard", "discard_oldest", "unknown"}),
+                "coverage_status": _COVERAGE,
+            },
+            paths=frozenset({"site_file"}),
+            lines=frozenset({"site_start_line"}),
+            columns_positions=frozenset({"site_start_column"}),
+        ),
+        "resource_lifecycle_task_relations": _spec(
+            "resource_lifecycle_task_relations", RESOURCE_LIFECYCLE_COLUMNS,
+            integers={"site_start_line", "site_start_column", "relation_depth", "binding_index"},
+            booleans={"requires_close", "normal_path", "exceptional_path"},
+            enums={
+                "fact_kind": _RESOURCE_LIFECYCLE_TASK_FACT_KINDS,
                 "holder_kind": frozenset({"none", "local", "field", "queue", "task"}),
                 "holder_scope": frozenset({"none", "instance", "global", "task"}),
                 "rejection_policy": frozenset({"abort", "caller_runs", "discard", "discard_oldest", "unknown"}),

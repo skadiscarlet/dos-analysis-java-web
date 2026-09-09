@@ -13,7 +13,8 @@ import zipfile
 
 from dosweb.cli import main
 from dosweb.artifacts.identifiers import canonical_json, stable_identifier
-from dosweb.codeql import DecodeSource, QUERY_SPECS, decode_bqrs_json, decode_rows, run_query
+from dosweb.codeql import DecodeSource, QUERY_SPECS, QueryResult, decode_bqrs_json, decode_rows, run_query
+from dosweb.codeql import runner as codeql_runner
 from dosweb.codeql.database import DatabaseInfo
 from dosweb.errors import AnalyzerError
 from dosweb.resource_lifecycle.adapters import (
@@ -35,6 +36,8 @@ from tests.support.fixture_database import fixture_database
 ROOT = Path(__file__).resolve().parents[1]
 DIRECT_QUERY = ROOT / "codeql/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql"
 EMBEDDED_QUERY = ROOT / "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql"
+DIRECT_TASK_QUERY = ROOT / "codeql/dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql"
+EMBEDDED_TASK_QUERY = ROOT / "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql"
 RUN_FIXTURES = os.environ.get("DOSWEB_RUN_CODEQL_FIXTURES") == "1"
 SYNTHETIC_HANDLE_ID = "java-callable-v1:Fixture.handle()V"
 SYNTHETIC_SOURCE = "final class Fixture {\n\n\n}\n"
@@ -44,12 +47,33 @@ def fixture_callable(method: str, descriptor: str) -> str:
     return f"java-callable-v1:fixture.lifecycle.LifecycleFixture.{method}{descriptor}"
 
 
+def fixture_v1_1_callable(method: str, descriptor: str) -> str:
+    return f"java-callable-v1:fixture.lifecyclev11.SourcePairs.{method}{descriptor}"
+
+
 def decoded_lifecycle_row(source_root: Path, query_sha256: str = "a" * 64) -> dict[str, object]:
     row = lifecycle_row()
     values = [row[column] for column in QUERY_SPECS["resource_lifecycle"].columns]
     return decode_rows(
         "resource_lifecycle",
         QUERY_SPECS["resource_lifecycle"].columns,
+        [values],
+        DecodeSource(source_root, query_sha256),
+    )[0]
+
+
+def decoded_query_row(
+    source_root: Path,
+    query_name: str,
+    query_sha256: str,
+    **overrides: object,
+) -> dict[str, object]:
+    row = lifecycle_row(**overrides)
+    spec = QUERY_SPECS[query_name]
+    values = [row[column] for column in spec.columns]
+    return decode_rows(
+        query_name,
+        spec.columns,
         [values],
         DecodeSource(source_root, query_sha256),
     )[0]
@@ -88,6 +112,8 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
 
 
 _V1_1_FACT_FIELDS = {
+    "query_name",
+    "query_sha256",
     "site_callable",
     "program_point",
     "related_point",
@@ -495,6 +521,496 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             QUERY_SPECS["resource_lifecycle"].enum_fields["rejection_policy"],
         )
 
+    def test_split_query_specs_reject_foreign_fact_kinds(self) -> None:
+        self.assertIn("resource_lifecycle_task_relations", QUERY_SPECS)
+        task_spec = QUERY_SPECS.get("resource_lifecycle_task_relations")
+        if task_spec is None:
+            return
+        self.assertEqual(
+            QUERY_SPECS["resource_lifecycle"].columns,
+            task_spec.columns,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            for query_name, fact_kind in (
+                ("resource_lifecycle", "cfg_edge"),
+                ("resource_lifecycle", "task_exit"),
+                ("resource_lifecycle_task_relations", "create"),
+                ("resource_lifecycle_task_relations", "retain"),
+                ("resource_lifecycle_task_relations", "release"),
+            ):
+                spec = QUERY_SPECS[query_name]
+                row = lifecycle_row(fact_kind=fact_kind)
+                values = [row[column] for column in spec.columns]
+                with self.subTest(query_name=query_name, fact_kind=fact_kind):
+                    with self.assertRaises(AnalyzerError) as raised:
+                        decode_rows(
+                            query_name,
+                            spec.columns,
+                            [values],
+                            DecodeSource(source_root, "a" * 64),
+                        )
+                    self.assertEqual("ENUM_INVALID", raised.exception.details["reason"])
+
+    def test_task_query_family_match_is_exact_and_precedes_base_match(self) -> None:
+        self.assertEqual(
+            "resource_lifecycle_task_relations",
+            codeql_runner._query_family("ResourceLifecycleTaskRelations"),
+        )
+        self.assertEqual(
+            "resource_lifecycle",
+            codeql_runner._query_family("ResourceLifecycleFacts"),
+        )
+        with self.assertRaises(AnalyzerError):
+            codeql_runner._query_family("ResourceLifecycleTaskRelationsBackup")
+
+    def test_query_suite_sha_is_repeatable_and_order_sensitive(self) -> None:
+        self.assertTrue(hasattr(lifecycle_commands, "_query_suite_sha256"))
+        helper = getattr(lifecycle_commands, "_query_suite_sha256")
+        ordered = (
+            ("resource_lifecycle", "a" * 64),
+            ("resource_lifecycle_task_relations", "b" * 64),
+        )
+
+        first = helper(ordered)
+        second = helper(tuple(ordered))
+        reversed_digest = helper(tuple(reversed(ordered)))
+
+        self.assertRegex(first, r"^[0-9a-f]{64}$")
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, reversed_digest)
+
+    def test_implementation_digest_covers_both_packed_queries(self) -> None:
+        self.assertIsInstance(lifecycle_commands._QUERY, tuple)
+        self.assertEqual(
+            (EMBEDDED_QUERY, EMBEDDED_TASK_QUERY),
+            lifecycle_commands._QUERY,
+        )
+        seen: list[Path] = []
+        original = lifecycle_commands.load_regular_bytes_with_sha256
+
+        def tracking(path: Path):
+            seen.append(path)
+            return original(path)
+
+        with patch.object(
+            lifecycle_commands,
+            "load_regular_bytes_with_sha256",
+            side_effect=tracking,
+        ):
+            lifecycle_commands._implementation_sha256()
+
+        self.assertIn(EMBEDDED_QUERY, seen)
+        self.assertIn(EMBEDDED_TASK_QUERY, seen)
+
+    def test_formal_query_suite_failure_is_atomic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "source"
+            source_root.mkdir()
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            database_path = root / "database"
+            database_path.mkdir()
+            database = DatabaseInfo(database_path, source_root, "d" * 64)
+            decoded = root / "base.json"
+            decoded.write_text(
+                json.dumps(
+                    {
+                        "#select": {
+                            "columns": list(QUERY_SPECS["resource_lifecycle"].columns),
+                            "tuples": [[
+                                lifecycle_row()[column]
+                                for column in QUERY_SPECS["resource_lifecycle"].columns
+                            ]],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bqrs = root / "base.bqrs"
+            bqrs.write_bytes(b"base")
+            first = QueryResult(
+                "resource_lifecycle",
+                DIRECT_QUERY,
+                bqrs,
+                decoded,
+                "a" * 64,
+                "c" * 64,
+            )
+            manifest = {
+                "schema_version": "1.1",
+                "mode": "codeql_database",
+                "database": str(database_path),
+                "entry_methods": [],
+                "budget": {
+                    "max_steps": 1024,
+                    "max_updates_per_event": 32,
+                    "timeout_ms": 5000,
+                },
+            }
+            failure = AnalyzerError(
+                "CODEQL_QUERY_FAILED",
+                "second selected lifecycle query failed",
+            )
+            output = root / "output"
+
+            with patch.object(
+                lifecycle_commands, "validate_database", return_value=database
+            ), patch.object(
+                lifecycle_commands,
+                "_verify_database_source_snapshot",
+                return_value="e" * 64,
+            ), patch.object(
+                lifecycle_commands,
+                "run_query",
+                side_effect=(first, failure),
+            ) as runner, patch.object(
+                lifecycle_commands, "adapt_codeql_rows"
+            ) as adapter:
+                with self.assertRaises(AnalyzerError) as raised:
+                    lifecycle_commands._codeql_facts(manifest, {}, output)
+
+        self.assertEqual("CODEQL_QUERY_FAILED", raised.exception.code)
+        self.assertEqual(2, runner.call_count)
+        adapter.assert_not_called()
+        self.assertFalse((output / "facts.json").exists())
+        self.assertFalse((output / "coverage.json").exists())
+
+    def test_adapter_checks_each_row_origin_against_ordered_suite(self) -> None:
+        self.assertIn("resource_lifecycle_task_relations", QUERY_SPECS)
+        if "resource_lifecycle_task_relations" not in QUERY_SPECS:
+            return
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            create = decoded_query_row(
+                source_root, "resource_lifecycle", "a" * 64
+            )
+            task = decoded_query_row(
+                source_root,
+                "resource_lifecycle_task_relations",
+                "b" * 64,
+                fact_kind="dispatch",
+                holder_kind="queue",
+                holder_scope="task",
+                holder_key="Fixture.EXECUTOR#static",
+                target_event="java-callable-v1:Fixture.lambda$task()V",
+                capacity="3",
+                max_workers="2",
+                rejection_policy="abort",
+                exceptional_path=False,
+            )
+            provenance = (
+                {
+                    "query_name": "resource_lifecycle",
+                    "query_sha256": "a" * 64,
+                    "bqrs_sha256": "c" * 64,
+                },
+                {
+                    "query_name": "resource_lifecycle_task_relations",
+                    "query_sha256": "b" * 64,
+                    "bqrs_sha256": "d" * 64,
+                },
+            )
+
+            extracted = adapt_codeql_rows(
+                (create, task),
+                source_root=source_root,
+                query_provenance=provenance,
+                database_fingerprint="e" * 64,
+                source_snapshot_sha256="f" * 64,
+            )
+            with self.assertRaisesRegex(ValueError, "row query digest"):
+                adapt_codeql_rows(
+                    (create, {**task, "query_sha256": "9" * 64}),
+                    source_root=source_root,
+                    query_provenance=provenance,
+                    database_fingerprint="e" * 64,
+                    source_snapshot_sha256="f" * 64,
+                )
+
+        self.assertEqual(
+            {"resource_lifecycle", "resource_lifecycle_task_relations"},
+            {fact.query_name for fact in extracted.facts},
+        )
+        self.assertEqual(
+            {"a" * 64, "b" * 64},
+            {fact.query_sha256 for fact in extracted.facts},
+        )
+
+    def test_split_query_merge_rejects_duplicate_or_orphan_rows(self) -> None:
+        self.assertIn("resource_lifecycle_task_relations", QUERY_SPECS)
+        if "resource_lifecycle_task_relations" not in QUERY_SPECS:
+            return
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            provenance = (
+                {
+                    "query_name": "resource_lifecycle",
+                    "query_sha256": "a" * 64,
+                    "bqrs_sha256": "c" * 64,
+                },
+                {
+                    "query_name": "resource_lifecycle_task_relations",
+                    "query_sha256": "b" * 64,
+                    "bqrs_sha256": "d" * 64,
+                },
+            )
+            create = decoded_query_row(
+                source_root, "resource_lifecycle", "a" * 64
+            )
+            base_gap = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                fact_kind="unknown_call",
+                coverage_status="partial",
+                coverage_note="dispatch_binding_unresolved",
+            )
+            duplicate_gap = {
+                **base_gap,
+                "query_name": "resource_lifecycle_task_relations",
+                "query_sha256": "b" * 64,
+            }
+            orphan = decoded_query_row(
+                source_root,
+                "resource_lifecycle_task_relations",
+                "b" * 64,
+                fact_kind="dispatch",
+                instance_key="Fixture.java:9:1",
+                holder_kind="queue",
+                holder_scope="task",
+                holder_key="Fixture.EXECUTOR#static",
+                target_event="java-callable-v1:Fixture.lambda$task()V",
+                capacity="3",
+                max_workers="2",
+                rejection_policy="abort",
+                exceptional_path=False,
+            )
+            unknown_unit = {
+                **orphan,
+                "unit_id": "java-callable-v1:Fixture.other()V",
+                "site_callable": "java-callable-v1:Fixture.other()V",
+            }
+            base_only_dispatch = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                fact_kind="dispatch",
+                program_point="point:Fixture.java:2:1:base-dispatch",
+                holder_kind="queue",
+                holder_scope="task",
+                holder_key="Fixture.QUEUE#static",
+                target_event="java-callable-v1:Fixture.lambda$task()V",
+                capacity="3",
+                exceptional_path=False,
+            )
+            dangling_cfg = decoded_query_row(
+                source_root,
+                "resource_lifecycle_task_relations",
+                "b" * 64,
+                fact_kind="cfg_edge",
+                program_point="point:Fixture.java:3:1:task-entry",
+                related_point="point:Fixture.java:4:1:task-body",
+                target_event="java-callable-v1:Fixture.lambda$task()V",
+            )
+            common = {
+                "source_root": source_root,
+                "query_provenance": provenance,
+                "database_fingerprint": "e" * 64,
+                "source_snapshot_sha256": "f" * 64,
+            }
+
+            with self.assertRaisesRegex(ValueError, "duplicate semantic row"):
+                adapt_codeql_rows((create, base_gap, duplicate_gap), **common)
+            with self.assertRaisesRegex(ValueError, "orphan instance_key"):
+                adapt_codeql_rows((create, orphan), **common)
+            with self.assertRaisesRegex(ValueError, "unknown base unit"):
+                adapt_codeql_rows((create, unknown_unit), **common)
+            with self.assertRaisesRegex(ValueError, "dangling task"):
+                adapt_codeql_rows(
+                    (create, base_only_dispatch, dangling_cfg), **common
+                )
+
+    def test_partial_task_relations_become_dimension_coverage_gaps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            provenance = (
+                {
+                    "query_name": "resource_lifecycle",
+                    "query_sha256": "a" * 64,
+                    "bqrs_sha256": "c" * 64,
+                },
+                {
+                    "query_name": "resource_lifecycle_task_relations",
+                    "query_sha256": "b" * 64,
+                    "bqrs_sha256": "d" * 64,
+                },
+            )
+            create = decoded_query_row(
+                source_root, "resource_lifecycle", "a" * 64
+            )
+            task_callable = "java-callable-v1:Fixture.lambda$task()V"
+            dispatch = decoded_query_row(
+                source_root,
+                "resource_lifecycle_task_relations",
+                "b" * 64,
+                fact_kind="dispatch",
+                program_point="point:Fixture.java:2:1:dispatch",
+                related_point="point:Fixture.java:3:1:task-entry",
+                holder_kind="queue",
+                holder_scope="task",
+                holder_key="Fixture.EXECUTOR#static",
+                target_event=task_callable,
+                capacity="3",
+                max_workers="2",
+                rejection_policy="abort",
+                exceptional_path=False,
+            )
+            common = {
+                "source_root": source_root,
+                "query_provenance": provenance,
+                "database_fingerprint": "e" * 64,
+                "source_snapshot_sha256": "f" * 64,
+            }
+
+            for fact_kind, overrides in (
+                (
+                    "cfg_edge",
+                    {
+                        "program_point": "point:Fixture.java:3:1:task-entry",
+                        "related_point": "point:Fixture.java:4:1:task-body",
+                    },
+                ),
+                (
+                    "task_exit",
+                    {
+                        "program_point": "point:Fixture.java:5:1:task-exit",
+                        "related_point": "none",
+                        "exceptional_path": False,
+                    },
+                ),
+            ):
+                relation = decoded_query_row(
+                    source_root,
+                    "resource_lifecycle_task_relations",
+                    "b" * 64,
+                    fact_kind=fact_kind,
+                    target_event=task_callable,
+                    coverage_status="partial",
+                    coverage_note=f"{fact_kind}_coverage_partial",
+                    **overrides,
+                )
+
+                with self.subTest(fact_kind=fact_kind):
+                    extracted = adapt_codeql_rows(
+                        (create, dispatch, relation), **common
+                    )
+                    unit = extracted.units[0]
+                    relation_fact = next(
+                        fact
+                        for fact in extracted.facts
+                        if fact.fact_kind == fact_kind
+                    )
+
+                    self.assertFalse(unit.program.coverage_complete)
+                    self.assertEqual(
+                        {
+                            "held_instances",
+                            "item_size_bytes",
+                            "close_obligation",
+                        },
+                        {
+                            dimension
+                            for dimension, _family, _scope, _reason, evidence_id
+                            in unit.program.coverage_gaps
+                            if evidence_id == relation_fact.fact_id
+                        },
+                    )
+
+    def test_formal_provenance_detects_suite_and_artifact_tampering(self) -> None:
+        self.assertIn("resource_lifecycle_task_relations", QUERY_SPECS)
+        if "resource_lifecycle_task_relations" not in QUERY_SPECS:
+            return
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            create = decoded_query_row(
+                source_root, "resource_lifecycle", "a" * 64
+            )
+            task_gap = decoded_query_row(
+                source_root,
+                "resource_lifecycle_task_relations",
+                "b" * 64,
+                fact_kind="unknown_call",
+                coverage_status="partial",
+                coverage_note="task_dispatch_unresolved",
+            )
+            provenance = (
+                {
+                    "query_name": "resource_lifecycle",
+                    "query_sha256": "a" * 64,
+                    "bqrs_sha256": "c" * 64,
+                },
+                {
+                    "query_name": "resource_lifecycle_task_relations",
+                    "query_sha256": "b" * 64,
+                    "bqrs_sha256": "d" * 64,
+                },
+            )
+            extracted = adapt_codeql_rows(
+                (create, task_gap),
+                source_root=source_root,
+                query_provenance=provenance,
+                database_fingerprint="e" * 64,
+                source_snapshot_sha256="f" * 64,
+            )
+
+        validate_extracted(extracted)
+        for label, mutate in (
+            (
+                "suite order",
+                lambda coverage: coverage.update(
+                    query_provenance=list(reversed(coverage["query_provenance"]))
+                ),
+            ),
+            (
+                "BQRS digest",
+                lambda coverage: coverage["query_provenance"][0].update(
+                    bqrs_sha256="0" * 64
+                ),
+            ),
+            (
+                "database fingerprint",
+                lambda coverage: coverage.update(database_fingerprint="0" * 64),
+            ),
+            (
+                "source snapshot",
+                lambda coverage: coverage.update(source_snapshot_sha256="0" * 64),
+            ),
+        ):
+            tampered = json.loads(json.dumps(extracted_to_dict(extracted)))
+            mutate(tampered["coverage"])
+            with self.subTest(label=label), self.assertRaisesRegex(
+                ValueError, "provenance"
+            ):
+                validate_extracted(extracted_from_dict(tampered))
+
     def test_holder_scope_is_a_strict_decoder_column(self) -> None:
         self.assertIn("holder_scope", QUERY_SPECS["resource_lifecycle"].columns)
         with tempfile.TemporaryDirectory() as tmp:
@@ -849,7 +1365,11 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
 
     def test_direct_and_embedded_queries_match_and_emit_only_raw_facts(self) -> None:
         self.assertEqual(DIRECT_QUERY.read_bytes(), EMBEDDED_QUERY.read_bytes())
+        self.assertEqual(
+            DIRECT_TASK_QUERY.read_bytes(), EMBEDDED_TASK_QUERY.read_bytes()
+        )
         content = DIRECT_QUERY.read_text(encoding="utf-8")
+        task_content = DIRECT_TASK_QUERY.read_text(encoding="utf-8")
         self.assertIn("@kind table", content)
         self.assertIn("import java", content)
         aliases = (
@@ -933,12 +1453,17 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             'evidence = "codeql_resource_return_escape"',
             content,
         )
+        self.assertIn("predicate lifecycleTaskRelationFact", task_content)
+        self.assertNotIn("predicate lifecycleFact", task_content)
+        self.assertNotIn('factKind = "create"', task_content)
+        self.assertNotIn('factKind = "retain"', task_content)
+        self.assertNotIn('factKind = "release"', task_content)
 
     def test_program_point_identity_is_site_based_and_uses_the_full_span(self) -> None:
         content = DIRECT_QUERY.read_text(encoding="utf-8")
 
         self.assertIn("bindingset[site]", content)
-        self.assertIn("string programPointIdentity(Expr site)", content)
+        self.assertIn("string programPointIdentity(ExprParent site)", content)
         self.assertNotIn(
             "string programPointIdentity(Expr site, string factKind)", content
         )
@@ -947,7 +1472,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         )
         self.assertIn("site.getLocation().getEndLine().toString()", content)
         self.assertIn("site.getLocation().getEndColumn().toString()", content)
-        self.assertIn("programPointIdentity(site) as program_point", content)
+        self.assertIn("programPoint as program_point", content)
 
     def test_bounded_queue_adapter_emits_task_dispatch_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1402,6 +1927,145 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
+    def test_v1_1_source_relations_are_extracted_from_java(self) -> None:
+        source_root = ROOT / "tests/fixtures/resource_lifecycle_v1_1/src/main/java"
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            base_result = run_query(
+                DIRECT_QUERY, database, Path(tmp) / "base-query"
+            )
+            task_result = run_query(
+                DIRECT_TASK_QUERY, database, Path(tmp) / "task-query"
+            )
+            base_payload = json.loads(
+                base_result.decoded_path.read_text(encoding="utf-8")
+            )
+            task_payload = json.loads(
+                task_result.decoded_path.read_text(encoding="utf-8")
+            )
+        rows = decode_bqrs_json(
+            "resource_lifecycle",
+            base_payload,
+            DecodeSource(database.source_root, base_result.query_sha256),
+        ) + decode_bqrs_json(
+            "resource_lifecycle_task_relations",
+            task_payload,
+            DecodeSource(database.source_root, task_result.query_sha256),
+        )
+
+        caller = fixture_v1_1_callable("caller", "(I)V")
+        wrapper1 = fixture_v1_1_callable(
+            "wrapper1",
+            "(Lfixture/lifecyclev11/SourcePairs$TrackedResource;)V",
+        )
+        wrapper2 = fixture_v1_1_callable(
+            "wrapper2",
+            "(Lfixture/lifecyclev11/SourcePairs$TrackedResource;)V",
+        )
+        source_rows = [row for row in rows if row["unit_id"] == caller]
+        create = next(row for row in source_rows if row["fact_kind"] == "create")
+        call_bindings = [
+            row for row in source_rows if row["fact_kind"] == "call_binding"
+        ]
+        cfg_edges = [row for row in source_rows if row["fact_kind"] == "cfg_edge"]
+        dispatch = next(row for row in source_rows if row["fact_kind"] == "dispatch")
+        task_exits = [row for row in source_rows if row["fact_kind"] == "task_exit"]
+
+        self.assertEqual(
+            {(1, wrapper1, 0), (2, wrapper2, 0)},
+            {
+                (row["relation_depth"], row["target_event"], row["binding_index"])
+                for row in call_bindings
+            },
+        )
+        self.assertTrue(
+            all(
+                row["program_point"] != row["related_point"]
+                and row["instance_key"] == create["instance_key"]
+                and row["site_start_column"] > 1
+                for row in call_bindings
+            )
+        )
+        self.assertTrue(cfg_edges)
+        self.assertTrue(
+            any(
+                row["program_point"] != row["related_point"]
+                and row["site_start_line"] != create["site_start_line"]
+                for row in cfg_edges
+            )
+        )
+
+        self.assertEqual(wrapper2, dispatch["site_callable"])
+        self.assertNotEqual("none", dispatch["related_point"])
+        self.assertNotEqual(wrapper2, dispatch["target_event"])
+        self.assertEqual(create["instance_key"], dispatch["instance_key"])
+        self.assertEqual("fixture.lifecyclev11.SourcePairs.EXECUTOR#static", dispatch["holder_key"])
+        self.assertEqual("3", dispatch["capacity"])
+        self.assertEqual("2", dispatch["max_workers"])
+        self.assertEqual("abort", dispatch["rejection_policy"])
+        self.assertEqual(0, dispatch["binding_index"])
+        self.assertEqual("codeql_lambda_capture_to_executor", dispatch["source_evidence"])
+
+        self.assertEqual({(True, False), (False, True)}, {
+            (row["normal_path"], row["exceptional_path"])
+            for row in task_exits
+        })
+        self.assertEqual({dispatch["target_event"]}, {
+            row["target_event"] for row in task_exits
+        })
+        self.assertEqual(2, len({row["program_point"] for row in task_exits}))
+        self.assertEqual(2, len({row["site_start_line"] for row in task_exits}))
+        self.assertTrue(
+            all(
+                row["related_point"] == dispatch["related_point"]
+                and row["instance_key"] == create["instance_key"]
+                for row in task_exits
+            )
+        )
+
+        extracted = adapt_codeql_rows(
+            rows,
+            source_root=database.source_root,
+            query_provenance=(
+                {
+                    "query_name": base_result.query_name,
+                    "query_sha256": base_result.query_sha256,
+                    "bqrs_sha256": base_result.bqrs_sha256,
+                },
+                {
+                    "query_name": task_result.query_name,
+                    "query_sha256": task_result.query_sha256,
+                    "bqrs_sha256": task_result.bqrs_sha256,
+                },
+            ),
+            database_fingerprint=database.fingerprint,
+            source_snapshot_sha256=lifecycle_commands._verify_database_source_snapshot(
+                database
+            ),
+        )
+        unit = next(item for item in extracted.units if item.unit_id == caller)
+        self.assertEqual(2, len(unit.program.call_bindings))
+        self.assertEqual(1, len(unit.program.task_bindings))
+        self.assertEqual({"normal", "exceptional"}, {
+            item.kind for item in unit.program.task_exits
+        })
+        task_binding = unit.program.task_bindings[0]
+        self.assertEqual(dispatch["target_event"], task_binding.task_callable)
+        self.assertTrue(all(
+            binding.instance_id == task_binding.instance_id
+            for binding in unit.program.call_bindings
+        ))
+        contract = next(
+            item
+            for item in unit.executor_contracts
+            if item.contract_id == task_binding.executor_contract_id
+        )
+        self.assertEqual((3, 2, "abort"), (
+            contract.queue_capacity,
+            contract.max_workers,
+            contract.rejection_policy,
+        ))
+
     def test_same_site_dispatch_and_invariant_share_program_point_identity(self) -> None:
         source_root = ROOT / "tests/fixtures/resource_lifecycle/src/main/java"
         database = fixture_database(str(source_root))

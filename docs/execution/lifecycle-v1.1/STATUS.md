@@ -5,8 +5,8 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task2_population_attachment_review_green`
-- next_action: `Task 3：从真实 Java/CodeQL 提取 CFG、调用、捕获、执行器和出口事实`
+- current_stage: `task3_source_relations_complete`
+- next_action: `Task 4：把 task lifecycle/population 语义接入主求解，而非仅展示后继`
 
 ## 适用标准
 
@@ -36,12 +36,21 @@
 - Task 2 第三次 spec 复审把 executor contract loader 绑定到外层 facts schema：`1.1` 要求 `max_workers/rejection_policy/termination` 与其余 contract 字段一起精确存在，只有显式外层 `1.0` facts 才补 `None/unknown/unknown`；manual extraction manifest 是独立输入边界，继续按 current contract 严格解析，不借其 manifest 版本启用 facts compatibility。有效 RED 为 `3 failed, 2 passed`，定向 GREEN 为 `2 passed, 3 subtests passed`，lifecycle 全量为 `215 passed, 4 skipped, 61 subtests passed`。
 - 真实 CodeQL：query compile `Done [1/1]`，四个 source fixture 为 `33 passed, 15 subtests passed`；direct/embedded QL 字节一致。
 
+## Task 3 完成证据
+
+- CodeQL 已拆成真实双查询架构：base `ResourceLifecycleFacts` 只提取 allocation/lifecycle、stable program point、depth<=2 exact call binding 与 depth gap；task `ResourceLifecycleTaskRelations` 独立提取 lambda capture、静态 `ThreadPoolExecutor` 配置、task CFG、normal/exceptional exit 与 task partial facts。两份 direct/embedded QL 分别字节一致；最终 `compile --check-only` 均为 `Done [1/1]`。独立完整执行记录为 base compile `2m43s`、eval `1.1s`、total `2m50.15s`，task compile `4m0s`、eval `1s`、total `4m06.22s`，均低于 runner 固定 300 秒单-query 上限。
+- runner 使用 anchored family matcher，formal `codeql_database` extraction 固定按 base -> task 顺序先执行完整 suite，再 decode/adapt；第二 query 失败的反例确认 adapter 未调用且 `facts.json`/`coverage.json` 不发布。query snapshot、BQRS、database fingerprint 与 source snapshot 在执行/发布边界复核，`_implementation_sha256()` 同时绑定两份 packed QL。
+- 每条 `RawLifecycleFact` 保存 `query_name/query_sha256`，fact ID 绑定 row origin；formal coverage 保存 ordered `query_provenance`、两个 query SHA、两个 BQRS SHA、顺序敏感 suite SHA、database fingerprint、source snapshot SHA 与 provenance SHA。validation 的 suite order、BQRS、database 与 source tamper 反例均 fail closed；legacy `1.0` 只在拒绝 v1.1 relation semantics 后走旧单-query identity/ID/snapshot/derived-unit 验证与迁移。
+- merge 明确拒绝跨 query duplicate semantic row、task orphan `instance_key`、unknown base unit 与 dangling `cfg_edge/task_exit`，且只有 task-query dispatch 能满足 task relation 绑定；partial relation-only fact 显式转为适用资源维度的 coverage gap（closeable fixture 为三个），不再触发 `KeyError` 或静默丢失 unknown。coverage 边角 RED 为 `2 subtests failed`，GREEN 为 `1 passed, 2 subtests passed`；query-origin dangling 反例 RED 为 `1 failed`，GREEN 为 `1 passed`。
+- adapter 从真实 rows 合成 `ProgramPoint`、`CallBinding`、`TaskBinding`、`TaskExit`、七个 task-stage event、task method CFG/transitions 与八类原子 `PopulationEffect`，不把 callback 原子折叠。真实 fixture `SourcePairs.java` 覆盖 caller -> wrapper1 -> wrapper2、`W=2/K=3/AbortPolicy`、lambda capture、显式 return/throw 与 finally close。
+- 双查询/provenance RED 为 `8 failed, 37 deselected`，GREEN 为 `8 passed, 37 deselected, 9 subtests passed`；非真实 fixture contract 为 `39 passed, 6 deselected, 20 subtests passed`；最终源码组合为 `1 passed, 45 deselected in 436.13s`；最终 lifecycle 全量为 `253 passed, 6 skipped, 205 subtests passed`。P0 schema/tool 仍为 `2.5/0.4.0`，resource lifecycle 为 `1.1/resource-lifecycle-v1.1`。
+
 ## G1–G8 当前状态
 
 | Gate | 状态 | 当前证据/缺口 |
 | --- | --- | --- |
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
-| G2 源码关系 | `fail` | Task 2 schema `1.1` IR 已通过严格 round-trip/reference GREEN；Task 3 仍需让真实 query 输出可组合 CFG/call/capture/termination 关系 |
+| G2 源码关系 | `pass` | Task 3 双 query 从真实 Java/CodeQL 输出并合并 depth<=2 call binding、lambda capture、TPE config、task CFG 与 normal/exceptional exits；`SourcePairs.java` 组合 fixture 端到端 `1 passed`（436.13s），ordered provenance/tamper/merge fail-closed 反例已通过 |
 | G3 主求解异步 | `fail` | `commands._analyze_payload` 先 `solve`，后 `_async_stages` 展示后继 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
 | G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |

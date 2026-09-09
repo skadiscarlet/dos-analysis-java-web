@@ -15,13 +15,18 @@ from dosweb.resource_lifecycle.io import budget_from_dict, location_from_dict, p
 from dosweb.resource_lifecycle.models import (
     AbstractInstance,
     AnalysisBudget,
+    CallBinding,
     Effect,
     Event,
     Holder,
+    PopulationEffect,
+    ProgramPoint,
     Program,
     ResourceFamily,
     SCHEMA_VERSION,
     SourceLocation,
+    TaskBinding,
+    TaskExit,
     Transition,
 )
 
@@ -29,6 +34,8 @@ from dosweb.resource_lifecycle.models import (
 @dataclass(frozen=True)
 class RawLifecycleFact:
     fact_id: str
+    query_name: str
+    query_sha256: str
     unit_id: str
     site_callable: str
     fact_kind: str
@@ -58,6 +65,13 @@ class RawLifecycleFact:
     def __post_init__(self) -> None:
         if not re.fullmatch(r"lifecycle-fact:[0-9a-f]{24}", self.fact_id):
             raise ValueError("raw lifecycle fact identifier is invalid")
+        if self.query_name not in {
+            "resource_lifecycle",
+            "resource_lifecycle_task_relations",
+        }:
+            raise ValueError("raw lifecycle fact query name is invalid")
+        if not re.fullmatch(r"[0-9a-f]{64}", self.query_sha256):
+            raise ValueError("raw lifecycle fact query digest is invalid")
         if self.fact_kind not in {"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant", "call_binding", "cfg_edge", "task_exit"}:
             raise ValueError("raw lifecycle fact kind is invalid")
         if self.holder_kind not in {"none", "local", "field", "queue", "task"}:
@@ -192,6 +206,8 @@ _DECODED_ROW_METADATA_FIELDS = {"query_name", "query_sha256", "site_location"}
 _DECODED_ROW_FIELDS = _RAW_ROW_FIELDS | _DECODED_ROW_METADATA_FIELDS
 _V1_1_RAW_FACT_FIELDS = frozenset(
     {
+        "query_name",
+        "query_sha256",
         "site_callable",
         "program_point",
         "related_point",
@@ -204,6 +220,77 @@ _V1_1_RAW_FACT_FIELDS = frozenset(
 _V1_1_EXECUTOR_CONTRACT_FIELDS = frozenset(
     {"max_workers", "rejection_policy", "termination"}
 )
+_FORMAL_QUERY_NAMES = (
+    "resource_lifecycle",
+    "resource_lifecycle_task_relations",
+)
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _query_suite_sha256(
+    identities: Sequence[tuple[str, str]],
+) -> str:
+    normalized: list[dict[str, str]] = []
+    for query_name, query_sha256 in identities:
+        if (
+            not isinstance(query_name, str)
+            or query_name not in _FORMAL_QUERY_NAMES
+            or not isinstance(query_sha256, str)
+            or not _SHA256.fullmatch(query_sha256)
+        ):
+            raise ValueError("query suite identity is invalid")
+        normalized.append(
+            {"query_name": query_name, "query_sha256": query_sha256}
+        )
+    if not normalized or len({item["query_name"] for item in normalized}) != len(
+        normalized
+    ):
+        raise ValueError("query suite identity is invalid")
+    return hashlib.sha256(canonical_json(normalized)).hexdigest()
+
+
+def _normalize_query_provenance(
+    values: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, str], ...]:
+    if not isinstance(values, (list, tuple)) or len(values) != len(
+        _FORMAL_QUERY_NAMES
+    ):
+        raise ValueError("formal query provenance is invalid")
+    normalized: list[dict[str, str]] = []
+    for expected_name, item in zip(_FORMAL_QUERY_NAMES, values):
+        if not isinstance(item, Mapping) or set(item) != {
+            "query_name",
+            "query_sha256",
+            "bqrs_sha256",
+        }:
+            raise ValueError("formal query provenance is invalid")
+        record = {key: str(item[key]) for key in item}
+        if (
+            record["query_name"] != expected_name
+            or not _SHA256.fullmatch(record["query_sha256"])
+            or not _SHA256.fullmatch(record["bqrs_sha256"])
+        ):
+            raise ValueError("formal query provenance is invalid")
+        normalized.append(record)
+    return tuple(normalized)
+
+
+def _formal_provenance_sha256(
+    query_provenance: Sequence[Mapping[str, object]],
+    query_suite_sha256: str,
+    database_fingerprint: str,
+    source_snapshot_sha256: str,
+) -> str:
+    return hashlib.sha256(
+        canonical_json(
+            {
+                "query_provenance": [dict(item) for item in query_provenance],
+                "query_suite_sha256": query_suite_sha256,
+                "database_fingerprint": database_fingerprint,
+                "source_snapshot_sha256": source_snapshot_sha256,
+            }
+        )
+    ).hexdigest()
 
 
 def _source_digests(source_root: Path, relative_path: str, site_line: int) -> tuple[str, str]:
@@ -224,13 +311,22 @@ def _source_digests(source_root: Path, relative_path: str, site_line: int) -> tu
     )
 
 
-def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -> RawLifecycleFact:
+def _raw_fact(
+    row: Mapping[str, object],
+    source_root: Path,
+    query_digests: Mapping[str, str],
+    extractor_version: str,
+) -> RawLifecycleFact:
     row_fields = set(row)
     if row_fields == _DECODED_ROW_FIELDS:
-        if row["query_name"] != "resource_lifecycle":
+        query_name = row["query_name"]
+        if not isinstance(query_name, str) or query_name not in query_digests:
             raise ValueError("CodeQL lifecycle row query name is invalid")
-        if row["query_sha256"] != query_sha256:
-            raise ValueError("CodeQL lifecycle row query SHA-256 is invalid")
+        query_sha256 = row["query_sha256"]
+        if query_sha256 != query_digests[query_name]:
+            raise ValueError(
+                "CodeQL lifecycle row query digest is invalid (query SHA-256 mismatch)"
+            )
         site_location = row["site_location"]
         if (
             not isinstance(site_location, Mapping)
@@ -245,8 +341,16 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
             raise ValueError("CodeQL lifecycle row site location is invalid")
         raw_row = {key: row[key] for key in _RAW_ROW_FIELDS}
     elif row_fields == _RAW_ROW_FIELDS:
+        if tuple(query_digests) != ("resource_lifecycle",):
+            raise ValueError("formal CodeQL lifecycle rows require decoder provenance")
+        query_name = "resource_lifecycle"
+        query_sha256 = query_digests[query_name]
         raw_row = dict(row)
     elif row_fields == _LEGACY_RAW_ROW_FIELDS:
+        if tuple(query_digests) != ("resource_lifecycle",):
+            raise ValueError("formal CodeQL lifecycle rows require decoder provenance")
+        query_name = "resource_lifecycle"
+        query_sha256 = query_digests[query_name]
         raw_row = dict(row)
         raw_row.update(
             {
@@ -302,7 +406,7 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
         start_line=int(raw_row["site_start_line"]),
         end_line=int(raw_row["site_start_line"]),
         source_sha256=source_sha256,
-        extractor_version=f"resource-lifecycle-codeql:{query_sha256}",
+        extractor_version=extractor_version,
         source_kind="static_verified",
     )
     semantic = {
@@ -316,7 +420,17 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
         )
     }
     return RawLifecycleFact(
-        fact_id=stable_identifier("lifecycle-fact", {**semantic, "source_sha256": location.source_sha256, "query_sha256": query_sha256}),
+        fact_id=stable_identifier(
+            "lifecycle-fact",
+            {
+                **semantic,
+                "source_sha256": location.source_sha256,
+                "query_name": query_name,
+                "query_sha256": query_sha256,
+            },
+        ),
+        query_name=query_name,
+        query_sha256=query_sha256,
         unit_id=str(raw_row["unit_id"]),
         site_callable=str(raw_row["site_callable"]),
         fact_kind=str(raw_row["fact_kind"]),
@@ -573,7 +687,207 @@ def _unit_from_rows(
                 "submission accepted",
             ),
         )
-    events = base_events + queue_events
+
+    point_records: dict[str, tuple[str, str, SourceLocation]] = {}
+    point_kind_priority = {
+        "effect": 0,
+        "call": 1,
+        "task_start": 2,
+        "task_submit": 3,
+        "task_exit": 4,
+    }
+
+    def record_point(
+        point_id: str, callable_id: str, kind: str, location: SourceLocation
+    ) -> None:
+        if point_id == "none":
+            return
+        prior = point_records.get(point_id)
+        if prior is None or point_kind_priority[kind] > point_kind_priority[prior[1]]:
+            point_records[point_id] = (callable_id, kind, location)
+
+    for fact in rows:
+        primary_kind = (
+            "task_exit"
+            if fact.fact_kind == "task_exit"
+            else "task_submit"
+            if fact.fact_kind == "dispatch" and fact.related_point != "none"
+            else "call"
+            if fact.fact_kind in {"call_binding", "unknown_call"}
+            else "effect"
+        )
+        record_point(
+            fact.program_point, fact.site_callable, primary_kind, fact.location
+        )
+        related_callable = (
+            fact.target_event
+            if fact.fact_kind
+            in {"call_binding", "dispatch", "cfg_edge", "task_exit"}
+            and fact.target_event != "none"
+            else fact.site_callable
+        )
+        related_kind = (
+            "task_start"
+            if fact.fact_kind in {"dispatch", "task_exit"}
+            else "effect"
+        )
+        record_point(
+            fact.related_point, related_callable, related_kind, fact.location
+        )
+    program_points = tuple(
+        ProgramPoint(point_id, callable_id, kind, location)  # type: ignore[arg-type]
+        for point_id, (callable_id, kind, location) in sorted(point_records.items())
+    )
+
+    call_bindings = tuple(
+        CallBinding(
+            stable_identifier("call-binding", {"fact_id": fact.fact_id}),
+            fact.program_point,
+            fact.related_point,
+            fact.site_callable,
+            fact.target_event,
+            fact.binding_index,
+            fact.binding_index,
+            instance_by_key[fact.instance_key][1],
+            fact.relation_depth,
+            (fact.fact_id,),
+        )
+        for fact in rows
+        if fact.fact_kind == "call_binding"
+    )
+
+    task_bindings: list[TaskBinding] = []
+    task_exits: list[TaskExit] = []
+    task_events: list[Event] = []
+    task_dispatch_by_id: dict[str, RawLifecycleFact] = {}
+    task_point_event_ids: dict[str, dict[str, str]] = {}
+    exit_facts_by_task: dict[tuple[str, str], dict[str, RawLifecycleFact]] = defaultdict(dict)
+    for fact in rows:
+        if fact.fact_kind != "task_exit":
+            continue
+        kind = "normal" if fact.normal_path and not fact.exceptional_path else "exceptional"
+        exit_facts_by_task[(fact.instance_key, fact.target_event)][kind] = fact
+    for dispatch in dispatch_facts:
+        if (
+            dispatch.query_name != "resource_lifecycle_task_relations"
+            or dispatch.related_point == "none"
+        ):
+            continue
+        exit_facts = exit_facts_by_task.get(
+            (dispatch.instance_key, dispatch.target_event), {}
+        )
+        if set(exit_facts) != {"normal", "exceptional"}:
+            continue
+        _family_id, instance_id = instance_by_key[dispatch.instance_key]
+        holder_id = task_holder_id(dispatch)
+        contract_id = queue_contract_id(dispatch, holder_id)
+        task_id = stable_identifier(
+            "task",
+            {
+                "unit_id": unit_id,
+                "instance_id": instance_id,
+                "submit_point": dispatch.program_point,
+                "task_callable": dispatch.target_event,
+                "executor_contract_id": contract_id,
+            },
+        )
+
+        def stage_id(phase: str) -> str:
+            return stable_identifier(
+                "event", {"task_id": task_id, "phase": phase}
+            )
+
+        submit_id = stage_id("submit")
+        queued_id = queue_event_id(dispatch)
+        run_id = stage_id("run")
+        normal_exit_id = stage_id("normal_exit")
+        exceptional_exit_id = stage_id("exceptional_exit")
+        rejected_id = stage_id("rejected")
+        cancelled_id = stage_id("cancelled")
+        task_events.extend(
+            (
+                Event(submit_id, "task_submit", dispatch.site_callable, "true"),
+                Event(queued_id, "task_queue", dispatch.target_event, "accepted"),
+                Event(run_id, "task_run", dispatch.target_event, "scheduled"),
+                Event(normal_exit_id, "task_exit", dispatch.target_event, "normal"),
+                Event(
+                    exceptional_exit_id,
+                    "task_exit",
+                    dispatch.target_event,
+                    "exceptional",
+                ),
+                Event(rejected_id, "task_reject", dispatch.target_event, "rejected"),
+                Event(cancelled_id, "task_cancel", dispatch.target_event, "cancelled"),
+            )
+        )
+        task_bindings.append(
+            TaskBinding(
+                stable_identifier("task-binding", {"fact_id": dispatch.fact_id}),
+                task_id,
+                instance_id,
+                holder_id,
+                contract_id,
+                submit_id,
+                queued_id,
+                run_id,
+                normal_exit_id,
+                exceptional_exit_id,
+                rejected_id,
+                cancelled_id,
+                dispatch.target_event,
+                (dispatch.fact_id,),
+            )
+        )
+        task_dispatch_by_id[task_id] = dispatch
+        task_relation_facts = tuple(
+            fact
+            for fact in rows
+            if fact.instance_key == dispatch.instance_key
+            and fact.target_event == dispatch.target_event
+            and fact.fact_kind in {"cfg_edge", "task_exit"}
+        )
+        point_ids = {dispatch.related_point}
+        point_ids.update(fact.program_point for fact in task_relation_facts)
+        point_ids.update(
+            fact.related_point
+            for fact in task_relation_facts
+            if fact.related_point != "none"
+        )
+        task_point_event_ids[task_id] = {
+            point_id: stable_identifier(
+                "event", {"task_id": task_id, "program_point": point_id}
+            )
+            for point_id in point_ids
+        }
+        task_events.extend(
+            Event(event_id, "method", dispatch.target_event, "cfg_reachable")
+            for point_id, event_id in sorted(task_point_event_ids[task_id].items())
+        )
+        for kind, event_id in (
+            ("normal", normal_exit_id),
+            ("exceptional", exceptional_exit_id),
+        ):
+            exit_fact = exit_facts[kind]
+            task_exits.append(
+                TaskExit(
+                    stable_identifier("task-exit", {"fact_id": exit_fact.fact_id}),
+                    task_id,
+                    exit_fact.program_point,
+                    event_id,
+                    dispatch.target_event,
+                    kind,  # type: ignore[arg-type]
+                    (exit_fact.fact_id,),
+                )
+            )
+    ordered_events: list[Event] = []
+    seen_event_ids: set[str] = set()
+    for event in base_events + queue_events + tuple(
+        sorted(task_events, key=lambda item: item.event_id)
+    ):
+        if event.event_id not in seen_event_ids:
+            ordered_events.append(event)
+            seen_event_ids.add(event.event_id)
+    events = tuple(ordered_events)
 
     def path_effects(path_name: str) -> tuple[Effect, ...]:
         output: list[Effect] = []
@@ -652,6 +966,201 @@ def _unit_from_rows(
             "exceptional",
             (),
         ),
+    )
+    task_transitions: list[Transition] = []
+
+    def population_effect(
+        fact: RawLifecycleFact,
+        task_id: str,
+        executor_id: str,
+        kind: str,
+    ) -> PopulationEffect:
+        semantics = {
+            "direct_accept": ("a<W", 0, 1, "absent", "reserved"),
+            "enqueue": ("q<K", 1, 0, "absent", "queued"),
+            "assign_slot": ("q>0 and a<W", -1, 1, "queued", "reserved"),
+            "start": ("reserved", 0, 0, "reserved", "running"),
+            "terminate": ("a>0", 0, -1, "running", "terminated"),
+            "reject": ("queue_or_workers_full", 0, 0, "absent", "rejected"),
+            "cancel_queued": ("queued", -1, 0, "queued", "cancelled"),
+            "cancel_active": ("running", 0, -1, "running", "cancelled"),
+        }
+        guard, queue_delta, active_delta, source_phase, target_phase = semantics[kind]
+        return PopulationEffect(
+            stable_identifier(
+                "population-effect",
+                {"fact_id": fact.fact_id, "task_id": task_id, "kind": kind},
+            ),
+            kind,  # type: ignore[arg-type]
+            executor_id,
+            task_id,
+            guard,
+            queue_delta,
+            active_delta,
+            source_phase,  # type: ignore[arg-type]
+            target_phase,  # type: ignore[arg-type]
+            fact.location,
+            (fact.fact_id,),
+        )
+
+    def task_transition(
+        task_id: str,
+        phase: str,
+        source_id: str,
+        target_id: str,
+        exit_kind: str,
+        fact: RawLifecycleFact,
+        population_kind: str | None = None,
+    ) -> Transition:
+        population = (
+            (
+                population_effect(
+                    fact,
+                    task_id,
+                    next(
+                        binding.executor_contract_id
+                        for binding in task_bindings
+                        if binding.task_id == task_id
+                    ),
+                    population_kind,
+                ),
+            )
+            if population_kind is not None
+            else ()
+        )
+        return Transition(
+            stable_identifier(
+                "transition",
+                {
+                    "task_id": task_id,
+                    "phase": phase,
+                    "source": source_id,
+                    "target": target_id,
+                },
+            ),
+            source_id,
+            target_id,
+            phase,
+            (),
+            exit_kind,  # type: ignore[arg-type]
+            (),
+            population,
+        )
+
+    for binding in task_bindings:
+        dispatch = task_dispatch_by_id[binding.task_id]
+        task_transitions.extend(
+            (
+                task_transition(
+                    binding.task_id,
+                    "direct_accept",
+                    binding.submit_event_id,
+                    binding.run_event_id,
+                    "internal",
+                    dispatch,
+                    "direct_accept",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "enqueue",
+                    binding.submit_event_id,
+                    binding.queued_event_id,
+                    "internal",
+                    dispatch,
+                    "enqueue",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "assign_slot",
+                    binding.queued_event_id,
+                    binding.run_event_id,
+                    "internal",
+                    dispatch,
+                    "assign_slot",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "start",
+                    binding.run_event_id,
+                    binding.run_event_id,
+                    "internal",
+                    dispatch,
+                    "start",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "reject",
+                    binding.submit_event_id,
+                    binding.rejected_event_id,
+                    "rejected",
+                    dispatch,
+                    "reject",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "cancel_queued",
+                    binding.queued_event_id,
+                    binding.cancelled_event_id,
+                    "cancelled",
+                    dispatch,
+                    "cancel_queued",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "cancel_active",
+                    binding.run_event_id,
+                    binding.cancelled_event_id,
+                    "cancelled",
+                    dispatch,
+                    "cancel_active",
+                ),
+                task_transition(
+                    binding.task_id,
+                    "enter_task_cfg",
+                    binding.run_event_id,
+                    task_point_event_ids[binding.task_id][dispatch.related_point],
+                    "internal",
+                    dispatch,
+                ),
+            )
+        )
+        for fact in rows:
+            if (
+                fact.fact_kind == "cfg_edge"
+                and fact.instance_key == dispatch.instance_key
+                and fact.target_event == dispatch.target_event
+            ):
+                task_transitions.append(
+                    task_transition(
+                        binding.task_id,
+                        "task_cfg_edge",
+                        task_point_event_ids[binding.task_id][fact.program_point],
+                        task_point_event_ids[binding.task_id][fact.related_point],
+                        "internal",
+                        fact,
+                    )
+                )
+        for task_exit in task_exits:
+            if task_exit.task_id != binding.task_id:
+                continue
+            exit_fact = next(
+                fact
+                for fact in rows
+                if fact.fact_id in task_exit.evidence_ids
+            )
+            task_transitions.append(
+                task_transition(
+                    binding.task_id,
+                    f"{task_exit.kind}_task_exit",
+                    task_point_event_ids[binding.task_id][task_exit.point_id],
+                    task_exit.event_id,
+                    task_exit.kind,
+                    exit_fact,
+                    "terminate",
+                )
+            )
+    transitions += tuple(
+        sorted(task_transitions, key=lambda item: item.transition_id)
     )
     executor_contracts_by_id: dict[str, ExecutorContract] = {}
     invariant_facts = tuple(item for item in rows if item.fact_kind == "invariant")
@@ -734,6 +1243,9 @@ def _unit_from_rows(
         "dispatch": ("held_instances",),
         "unknown_call": ("held_instances", "item_size_bytes", "close_obligation"),
         "invariant": ("held_instances",),
+        "call_binding": ("held_instances", "item_size_bytes", "close_obligation"),
+        "cfg_edge": ("held_instances", "item_size_bytes", "close_obligation"),
+        "task_exit": ("held_instances", "item_size_bytes", "close_obligation"),
     }
     coverage_gaps = {
         (
@@ -780,6 +1292,11 @@ def _unit_from_rows(
                     )
                 )
     coverage_complete = not coverage_gaps
+    if legacy_executor_identity:
+        program_points = ()
+        call_bindings = ()
+        task_bindings = []
+        task_exits = []
     program = Program(
         SCHEMA_VERSION,
         tuple(families),
@@ -792,6 +1309,10 @@ def _unit_from_rows(
         coverage_complete,
         "resource-lifecycle-contracts-v1",
         tuple(sorted(coverage_gaps)),
+        program_points,
+        tuple(sorted(call_bindings, key=lambda item: item.binding_id)),
+        tuple(sorted(task_bindings, key=lambda item: item.binding_id)),
+        tuple(sorted(task_exits, key=lambda item: item.exit_id)),
     )
     return AnalysisUnit(
         unit_id,
@@ -805,11 +1326,42 @@ def adapt_codeql_rows(
     rows: Sequence[Mapping[str, object]],
     *,
     source_root: Path,
-    query_sha256: str,
+    query_sha256: str | None = None,
+    query_provenance: Sequence[Mapping[str, object]] | None = None,
+    database_fingerprint: str | None = None,
+    source_snapshot_sha256: str | None = None,
     entry_methods: Sequence[str] = (),
 ) -> ExtractedFacts:
-    if not re.fullmatch(r"[0-9a-f]{64}", query_sha256):
-        raise ValueError("query_sha256 is invalid")
+    formal_provenance: tuple[dict[str, str], ...] | None = None
+    if query_provenance is None:
+        if not isinstance(query_sha256, str) or not _SHA256.fullmatch(query_sha256):
+            raise ValueError("query_sha256 is invalid")
+        if database_fingerprint is not None or source_snapshot_sha256 is not None:
+            raise ValueError("single-query provenance fields are invalid")
+        query_digests = {"resource_lifecycle": query_sha256}
+        extractor_version = f"resource-lifecycle-codeql:{query_sha256}"
+    else:
+        if query_sha256 is not None:
+            raise ValueError("query provenance is ambiguous")
+        formal_provenance = _normalize_query_provenance(query_provenance)
+        if (
+            not isinstance(database_fingerprint, str)
+            or not _SHA256.fullmatch(database_fingerprint)
+            or not isinstance(source_snapshot_sha256, str)
+            or not _SHA256.fullmatch(source_snapshot_sha256)
+        ):
+            raise ValueError("formal artifact provenance is invalid")
+        query_digests = {
+            item["query_name"]: item["query_sha256"]
+            for item in formal_provenance
+        }
+        suite_sha256 = _query_suite_sha256(
+            tuple(
+                (item["query_name"], item["query_sha256"])
+                for item in formal_provenance
+            )
+        )
+        extractor_version = f"resource-lifecycle-codeql-suite:{suite_sha256}"
     if (
         len(entry_methods) > 4096
         or any(not isinstance(item, str) or not item or len(item.encode("utf-8")) > 512 for item in entry_methods)
@@ -818,9 +1370,51 @@ def adapt_codeql_rows(
     selected_entries = tuple(sorted(set(entry_methods)))
     selected_entry_set = set(selected_entries)
     facts = tuple(sorted(
-        (_raw_fact(row, source_root, query_sha256) for row in rows),
+        (
+            _raw_fact(row, source_root, query_digests, extractor_version)
+            for row in rows
+        ),
         key=lambda item: item.fact_id,
     ))
+    semantic_origins: dict[bytes, set[tuple[str, str]]] = defaultdict(set)
+    for fact in facts:
+        semantic = _fact_semantic(fact)
+        semantic.pop("query_name")
+        semantic.pop("query_sha256")
+        semantic_origins[canonical_json(semantic)].add(
+            (fact.query_name, fact.query_sha256)
+        )
+    if any(len(origins) > 1 for origins in semantic_origins.values()):
+        raise ValueError("duplicate semantic row across lifecycle queries")
+    if formal_provenance is not None:
+        base_facts = tuple(
+            fact for fact in facts if fact.query_name == "resource_lifecycle"
+        )
+        base_units = {fact.unit_id for fact in base_facts if fact.fact_kind == "create"}
+        base_instances = {
+            (fact.unit_id, fact.instance_key)
+            for fact in base_facts
+            if fact.fact_kind == "create"
+        }
+        dispatches = {
+            (fact.unit_id, fact.instance_key, fact.target_event)
+            for fact in facts
+            if fact.query_name == "resource_lifecycle_task_relations"
+            and fact.fact_kind == "dispatch"
+        }
+        for fact in facts:
+            if fact.query_name != "resource_lifecycle_task_relations":
+                continue
+            if fact.unit_id not in base_units:
+                raise ValueError("task relation references an unknown base unit")
+            if (fact.unit_id, fact.instance_key) not in base_instances:
+                raise ValueError("task relation has an orphan instance_key")
+            if fact.fact_kind in {"cfg_edge", "task_exit"} and (
+                fact.unit_id,
+                fact.instance_key,
+                fact.target_event,
+            ) not in dispatches:
+                raise ValueError("task relation references a dangling task")
     grouped: dict[str, list[RawLifecycleFact]] = defaultdict(list)
     for fact in facts:
         grouped[fact.unit_id].append(fact)
@@ -830,24 +1424,40 @@ def adapt_codeql_rows(
     )
     snapshot = hashlib.sha256(canonical_json([asdict(item) for item in facts])).hexdigest()
     gaps = sum(1 for item in facts if item.coverage_status != "complete")
+    coverage: dict[str, object] = {
+        "units": len(units),
+        "facts": len(facts),
+        "partial_or_unsupported": gaps,
+        "dimension_gaps": sum(len(unit.program.coverage_gaps) for unit in units),
+        "requested_entry_methods": list(selected_entries),
+        "matched_entry_methods": sorted(selected_entry_set.intersection(grouped)),
+        "external_entry_units": sum(unit.unit_id in selected_entry_set for unit in units),
+        "local_method_units": sum(unit.unit_id not in selected_entry_set for unit in units),
+        "end_to_end_mode": "real_source_codeql",
+    }
+    if formal_provenance is not None:
+        coverage.update(
+            {
+                "query_provenance": [dict(item) for item in formal_provenance],
+                "query_suite_sha256": suite_sha256,
+                "database_fingerprint": database_fingerprint,
+                "source_snapshot_sha256": source_snapshot_sha256,
+                "provenance_sha256": _formal_provenance_sha256(
+                    formal_provenance,
+                    suite_sha256,
+                    database_fingerprint,
+                    source_snapshot_sha256,
+                ),
+            }
+        )
     return ExtractedFacts(
         "static_verified",
         snapshot,
-        f"resource-lifecycle-codeql:{query_sha256}",
+        extractor_version,
         AnalysisBudget(),
         units,
         facts,
-        {
-            "units": len(units),
-            "facts": len(facts),
-            "partial_or_unsupported": gaps,
-            "dimension_gaps": sum(len(unit.program.coverage_gaps) for unit in units),
-            "requested_entry_methods": list(selected_entries),
-            "matched_entry_methods": sorted(selected_entry_set.intersection(grouped)),
-            "external_entry_units": sum(unit.unit_id in selected_entry_set for unit in units),
-            "local_method_units": sum(unit.unit_id not in selected_entry_set for unit in units),
-            "end_to_end_mode": "real_source_codeql",
-        },
+        coverage,
     )
 
 
@@ -954,6 +1564,8 @@ def _fact_semantic(fact: RawLifecycleFact, *, legacy: bool = False) -> dict[str,
     if not legacy:
         semantic.update(
             {
+                "query_name": fact.query_name,
+                "query_sha256": fact.query_sha256,
                 "site_callable": fact.site_callable,
                 "program_point": fact.program_point,
                 "related_point": fact.related_point,
@@ -1009,10 +1621,18 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
     if value.get("schema_version") not in {"1.0", SCHEMA_VERSION} or not isinstance(value.get("units"), list) or not isinstance(value.get("facts"), list):
         raise ValueError("facts artifact schema is invalid")
     legacy_schema = value.get("schema_version") == "1.0"
+    legacy_query_sha256: str | None = None
     unit_values = value["units"]  # type: ignore[index]
     fact_values = value["facts"]  # type: ignore[index]
     if legacy_schema:
         _legacy_facts_are_relation_free(unit_values, fact_values)
+        prefix = "resource-lifecycle-codeql:"
+        extractor_version = str(value["extractor_version"])
+        if not extractor_version.startswith(prefix):
+            raise ValueError("legacy static facts extractor identity is invalid")
+        legacy_query_sha256 = extractor_version[len(prefix):]
+        if not _SHA256.fullmatch(legacy_query_sha256):
+            raise ValueError("legacy static facts query digest is invalid")
     units: list[AnalysisUnit] = []
     for item in unit_values:
         if (
@@ -1050,8 +1670,11 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
         location = location_from_dict(record.get("location"))
         record["location"] = location
         if legacy_schema:
+            assert legacy_query_sha256 is not None
             record.update(
                 {
+                    "query_name": "resource_lifecycle",
+                    "query_sha256": legacy_query_sha256,
                     "site_callable": str(record.get("unit_id")),
                     "program_point": (
                         f"legacy-point:{location.path}:{location.start_line}:"
@@ -1070,11 +1693,8 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
         raise ValueError("coverage is invalid")
     snapshot_sha256 = str(value["snapshot_sha256"])
     if legacy_schema and facts:
-        prefix = "resource-lifecycle-codeql:"
-        extractor_version = str(value["extractor_version"])
-        if not extractor_version.startswith(prefix):
-            raise ValueError("legacy static facts extractor identity is invalid")
-        query_sha256 = extractor_version[len(prefix):]
+        assert legacy_query_sha256 is not None
+        query_sha256 = legacy_query_sha256
         for fact in facts:
             expected_id = stable_identifier(
                 "lifecycle-fact",
@@ -1193,21 +1813,67 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
         return extracted
     if extracted.source_kind != "static_verified":
         raise ValueError("facts artifact source kind is unsupported")
-    prefix = "resource-lifecycle-codeql:"
-    if not extracted.extractor_version.startswith(prefix):
+    single_prefix = "resource-lifecycle-codeql:"
+    suite_prefix = "resource-lifecycle-codeql-suite:"
+    formal_provenance: tuple[dict[str, str], ...] | None = None
+    if extracted.extractor_version.startswith(suite_prefix):
+        suite_sha256 = extracted.extractor_version[len(suite_prefix):]
+        if not _SHA256.fullmatch(suite_sha256):
+            raise ValueError("static facts query suite digest is invalid")
+        provenance_value = extracted.coverage.get("query_provenance")
+        if not isinstance(provenance_value, (list, tuple)):
+            raise ValueError("formal query provenance is invalid")
+        formal_provenance = _normalize_query_provenance(provenance_value)
+        expected_suite_sha256 = _query_suite_sha256(
+            tuple(
+                (item["query_name"], item["query_sha256"])
+                for item in formal_provenance
+            )
+        )
+        if (
+            suite_sha256 != expected_suite_sha256
+            or extracted.coverage.get("query_suite_sha256") != suite_sha256
+        ):
+            raise ValueError("formal query provenance suite identity is inconsistent")
+        database_fingerprint = extracted.coverage.get("database_fingerprint")
+        source_snapshot = extracted.coverage.get("source_snapshot_sha256")
+        provenance_sha256 = extracted.coverage.get("provenance_sha256")
+        if (
+            not isinstance(database_fingerprint, str)
+            or not _SHA256.fullmatch(database_fingerprint)
+            or not isinstance(source_snapshot, str)
+            or not _SHA256.fullmatch(source_snapshot)
+            or not isinstance(provenance_sha256, str)
+            or provenance_sha256
+            != _formal_provenance_sha256(
+                formal_provenance,
+                suite_sha256,
+                database_fingerprint,
+                source_snapshot,
+            )
+        ):
+            raise ValueError("formal artifact provenance is inconsistent")
+        query_digests = {
+            item["query_name"]: item["query_sha256"]
+            for item in formal_provenance
+        }
+    elif extracted.extractor_version.startswith(single_prefix):
+        query_sha256 = extracted.extractor_version[len(single_prefix):]
+        if not _SHA256.fullmatch(query_sha256):
+            raise ValueError("static facts query digest is invalid")
+        query_digests = {"resource_lifecycle": query_sha256}
+    else:
         raise ValueError("static facts extractor identity is invalid")
-    query_sha256 = extracted.extractor_version[len(prefix):]
-    if not re.fullmatch(r"[0-9a-f]{64}", query_sha256):
-        raise ValueError("static facts query digest is invalid")
     for fact in extracted.facts:
         if fact.location.source_kind != "static_verified" or fact.location.extractor_version != extracted.extractor_version:
             raise ValueError("static fact source metadata is invalid")
+        if query_digests.get(fact.query_name) != fact.query_sha256:
+            raise ValueError("static fact row query provenance is inconsistent")
         expected_id = stable_identifier(
             "lifecycle-fact",
             {
                 **_fact_semantic(fact),
                 "source_sha256": fact.location.source_sha256,
-                "query_sha256": query_sha256,
             },
         )
         if fact.fact_id != expected_id:
@@ -1251,6 +1917,15 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
     if not isinstance(source_snapshot, str) or not re.fullmatch(r"[0-9a-f]{64}", source_snapshot):
         raise ValueError("Java source snapshot digest is invalid")
     expected_coverage["source_snapshot_sha256"] = source_snapshot
+    if formal_provenance is not None:
+        expected_coverage.update(
+            {
+                "query_provenance": [dict(item) for item in formal_provenance],
+                "query_suite_sha256": suite_sha256,
+                "database_fingerprint": database_fingerprint,
+                "provenance_sha256": provenance_sha256,
+            }
+        )
     if dict(extracted.coverage) != expected_coverage:
         raise ValueError("static facts coverage summary is inconsistent")
     return extracted

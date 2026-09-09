@@ -22,6 +22,7 @@ from dosweb.errors import AnalyzerError
 from dosweb.resource_lifecycle.adapters import (
     AnalysisUnit,
     ExtractedFacts,
+    _query_suite_sha256,
     adapt_codeql_rows,
     extracted_from_dict,
     extracted_to_dict,
@@ -58,7 +59,12 @@ from dosweb.resource_lifecycle.summaries import (
 
 TOOL_VERSION: Final = "resource-lifecycle-v1.1"
 _SUPPORTED_INPUT_SCHEMA_VERSIONS: Final = frozenset({"1.0", SCHEMA_VERSION})
-_QUERY = Path(__file__).resolve().parents[1] / "codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql"
+_QUERY: Final = (
+    Path(__file__).resolve().parents[1]
+    / "codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql",
+    Path(__file__).resolve().parents[1]
+    / "codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql",
+)
 _MAX_SOURCE_FILES: Final = 200_000
 _MAX_SOURCE_BYTES: Final = 2 * 1024 * 1024 * 1024
 _MAX_SUMMARY_BYTES: Final = 1024 * 1024
@@ -277,24 +283,64 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         raise ValueError("CodeQL manifest entry_methods are invalid")
     database = validate_database(Path(str(manifest["database"])))
     source_snapshot_sha256 = _verify_database_source_snapshot(database)
-    result = run_query(
-        _QUERY,
-        database,
-        output / "codeql",
-        codeql_binary=str(values.get("codeql_binary") or "codeql"),
+    results = tuple(
+        run_query(
+            query,
+            database,
+            output / "codeql",
+            codeql_binary=str(values.get("codeql_binary") or "codeql"),
+        )
+        for query in _QUERY
     )
-    payload = load_json_regular(result.decoded_path, max_bytes=64 * 1024 * 1024)
-    if not isinstance(payload, Mapping):
-        raise ValueError("CodeQL decoded result is invalid")
-    rows = decode_bqrs_json("resource_lifecycle", payload, DecodeSource(database.source_root, result.query_sha256))
+    expected_names = (
+        "resource_lifecycle",
+        "resource_lifecycle_task_relations",
+    )
+    if tuple(result.query_name for result in results) != expected_names:
+        raise ValueError("CodeQL lifecycle query suite identity is invalid")
+    rows: list[Mapping[str, object]] = []
+    query_provenance: list[dict[str, str]] = []
+    for expected_name, result in zip(expected_names, results):
+        if (
+            file_sha256(result.query_path) != result.query_sha256
+            or file_sha256(result.bqrs_path) != result.bqrs_sha256
+        ):
+            raise ValueError("CodeQL lifecycle query artifact changed after execution")
+        payload = load_json_regular(
+            result.decoded_path, max_bytes=64 * 1024 * 1024
+        )
+        if not isinstance(payload, Mapping):
+            raise ValueError("CodeQL decoded result is invalid")
+        rows.extend(
+            decode_bqrs_json(
+                expected_name,
+                payload,
+                DecodeSource(database.source_root, result.query_sha256),
+            )
+        )
+        query_provenance.append(
+            {
+                "query_name": expected_name,
+                "query_sha256": result.query_sha256,
+                "bqrs_sha256": result.bqrs_sha256,
+            }
+        )
+    current_database = validate_database(database.path)
+    if (
+        current_database.fingerprint != database.fingerprint
+        or current_database.source_root != database.source_root
+    ):
+        raise ValueError("CodeQL database changed during lifecycle query suite")
+    if _verify_database_source_snapshot(database) != source_snapshot_sha256:
+        raise ValueError("CodeQL source snapshot changed during extraction")
     extracted = adapt_codeql_rows(
         rows,
         source_root=database.source_root,
-        query_sha256=result.query_sha256,
+        query_provenance=query_provenance,
+        database_fingerprint=database.fingerprint,
+        source_snapshot_sha256=source_snapshot_sha256,
         entry_methods=entry_methods,
     )
-    if _verify_database_source_snapshot(database) != source_snapshot_sha256:
-        raise ValueError("CodeQL source snapshot changed during extraction")
     return ExtractedFacts(
         extracted.source_kind,
         extracted.snapshot_sha256,
@@ -302,7 +348,7 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         budget_from_dict(manifest["budget"]),
         extracted.units,
         extracted.facts,
-        {**extracted.coverage, "source_snapshot_sha256": source_snapshot_sha256},
+        extracted.coverage,
     )
 
 
@@ -873,7 +919,7 @@ def _implementation_sha256() -> str:
         dosweb_root / "cli.py",
         dosweb_root / "codeql" / "decoder.py",
         dosweb_root / "codeql" / "runner.py",
-        _QUERY,
+        *_QUERY,
     )
     identity = [
         {
