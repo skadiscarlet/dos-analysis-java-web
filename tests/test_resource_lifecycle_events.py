@@ -25,21 +25,134 @@ def dispatch_effect() -> Effect:
     )
 
 
-def contract(*, cancellation: str = "unknown", scheduling: str = "queued") -> ExecutorContract:
+def contract(
+    *,
+    cancellation: str = "unknown",
+    scheduling: str = "queued",
+    rejection_policy: str = "abort",
+    termination: str = "drops_capture",
+) -> ExecutorContract:
     return ExecutorContract(
         contract_id="contract:bounded-executor",
         scheduling=scheduling,
         queue_capacity=4,
         capacity_atomic=True,
-        completion_drops_capture=True,
-        rejection_drops_capture=True,
+        completion_drops_capture=termination == "drops_capture",
+        rejection_drops_capture=rejection_policy in {"abort", "discard"},
         cancellation=cancellation,
         source_kind="trusted_contract",
         version="executor-contract-v1",
+        rejection_policy=rejection_policy,
+        termination=termination,
     )
 
 
 class ResourceLifecycleEventTests(unittest.TestCase):
+    def test_executor_contract_rejects_boolean_enum_conflicts(self) -> None:
+        values = {
+            "contract_id": "contract:bounded-executor",
+            "scheduling": "queued",
+            "queue_capacity": 4,
+            "capacity_atomic": True,
+            "completion_drops_capture": True,
+            "rejection_drops_capture": True,
+            "cancellation": "unknown",
+            "source_kind": "trusted_contract",
+            "version": "executor-contract-v1",
+            "rejection_policy": "abort",
+            "termination": "drops_capture",
+        }
+        cases = (
+            ("termination_unknown", {"termination": "unknown"}, "termination"),
+            (
+                "termination_retains",
+                {"termination": "retains_capture"},
+                "termination",
+            ),
+            (
+                "termination_drops_false",
+                {"completion_drops_capture": False},
+                "termination",
+            ),
+            (
+                "abort_retains",
+                {"rejection_drops_capture": False},
+                "rejection policy",
+            ),
+            (
+                "discard_retains",
+                {
+                    "rejection_policy": "discard",
+                    "rejection_drops_capture": False,
+                },
+                "rejection policy",
+            ),
+            (
+                "caller_runs_drops",
+                {"rejection_policy": "caller_runs"},
+                "rejection policy",
+            ),
+            (
+                "discard_oldest_drops",
+                {"rejection_policy": "discard_oldest"},
+                "rejection policy",
+            ),
+        )
+
+        for name, overrides, message in cases:
+            with self.subTest(case=name), self.assertRaisesRegex(ValueError, message):
+                ExecutorContract(**{**values, **overrides})  # type: ignore[arg-type]
+
+    def test_dispatch_consumes_termination_enum(self) -> None:
+        retained = expand_dispatch(
+            self._state(),
+            dispatch_effect(),
+            contract(termination="retains_capture"),
+        )
+        unknown = expand_dispatch(
+            self._state(), dispatch_effect(), contract(termination="unknown")
+        )
+
+        self.assertIn(("instance:stream", "holder:task"), retained.completed.held_edges)
+        self.assertNotIn(
+            "completion_contract_unknown:contract:bounded-executor",
+            retained.completed.unknown_reasons,
+        )
+        self.assertIn("task_completion_retains_capture", retained.rule_ids)
+        self.assertIn(
+            "completion_contract_unknown:contract:bounded-executor",
+            unknown.completed.unknown_reasons,
+        )
+
+    def test_dispatch_consumes_rejection_policy_without_trusting_legacy_flag(self) -> None:
+        for policy in ("abort", "discard"):
+            expansion = expand_dispatch(
+                self._state(),
+                dispatch_effect(),
+                contract(rejection_policy=policy),
+            )
+            with self.subTest(policy=policy):
+                self.assertNotIn(
+                    ("instance:stream", "holder:task"), expansion.rejected.held_edges
+                )
+                self.assertIn(
+                    f"task_rejection_{policy}_does_not_capture", expansion.rule_ids
+                )
+
+        for policy in ("caller_runs", "discard_oldest", "unknown"):
+            current = contract(rejection_policy=policy)
+            if policy == "unknown":
+                current = replace(current, rejection_drops_capture=True)
+            expansion = expand_dispatch(self._state(), dispatch_effect(), current)
+            with self.subTest(policy=policy):
+                self.assertIn(
+                    ("instance:stream", "holder:task"), expansion.rejected.held_edges
+                )
+                self.assertIn(
+                    f"rejection_policy_conservative:contract:bounded-executor:{policy}",
+                    expansion.rejected.unknown_reasons,
+                )
+
     def test_executor_contract_carries_worker_and_rejection_semantics(self) -> None:
         current = contract()
         self.assertTrue(hasattr(current, "max_workers"), "missing max_workers")
@@ -154,6 +267,8 @@ class ResourceLifecycleEventTests(unittest.TestCase):
             cancellation="drops_capture",
             source_kind="llm_proposed",
             version="executor-contract-v1",
+            rejection_policy="abort",
+            termination="drops_capture",
         )
         with self.assertRaisesRegex(ValueError, "trusted"):
             expand_dispatch(self._state(), dispatch_effect(), invalid)
@@ -215,6 +330,8 @@ class ResourceLifecycleEventTests(unittest.TestCase):
             cancellation=invalid.cancellation,
             source_kind=invalid.source_kind,
             version=invalid.version,
+            rejection_policy=invalid.rejection_policy,
+            termination=invalid.termination,
         )
 
         with self.assertRaisesRegex(ValueError, "does not match"):

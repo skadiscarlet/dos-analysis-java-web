@@ -675,13 +675,18 @@ def _unit_from_rows(
             and invariant.coverage_status == "complete"
             for invariant in invariant_facts
         )
+        rejection_drops_capture = (
+            True
+            if legacy_executor_identity
+            else dispatch_fact.rejection_policy in {"abort", "discard"}
+        )
         contract = ExecutorContract(
             contract_id=contract_id,
             scheduling="queued",
             queue_capacity=numeric_capacity,
             capacity_atomic=numeric_capacity is not None and matching_invariant,
             completion_drops_capture=False,
-            rejection_drops_capture=True,
+            rejection_drops_capture=rejection_drops_capture,
             cancellation="unknown",
             source_kind="static_verified",
             version="executor-contract-v1",
@@ -698,22 +703,27 @@ def _unit_from_rows(
         if prior_contract is None:
             executor_contracts_by_id[contract_id] = contract
         elif prior_contract != contract:
+            merged_rejection_policy = (
+                prior_contract.rejection_policy
+                if prior_contract.rejection_policy == contract.rejection_policy
+                else "unknown"
+            )
             executor_contracts_by_id[contract_id] = ExecutorContract(
                 contract_id=contract.contract_id,
                 scheduling=contract.scheduling,
                 queue_capacity=contract.queue_capacity,
                 capacity_atomic=prior_contract.capacity_atomic and contract.capacity_atomic,
                 completion_drops_capture=False,
-                rejection_drops_capture=True,
+                rejection_drops_capture=(
+                    True
+                    if legacy_executor_identity
+                    else merged_rejection_policy in {"abort", "discard"}
+                ),
                 cancellation="unknown",
                 source_kind="static_verified",
                 version=contract.version,
                 max_workers=contract.max_workers,
-                rejection_policy=(
-                    prior_contract.rejection_policy
-                    if prior_contract.rejection_policy == contract.rejection_policy
-                    else "unknown"
-                ),
+                rejection_policy=merged_rejection_policy,
                 termination="unknown",
             )
     dimensions_by_fact_kind = {
@@ -893,6 +903,13 @@ def _executor_contract_from_dict(
     if schema_version == SCHEMA_VERSION:
         if set(record) != expected:
             raise ValueError("schema 1.1 executor contract fields are invalid")
+        if (
+            record["rejection_policy"] == "unknown"
+            and record["rejection_drops_capture"] is True
+        ):
+            raise ValueError(
+                "executor rejection policy and legacy flag are inconsistent"
+            )
     elif schema_version == "1.0":
         legacy_fields = expected - _V1_1_EXECUTOR_CONTRACT_FIELDS
         if set(record) != legacy_fields:
@@ -901,7 +918,11 @@ def _executor_contract_from_dict(
             {
                 "max_workers": None,
                 "rejection_policy": "unknown",
-                "termination": "unknown",
+                "termination": (
+                    "drops_capture"
+                    if record["completion_drops_capture"] is True
+                    else "unknown"
+                ),
             }
         )
     else:
@@ -1158,6 +1179,17 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
                 for effect in transition.effects
             ):
                 raise ValueError("manual fixture effect source is invalid")
+            if any(
+                point.location.source_kind != "manual_fixture"
+                for point in unit.program.program_points
+            ):
+                raise ValueError("manual fixture program point source is invalid")
+            if any(
+                effect.location.source_kind != "manual_fixture"
+                for transition in unit.program.transitions
+                for effect in transition.population_effects
+            ):
+                raise ValueError("manual fixture population effect source is invalid")
         return extracted
     if extracted.source_kind != "static_verified":
         raise ValueError("facts artifact source kind is unsupported")

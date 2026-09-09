@@ -76,5 +76,19 @@ class ExecutorContract:
             raise ValueError("executor cancellation semantics are invalid")
         if self.termination not in {"drops_capture", "retains_capture", "unknown"}:
             raise ValueError("executor termination semantics are invalid")
+        if self.completion_drops_capture != (self.termination == "drops_capture"):
+            raise ValueError("executor termination enum and legacy flag are inconsistent")
+        if self.rejection_policy in {"abort", "discard"}:
+            if not self.rejection_drops_capture:
+                raise ValueError(
+                    "executor rejection policy and legacy flag are inconsistent"
+                )
+        elif (
+            self.rejection_policy in {"caller_runs", "discard_oldest"}
+            and self.rejection_drops_capture
+        ):
+            raise ValueError(
+                "executor rejection policy and legacy flag are inconsistent"
+            )
         if self.source_kind not in SOURCE_KINDS:
             raise ValueError("executor contract source_kind is invalid")

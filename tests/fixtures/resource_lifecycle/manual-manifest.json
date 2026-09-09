@@ -68,6 +68,7 @@
         "entry_event_ids": ["event:entry"],
         "exit_event_ids": ["event:normal", "event:error"],
         "coverage_complete": true,
+        "coverage_gaps": [],
         "contracts_version": "resource-lifecycle-contracts-v1"
       },
       "invariants": []

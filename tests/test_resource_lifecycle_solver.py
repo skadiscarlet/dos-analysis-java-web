@@ -142,10 +142,10 @@ class ResourceLifecycleSchemaTests(unittest.TestCase):
         PopulationEffect = getattr(lifecycle_models, "PopulationEffect")
         base = program_for(())
         task_events = (
-            Event("event:queue", "task_queue", "Fixture.task#queued", "accepted"),
-            Event("event:run", "task_run", "Fixture.task#run", "worker reserved"),
-            Event("event:task-normal", "task_exit", "Fixture.task#normal", "normal"),
-            Event("event:task-error", "task_exit", "Fixture.task#error", "exceptional"),
+            Event("event:queue", "task_queue", "Fixture.task", "accepted"),
+            Event("event:run", "task_run", "Fixture.task", "worker reserved"),
+            Event("event:task-normal", "task_exit", "Fixture.task", "normal"),
+            Event("event:task-error", "task_exit", "Fixture.task", "exceptional"),
         )
         points = (
             ProgramPoint("point:call", "Fixture.handle", "call", location()),

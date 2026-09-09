@@ -28,14 +28,16 @@ string canonicalCallableIdentity(Callable callable) {
   result = "java-callable-v1:" + callable.getQualifiedName() + callable.getMethodDescriptor()
 }
 
-bindingset[site, factKind]
-string programPointIdentity(Expr site, string factKind) {
+bindingset[site]
+string programPointIdentity(Expr site) {
   exists(Callable callable |
     callable = site.getEnclosingCallable() and
-    result = canonicalCallableIdentity(callable) + "#" + factKind + ":" +
+    result = canonicalCallableIdentity(callable) + "#site:" +
       site.getLocation().getFile().getRelativePath() + ":" +
       site.getLocation().getStartLine().toString() + ":" +
-      site.getLocation().getStartColumn().toString()
+      site.getLocation().getStartColumn().toString() + ":" +
+      site.getLocation().getEndLine().toString() + ":" +
+      site.getLocation().getEndColumn().toString()
   )
 }
 
@@ -361,7 +363,7 @@ select
   site.getLocation().getFile().getRelativePath() as site_file,
   site.getLocation().getStartLine() as site_start_line,
   site.getLocation().getStartColumn() as site_start_column,
-  programPointIdentity(site, factKind) as program_point,
+  programPointIdentity(site) as program_point,
   "none" as related_point,
   0 as relation_depth,
   -1 as binding_index,

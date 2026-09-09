@@ -18,6 +18,7 @@ from dosweb.codeql.database import DatabaseInfo
 from dosweb.errors import AnalyzerError
 from dosweb.resource_lifecycle.adapters import (
     ExtractedFacts,
+    _executor_contract_from_dict,
     _unit_from_rows,
     adapt_codeql_rows,
     extracted_from_dict,
@@ -250,6 +251,7 @@ def _legacy_facts_payload(current, *, legacy_executor_identity: bool = False):
                             contract_id=contract_ids.get(
                                 contract.contract_id, contract.contract_id
                             ),
+                            rejection_drops_capture=True,
                         )
                         for contract in unit.executor_contracts
                     ),
@@ -407,6 +409,34 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                     ValueError, "schema 1.1 executor contract"
                 ):
                     validate_extracted(extracted_from_dict(invalid))
+
+            invalid = json.loads(json.dumps(payload))
+            invalid_contract = invalid["units"][0]["executor_contracts"][0]
+            invalid_contract["rejection_policy"] = "unknown"
+            invalid_contract["rejection_drops_capture"] = True
+            with self.subTest(field="rejection_policy_consistency"), self.assertRaisesRegex(
+                ValueError, "rejection policy"
+            ):
+                validate_extracted(extracted_from_dict(invalid))
+
+    def test_schema_1_0_executor_booleans_migrate_without_inventing_policy(self) -> None:
+        legacy = {
+            "contract_id": "contract:legacy",
+            "scheduling": "queued",
+            "queue_capacity": 4,
+            "capacity_atomic": True,
+            "completion_drops_capture": True,
+            "rejection_drops_capture": True,
+            "cancellation": "unknown",
+            "source_kind": "static_verified",
+            "version": "executor-contract-v1",
+        }
+
+        migrated = _executor_contract_from_dict(legacy, schema_version="1.0")
+
+        self.assertEqual("drops_capture", migrated.termination)
+        self.assertEqual("unknown", migrated.rejection_policy)
+        self.assertTrue(migrated.rejection_drops_capture)
 
     def test_schema_1_1_is_used_for_lifecycle_facts_and_program_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -904,6 +934,21 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             content,
         )
 
+    def test_program_point_identity_is_site_based_and_uses_the_full_span(self) -> None:
+        content = DIRECT_QUERY.read_text(encoding="utf-8")
+
+        self.assertIn("bindingset[site]", content)
+        self.assertIn("string programPointIdentity(Expr site)", content)
+        self.assertNotIn(
+            "string programPointIdentity(Expr site, string factKind)", content
+        )
+        self.assertNotIn(
+            'canonicalCallableIdentity(callable) + "#" + factKind', content
+        )
+        self.assertIn("site.getLocation().getEndLine().toString()", content)
+        self.assertIn("site.getLocation().getEndColumn().toString()", content)
+        self.assertIn("programPointIdentity(site) as program_point", content)
+
     def test_bounded_queue_adapter_emits_task_dispatch_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source_root = Path(tmp)
@@ -986,7 +1031,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertEqual(2, executor_contract.queue_capacity)
         self.assertTrue(executor_contract.capacity_atomic)
         self.assertFalse(executor_contract.completion_drops_capture)
-        self.assertTrue(executor_contract.rejection_drops_capture)
+        self.assertFalse(executor_contract.rejection_drops_capture)
         self.assertEqual("unknown", executor_contract.cancellation)
         self.assertEqual("static_verified", executor_contract.source_kind)
         self.assertEqual("executor-contract-v1", executor_contract.version)
@@ -1016,7 +1061,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                     "queue_capacity": 2,
                     "capacity_atomic": True,
                     "completion_drops_capture": False,
-                    "rejection_drops_capture": True,
+                    "rejection_drops_capture": False,
                     "cancellation": "unknown",
                     "source_kind": "static_verified",
                     "version": "executor-contract-v1",
@@ -1044,7 +1089,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         task_edge = [dispatch.instance_id, dispatch.holder_id]
         self.assertIn(task_edge, stage["submitted"]["held_edges"])
         self.assertIn(task_edge, stage["started"]["held_edges"])
-        self.assertNotIn(task_edge, stage["rejected"]["held_edges"])
+        self.assertIn(task_edge, stage["rejected"]["held_edges"])
         self.assertIn(task_edge, stage["completed"]["held_edges"])
         self.assertIn(task_edge, stage["cancelled"]["held_edges"])
         self.assertIn(
@@ -1054,6 +1099,10 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertIn(
             f"cancel_contract_unknown:{dispatch.contract_id}",
             stage["cancelled"]["unknown_reasons"],
+        )
+        self.assertIn(
+            f"rejection_policy_conservative:{dispatch.contract_id}:unknown",
+            stage["rejected"]["unknown_reasons"],
         )
         for phase in ("submitted", "started", "completed", "rejected", "cancelled"):
             self.assertIn(dispatch.instance_id, stage[phase]["open_obligations"])
@@ -1353,6 +1402,39 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
+    def test_same_site_dispatch_and_invariant_share_program_point_identity(self) -> None:
+        source_root = ROOT / "tests/fixtures/resource_lifecycle/src/main/java"
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_query(DIRECT_QUERY, database, Path(tmp) / "query")
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+        rows = decode_bqrs_json(
+            "resource_lifecycle",
+            payload,
+            DecodeSource(database.source_root, result.query_sha256),
+        )
+        facts = [
+            fact
+            for fact in adapt_codeql_rows(
+                rows,
+                source_root=database.source_root,
+                query_sha256=result.query_sha256,
+            ).facts
+            if fact.unit_id == fixture_callable("boundedQueued", "(I)Z")
+            and fact.fact_kind in {"dispatch", "invariant"}
+        ]
+        by_kind = {fact.fact_kind: fact for fact in facts}
+
+        self.assertEqual({"dispatch", "invariant"}, set(by_kind))
+        self.assertEqual(
+            by_kind["dispatch"].location,
+            by_kind["invariant"].location,
+        )
+        self.assertEqual(
+            by_kind["dispatch"].program_point,
+            by_kind["invariant"].program_point,
+        )
+
     def test_retained_values_and_holder_scopes_are_precise(self) -> None:
         source_root = ROOT / "tests/fixtures/resource_lifecycle/src/main/java"
         database = fixture_database(str(source_root))

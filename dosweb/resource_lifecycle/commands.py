@@ -184,6 +184,21 @@ def _manual_facts(manifest: Mapping[str, object], manifest_path: Path) -> Extrac
             for effect in transition.effects
         ):
             raise ValueError("manual fixture effects must declare manual_fixture source")
+        if any(
+            point.location.source_kind != "manual_fixture"
+            for point in program.program_points
+        ):
+            raise ValueError(
+                "manual fixture program points must declare manual_fixture source"
+            )
+        if any(
+            effect.location.source_kind != "manual_fixture"
+            for transition in program.transitions
+            for effect in transition.population_effects
+        ):
+            raise ValueError(
+                "manual fixture population effects must declare manual_fixture source"
+            )
         from dosweb.resource_lifecycle.adapters import _executor_contract_from_dict, _invariant_from_dict
 
         executor_contracts = tuple(

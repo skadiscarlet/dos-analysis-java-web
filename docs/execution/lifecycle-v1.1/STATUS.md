@@ -5,7 +5,7 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task2_relation_ir_green`
+- current_stage: `task2_quality_review_green`
 - next_action: `Task 3：从真实 Java/CodeQL 提取 CFG、调用、捕获、执行器和出口事实`
 
 ## 适用标准
@@ -26,6 +26,8 @@
 
 ## Task 2 完成证据
 
+- Task 2 code-quality review 的五个 Important 已关闭：task event/callable/exit 与 population transition endpoint 精确绑定；executor enum 成为 dispatch 语义唯一来源且与 legacy boolean 冲突时 fail closed；manual ProgramPoint/PopulationEffect provenance 在两个导入/验证入口均限定为 `manual_fixture`；QL program-point identity 改为 callable + file + start/end span 的 site identity，同 site dispatch/invariant 不再因 fact kind 分裂；Program/Transition 使用集中式 `1.0/1.1` exact field sets，`1.1 coverage_gaps` 必填，旧 schema 携带任何新增空 relation/population 字段也拒绝。旧 `1.0` coverage evidence 保留，只有新增 relation/population collection 在 exact schema 校验后迁移为空。
+- 五项 review 最终验收：lifecycle 全量 `232 passed, 5 skipped, 128 subtests passed`；真实 Java/CodeQL compile、query、decode、adapter 与 CLI `36 passed, 16 subtests passed`（526.12s）；direct/embedded QL 字节一致，P0 schema/tool 仍为 `2.5/0.4.0`。Item 4 focused 真实反例先观测到同 location 的 `#dispatch/#invariant` identity 分裂，修复后同 site program point 相等；Item 5 focused exact-schema 用例为 `4 passed, 10 subtests passed`。
 - lifecycle Program/facts 及全部 `resource-*` JSON 输出统一为 schema `1.1`，tool identity 为 `resource-lifecycle-v1.1`；旧 `1.0` Program/facts 只在无 v1.1 relation/population/executor 字段时兼容读取，legacy raw facts 会在旧 ID/snapshot/derived-unit 校验后归一化为当前模型；旧 named-v1 recording 只由 exact-field/typed loader 受限读取，新 private recording 与 validation 输出均为 `1.1`。P0 schema/tool `2.5/0.4.0` 未改。
 - 关系/群体 IR 定向：`8 passed, 44 deselected, 2 subtests passed`；solver/CLI/CodeQL 非 Fixture：`77 passed, 4 deselected, 13 subtests passed`。
 - Task 2 reviewer 四项定向：`5 passed, 6 subtests passed`；CodeQL + recorded LLM：`62 passed, 4 skipped, 23 subtests passed`；lifecycle 全量：`209 passed, 4 skipped, 48 subtests passed`。

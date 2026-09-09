@@ -38,6 +38,13 @@ from dosweb.resource_lifecycle.models import (
 
 _MAX_JSON_BYTES = 16 * 1024 * 1024
 T = TypeVar("T")
+_V1_1_RELATION_FIELDS = frozenset(
+    {"program_points", "call_bindings", "task_bindings", "task_exits"}
+)
+_V1_1_PROGRAM_FIELDS = frozenset(item.name for item in fields(Program))
+_V1_0_PROGRAM_FIELDS = _V1_1_PROGRAM_FIELDS - _V1_1_RELATION_FIELDS
+_V1_1_TRANSITION_FIELDS = frozenset(item.name for item in fields(Transition))
+_V1_0_TRANSITION_FIELDS = _V1_1_TRANSITION_FIELDS - {"population_effects"}
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
@@ -86,12 +93,12 @@ def transition_from_dict(
 ) -> Transition:
     record = dict(_mapping(value, "transition"))
     if schema_version == "1.0":
-        if record.get("population_effects") not in (None, []):
-            raise ValueError("legacy schema cannot contain v1.1 population effects")
+        if set(record) != _V1_0_TRANSITION_FIELDS:
+            raise ValueError("legacy schema 1.0 transition fields are invalid")
         record["population_effects"] = []
     elif schema_version == SCHEMA_VERSION:
-        if "population_effects" not in record:
-            raise ValueError("schema 1.1 transition requires population_effects")
+        if set(record) != _V1_1_TRANSITION_FIELDS:
+            raise ValueError("schema 1.1 transition fields are invalid")
     else:
         raise ValueError("transition schema is unsupported")
     effects_value = _sequence(record.get("effects"), "transition effects")
@@ -124,37 +131,17 @@ def program_to_dict(program: Program) -> dict[str, object]:
 def program_from_dict(value: object) -> Program:
     record = dict(_mapping(value, "program"))
     input_schema = record.get("schema_version")
-    expected = {item.name for item in fields(Program)}
-    relation_fields = {
-        "program_points",
-        "call_bindings",
-        "task_bindings",
-        "task_exits",
-    }
     if input_schema == SCHEMA_VERSION:
-        missing_relations = relation_fields - set(record)
-        if missing_relations:
-            raise ValueError("schema 1.1 program requires all relation fields")
-        optional = {"coverage_gaps"}
+        if set(record) != _V1_1_PROGRAM_FIELDS:
+            raise ValueError("schema 1.1 program fields are invalid")
     elif input_schema == "1.0":
-        optional = {"coverage_gaps"} | relation_fields
+        if set(record) != _V1_0_PROGRAM_FIELDS:
+            raise ValueError("legacy schema 1.0 program fields are invalid")
+        record["schema_version"] = SCHEMA_VERSION
+        for name in _V1_1_RELATION_FIELDS:
+            record[name] = []
     else:
         raise ValueError("program schema is unsupported")
-    if not set(record) <= expected or not expected - optional <= set(record):
-        raise ValueError("program fields are invalid")
-    if input_schema == "1.0":
-        has_relation = any(record.get(name) not in (None, []) for name in relation_fields)
-        transitions = record.get("transitions")
-        has_population = isinstance(transitions, list) and any(
-            isinstance(item, Mapping) and item.get("population_effects") not in (None, [])
-            for item in transitions
-        )
-        if has_relation or has_population:
-            raise ValueError("legacy schema cannot contain v1.1 relations")
-        record["schema_version"] = SCHEMA_VERSION
-        for name in relation_fields:
-            record.setdefault(name, [])
-    record.setdefault("coverage_gaps", [])
     record["families"] = tuple(
         ResourceFamily(
             family_id=str(item_record.get("family_id")),

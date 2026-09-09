@@ -100,20 +100,32 @@ def expand_dispatch(
     started = submitted
     rules = ["dispatch_capture_on_accept", "task_dequeue_is_phase_change"]
 
-    if contract.completion_drops_capture:
+    if contract.termination == "drops_capture":
         completed_result = apply_effect(started, _capture_effect(effect, "drop"))
         completed = completed_result.state
         rules.append("task_completion_drops_capture")
+    elif contract.termination == "retains_capture":
+        completed = started
+        rules.append("task_completion_retains_capture")
     else:
         completed = _unknown(started, f"completion_contract_unknown:{contract.contract_id}")
         rules.append("task_completion_preserves_unknown_capture")
 
-    if contract.rejection_drops_capture:
+    if contract.rejection_policy in {"abort", "discard"}:
         rejected = state
         rules.append("task_rejection_does_not_capture")
+        rules.append(
+            f"task_rejection_{contract.rejection_policy}_does_not_capture"
+        )
     else:
-        rejected = _unknown(submitted, f"rejection_contract_unknown:{contract.contract_id}")
-        rules.append("task_rejection_preserves_unknown_capture")
+        rejected = _unknown(
+            submitted,
+            f"rejection_policy_conservative:{contract.contract_id}:"
+            f"{contract.rejection_policy}",
+        )
+        rules.append(
+            f"task_rejection_{contract.rejection_policy}_preserves_unknown_capture"
+        )
 
     if contract.cancellation == "drops_capture":
         cancelled = apply_effect(submitted, _capture_effect(effect, "drop")).state

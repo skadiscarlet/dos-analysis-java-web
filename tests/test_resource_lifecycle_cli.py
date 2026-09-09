@@ -16,8 +16,13 @@ from dosweb.resource_lifecycle.adapters import (
     adapt_codeql_rows,
     extracted_from_dict,
     extracted_to_dict,
+    validate_extracted,
 )
-from dosweb.resource_lifecycle.commands import _analyze_payload, _evidence_payload
+from dosweb.resource_lifecycle.commands import (
+    _analyze_payload,
+    _evidence_payload,
+    _manual_facts,
+)
 from dosweb.resource_lifecycle.models import (
     AnalysisBudget,
     Effect,
@@ -30,6 +35,51 @@ from tests.test_resource_lifecycle_solver import effect, program_for
 
 
 class ResourceLifecycleCliTests(unittest.TestCase):
+    @staticmethod
+    def _schema_1_0_program_payload() -> dict[str, object]:
+        current = replace(
+            program_for(()),
+            transitions=(
+                Transition(
+                    "transition:legacy",
+                    "event:entry",
+                    "event:normal",
+                    "true",
+                    (),
+                    "normal",
+                    (),
+                ),
+            ),
+        )
+        payload = json.loads(json.dumps(program_to_dict(current), sort_keys=True))
+        payload["schema_version"] = "1.0"
+        for name in (
+            "program_points",
+            "call_bindings",
+            "task_bindings",
+            "task_exits",
+        ):
+            payload.pop(name)
+        payload["transitions"][0].pop("population_effects")
+        return payload
+
+    @staticmethod
+    def _manual_relation_contract() -> ExecutorContract:
+        return ExecutorContract(
+            contract_id="contract:executor",
+            scheduling="queued",
+            queue_capacity=3,
+            capacity_atomic=True,
+            completion_drops_capture=True,
+            rejection_drops_capture=True,
+            cancellation="drops_capture",
+            source_kind="manual_fixture",
+            version="executor-contract-v1",
+            max_workers=2,
+            rejection_policy="abort",
+            termination="drops_capture",
+        )
+
     def _schema_1_1_relation_program(self) -> Program:
         TaskExit = getattr(lifecycle_models, "TaskExit")
         base = program_for(())
@@ -133,6 +183,92 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         self.assertEqual("1.1", program_to_dict(rebuilt)["schema_version"])
         self.assertEqual({"normal", "exceptional"}, {item.kind for item in rebuilt.task_exits})
 
+    def test_manual_manifest_rejects_nonmanual_relation_locations(self) -> None:
+        for relation, source_kind in (
+            ("program_point", "static_verified"),
+            ("program_point", "llm_proposed"),
+            ("population_effect", "static_verified"),
+            ("population_effect", "llm_proposed"),
+        ):
+            with self.subTest(relation=relation, source_kind=source_kind):
+                program = json.loads(
+                    json.dumps(
+                        program_to_dict(self._schema_1_1_relation_program()),
+                        sort_keys=True,
+                    )
+                )
+                if relation == "program_point":
+                    location = program["program_points"][0]["location"]
+                else:
+                    location = program["transitions"][0]["population_effects"][0][
+                        "location"
+                    ]
+                location["source_kind"] = source_kind
+                manifest = {
+                    "schema_version": "1.1",
+                    "mode": "manual_fixture",
+                    "programs": [
+                        {
+                            "unit_id": "manual:relations",
+                            "program": program,
+                            "invariants": [],
+                            "executor_contracts": [
+                                asdict(self._manual_relation_contract())
+                            ],
+                        }
+                    ],
+                    "budget": {
+                        "max_steps": 64,
+                        "max_updates_per_event": 8,
+                        "timeout_ms": 1000,
+                    },
+                }
+                with tempfile.TemporaryDirectory() as tmp:
+                    manifest_path = Path(tmp) / "manifest.json"
+                    manifest_path.write_text(
+                        json.dumps(manifest, sort_keys=True), encoding="utf-8"
+                    )
+                    with self.assertRaises(ValueError):
+                        _manual_facts(manifest, manifest_path)
+
+    def test_manual_artifact_validation_rejects_nonmanual_relation_locations(
+        self,
+    ) -> None:
+        for relation, source_kind in (
+            ("program_point", "static_verified"),
+            ("program_point", "llm_proposed"),
+            ("population_effect", "static_verified"),
+            ("population_effect", "llm_proposed"),
+        ):
+            with self.subTest(relation=relation, source_kind=source_kind):
+                program = self._schema_1_1_relation_program()
+                if relation == "program_point":
+                    location = program.program_points[0].location
+                else:
+                    location = program.transitions[0].population_effects[0].location
+                object.__setattr__(location, "source_kind", source_kind)
+                extracted = ExtractedFacts(
+                    "manual_fixture",
+                    "a" * 64,
+                    "manual-fixture-import-v1",
+                    AnalysisBudget(),
+                    (
+                        AnalysisUnit(
+                            "manual:relations",
+                            program,
+                            (),
+                            (self._manual_relation_contract(),),
+                        ),
+                    ),
+                    (),
+                    {"end_to_end_mode": "manual_ir"},
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError, "manual fixture (program point|population effect) source"
+                ):
+                    validate_extracted(extracted)
+
     def test_schema_1_1_rejects_dangling_task_executor_callable_and_untrusted_relations(self) -> None:
         self.assertTrue(hasattr(lifecycle_models, "TaskExit"), "missing TaskExit")
         base = program_for(())
@@ -219,6 +355,239 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "task exit kind"):
             replace(valid.task_exits[0], kind="guessed")
+
+    def test_schema_1_1_binds_task_events_to_the_task_callable(self) -> None:
+        valid = self._schema_1_1_relation_program()
+        binding = valid.task_bindings[0]
+
+        for event_id in (
+            binding.queued_event_id,
+            binding.run_event_id,
+            binding.normal_exit_event_id,
+            binding.exceptional_exit_event_id,
+        ):
+            events = tuple(
+                replace(event, callable="Fixture.otherTask")
+                if event.event_id == event_id
+                else event
+                for event in valid.events
+            )
+            with self.subTest(event_id=event_id), self.assertRaisesRegex(
+                ValueError, "task binding event callable"
+            ):
+                replace(valid, events=events)
+
+    def test_schema_1_1_binds_population_effects_to_task_phase_events(self) -> None:
+        valid = self._schema_1_1_relation_program()
+        location = effect("create").location
+        cases = (
+            (
+                "enqueue_target",
+                lifecycle_models.PopulationEffect(
+                    "population:enqueue-wrong",
+                    "enqueue",
+                    "contract:executor",
+                    "task:stream",
+                    "q < K",
+                    1,
+                    0,
+                    "absent",
+                    "queued",
+                    location,
+                    ("fact:enqueue",),
+                ),
+                "event:entry",
+                "event:run",
+                "internal",
+            ),
+            (
+                "direct_accept_target",
+                lifecycle_models.PopulationEffect(
+                    "population:direct-wrong",
+                    "direct_accept",
+                    "contract:executor",
+                    "task:stream",
+                    "worker_available",
+                    0,
+                    1,
+                    "absent",
+                    "reserved",
+                    location,
+                    ("fact:direct",),
+                ),
+                "event:entry",
+                "event:queue",
+                "internal",
+            ),
+            (
+                "assign_slot_source",
+                lifecycle_models.PopulationEffect(
+                    "population:assign-wrong",
+                    "assign_slot",
+                    "contract:executor",
+                    "task:stream",
+                    "worker_available",
+                    -1,
+                    1,
+                    "queued",
+                    "reserved",
+                    location,
+                    ("fact:assign",),
+                ),
+                "event:entry",
+                "event:run",
+                "internal",
+            ),
+            (
+                "start_target",
+                lifecycle_models.PopulationEffect(
+                    "population:start-wrong",
+                    "start",
+                    "contract:executor",
+                    "task:stream",
+                    "scheduled",
+                    0,
+                    0,
+                    "reserved",
+                    "running",
+                    location,
+                    ("fact:start",),
+                ),
+                "event:queue",
+                "event:queue",
+                "internal",
+            ),
+            (
+                "terminate_source",
+                lifecycle_models.PopulationEffect(
+                    "population:terminate-source-wrong",
+                    "terminate",
+                    "contract:executor",
+                    "task:stream",
+                    "normal",
+                    0,
+                    -1,
+                    "running",
+                    "terminated",
+                    location,
+                    ("fact:terminate",),
+                ),
+                "event:queue",
+                "event:task-normal",
+                "normal",
+            ),
+            (
+                "terminate_target",
+                lifecycle_models.PopulationEffect(
+                    "population:terminate-target-wrong",
+                    "terminate",
+                    "contract:executor",
+                    "task:stream",
+                    "normal",
+                    0,
+                    -1,
+                    "running",
+                    "terminated",
+                    location,
+                    ("fact:terminate",),
+                ),
+                "event:run",
+                "event:normal",
+                "normal",
+            ),
+            (
+                "terminate_exit_kind",
+                lifecycle_models.PopulationEffect(
+                    "population:terminate-kind-wrong",
+                    "terminate",
+                    "contract:executor",
+                    "task:stream",
+                    "normal",
+                    0,
+                    -1,
+                    "running",
+                    "terminated",
+                    location,
+                    ("fact:terminate",),
+                ),
+                "event:run",
+                "event:task-normal",
+                "exceptional",
+            ),
+            (
+                "cancel_queued_source",
+                lifecycle_models.PopulationEffect(
+                    "population:cancel-queued-wrong",
+                    "cancel_queued",
+                    "contract:executor",
+                    "task:stream",
+                    "cancelled",
+                    -1,
+                    0,
+                    "queued",
+                    "cancelled",
+                    location,
+                    ("fact:cancel",),
+                ),
+                "event:run",
+                "event:normal",
+                "cancelled",
+            ),
+            (
+                "cancel_active_source",
+                lifecycle_models.PopulationEffect(
+                    "population:cancel-active-wrong",
+                    "cancel_active",
+                    "contract:executor",
+                    "task:stream",
+                    "cancelled",
+                    0,
+                    -1,
+                    "running",
+                    "cancelled",
+                    location,
+                    ("fact:cancel",),
+                ),
+                "event:queue",
+                "event:normal",
+                "cancelled",
+            ),
+            (
+                "reject_exit_kind",
+                lifecycle_models.PopulationEffect(
+                    "population:reject-wrong",
+                    "reject",
+                    "contract:executor",
+                    "task:stream",
+                    "rejected",
+                    0,
+                    0,
+                    "absent",
+                    "rejected",
+                    location,
+                    ("fact:reject",),
+                ),
+                "event:entry",
+                "event:normal",
+                "internal",
+            ),
+        )
+
+        for name, population, source, target, exit_kind in cases:
+            transition = Transition(
+                f"transition:{name}",
+                source,
+                target,
+                "true",
+                (),
+                exit_kind,
+                (),
+                (population,),
+            )
+            with self.subTest(case=name), self.assertRaisesRegex(
+                ValueError, "population effect transition"
+            ):
+                replace(valid, transitions=(transition,))
 
     def test_schema_1_1_relation_identifiers_are_unique_across_relation_kinds(self) -> None:
         valid = self._schema_1_1_relation_program()
@@ -324,7 +693,43 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "legacy schema"):
             program_from_dict(payload)
 
-    def test_schema_1_1_program_requires_every_relation_and_population_field(self) -> None:
+    def test_schema_1_0_program_accepts_only_the_exact_legacy_field_set(self) -> None:
+        legacy = self._schema_1_0_program_payload()
+
+        rebuilt = program_from_dict(legacy)
+
+        self.assertEqual("1.1", rebuilt.schema_version)
+        self.assertEqual((), rebuilt.coverage_gaps)
+        self.assertEqual((), rebuilt.program_points)
+        self.assertEqual((), rebuilt.call_bindings)
+        self.assertEqual((), rebuilt.task_bindings)
+        self.assertEqual((), rebuilt.task_exits)
+        self.assertEqual((), rebuilt.transitions[0].population_effects)
+        missing_coverage = json.loads(json.dumps(legacy, sort_keys=True))
+        missing_coverage.pop("coverage_gaps")
+        with self.assertRaisesRegex(ValueError, "schema 1.0 program fields"):
+            program_from_dict(missing_coverage)
+        for field in (
+            "program_points",
+            "call_bindings",
+            "task_bindings",
+            "task_exits",
+        ):
+            invalid = json.loads(json.dumps(legacy, sort_keys=True))
+            invalid[field] = []
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, "schema 1.0 program fields"
+            ):
+                program_from_dict(invalid)
+
+    def test_schema_1_0_transition_rejects_empty_population_effects_field(self) -> None:
+        legacy = self._schema_1_0_program_payload()
+        legacy["transitions"][0]["population_effects"] = []
+
+        with self.assertRaisesRegex(ValueError, "schema 1.0 transition fields"):
+            program_from_dict(legacy)
+
+    def test_schema_1_1_program_requires_every_v1_1_field(self) -> None:
         program = replace(
             program_for(()),
             transitions=(
@@ -341,6 +746,7 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         )
         payload = json.loads(json.dumps(program_to_dict(program)))
         cases = (
+            ("coverage_gaps", lambda value: value.pop("coverage_gaps")),
             ("program_points", lambda value: value.pop("program_points")),
             ("call_bindings", lambda value: value.pop("call_bindings")),
             ("task_bindings", lambda value: value.pop("task_bindings")),
@@ -671,6 +1077,8 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             cancellation="drops_capture",
             source_kind=contract_source_kind,
             version="executor-contract-v1",
+            rejection_policy="abort",
+            termination="drops_capture",
         )
         path = root / "async-manifest.json"
         path.write_text(
@@ -927,6 +1335,7 @@ class ResourceLifecycleCliTests(unittest.TestCase):
                 ("task_dequeue_is_phase_change", "fact:dispatch"),
                 ("task_completion_drops_capture", "fact:dispatch"),
                 ("task_rejection_does_not_capture", "fact:dispatch"),
+                ("task_rejection_abort_does_not_capture", "fact:dispatch"),
                 ("task_cancel_drops_capture", "fact:dispatch"),
                 ("queued_execution_contract", "fact:dispatch"),
             },

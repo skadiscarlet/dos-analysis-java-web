@@ -501,6 +501,16 @@ class Program:
                 or events[binding.exceptional_exit_event_id].kind != "task_exit"
             ):
                 raise ValueError("task binding event kind is invalid")
+            if any(
+                events[event_id].callable != binding.task_callable
+                for event_id in (
+                    binding.queued_event_id,
+                    binding.run_event_id,
+                    binding.normal_exit_event_id,
+                    binding.exceptional_exit_event_id,
+                )
+            ):
+                raise ValueError("task binding event callable is inconsistent")
         exits_by_task: dict[str, dict[str, TaskExit]] = {}
         for task_exit in self.task_exits:
             binding = tasks.get(task_exit.task_id)
@@ -546,10 +556,43 @@ class Program:
             for effect in transition.population_effects:
                 if effect.task_id not in task_ids:
                     raise ValueError("population effect references an unknown task")
-                if effect.executor_id != tasks[effect.task_id].executor_contract_id:
+                binding = tasks[effect.task_id]
+                if effect.executor_id != binding.executor_contract_id:
                     raise ValueError("population effect executor reference is invalid")
                 if effect.location.source_kind not in RELATION_SOURCE_KINDS:
                     raise ValueError("population effect requires a trusted source kind")
+                attachment_valid = {
+                    "enqueue": transition.target_event_id
+                    == binding.queued_event_id,
+                    "direct_accept": transition.target_event_id
+                    == binding.run_event_id,
+                    "assign_slot": (
+                        transition.source_event_id == binding.queued_event_id
+                        and transition.target_event_id == binding.run_event_id
+                    ),
+                    "start": transition.target_event_id == binding.run_event_id,
+                    "cancel_queued": (
+                        transition.source_event_id == binding.queued_event_id
+                        and transition.exit_kind == "cancelled"
+                    ),
+                    "cancel_active": (
+                        transition.source_event_id == binding.run_event_id
+                        and transition.exit_kind == "cancelled"
+                    ),
+                    "reject": transition.exit_kind == "rejected",
+                }
+                if effect.kind == "terminate":
+                    exit_kind = transition.exit_kind
+                    task_exit = exits_by_task[effect.task_id].get(exit_kind)
+                    valid = (
+                        transition.source_event_id == binding.run_event_id
+                        and task_exit is not None
+                        and transition.target_event_id == task_exit.event_id
+                    )
+                else:
+                    valid = attachment_valid[effect.kind]
+                if not valid:
+                    raise ValueError("population effect transition attachment is invalid")
         _identifier(self.contracts_version, "contracts_version")
 
 
