@@ -20,6 +20,7 @@ from dosweb.resource_lifecycle.models import (
     Holder,
     Program,
     ResourceFamily,
+    SCHEMA_VERSION,
     SourceLocation,
     Transition,
 )
@@ -29,6 +30,7 @@ from dosweb.resource_lifecycle.models import (
 class RawLifecycleFact:
     fact_id: str
     unit_id: str
+    site_callable: str
     fact_kind: str
     instance_key: str
     resource_type: str
@@ -46,11 +48,17 @@ class RawLifecycleFact:
     location: SourceLocation
     site_start_column: int
     site_line_sha256: str
+    program_point: str
+    related_point: str
+    relation_depth: int
+    binding_index: int
+    max_workers: str
+    rejection_policy: str
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"lifecycle-fact:[0-9a-f]{24}", self.fact_id):
             raise ValueError("raw lifecycle fact identifier is invalid")
-        if self.fact_kind not in {"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant"}:
+        if self.fact_kind not in {"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant", "call_binding", "cfg_edge", "task_exit"}:
             raise ValueError("raw lifecycle fact kind is invalid")
         if self.holder_kind not in {"none", "local", "field", "queue", "task"}:
             raise ValueError("raw lifecycle holder kind is invalid")
@@ -71,6 +79,33 @@ class RawLifecycleFact:
             raise ValueError("raw lifecycle site line digest is invalid")
         if type(self.site_start_column) is not int or self.site_start_column < 1:
             raise ValueError("raw lifecycle site column is invalid")
+        if type(self.relation_depth) is not int or self.relation_depth not in {0, 1, 2}:
+            raise ValueError("raw lifecycle relation depth is invalid")
+        if type(self.binding_index) is not int or not -1 <= self.binding_index <= 255:
+            raise ValueError("raw lifecycle binding index is invalid")
+        if self.rejection_policy not in {
+            "abort",
+            "caller_runs",
+            "discard",
+            "discard_oldest",
+            "unknown",
+        }:
+            raise ValueError("raw lifecycle rejection policy is invalid")
+        for value, label in (
+            (self.capacity, "capacity"),
+            (self.max_workers, "worker limit"),
+        ):
+            if re.fullmatch(r"-?[0-9]+", value) and int(value) <= 0:
+                raise ValueError(f"raw lifecycle {label} must be positive")
+        if self.fact_kind == "call_binding" and (
+            self.relation_depth not in {1, 2}
+            or self.binding_index < 0
+            or self.target_event == "none"
+            or self.related_point == "none"
+        ):
+            raise ValueError("raw lifecycle call binding is invalid")
+        if self.fact_kind == "cfg_edge" and self.related_point == "none":
+            raise ValueError("raw lifecycle CFG edge is invalid")
         if self.fact_kind == "dispatch" and (
             self.holder_kind != "queue"
             or self.holder_scope != "task"
@@ -86,11 +121,15 @@ class RawLifecycleFact:
             raise ValueError("raw lifecycle path flags must be boolean")
         for value in (
             self.unit_id,
+            self.site_callable,
+            self.program_point,
+            self.related_point,
             self.instance_key,
             self.resource_type,
             self.holder_key,
             self.target_event,
             self.capacity,
+            self.max_workers,
             self.source_evidence,
             self.coverage_note,
         ):
@@ -115,6 +154,11 @@ class AnalysisUnit:
         contract_ids = {contract.contract_id for contract in self.executor_contracts}
         if len(contract_ids) != len(self.executor_contracts):
             raise ValueError("duplicate executor contract identifier")
+        referenced_contract_ids = {
+            binding.executor_contract_id for binding in self.program.task_bindings
+        }
+        if not referenced_contract_ids <= contract_ids:
+            raise ValueError("task binding references an unknown executor contract")
 
 
 @dataclass(frozen=True)
@@ -129,10 +173,20 @@ class ExtractedFacts:
 
 
 _RAW_ROW_FIELDS = {
-    "unit_id", "site_file", "site_start_line", "site_start_column", "fact_kind", "instance_key",
+    "unit_id", "site_callable", "site_file", "site_start_line", "site_start_column",
+    "program_point", "related_point", "relation_depth", "binding_index", "fact_kind", "instance_key",
     "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
-    "capacity", "normal_path", "exceptional_path", "source_evidence", "coverage_status",
+    "capacity", "max_workers", "rejection_policy", "normal_path", "exceptional_path", "source_evidence", "coverage_status",
     "coverage_note",
+}
+_LEGACY_RAW_ROW_FIELDS = _RAW_ROW_FIELDS - {
+    "site_callable",
+    "program_point",
+    "related_point",
+    "relation_depth",
+    "binding_index",
+    "max_workers",
+    "rejection_policy",
 }
 _DECODED_ROW_METADATA_FIELDS = {"query_name", "query_sha256", "site_location"}
 _DECODED_ROW_FIELDS = _RAW_ROW_FIELDS | _DECODED_ROW_METADATA_FIELDS
@@ -178,6 +232,22 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
         raw_row = {key: row[key] for key in _RAW_ROW_FIELDS}
     elif row_fields == _RAW_ROW_FIELDS:
         raw_row = dict(row)
+    elif row_fields == _LEGACY_RAW_ROW_FIELDS:
+        raw_row = dict(row)
+        raw_row.update(
+            {
+                "site_callable": raw_row["unit_id"],
+                "program_point": (
+                    f"legacy-point:{raw_row['site_file']}:{raw_row['site_start_line']}:"
+                    f"{raw_row['site_start_column']}:{raw_row['fact_kind']}"
+                ),
+                "related_point": "none",
+                "relation_depth": 0,
+                "binding_index": -1,
+                "max_workers": "unknown",
+                "rejection_policy": "unknown",
+            }
+        )
     else:
         raise ValueError("CodeQL lifecycle row fields are invalid")
     if isinstance(raw_row["site_start_line"], bool) or not isinstance(raw_row["site_start_line"], int):
@@ -199,6 +269,8 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
         - {
             "site_start_line",
             "site_start_column",
+            "relation_depth",
+            "binding_index",
             "requires_close",
             "normal_path",
             "exceptional_path",
@@ -223,14 +295,16 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
         key: raw_row[key]
         for key in (
             "unit_id", "site_file", "site_start_line", "site_start_column", "fact_kind", "instance_key",
+            "site_callable", "program_point", "related_point", "relation_depth", "binding_index",
             "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
-            "capacity", "normal_path", "exceptional_path", "source_evidence", "coverage_status",
+            "capacity", "max_workers", "rejection_policy", "normal_path", "exceptional_path", "source_evidence", "coverage_status",
             "coverage_note",
         )
     }
     return RawLifecycleFact(
         fact_id=stable_identifier("lifecycle-fact", {**semantic, "source_sha256": location.source_sha256, "query_sha256": query_sha256}),
         unit_id=str(raw_row["unit_id"]),
+        site_callable=str(raw_row["site_callable"]),
         fact_kind=str(raw_row["fact_kind"]),
         instance_key=str(raw_row["instance_key"]),
         resource_type=str(raw_row["resource_type"]),
@@ -248,6 +322,12 @@ def _raw_fact(row: Mapping[str, object], source_root: Path, query_sha256: str) -
         location=location,
         site_start_column=raw_row["site_start_column"],
         site_line_sha256=site_line_sha256,
+        program_point=str(raw_row["program_point"]),
+        related_point=str(raw_row["related_point"]),
+        relation_depth=raw_row["relation_depth"],
+        binding_index=raw_row["binding_index"],
+        max_workers=str(raw_row["max_workers"]),
+        rejection_policy=str(raw_row["rejection_policy"]),
     )
 
 
@@ -375,6 +455,8 @@ def _unit_from_rows(
                 "target_event": fact.target_event,
                 "target_event_id": queue_event_id(fact),
                 "capacity": fact.capacity,
+                "max_workers": fact.max_workers,
+                "rejection_policy": fact.rejection_policy,
             },
         )
 
@@ -582,6 +664,14 @@ def _unit_from_rows(
             cancellation="unknown",
             source_kind="static_verified",
             version="executor-contract-v1",
+            max_workers=(
+                int(dispatch_fact.max_workers)
+                if dispatch_fact.max_workers.isdecimal()
+                and int(dispatch_fact.max_workers) > 0
+                else None
+            ),
+            rejection_policy=dispatch_fact.rejection_policy,  # type: ignore[arg-type]
+            termination="unknown",
         )
         prior_contract = executor_contracts_by_id.get(contract_id)
         if prior_contract is None:
@@ -597,6 +687,13 @@ def _unit_from_rows(
                 cancellation="unknown",
                 source_kind="static_verified",
                 version=contract.version,
+                max_workers=contract.max_workers,
+                rejection_policy=(
+                    prior_contract.rejection_policy
+                    if prior_contract.rejection_policy == contract.rejection_policy
+                    else "unknown"
+                ),
+                termination="unknown",
             )
     dimensions_by_fact_kind = {
         "create": ("held_instances", "item_size_bytes", "close_obligation"),
@@ -653,7 +750,7 @@ def _unit_from_rows(
                 )
     coverage_complete = not coverage_gaps
     program = Program(
-        "1.0",
+        SCHEMA_VERSION,
         tuple(families),
         tuple(instances),
         tuple(sorted(holders.values(), key=lambda item: item.holder_id)),
@@ -725,7 +822,7 @@ def adapt_codeql_rows(
 
 def extracted_to_dict(extracted: ExtractedFacts) -> dict[str, object]:
     return {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "source_kind": extracted.source_kind,
         "snapshot_sha256": extracted.snapshot_sha256,
         "extractor_version": extracted.extractor_version,
@@ -765,12 +862,17 @@ def _executor_contract_from_dict(value: object) -> ExecutorContract:
     if not isinstance(value, Mapping):
         raise ValueError("executor contract must be an object")
     record = dict(value)
-    if set(record) != {
+    expected = {
         "contract_id", "scheduling", "queue_capacity", "capacity_atomic",
         "completion_drops_capture", "rejection_drops_capture", "cancellation",
-        "source_kind", "version",
-    }:
+        "source_kind", "version", "max_workers", "rejection_policy", "termination",
+    }
+    optional = {"max_workers", "rejection_policy", "termination"}
+    if not set(record) <= expected or not expected - optional <= set(record):
         raise ValueError("executor contract fields are invalid")
+    record.setdefault("max_workers", None)
+    record.setdefault("rejection_policy", "unknown")
+    record.setdefault("termination", "unknown")
     return ExecutorContract(**record)  # type: ignore[arg-type]
 
 
@@ -779,7 +881,7 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
         "schema_version", "source_kind", "snapshot_sha256", "extractor_version", "budget", "units", "facts", "coverage",
     }:
         raise ValueError("facts artifact fields are invalid")
-    if value.get("schema_version") != "1.0" or not isinstance(value.get("units"), list) or not isinstance(value.get("facts"), list):
+    if value.get("schema_version") not in {"1.0", SCHEMA_VERSION} or not isinstance(value.get("units"), list) or not isinstance(value.get("facts"), list):
         raise ValueError("facts artifact schema is invalid")
     units: list[AnalysisUnit] = []
     for item in value["units"]:  # type: ignore[index]
@@ -853,9 +955,14 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
             raise ValueError("static fact source metadata is invalid")
         semantic = {
             "unit_id": fact.unit_id,
+            "site_callable": fact.site_callable,
             "site_file": fact.location.path,
             "site_start_line": fact.location.start_line,
             "site_start_column": fact.site_start_column,
+            "program_point": fact.program_point,
+            "related_point": fact.related_point,
+            "relation_depth": fact.relation_depth,
+            "binding_index": fact.binding_index,
             "fact_kind": fact.fact_kind,
             "instance_key": fact.instance_key,
             "resource_type": fact.resource_type,
@@ -865,6 +972,8 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
             "holder_key": fact.holder_key,
             "target_event": fact.target_event,
             "capacity": fact.capacity,
+            "max_workers": fact.max_workers,
+            "rejection_policy": fact.rejection_policy,
             "normal_path": fact.normal_path,
             "exceptional_path": fact.exceptional_path,
             "source_evidence": fact.source_evidence,

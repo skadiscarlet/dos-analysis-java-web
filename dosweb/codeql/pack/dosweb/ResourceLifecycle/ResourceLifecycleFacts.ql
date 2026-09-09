@@ -28,6 +28,17 @@ string canonicalCallableIdentity(Callable callable) {
   result = "java-callable-v1:" + callable.getQualifiedName() + callable.getMethodDescriptor()
 }
 
+bindingset[site, factKind]
+string programPointIdentity(Expr site, string factKind) {
+  exists(Callable callable |
+    callable = site.getEnclosingCallable() and
+    result = canonicalCallableIdentity(callable) + "#" + factKind + ":" +
+      site.getLocation().getFile().getRelativePath() + ":" +
+      site.getLocation().getStartLine().toString() + ":" +
+      site.getLocation().getStartColumn().toString()
+  )
+}
+
 predicate exactSourceCallee(Method method) {
   method.fromSource() and
   (
@@ -346,9 +357,14 @@ where lifecycleFact(
 )
 select
   canonicalCallableIdentity(owner) as unit_id,
+  canonicalCallableIdentity(site.getEnclosingCallable()) as site_callable,
   site.getLocation().getFile().getRelativePath() as site_file,
   site.getLocation().getStartLine() as site_start_line,
   site.getLocation().getStartColumn() as site_start_column,
+  programPointIdentity(site, factKind) as program_point,
+  "none" as related_point,
+  0 as relation_depth,
+  -1 as binding_index,
   factKind as fact_kind,
   allocation.getLocation().getFile().getRelativePath() + ":" +
     allocation.getLocation().getStartLine().toString() + ":" +
@@ -360,6 +376,8 @@ select
   holderKey as holder_key,
   targetEvent as target_event,
   capacityValue as capacity,
+  "unknown" as max_workers,
+  "unknown" as rejection_policy,
   normalPath as normal_path,
   exceptionalPath as exceptional_path,
   evidence as source_evidence,

@@ -45,7 +45,7 @@ from dosweb.resource_lifecycle.io import (
     program_from_dict,
     state_to_dict,
 )
-from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult
+from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult, SCHEMA_VERSION
 from dosweb.resource_lifecycle.solver import apply_effect, initial_state, solve
 from dosweb.resource_lifecycle.summaries import (
     AppliedSummaries,
@@ -56,7 +56,8 @@ from dosweb.resource_lifecycle.summaries import (
 )
 
 
-TOOL_VERSION: Final = "resource-lifecycle-v1.0"
+TOOL_VERSION: Final = "resource-lifecycle-v1.1"
+_SUPPORTED_INPUT_SCHEMA_VERSIONS: Final = frozenset({"1.0", SCHEMA_VERSION})
 _QUERY = Path(__file__).resolve().parents[1] / "codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql"
 _MAX_SOURCE_FILES: Final = 200_000
 _MAX_SOURCE_BYTES: Final = 2 * 1024 * 1024 * 1024
@@ -165,7 +166,7 @@ def _manual_facts(manifest: Mapping[str, object], manifest_path: Path) -> Extrac
     if set(manifest) != {"schema_version", "mode", "programs", "budget"}:
         raise ValueError("manual fixture manifest fields are invalid")
     programs = manifest.get("programs")
-    if manifest.get("schema_version") != "1.0" or not isinstance(programs, list):
+    if manifest.get("schema_version") not in _SUPPORTED_INPUT_SCHEMA_VERSIONS or not isinstance(programs, list):
         raise ValueError("manual fixture manifest schema is invalid")
     units: list[AnalysisUnit] = []
     for item in programs:
@@ -217,7 +218,7 @@ def _manual_facts(manifest: Mapping[str, object], manifest_path: Path) -> Extrac
 def _static_json_facts(manifest: Mapping[str, object], manifest_path: Path) -> ExtractedFacts:
     if set(manifest) != {"schema_version", "mode", "rows", "source_root", "query_sha256", "entry_methods", "budget"}:
         raise ValueError("static fact manifest fields are invalid")
-    if manifest.get("schema_version") != "1.0" or manifest.get("mode") != "static_verified_json":
+    if manifest.get("schema_version") not in _SUPPORTED_INPUT_SCHEMA_VERSIONS or manifest.get("mode") != "static_verified_json":
         raise ValueError("static fact manifest schema is invalid")
     rows_path = _manifest_relative(manifest_path, manifest["rows"], "rows")
     source_root = _manifest_relative(manifest_path, manifest["source_root"], "source_root")
@@ -254,7 +255,7 @@ def _static_json_facts(manifest: Mapping[str, object], manifest_path: Path) -> E
 def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], output: Path) -> ExtractedFacts:
     if set(manifest) != {"schema_version", "mode", "database", "entry_methods", "budget"}:
         raise ValueError("CodeQL manifest fields are invalid")
-    if manifest.get("schema_version") != "1.0" or manifest.get("mode") != "codeql_database":
+    if manifest.get("schema_version") not in _SUPPORTED_INPUT_SCHEMA_VERSIONS or manifest.get("mode") != "codeql_database":
         raise ValueError("CodeQL manifest schema is invalid")
     entry_methods = manifest["entry_methods"]
     if not isinstance(entry_methods, list):
@@ -435,6 +436,10 @@ def _analyze_payload(
                     event_id: {
                         "held_edges": [list(edge) for edge in sorted(state.held_edges)],
                         "open_obligations": sorted(state.open_obligations),
+                        "instance_obligation_counts": [
+                            [instance_id, {"lower": interval.lower, "upper": interval.upper}]
+                            for instance_id, interval in state.instance_obligation_counts
+                        ],
                         "obligation_counts": [
                             [family_id, {"lower": interval.lower, "upper": interval.upper}]
                             for family_id, interval in state.obligation_counts
@@ -456,7 +461,7 @@ def _analyze_payload(
             }
         )
     payload: dict[str, object] = {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "summary_effect_ids": list(summary_effect_ids),
         "units": units,
     }
@@ -809,7 +814,7 @@ def _evidence_payload(
     if not referenced_evidence <= set(facts):
         raise ValueError("resource lifecycle evidence dependency is unresolved")
     return {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "facts": facts,
         "rules": [
             {
@@ -1124,7 +1129,7 @@ def resource_analyze(values: Mapping[str, object]) -> dict[str, object]:
     results = _analyze_payload(analysis_input, summary_effect_ids=summary_effect_ids)
     implementation_sha256 = _implementation_sha256()
     run_manifest = {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "tool_version": TOOL_VERSION,
         "implementation_sha256": implementation_sha256,
         "facts_sha256": facts_hash,
@@ -1254,7 +1259,7 @@ def _resource_replay_locked(run_dir: Path) -> dict[str, object]:
     else:
         raise AnalyzerError("ARTIFACT_INPUT_INVALID", "Resource lifecycle replay LLM mode is unsupported.")
     if (
-        manifest.get("schema_version") != "1.0"
+        manifest.get("schema_version") != SCHEMA_VERSION
         or manifest.get("tool_version") != TOOL_VERSION
         or manifest.get("implementation_sha256") != implementation_sha256
         or manifest.get("input_snapshot_sha256") != extracted.snapshot_sha256
@@ -1301,7 +1306,7 @@ def _resource_replay_locked(run_dir: Path) -> dict[str, object]:
         and recomputed_evidence.get("result_sha256") == recomputed.get("result_sha256")
     )
     replay = {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "consistent": (
             stored_declared == stored_observed == recomputed.get("result_sha256")
             and evidence_consistent

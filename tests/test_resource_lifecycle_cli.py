@@ -7,8 +7,9 @@ import tempfile
 import unittest
 
 from dosweb.cli import main, parse_cli_values
+from dosweb.resource_lifecycle import models as lifecycle_models
 from dosweb.resource_lifecycle.contracts import ExecutorContract
-from dosweb.resource_lifecycle.io import program_to_dict
+from dosweb.resource_lifecycle.io import program_from_dict, program_to_dict
 from dosweb.resource_lifecycle.adapters import (
     AnalysisUnit,
     ExtractedFacts,
@@ -16,11 +17,258 @@ from dosweb.resource_lifecycle.adapters import (
     extracted_from_dict,
 )
 from dosweb.resource_lifecycle.commands import _analyze_payload, _evidence_payload
-from dosweb.resource_lifecycle.models import AnalysisBudget, Effect, Event, Holder, Transition
+from dosweb.resource_lifecycle.models import (
+    AnalysisBudget,
+    Effect,
+    Event,
+    Holder,
+    Program,
+    Transition,
+)
 from tests.test_resource_lifecycle_solver import effect, program_for
 
 
 class ResourceLifecycleCliTests(unittest.TestCase):
+    def _schema_1_1_relation_program(self) -> Program:
+        TaskExit = getattr(lifecycle_models, "TaskExit")
+        base = program_for(())
+        task_events = (
+            Event("event:queue", "task_queue", "Fixture.task", "accepted"),
+            Event("event:run", "task_run", "Fixture.task", "worker reserved"),
+            Event("event:task-normal", "task_exit", "Fixture.task", "normal"),
+            Event("event:task-error", "task_exit", "Fixture.task", "exceptional"),
+        )
+        points = (
+            lifecycle_models.ProgramPoint(
+                "point:call", "Fixture.handle", "call", effect("create").location
+            ),
+            lifecycle_models.ProgramPoint(
+                "point:callee", "Fixture.wrapper", "entry", effect("create").location
+            ),
+            lifecycle_models.ProgramPoint(
+                "point:task-normal", "Fixture.task", "task_exit", effect("create").location
+            ),
+            lifecycle_models.ProgramPoint(
+                "point:task-error", "Fixture.task", "task_exit", effect("create").location
+            ),
+        )
+        task_binding = lifecycle_models.TaskBinding(
+            "task-binding:stream",
+            "task:stream",
+            "instance:stream",
+            "holder:task",
+            "contract:executor",
+            "event:queue",
+            "event:run",
+            "event:task-normal",
+            "event:task-error",
+            "Fixture.task",
+            ("fact:capture",),
+        )
+        task_exits = (
+            TaskExit(
+                "task-exit:normal",
+                "task:stream",
+                "point:task-normal",
+                "event:task-normal",
+                "Fixture.task",
+                "normal",
+                ("fact:normal-exit",),
+            ),
+            TaskExit(
+                "task-exit:exceptional",
+                "task:stream",
+                "point:task-error",
+                "event:task-error",
+                "Fixture.task",
+                "exceptional",
+                ("fact:exceptional-exit",),
+            ),
+        )
+        population = lifecycle_models.PopulationEffect(
+            "population:enqueue",
+            "enqueue",
+            "contract:executor",
+            "task:stream",
+            "q < K",
+            1,
+            0,
+            "absent",
+            "queued",
+            effect("create").location,
+            ("fact:enqueue",),
+        )
+        return replace(
+            base,
+            holders=base.holders + (Holder("holder:task", "task", "task", "exact"),),
+            events=base.events + task_events,
+            transitions=(
+                Transition(
+                    "transition:enqueue",
+                    "event:entry",
+                    "event:queue",
+                    "accepted",
+                    (),
+                    "internal",
+                    (),
+                    (population,),
+                ),
+            ),
+            program_points=points,
+            task_bindings=(task_binding,),
+            task_exits=task_exits,
+        )
+
+    def test_schema_1_1_round_trips_task_exits_and_population(self) -> None:
+        self.assertEqual("1.1", lifecycle_models.SCHEMA_VERSION)
+        self.assertTrue(hasattr(lifecycle_models, "TaskExit"), "missing TaskExit")
+        program = self._schema_1_1_relation_program()
+
+        rebuilt = program_from_dict(
+            json.loads(json.dumps(program_to_dict(program), sort_keys=True))
+        )
+
+        self.assertEqual(program, rebuilt)
+        self.assertEqual("1.1", program_to_dict(rebuilt)["schema_version"])
+        self.assertEqual({"normal", "exceptional"}, {item.kind for item in rebuilt.task_exits})
+
+    def test_schema_1_1_rejects_dangling_task_executor_callable_and_untrusted_relations(self) -> None:
+        self.assertTrue(hasattr(lifecycle_models, "TaskExit"), "missing TaskExit")
+        base = program_for(())
+        untrusted_location = replace(effect("create").location, source_kind="llm_proposed")
+        with self.assertRaisesRegex(ValueError, "trusted source"):
+            replace(
+                base,
+                program_points=(
+                    lifecycle_models.ProgramPoint(
+                        "point:untrusted", "Fixture.handle", "effect", untrusted_location
+                    ),
+                ),
+            )
+
+        population = lifecycle_models.PopulationEffect(
+            "population:dangling-executor",
+            "enqueue",
+            "contract:missing",
+            "task:missing",
+            "q < K",
+            1,
+            0,
+            "absent",
+            "queued",
+            effect("create").location,
+            ("fact:enqueue",),
+        )
+        with self.assertRaisesRegex(ValueError, "unknown task"):
+            replace(
+                base,
+                transitions=(
+                    Transition(
+                        "transition:dangling-task",
+                        "event:entry",
+                        "event:normal",
+                        "true",
+                        (),
+                        "internal",
+                        (),
+                        (population,),
+                    ),
+                ),
+            )
+
+        valid = self._schema_1_1_relation_program()
+        duplicate_point = valid.program_points[0]
+        with self.assertRaisesRegex(ValueError, "duplicate program point"):
+            replace(valid, program_points=valid.program_points + (duplicate_point,))
+        with self.assertRaisesRegex(ValueError, "callable"):
+            replace(
+                valid,
+                task_exits=(
+                    replace(valid.task_exits[0], task_callable="Fixture.otherTask"),
+                    valid.task_exits[1],
+                ),
+            )
+        with self.assertRaisesRegex(ValueError, "executor contract"):
+            AnalysisUnit("manual:relations", valid, (), ())
+        with self.assertRaisesRegex(ValueError, "executor"):
+            replace(
+                valid,
+                transitions=(
+                    replace(
+                        valid.transitions[0],
+                        population_effects=(
+                            replace(
+                                valid.transitions[0].population_effects[0],
+                                executor_id="contract:other",
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        with self.assertRaisesRegex(ValueError, "population effect"):
+            replace(
+                valid,
+                transitions=valid.transitions
+                + (
+                    replace(
+                        valid.transitions[0],
+                        transition_id="transition:duplicate-population",
+                    ),
+                ),
+            )
+        with self.assertRaisesRegex(ValueError, "task exit kind"):
+            replace(valid.task_exits[0], kind="guessed")
+
+    def test_schema_1_1_executor_contract_has_explicit_termination_semantics(self) -> None:
+        contract = ExecutorContract(
+            contract_id="contract:executor",
+            scheduling="queued",
+            queue_capacity=3,
+            capacity_atomic=True,
+            completion_drops_capture=True,
+            rejection_drops_capture=True,
+            cancellation="drops_capture",
+            source_kind="manual_fixture",
+            version="executor-contract-v1",
+            max_workers=2,
+            rejection_policy="abort",
+            termination="drops_capture",
+        )
+
+        self.assertEqual(2, contract.max_workers)
+        self.assertEqual("abort", contract.rejection_policy)
+        self.assertEqual("drops_capture", contract.termination)
+        with self.assertRaisesRegex(ValueError, "capacity"):
+            replace(contract, queue_capacity=-1)
+        with self.assertRaisesRegex(ValueError, "worker"):
+            replace(contract, max_workers=-1)
+        with self.assertRaisesRegex(ValueError, "termination"):
+            replace(contract, termination="guessed")
+
+    def test_schema_1_1_loader_rejects_non_string_relation_evidence(self) -> None:
+        payload = json.loads(
+            json.dumps(program_to_dict(self._schema_1_1_relation_program()))
+        )
+        payload["task_exits"][0]["evidence_ids"] = [7]
+        with self.assertRaisesRegex(ValueError, "evidence"):
+            program_from_dict(payload)
+
+        payload = json.loads(
+            json.dumps(program_to_dict(self._schema_1_1_relation_program()))
+        )
+        payload["transitions"][0]["population_effects"][0]["evidence_ids"] = [7]
+        with self.assertRaisesRegex(ValueError, "evidence"):
+            program_from_dict(payload)
+
+    def test_schema_1_1_loader_rejects_v1_1_relations_labeled_as_v1_0(self) -> None:
+        payload = json.loads(
+            json.dumps(program_to_dict(self._schema_1_1_relation_program()))
+        )
+        payload["schema_version"] = "1.0"
+
+        with self.assertRaisesRegex(ValueError, "legacy schema"):
+            program_from_dict(payload)
+
     def test_precision_unknown_depends_on_the_effect_evidence(self) -> None:
         program = program_for(
             (
@@ -342,6 +590,65 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         self.assertEqual(0, main(["resource-extract", "--manifest", str(manifest), "--out", str(facts)]))
         return facts / "facts.json"
 
+    def test_schema_1_1_is_used_by_all_resource_cli_json_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            facts = root / "facts"
+            run = root / "run"
+            self.assertEqual(
+                0,
+                main(
+                    [
+                        "resource-extract",
+                        "--manifest",
+                        str(self._manifest(root)),
+                        "--out",
+                        str(facts),
+                    ]
+                ),
+            )
+            self.assertEqual(
+                0,
+                main(
+                    [
+                        "resource-analyze",
+                        "--facts",
+                        str(facts / "facts.json"),
+                        "--out",
+                        str(run),
+                        "--llm",
+                        "off",
+                    ]
+                ),
+            )
+            self.assertEqual(0, main(["resource-replay", "--run", str(run)]))
+
+            artifacts = {
+                "facts": json.loads(
+                    (facts / "facts.json").read_text(encoding="utf-8")
+                ),
+                "facts_snapshot": json.loads(
+                    (run / "facts.snapshot.json").read_text(encoding="utf-8")
+                ),
+                "manifest": json.loads(
+                    (run / "run-manifest.json").read_text(encoding="utf-8")
+                ),
+                "results": json.loads(
+                    (run / "lifecycle-results.json").read_text(encoding="utf-8")
+                ),
+                "evidence": json.loads(
+                    (run / "evidence.json").read_text(encoding="utf-8")
+                ),
+                "replay": json.loads(
+                    (run / "replay.json").read_text(encoding="utf-8")
+                ),
+            }
+
+        self.assertTrue(
+            all(artifact["schema_version"] == "1.1" for artifact in artifacts.values())
+        )
+        self.assertEqual("resource-lifecycle-v1.1", artifacts["manifest"]["tool_version"])
+
     def test_parser_accepts_resource_commands_without_p0_database(self) -> None:
         values = parse_cli_values(["resource-extract", "--manifest", "fixture.json", "--out", "facts"])
 
@@ -437,6 +744,7 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             "created_instances",
             "open_obligations",
             "must_released",
+            "instance_obligation_counts",
             "obligation_counts",
             "allocation_counts",
             "held_counts",

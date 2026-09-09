@@ -40,26 +40,8 @@ def fixture_callable(method: str, descriptor: str) -> str:
 
 
 def decoded_lifecycle_row(source_root: Path, query_sha256: str = "a" * 64) -> dict[str, object]:
-    values: list[object] = [
-        SYNTHETIC_HANDLE_ID,
-        "Fixture.java",
-        1,
-        1,
-        "create",
-        "Fixture.java:1:1",
-        "fixture.Resource",
-        True,
-        "none",
-        "none",
-        "none",
-        "none",
-        "unknown",
-        True,
-        True,
-        "test",
-        "complete",
-        "test",
-    ]
+    row = lifecycle_row()
+    values = [row[column] for column in QUERY_SPECS["resource_lifecycle"].columns]
     return decode_rows(
         "resource_lifecycle",
         QUERY_SPECS["resource_lifecycle"].columns,
@@ -71,9 +53,14 @@ def decoded_lifecycle_row(source_root: Path, query_sha256: str = "a" * 64) -> di
 def lifecycle_row(**overrides: object) -> dict[str, object]:
     row: dict[str, object] = {
         "unit_id": SYNTHETIC_HANDLE_ID,
+        "site_callable": SYNTHETIC_HANDLE_ID,
         "site_file": "Fixture.java",
         "site_start_line": 1,
         "site_start_column": 1,
+        "program_point": "point:Fixture.java:1:1:create",
+        "related_point": "none",
+        "relation_depth": 0,
+        "binding_index": -1,
         "fact_kind": "create",
         "instance_key": "Fixture.java:1:1",
         "resource_type": "fixture.Resource",
@@ -83,6 +70,8 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
         "holder_key": "none",
         "target_event": "none",
         "capacity": "unknown",
+        "max_workers": "unknown",
+        "rejection_policy": "unknown",
         "normal_path": True,
         "exceptional_path": True,
         "source_evidence": "test",
@@ -94,6 +83,63 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
 
 
 class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
+    def test_schema_1_1_is_used_for_lifecycle_facts_and_program_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "final class Fixture {}\n", encoding="utf-8"
+            )
+            extracted = adapt_codeql_rows(
+                (lifecycle_row(),),
+                source_root=source_root,
+                query_sha256="a" * 64,
+            )
+
+        serialized = extracted_to_dict(extracted)
+
+        self.assertEqual("1.1", serialized["schema_version"])
+        self.assertEqual("1.1", serialized["units"][0]["program"]["schema_version"])
+
+    def test_schema_1_1_rejects_negative_raw_executor_limits(self) -> None:
+        for field in ("capacity", "max_workers"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                source_root = Path(tmp)
+                (source_root / "Fixture.java").write_text(
+                    "final class Fixture {}\n", encoding="utf-8"
+                )
+                with self.assertRaisesRegex(ValueError, "positive"):
+                    adapt_codeql_rows(
+                        (lifecycle_row(**{field: "-1"}),),
+                        source_root=source_root,
+                        query_sha256="a" * 64,
+                    )
+
+    def test_v1_1_relation_columns_are_strict_decoder_inputs(self) -> None:
+        required = {
+            "site_callable",
+            "program_point",
+            "related_point",
+            "relation_depth",
+            "binding_index",
+            "max_workers",
+            "rejection_policy",
+        }
+        self.assertTrue(required <= set(QUERY_SPECS["resource_lifecycle"].columns))
+        self.assertEqual(
+            "integer",
+            QUERY_SPECS["resource_lifecycle"].field_types["relation_depth"],
+        )
+        self.assertEqual(
+            "integer",
+            QUERY_SPECS["resource_lifecycle"].field_types["binding_index"],
+        )
+        self.assertEqual(
+            frozenset(
+                {"abort", "caller_runs", "discard", "discard_oldest", "unknown"}
+            ),
+            QUERY_SPECS["resource_lifecycle"].enum_fields["rejection_policy"],
+        )
+
     def test_holder_scope_is_a_strict_decoder_column(self) -> None:
         self.assertIn("holder_scope", QUERY_SPECS["resource_lifecycle"].columns)
         with tempfile.TemporaryDirectory() as tmp:
@@ -453,9 +499,14 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertIn("import java", content)
         aliases = (
             "unit_id",
+            "site_callable",
             "site_file",
             "site_start_line",
             "site_start_column",
+            "program_point",
+            "related_point",
+            "relation_depth",
+            "binding_index",
             "fact_kind",
             "instance_key",
             "resource_type",
@@ -465,6 +516,8 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             "holder_key",
             "target_event",
             "capacity",
+            "max_workers",
+            "rejection_policy",
             "normal_path",
             "exceptional_path",
             "source_evidence",
@@ -612,6 +665,8 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertEqual("unknown", executor_contract.cancellation)
         self.assertEqual("static_verified", executor_contract.source_kind)
         self.assertEqual("executor-contract-v1", executor_contract.version)
+        self.assertIsNone(executor_contract.max_workers)
+        self.assertEqual("unknown", executor_contract.rejection_policy)
         validatable = replace(
             extracted,
             coverage={
@@ -640,6 +695,9 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                     "cancellation": "unknown",
                     "source_kind": "static_verified",
                     "version": "executor-contract-v1",
+                    "max_workers": None,
+                    "rejection_policy": "unknown",
+                    "termination": "unknown",
                 }
             ],
             serialized["units"][0]["executor_contracts"],

@@ -48,6 +48,7 @@ def initial_state(program: Program) -> ResourceState:
     holder_scopes = tuple(sorted((item.holder_id, item.scope) for item in program.holders))
     holder_precisions = tuple(sorted((item.holder_id, item.identity_precision) for item in program.holders))
     zero = tuple(sorted((item.family_id, CountInterval()) for item in program.families))
+    instance_zero = tuple(sorted((item.instance_id, CountInterval()) for item in program.instances))
     peaks = tuple(sorted((item.family_id, 0) for item in program.families))
     return ResourceState(
         families,
@@ -58,6 +59,7 @@ def initial_state(program: Program) -> ResourceState:
         holder_kinds,
         holder_scopes,
         holder_precisions,
+        instance_obligation_counts=instance_zero,
         obligation_counts=zero,
         allocation_counts=zero,
         held_counts=zero,
@@ -72,6 +74,7 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
     requires_close = dict(state.family_requires_close)
     allocations = _intervals(state.allocation_counts)
     obligations = _intervals(state.obligation_counts)
+    instance_obligations = _intervals(state.instance_obligation_counts)
     held_counts = _intervals(state.held_counts)
     peaks = _peaks(state.peak_held_counts)
     held_edges = set(state.held_edges)
@@ -95,6 +98,9 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
         allocations[family_id] = _increment(allocations.get(family_id, CountInterval()))
         if requires_close.get(family_id, False):
             obligations[family_id] = _increment(obligations.get(family_id, CountInterval()))
+            instance_obligations[instance_id] = _increment(
+                instance_obligations.get(instance_id, CountInterval())
+            )
             open_obligations.add(instance_id)
             must_released.discard(instance_id)
         rules.append("create_instance")
@@ -126,10 +132,16 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
             unknown.add(f"conditional_negative_effect:{effect.effect_id}")
             rules.append("conditional_drop_preserves_may_hold")
         elif exact:
-            held_edges.discard((instance_id, effect.holder_id))
-            if not any(edge[0] == instance_id for edge in held_edges):
+            edge = (instance_id, effect.holder_id)
+            edge_existed = edge in held_edges
+            held_edges.discard(edge)
+            if edge_existed and not any(edge[0] == instance_id for edge in held_edges):
                 held_counts[family_id] = _decrement(held_counts.get(family_id, CountInterval()))
-            rules.append("drop_exact_holder_edge")
+                rules.append("drop_exact_holder_edge")
+            elif edge_existed:
+                rules.append("drop_exact_holder_edge_preserves_other_holders")
+            else:
+                rules.append("drop_missing_holder_edge_noop")
         else:
             unknown.add(f"weak_update:{instance_id}")
             rules.append("weak_drop_summary")
@@ -144,14 +156,22 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
             unknown.add(f"conditional_negative_effect:{effect.effect_id}")
             rules.append("conditional_release_preserves_obligation")
         elif exact:
-            obligations[family_id] = _decrement(obligations.get(family_id, CountInterval()))
-            if obligations[family_id].upper == 0:
+            instance_interval = instance_obligations.get(instance_id, CountInterval())
+            if instance_interval.upper == 0:
+                rules.append("release_already_closed_noop")
+            else:
+                instance_interval = _decrement(instance_interval)
+                instance_obligations[instance_id] = instance_interval
+                obligations[family_id] = _decrement(
+                    obligations.get(family_id, CountInterval())
+                )
+                rules.append("release_exact_obligation")
+            if instance_interval.upper == 0:
                 open_obligations.discard(instance_id)
                 must_released.add(instance_id)
             else:
                 open_obligations.add(instance_id)
                 must_released.discard(instance_id)
-            rules.append("release_exact_obligation")
         else:
             unknown.add(f"weak_update:{instance_id}")
             rules.append("weak_release_summary")
@@ -187,6 +207,7 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
         created_instances=frozenset(created),
         open_obligations=frozenset(open_obligations),
         must_released=frozenset(must_released),
+        instance_obligation_counts=_ordered_intervals(instance_obligations),
         obligation_counts=_ordered_intervals(obligations),
         allocation_counts=_ordered_intervals(allocations),
         held_counts=_ordered_intervals(held_counts),
@@ -228,6 +249,9 @@ def merge_states(states: Sequence[ResourceState]) -> ResourceState:
 
     allocation_maps = [_intervals(item.allocation_counts) for item in states]
     obligation_maps = [_intervals(item.obligation_counts) for item in states]
+    instance_obligation_maps = [
+        _intervals(item.instance_obligation_counts) for item in states
+    ]
     held_maps = [_intervals(item.held_counts) for item in states]
     peak_maps = [_peaks(item.peak_held_counts) for item in states]
     family_ids = set().union(
@@ -243,6 +267,11 @@ def merge_states(states: Sequence[ResourceState]) -> ResourceState:
 
     allocation_counts = {family_id: merge_interval(allocation_maps, family_id) for family_id in family_ids}
     obligation_counts = {family_id: merge_interval(obligation_maps, family_id) for family_id in family_ids}
+    instance_ids = set().union(*(mapping for mapping in instance_obligation_maps))
+    instance_obligation_counts = {
+        instance_id: merge_interval(instance_obligation_maps, instance_id)
+        for instance_id in instance_ids
+    }
     held_counts = {family_id: merge_interval(held_maps, family_id) for family_id in family_ids}
     peak_counts: dict[str, int | None] = {}
     for family_id in family_ids:
@@ -259,6 +288,7 @@ def merge_states(states: Sequence[ResourceState]) -> ResourceState:
         created_instances=frozenset().union(*(state.created_instances for state in states)),
         open_obligations=frozenset().union(*(state.open_obligations for state in states)),
         must_released=frozenset(must_released),
+        instance_obligation_counts=_ordered_intervals(instance_obligation_counts),
         obligation_counts=_ordered_intervals(obligation_counts),
         allocation_counts=_ordered_intervals(allocation_counts),
         held_counts=_ordered_intervals(held_counts),

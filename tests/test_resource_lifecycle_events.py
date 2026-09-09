@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 from dosweb.resource_lifecycle.contracts import ExecutorContract
@@ -39,6 +40,25 @@ def contract(*, cancellation: str = "unknown", scheduling: str = "queued") -> Ex
 
 
 class ResourceLifecycleEventTests(unittest.TestCase):
+    def test_executor_contract_carries_worker_and_rejection_semantics(self) -> None:
+        current = contract()
+        self.assertTrue(hasattr(current, "max_workers"), "missing max_workers")
+        self.assertTrue(
+            hasattr(current, "rejection_policy"), "missing rejection_policy"
+        )
+        configured = replace(
+            current,
+            max_workers=2,
+            rejection_policy="abort",
+        )
+
+        self.assertEqual(2, configured.max_workers)
+        self.assertEqual("abort", configured.rejection_policy)
+        with self.assertRaisesRegex(ValueError, "worker limit"):
+            replace(configured, max_workers=0)
+        with self.assertRaisesRegex(ValueError, "rejection policy"):
+            replace(configured, rejection_policy="guessed")
+
     def _state(self):
         base = program_for(())
         value = type(base)(

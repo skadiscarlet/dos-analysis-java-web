@@ -18,13 +18,19 @@ from dosweb.resource_lifecycle.models import (
     AnalysisBudget,
     AnalysisResult,
     CountInterval,
+    CallBinding,
     Effect,
     Event,
     Holder,
+    PopulationEffect,
     Program,
+    ProgramPoint,
     ResourceFamily,
     ResourceState,
+    SCHEMA_VERSION,
     SourceLocation,
+    TaskBinding,
+    TaskExit,
     Trace,
     Transition,
 )
@@ -44,6 +50,13 @@ def _sequence(value: object, label: str) -> tuple[object, ...]:
     if not isinstance(value, list):
         raise ValueError(f"{label} must be an array")
     return tuple(value)
+
+
+def _string_sequence(value: object, label: str) -> tuple[str, ...]:
+    items = _sequence(value, label)
+    if any(not isinstance(item, str) for item in items):
+        raise ValueError(f"{label} must contain strings")
+    return items  # type: ignore[return-value]
 
 
 def _exact(cls: type[T], value: object, label: str, **updates: object) -> T:
@@ -70,9 +83,27 @@ def effect_from_dict(value: object) -> Effect:
 
 def transition_from_dict(value: object) -> Transition:
     record = dict(_mapping(value, "transition"))
+    if "population_effects" not in record:
+        record["population_effects"] = []
     effects_value = _sequence(record.get("effects"), "transition effects")
+    population_effects_value = _sequence(
+        record.get("population_effects"), "transition population effects"
+    )
     assumptions_value = _sequence(record.get("assumptions"), "transition assumptions")
     record["effects"] = tuple(effect_from_dict(item) for item in effects_value)
+    record["population_effects"] = tuple(
+        _exact(
+            PopulationEffect,
+            item,
+            "population effect",
+            location=location_from_dict(_mapping(item, "population effect").get("location")),
+            evidence_ids=_string_sequence(
+                _mapping(item, "population effect").get("evidence_ids"),
+                "population effect evidence_ids",
+            ),
+        )
+        for item in population_effects_value
+    )
     record["assumptions"] = tuple(str(item) for item in assumptions_value)
     return _exact(Transition, record, "transition")
 
@@ -84,10 +115,33 @@ def program_to_dict(program: Program) -> dict[str, object]:
 def program_from_dict(value: object) -> Program:
     record = dict(_mapping(value, "program"))
     expected = {item.name for item in fields(Program)}
-    if set(record) == expected - {"coverage_gaps"}:
-        record["coverage_gaps"] = []
-    elif set(record) != expected:
+    optional = {
+        "coverage_gaps",
+        "program_points",
+        "call_bindings",
+        "task_bindings",
+        "task_exits",
+    }
+    if not set(record) <= expected or not expected - optional <= set(record):
         raise ValueError("program fields are invalid")
+    if record.get("schema_version") == "1.0":
+        relation_fields = {
+            "program_points",
+            "call_bindings",
+            "task_bindings",
+            "task_exits",
+        }
+        has_relation = any(record.get(name) not in (None, []) for name in relation_fields)
+        transitions = record.get("transitions")
+        has_population = isinstance(transitions, list) and any(
+            isinstance(item, Mapping) and item.get("population_effects") not in (None, [])
+            for item in transitions
+        )
+        if has_relation or has_population:
+            raise ValueError("legacy schema cannot contain v1.1 relations")
+        record["schema_version"] = SCHEMA_VERSION
+    for name in optional:
+        record.setdefault(name, [])
     record["families"] = tuple(
         ResourceFamily(
             family_id=str(item_record.get("family_id")),
@@ -106,6 +160,51 @@ def program_from_dict(value: object) -> Program:
     record["instances"] = tuple(_exact(AbstractInstance, item, "abstract instance") for item in _sequence(record["instances"], "program instances"))
     record["holders"] = tuple(_exact(Holder, item, "holder") for item in _sequence(record["holders"], "program holders"))
     record["events"] = tuple(_exact(Event, item, "event") for item in _sequence(record["events"], "program events"))
+    record["program_points"] = tuple(
+        _exact(
+            ProgramPoint,
+            item,
+            "program point",
+            location=location_from_dict(_mapping(item, "program point").get("location")),
+        )
+        for item in _sequence(record["program_points"], "program points")
+    )
+    record["call_bindings"] = tuple(
+        _exact(
+            CallBinding,
+            item,
+            "call binding",
+            evidence_ids=_string_sequence(
+                _mapping(item, "call binding").get("evidence_ids"),
+                "call binding evidence_ids",
+            ),
+        )
+        for item in _sequence(record["call_bindings"], "call bindings")
+    )
+    record["task_bindings"] = tuple(
+        _exact(
+            TaskBinding,
+            item,
+            "task binding",
+            evidence_ids=_string_sequence(
+                _mapping(item, "task binding").get("evidence_ids"),
+                "task binding evidence_ids",
+            ),
+        )
+        for item in _sequence(record["task_bindings"], "task bindings")
+    )
+    record["task_exits"] = tuple(
+        _exact(
+            TaskExit,
+            item,
+            "task exit",
+            evidence_ids=_string_sequence(
+                _mapping(item, "task exit").get("evidence_ids"),
+                "task exit evidence_ids",
+            ),
+        )
+        for item in _sequence(record["task_exits"], "task exits")
+    )
     record["transitions"] = tuple(transition_from_dict(item) for item in _sequence(record["transitions"], "program transitions"))
     record["entry_event_ids"] = tuple(str(item) for item in _sequence(record["entry_event_ids"], "entry_event_ids"))
     record["exit_event_ids"] = tuple(str(item) for item in _sequence(record["exit_event_ids"], "exit_event_ids"))
@@ -141,6 +240,10 @@ def state_to_dict(state: ResourceState) -> dict[str, object]:
         "created_instances": sorted(state.created_instances),
         "open_obligations": sorted(state.open_obligations),
         "must_released": sorted(state.must_released),
+        "instance_obligation_counts": [
+            [instance_id, {"lower": interval.lower, "upper": interval.upper}]
+            for instance_id, interval in state.instance_obligation_counts
+        ],
         "obligation_counts": [
             [family_id, {"lower": interval.lower, "upper": interval.upper}]
             for family_id, interval in state.obligation_counts

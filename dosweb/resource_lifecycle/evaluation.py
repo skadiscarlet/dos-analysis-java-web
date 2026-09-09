@@ -26,6 +26,7 @@ from dosweb.resource_lifecycle.models import (
     Holder,
     Program,
     ResourceFamily,
+    SCHEMA_VERSION,
     SourceLocation,
     Transition,
 )
@@ -395,7 +396,7 @@ def _build_case(
             )
         )
     program = Program(
-        "1.0",
+        SCHEMA_VERSION,
         (family,),
         (instance,),
         holders,
@@ -579,7 +580,7 @@ def evaluate_suite(suite_path: Path, output: Path) -> dict[str, object]:
         tracemalloc.stop()
 
     metrics_artifact = {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "suite_sha256": suite.suite_sha256,
         "source_breakdown": {"manual_ir": len(suite.cases), "real_source_codeql": 0, "imported_static_facts": 0},
         "modes": metrics,
@@ -590,7 +591,7 @@ def evaluate_suite(suite_path: Path, output: Path) -> dict[str, object]:
     }
     historical_path = Path("evaluation/historical_manifest.json")
     manifest = {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "tool_version": TOOL_VERSION,
         "suite_id": suite.suite_id,
         "suite_sha256": suite.suite_sha256,

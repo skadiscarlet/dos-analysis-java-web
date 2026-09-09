@@ -6,8 +6,11 @@ import re
 from typing import Final, Literal
 
 
-SCHEMA_VERSION: Final = "1.0"
+SCHEMA_VERSION: Final = "1.1"
 SOURCE_KINDS: Final = frozenset({"static_verified", "trusted_contract", "llm_proposed", "manual_fixture"})
+RELATION_SOURCE_KINDS: Final = frozenset(
+    {"static_verified", "trusted_contract", "manual_fixture"}
+)
 EFFECT_KINDS: Final = frozenset({"create", "retain", "drop", "release", "dispatch", "unknown_call"})
 EXIT_KINDS: Final = frozenset({"normal", "exceptional", "rejected", "cancelled", "internal"})
 RESOURCE_DIMENSIONS: Final = frozenset({"held_instances", "item_size_bytes", "close_obligation"})
@@ -125,6 +128,181 @@ class Event:
 
 
 @dataclass(frozen=True)
+class ProgramPoint:
+    point_id: str
+    callable: str
+    kind: Literal["entry", "effect", "call", "return", "task_submit", "task_start", "task_exit"]
+    location: SourceLocation
+
+    def __post_init__(self) -> None:
+        _identifier(self.point_id, "program point identifier")
+        _identifier(self.callable, "program point callable")
+        if self.kind not in {
+            "entry",
+            "effect",
+            "call",
+            "return",
+            "task_submit",
+            "task_start",
+            "task_exit",
+        }:
+            raise ValueError("program point kind is invalid")
+
+
+@dataclass(frozen=True)
+class CallBinding:
+    binding_id: str
+    source_point_id: str
+    target_point_id: str
+    caller_callable: str
+    callee_callable: str
+    argument_index: int
+    parameter_index: int
+    instance_id: str
+    context_depth: int
+    evidence_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.binding_id, "call binding identifier"),
+            (self.source_point_id, "call binding source point"),
+            (self.target_point_id, "call binding target point"),
+            (self.caller_callable, "call binding caller"),
+            (self.callee_callable, "call binding callee"),
+            (self.instance_id, "call binding instance"),
+        ):
+            _identifier(value, label)
+        if (
+            type(self.argument_index) is not int
+            or type(self.parameter_index) is not int
+            or self.argument_index < 0
+            or self.parameter_index < 0
+            or self.argument_index != self.parameter_index
+        ):
+            raise ValueError("call binding argument and parameter positions are invalid")
+        if type(self.context_depth) is not int or self.context_depth not in {1, 2}:
+            raise ValueError("call binding context depth is unsupported")
+        if not self.evidence_ids or any(not isinstance(item, str) or not item for item in self.evidence_ids):
+            raise ValueError("call binding requires evidence identifiers")
+
+
+@dataclass(frozen=True)
+class TaskBinding:
+    binding_id: str
+    task_id: str
+    instance_id: str
+    holder_id: str
+    executor_contract_id: str
+    queued_event_id: str
+    run_event_id: str
+    normal_exit_event_id: str
+    exceptional_exit_event_id: str
+    task_callable: str
+    evidence_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.binding_id, "task binding identifier"),
+            (self.task_id, "task identifier"),
+            (self.instance_id, "task binding instance"),
+            (self.holder_id, "task binding holder"),
+            (self.executor_contract_id, "task executor contract"),
+            (self.queued_event_id, "task queued event"),
+            (self.run_event_id, "task run event"),
+            (self.normal_exit_event_id, "task normal exit event"),
+            (self.exceptional_exit_event_id, "task exceptional exit event"),
+            (self.task_callable, "task callable"),
+        ):
+            _identifier(value, label)
+        if self.normal_exit_event_id == self.exceptional_exit_event_id:
+            raise ValueError("task normal and exceptional exits must be distinct")
+        if not self.evidence_ids or any(not isinstance(item, str) or not item for item in self.evidence_ids):
+            raise ValueError("task binding requires evidence identifiers")
+
+
+@dataclass(frozen=True)
+class TaskExit:
+    exit_id: str
+    task_id: str
+    point_id: str
+    event_id: str
+    task_callable: str
+    kind: Literal["normal", "exceptional"]
+    evidence_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.exit_id, "task exit identifier"),
+            (self.task_id, "task exit task"),
+            (self.point_id, "task exit program point"),
+            (self.event_id, "task exit event"),
+            (self.task_callable, "task exit callable"),
+        ):
+            _identifier(value, label)
+        if self.kind not in {"normal", "exceptional"}:
+            raise ValueError("task exit kind is invalid")
+        if not self.evidence_ids or any(
+            not isinstance(item, str) or not item for item in self.evidence_ids
+        ):
+            raise ValueError("task exit requires evidence identifiers")
+
+
+@dataclass(frozen=True)
+class PopulationEffect:
+    effect_id: str
+    kind: Literal[
+        "direct_accept",
+        "enqueue",
+        "assign_slot",
+        "start",
+        "terminate",
+        "reject",
+        "cancel_queued",
+        "cancel_active",
+    ]
+    executor_id: str
+    task_id: str
+    guard: str
+    queue_delta: int
+    active_delta: int
+    source_phase: Literal["absent", "queued", "reserved", "running"]
+    target_phase: Literal["queued", "reserved", "running", "terminated", "rejected", "cancelled"]
+    location: SourceLocation
+    evidence_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for value, label in (
+            (self.effect_id, "population effect identifier"),
+            (self.executor_id, "population executor identifier"),
+            (self.task_id, "population task identifier"),
+            (self.guard, "population guard"),
+        ):
+            _identifier(value, label)
+        expected = {
+            "direct_accept": ((0, 1), {("absent", "reserved")}),
+            "enqueue": ((1, 0), {("absent", "queued")}),
+            "assign_slot": ((-1, 1), {("queued", "reserved")}),
+            "start": ((0, 0), {("reserved", "running")}),
+            "terminate": ((0, -1), {("running", "terminated")}),
+            "reject": ((0, 0), {("absent", "rejected")}),
+            "cancel_queued": ((-1, 0), {("queued", "cancelled")}),
+            "cancel_active": ((0, -1), {("reserved", "cancelled"), ("running", "cancelled")}),
+        }
+        if self.kind not in expected:
+            raise ValueError("population effect kind is invalid")
+        deltas, phase_pairs = expected[self.kind]
+        if (
+            type(self.queue_delta) is not int
+            or type(self.active_delta) is not int
+            or (self.queue_delta, self.active_delta) != deltas
+            or (self.source_phase, self.target_phase) not in phase_pairs
+        ):
+            raise ValueError("population deltas or phases are invalid")
+        if not self.evidence_ids or any(not isinstance(item, str) or not item for item in self.evidence_ids):
+            raise ValueError("population effect requires evidence identifiers")
+
+
+@dataclass(frozen=True)
 class Effect:
     effect_id: str
     kind: Literal["create", "retain", "drop", "release", "dispatch", "unknown_call"]
@@ -169,6 +347,7 @@ class Transition:
     effects: tuple[Effect, ...]
     exit_kind: Literal["normal", "exceptional", "rejected", "cancelled", "internal"]
     assumptions: tuple[str, ...]
+    population_effects: tuple[PopulationEffect, ...] = ()
 
     def __post_init__(self) -> None:
         _identifier(self.transition_id, "transition_id")
@@ -179,6 +358,9 @@ class Transition:
             raise ValueError("transition exit kind is invalid")
         if any(not isinstance(item, str) or not item for item in self.assumptions):
             raise ValueError("transition assumptions are invalid")
+        if not isinstance(self.population_effects, tuple):
+            raise ValueError("transition population effects must be a tuple")
+        _unique_identifiers(self.population_effects, "effect_id", "population effect")
 
 
 @dataclass(frozen=True)
@@ -194,6 +376,10 @@ class Program:
     coverage_complete: bool
     contracts_version: str
     coverage_gaps: tuple[tuple[str, str, str, str, str], ...] = ()
+    program_points: tuple[ProgramPoint, ...] = ()
+    call_bindings: tuple[CallBinding, ...] = ()
+    task_bindings: tuple[TaskBinding, ...] = ()
+    task_exits: tuple[TaskExit, ...] = ()
 
     def __post_init__(self) -> None:
         if self.schema_version != SCHEMA_VERSION:
@@ -219,20 +405,46 @@ class Program:
             raise ValueError(
                 "coverage_gaps must contain dimension, family, scope, reason, and evidence tuples"
             )
+        if any(
+            not isinstance(items, tuple)
+            for items in (
+                self.program_points,
+                self.call_bindings,
+                self.task_bindings,
+                self.task_exits,
+            )
+        ):
+            raise ValueError("program relation collections must be tuples")
         family_ids = _unique_identifiers(self.families, "family_id", "family")
         if any(item[1] not in family_ids for item in self.coverage_gaps):
             raise ValueError("coverage gap references an unknown resource family")
         instance_ids = _unique_identifiers(self.instances, "instance_id", "instance")
         holder_ids = _unique_identifiers(self.holders, "holder_id", "holder")
         event_ids = _unique_identifiers(self.events, "event_id", "event")
+        point_ids = _unique_identifiers(self.program_points, "point_id", "program point")
+        _unique_identifiers(self.call_bindings, "binding_id", "call binding")
+        _unique_identifiers(self.task_bindings, "binding_id", "task binding")
+        task_ids = _unique_identifiers(self.task_bindings, "task_id", "task")
+        _unique_identifiers(self.task_exits, "exit_id", "task exit")
         _unique_identifiers(self.transitions, "transition_id", "transition")
+        population_effects = tuple(
+            effect
+            for transition in self.transitions
+            for effect in transition.population_effects
+        )
+        _unique_identifiers(population_effects, "effect_id", "population effect")
         if (
             len(self.families) > 4096
             or len(self.instances) > 16384
             or len(self.holders) > 16384
             or len(self.events) > 16384
             or len(self.transitions) > 65536
+            or len(self.program_points) > 65536
+            or len(self.call_bindings) > 65536
+            or len(self.task_bindings) > 16384
+            or len(self.task_exits) > 32768
             or any(len(transition.effects) > 256 for transition in self.transitions)
+            or any(len(transition.population_effects) > 16 for transition in self.transitions)
         ):
             raise ValueError("program exceeds structural analysis limits")
         if not self.entry_event_ids or not set(self.entry_event_ids) <= event_ids:
@@ -242,6 +454,74 @@ class Program:
         for instance in self.instances:
             if instance.family_id not in family_ids:
                 raise ValueError("instance family reference is invalid")
+        points = {item.point_id: item for item in self.program_points}
+        if any(
+            point.location.source_kind not in RELATION_SOURCE_KINDS
+            for point in self.program_points
+        ):
+            raise ValueError("program point requires a trusted source kind")
+        for binding in self.call_bindings:
+            if binding.source_point_id not in point_ids or binding.target_point_id not in point_ids:
+                raise ValueError("call binding references an unknown program point")
+            if (
+                points[binding.source_point_id].callable != binding.caller_callable
+                or points[binding.target_point_id].callable != binding.callee_callable
+            ):
+                raise ValueError("call binding callable and program point are inconsistent")
+            if binding.instance_id not in instance_ids:
+                raise ValueError("call binding references an unknown instance")
+        holders = {item.holder_id: item for item in self.holders}
+        events = {item.event_id: item for item in self.events}
+        tasks = {item.task_id: item for item in self.task_bindings}
+        for binding in self.task_bindings:
+            if binding.instance_id not in instance_ids:
+                raise ValueError("task binding references an unknown instance")
+            if binding.holder_id not in holder_ids or holders[binding.holder_id].kind != "task":
+                raise ValueError("task binding references an invalid task holder")
+            if not {
+                binding.queued_event_id,
+                binding.run_event_id,
+                binding.normal_exit_event_id,
+                binding.exceptional_exit_event_id,
+            } <= event_ids:
+                raise ValueError("task binding event reference is invalid")
+            if (
+                events[binding.queued_event_id].kind != "task_queue"
+                or events[binding.run_event_id].kind != "task_run"
+                or events[binding.normal_exit_event_id].kind != "task_exit"
+                or events[binding.exceptional_exit_event_id].kind != "task_exit"
+            ):
+                raise ValueError("task binding event kind is invalid")
+        exits_by_task: dict[str, dict[str, TaskExit]] = {}
+        for task_exit in self.task_exits:
+            binding = tasks.get(task_exit.task_id)
+            if binding is None:
+                raise ValueError("task exit references an unknown task")
+            point = points.get(task_exit.point_id)
+            if point is None or point.kind != "task_exit":
+                raise ValueError("task exit references an invalid program point")
+            event = events.get(task_exit.event_id)
+            if event is None or event.kind != "task_exit":
+                raise ValueError("task exit references an invalid event")
+            if (
+                task_exit.task_callable != binding.task_callable
+                or point.callable != binding.task_callable
+            ):
+                raise ValueError("task exit callable is inconsistent")
+            exits = exits_by_task.setdefault(task_exit.task_id, {})
+            if task_exit.kind in exits:
+                raise ValueError("duplicate task exit kind")
+            exits[task_exit.kind] = task_exit
+        for binding in self.task_bindings:
+            exits = exits_by_task.get(binding.task_id, {})
+            if set(exits) != {"normal", "exceptional"}:
+                raise ValueError("task binding requires normal and exceptional task exits")
+            if (
+                exits["normal"].event_id != binding.normal_exit_event_id
+                or exits["exceptional"].event_id
+                != binding.exceptional_exit_event_id
+            ):
+                raise ValueError("task binding and task exits are inconsistent")
         for transition in self.transitions:
             if transition.source_event_id not in event_ids or transition.target_event_id not in event_ids:
                 raise ValueError("transition event reference is invalid")
@@ -254,6 +534,13 @@ class Program:
                     raise ValueError("effect holder reference is invalid")
                 if effect.target_event_id is not None and effect.target_event_id not in event_ids:
                     raise ValueError("effect target event reference is invalid")
+            for effect in transition.population_effects:
+                if effect.task_id not in task_ids:
+                    raise ValueError("population effect references an unknown task")
+                if effect.executor_id != tasks[effect.task_id].executor_contract_id:
+                    raise ValueError("population effect executor reference is invalid")
+                if effect.location.source_kind not in RELATION_SOURCE_KINDS:
+                    raise ValueError("population effect requires a trusted source kind")
         _identifier(self.contracts_version, "contracts_version")
 
 
@@ -281,6 +568,7 @@ class ResourceState:
     created_instances: frozenset[str] = frozenset()
     open_obligations: frozenset[str] = frozenset()
     must_released: frozenset[str] = frozenset()
+    instance_obligation_counts: tuple[tuple[str, CountInterval], ...] = ()
     obligation_counts: tuple[tuple[str, CountInterval], ...] = ()
     allocation_counts: tuple[tuple[str, CountInterval], ...] = ()
     held_counts: tuple[tuple[str, CountInterval], ...] = ()

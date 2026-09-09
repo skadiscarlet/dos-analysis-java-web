@@ -67,9 +67,10 @@ LIFECYCLE_SUMMARY_COLUMNS: Final = (
     "reject_path_reaches_growth", "evidence", "cfg_relation", "coverage_status", "coverage_note",
 )
 RESOURCE_LIFECYCLE_COLUMNS: Final = (
-    "unit_id", "site_file", "site_start_line", "site_start_column", "fact_kind", "instance_key",
+    "unit_id", "site_callable", "site_file", "site_start_line", "site_start_column",
+    "program_point", "related_point", "relation_depth", "binding_index", "fact_kind", "instance_key",
     "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
-    "capacity", "normal_path", "exceptional_path", "source_evidence",
+    "capacity", "max_workers", "rejection_policy", "normal_path", "exceptional_path", "source_evidence",
     "coverage_status", "coverage_note",
 )
 
@@ -137,12 +138,13 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
     {
         "resource_lifecycle": _spec(
             "resource_lifecycle", RESOURCE_LIFECYCLE_COLUMNS,
-            integers={"site_start_line", "site_start_column"},
+            integers={"site_start_line", "site_start_column", "relation_depth", "binding_index"},
             booleans={"requires_close", "normal_path", "exceptional_path"},
             enums={
-                "fact_kind": frozenset({"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant"}),
+                "fact_kind": frozenset({"create", "retain", "drop", "release", "dispatch", "unknown_call", "invariant", "call_binding", "cfg_edge", "task_exit"}),
                 "holder_kind": frozenset({"none", "local", "field", "queue", "task"}),
                 "holder_scope": frozenset({"none", "instance", "global", "task"}),
+                "rejection_policy": frozenset({"abort", "caller_runs", "discard", "discard_oldest", "unknown"}),
                 "coverage_status": _COVERAGE,
             },
             paths=frozenset({"site_file"}),

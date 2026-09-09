@@ -20,6 +20,11 @@ class ExecutorContract:
     cancellation: Literal["drops_capture", "retains_capture", "unknown"]
     source_kind: Literal["static_verified", "trusted_contract", "llm_proposed", "manual_fixture"]
     version: str
+    max_workers: int | str | None = None
+    rejection_policy: Literal[
+        "abort", "caller_runs", "discard", "discard_oldest", "unknown"
+    ] = "unknown"
+    termination: Literal["drops_capture", "retains_capture", "unknown"] = "unknown"
 
     def __post_init__(self) -> None:
         if any(
@@ -44,7 +49,25 @@ class ExecutorContract:
             raise ValueError("symbolic executor capacity must be non-empty")
         if self.queue_capacity is not None and not isinstance(self.queue_capacity, (int, str)):
             raise ValueError("executor capacity is invalid")
+        if isinstance(self.max_workers, int) and (
+            isinstance(self.max_workers, bool) or self.max_workers <= 0
+        ):
+            raise ValueError("executor worker limit must be positive")
+        if isinstance(self.max_workers, str) and not self.max_workers:
+            raise ValueError("executor worker limit must be non-empty")
+        if self.max_workers is not None and not isinstance(self.max_workers, (int, str)):
+            raise ValueError("executor worker limit is invalid")
+        if self.rejection_policy not in {
+            "abort",
+            "caller_runs",
+            "discard",
+            "discard_oldest",
+            "unknown",
+        }:
+            raise ValueError("executor rejection policy is invalid")
         if self.cancellation not in {"drops_capture", "retains_capture", "unknown"}:
             raise ValueError("executor cancellation semantics are invalid")
+        if self.termination not in {"drops_capture", "retains_capture", "unknown"}:
+            raise ValueError("executor termination semantics are invalid")
         if self.source_kind not in SOURCE_KINDS:
             raise ValueError("executor contract source_kind is invalid")

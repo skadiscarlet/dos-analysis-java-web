@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import json
 import unittest
 
+from dosweb.resource_lifecycle import models as lifecycle_models
+from dosweb.resource_lifecycle.io import program_from_dict, program_to_dict, state_to_dict
 from dosweb.resource_lifecycle.models import (
     AbstractInstance,
     AnalysisBudget,
@@ -13,6 +16,7 @@ from dosweb.resource_lifecycle.models import (
     Program,
     ResourceFamily,
     ResourceState,
+    SCHEMA_VERSION,
     SourceLocation,
     Transition,
 )
@@ -60,7 +64,7 @@ def family(*, requires_close: bool = True) -> ResourceFamily:
 
 def program_for(transitions: tuple[Transition, ...], *, summary: bool = False) -> Program:
     return Program(
-        schema_version="1.0",
+        schema_version=SCHEMA_VERSION,
         families=(family(),),
         instances=(
             AbstractInstance(
@@ -101,7 +105,213 @@ def effect(kind: str, *, holder_id: str | None = None) -> Effect:
     )
 
 
+def two_instance_program() -> Program:
+    base = program_for(())
+    return replace(
+        base,
+        instances=(
+            AbstractInstance("instance:a", "family:stream", "recent", "exact"),
+            AbstractInstance("instance:b", "family:stream", "recent", "exact"),
+        ),
+    )
+
+
+def instance_effect(
+    instance_id: str,
+    kind: str,
+    *,
+    holder_id: str | None = None,
+    suffix: str = "",
+) -> Effect:
+    return replace(
+        effect(kind, holder_id=holder_id),
+        effect_id=f"effect:{instance_id}:{kind}:{holder_id or 'none'}{suffix}",
+        instance_id=instance_id,
+        evidence_ids=(f"fact:{instance_id}:{kind}{suffix}",),
+    )
+
+
 class ResourceLifecycleSchemaTests(unittest.TestCase):
+    def test_relation_and_population_ir_round_trip_with_strict_identities(self) -> None:
+        for name in ("ProgramPoint", "CallBinding", "TaskBinding", "TaskExit", "PopulationEffect"):
+            self.assertTrue(hasattr(lifecycle_models, name), f"missing {name}")
+        ProgramPoint = getattr(lifecycle_models, "ProgramPoint")
+        CallBinding = getattr(lifecycle_models, "CallBinding")
+        TaskBinding = getattr(lifecycle_models, "TaskBinding")
+        TaskExit = getattr(lifecycle_models, "TaskExit")
+        PopulationEffect = getattr(lifecycle_models, "PopulationEffect")
+        base = program_for(())
+        task_events = (
+            Event("event:queue", "task_queue", "Fixture.task#queued", "accepted"),
+            Event("event:run", "task_run", "Fixture.task#run", "worker reserved"),
+            Event("event:task-normal", "task_exit", "Fixture.task#normal", "normal"),
+            Event("event:task-error", "task_exit", "Fixture.task#error", "exceptional"),
+        )
+        points = (
+            ProgramPoint("point:call", "Fixture.handle", "call", location()),
+            ProgramPoint("point:callee", "Fixture.wrapper", "entry", location()),
+            ProgramPoint("point:task-normal", "Fixture.task", "task_exit", location()),
+            ProgramPoint("point:task-error", "Fixture.task", "task_exit", location()),
+        )
+        call = CallBinding(
+            "call-binding:wrapper",
+            "point:call",
+            "point:callee",
+            "Fixture.handle",
+            "Fixture.wrapper",
+            0,
+            0,
+            "instance:stream",
+            1,
+            ("fact:call",),
+        )
+        task = TaskBinding(
+            "task-binding:stream",
+            "task:stream",
+            "instance:stream",
+            "holder:task",
+            "contract:executor",
+            "event:queue",
+            "event:run",
+            "event:task-normal",
+            "event:task-error",
+            "Fixture.task",
+            ("fact:capture",),
+        )
+        population = PopulationEffect(
+            "population:enqueue",
+            "enqueue",
+            "contract:executor",
+            "task:stream",
+            "not_full",
+            1,
+            0,
+            "absent",
+            "queued",
+            location(),
+            ("fact:executor",),
+        )
+        task_exits = (
+            TaskExit(
+                "task-exit:normal",
+                "task:stream",
+                "point:task-normal",
+                "event:task-normal",
+                "Fixture.task",
+                "normal",
+                ("fact:normal-exit",),
+            ),
+            TaskExit(
+                "task-exit:exceptional",
+                "task:stream",
+                "point:task-error",
+                "event:task-error",
+                "Fixture.task",
+                "exceptional",
+                ("fact:exceptional-exit",),
+            ),
+        )
+        transition = Transition(
+            "transition:enqueue",
+            "event:entry",
+            "event:queue",
+            "accepted",
+            (),
+            "internal",
+            (),
+            (population,),
+        )
+        program = replace(
+            base,
+            holders=base.holders + (Holder("holder:task", "task", "task", "exact"),),
+            events=base.events + task_events,
+            transitions=(transition,),
+            program_points=points,
+            call_bindings=(call,),
+            task_bindings=(task,),
+            task_exits=task_exits,
+        )
+
+        rebuilt = program_from_dict(
+            json.loads(json.dumps(program_to_dict(program), sort_keys=True))
+        )
+
+        self.assertEqual(program, rebuilt)
+        self.assertEqual((population,), rebuilt.transitions[0].population_effects)
+
+    def test_relation_ir_rejects_unsupported_depth_dangling_refs_and_bad_deltas(self) -> None:
+        for name in ("ProgramPoint", "CallBinding", "TaskBinding", "PopulationEffect"):
+            self.assertTrue(hasattr(lifecycle_models, name), f"missing {name}")
+        ProgramPoint = getattr(lifecycle_models, "ProgramPoint")
+        CallBinding = getattr(lifecycle_models, "CallBinding")
+        TaskBinding = getattr(lifecycle_models, "TaskBinding")
+        PopulationEffect = getattr(lifecycle_models, "PopulationEffect")
+        with self.assertRaisesRegex(ValueError, "program point kind"):
+            ProgramPoint("point:bad", "Fixture.handle", "guessed", location())
+        with self.assertRaisesRegex(ValueError, "context depth"):
+            CallBinding(
+                "call-binding:deep",
+                "point:call",
+                "point:callee",
+                "Fixture.handle",
+                "Fixture.wrapper",
+                0,
+                0,
+                "instance:stream",
+                3,
+                ("fact:call",),
+            )
+        with self.assertRaisesRegex(ValueError, "population deltas"):
+            PopulationEffect(
+                "population:bad",
+                "enqueue",
+                "contract:executor",
+                "task:stream",
+                "not_full",
+                0,
+                0,
+                "absent",
+                "queued",
+                location(),
+                ("fact:executor",),
+            )
+        base = program_for(())
+        point = ProgramPoint("point:call", "Fixture.handle", "call", location())
+        dangling_call = CallBinding(
+            "call-binding:dangling",
+            "point:call",
+            "point:missing",
+            "Fixture.handle",
+            "Fixture.wrapper",
+            0,
+            0,
+            "instance:stream",
+            1,
+            ("fact:call",),
+        )
+        with self.assertRaisesRegex(ValueError, "program point"):
+            replace(base, program_points=(point,), call_bindings=(dangling_call,))
+        dangling_task = TaskBinding(
+            "task-binding:dangling",
+            "task:stream",
+            "instance:stream",
+            "holder:task",
+            "contract:executor",
+            "event:missing-queue",
+            "event:missing-run",
+            "event:missing-normal",
+            "event:missing-error",
+            "Fixture.task",
+            ("fact:capture",),
+        )
+        with self.assertRaisesRegex(ValueError, "task binding event"):
+            replace(
+                base,
+                holders=base.holders
+                + (Holder("holder:task", "task", "task", "exact"),),
+                task_bindings=(dangling_task,),
+            )
+
     def test_source_location_rejects_non_relative_path(self) -> None:
         with self.assertRaisesRegex(ValueError, "relative"):
             SourceLocation(
@@ -209,7 +419,117 @@ class ResourceLifecycleStateTests(unittest.TestCase):
 
         self.assertNotIn(("instance:stream", "holder:request"), state.held_edges)
         self.assertIn(("instance:stream", "holder:field"), state.held_edges)
+        self.assertEqual(1, dict(state.held_counts)["family:stream"].upper)
         self.assertIn("instance:stream", state.open_obligations)
+
+    def test_two_exact_instances_are_released_independently(self) -> None:
+        state = initial_state(two_instance_program())
+        for current in (
+            instance_effect("instance:a", "create"),
+            instance_effect("instance:b", "create"),
+            instance_effect("instance:a", "release"),
+        ):
+            state = apply_effect(state, current).state
+
+        obligations = dict(state.obligation_counts)["family:stream"]
+        per_instance = dict(state.instance_obligation_counts)
+        self.assertEqual((1, 1), (obligations.lower, obligations.upper))
+        self.assertEqual((0, 0), (per_instance["instance:a"].lower, per_instance["instance:a"].upper))
+        self.assertEqual((1, 1), (per_instance["instance:b"].lower, per_instance["instance:b"].upper))
+        self.assertEqual(frozenset({"instance:b"}), state.open_obligations)
+        self.assertEqual(frozenset({"instance:a"}), state.must_released)
+
+        state = apply_effect(
+            state, instance_effect("instance:b", "release")
+        ).state
+
+        obligations = dict(state.obligation_counts)["family:stream"]
+        per_instance = dict(state.instance_obligation_counts)
+        self.assertEqual((0, 0), (obligations.lower, obligations.upper))
+        self.assertTrue(all(interval.upper == 0 for interval in per_instance.values()))
+        self.assertFalse(state.open_obligations)
+        self.assertEqual(
+            frozenset({"instance:a", "instance:b"}), state.must_released
+        )
+
+    def test_state_serialization_emits_each_instance_obligation_once(self) -> None:
+        state = initial_state(two_instance_program())
+
+        serialized = state_to_dict(state)["instance_obligation_counts"]
+
+        self.assertEqual(2, len(serialized))
+        self.assertEqual({"instance:a", "instance:b"}, {item[0] for item in serialized})
+
+    def test_duplicate_or_alias_release_does_not_close_another_instance(self) -> None:
+        state = initial_state(two_instance_program())
+        for current in (
+            instance_effect("instance:a", "create"),
+            instance_effect("instance:b", "create"),
+            instance_effect("instance:a", "release", suffix=":direct"),
+            instance_effect("instance:a", "release", suffix=":alias"),
+        ):
+            state = apply_effect(state, current).state
+
+        obligations = dict(state.obligation_counts)["family:stream"]
+        per_instance = dict(state.instance_obligation_counts)
+        self.assertEqual((1, 1), (obligations.lower, obligations.upper))
+        self.assertEqual(0, per_instance["instance:a"].upper)
+        self.assertEqual(1, per_instance["instance:b"].upper)
+        self.assertEqual(frozenset({"instance:b"}), state.open_obligations)
+        self.assertEqual(frozenset({"instance:a"}), state.must_released)
+
+    def test_repeated_or_missing_drop_does_not_reduce_other_instances(self) -> None:
+        state = initial_state(two_instance_program())
+        for current in (
+            instance_effect("instance:a", "create"),
+            instance_effect("instance:b", "create"),
+            instance_effect("instance:a", "retain", holder_id="holder:request"),
+            instance_effect("instance:a", "retain", holder_id="holder:field"),
+            instance_effect("instance:b", "retain", holder_id="holder:field"),
+            instance_effect("instance:a", "drop", holder_id="holder:request"),
+        ):
+            state = apply_effect(state, current).state
+
+        self.assertEqual(2, dict(state.held_counts)["family:stream"].upper)
+        self.assertIn(("instance:a", "holder:field"), state.held_edges)
+        self.assertIn(("instance:b", "holder:field"), state.held_edges)
+
+        for current in (
+            instance_effect("instance:a", "drop", holder_id="holder:request", suffix=":again"),
+            instance_effect("instance:a", "drop", holder_id="holder:field"),
+            instance_effect("instance:a", "drop", holder_id="holder:field", suffix=":again"),
+        ):
+            state = apply_effect(state, current).state
+
+        held = dict(state.held_counts)["family:stream"]
+        self.assertEqual((1, 1), (held.lower, held.upper))
+        self.assertEqual(
+            frozenset({("instance:b", "holder:field")}), state.held_edges
+        )
+
+    def test_branch_partial_release_joins_instance_and_family_facts(self) -> None:
+        program = two_instance_program()
+        base = initial_state(program)
+        for current in (
+            instance_effect("instance:a", "create"),
+            instance_effect("instance:b", "create"),
+        ):
+            base = apply_effect(base, current).state
+        released = apply_effect(
+            base, instance_effect("instance:a", "release")
+        ).state
+
+        merged = merge_states((base, released))
+
+        obligations = dict(merged.obligation_counts)["family:stream"]
+        per_instance = dict(merged.instance_obligation_counts)
+        self.assertEqual((1, 2), (obligations.lower, obligations.upper))
+        self.assertEqual((0, 1), (per_instance["instance:a"].lower, per_instance["instance:a"].upper))
+        self.assertEqual((1, 1), (per_instance["instance:b"].lower, per_instance["instance:b"].upper))
+        self.assertEqual(
+            frozenset({"instance:a", "instance:b"}), merged.open_obligations
+        )
+        self.assertFalse(merged.must_released)
 
     def test_close_does_not_drop_heap_holder(self) -> None:
         state = initial_state(self.program)
@@ -230,6 +550,10 @@ class ResourceLifecycleStateTests(unittest.TestCase):
         released = apply_effect(state, effect("release"))
 
         self.assertIn("instance:stream", released.state.open_obligations)
+        obligations = dict(released.state.obligation_counts)["family:stream"]
+        per_instance = dict(released.state.instance_obligation_counts)["instance:stream"]
+        self.assertEqual((1, 1), (obligations.lower, obligations.upper))
+        self.assertEqual((1, 1), (per_instance.lower, per_instance.upper))
         self.assertIn("weak_release_summary", released.rule_ids)
         self.assertIn("weak_update:instance:stream", released.state.unknown_reasons)
 
