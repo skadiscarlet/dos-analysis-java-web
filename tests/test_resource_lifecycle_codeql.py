@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import asdict, replace
+import hashlib
 import json
 import os
-from dataclasses import replace
 from pathlib import Path
 import shutil
 import tempfile
@@ -11,10 +12,13 @@ from unittest.mock import patch
 import zipfile
 
 from dosweb.cli import main
+from dosweb.artifacts.identifiers import canonical_json, stable_identifier
 from dosweb.codeql import DecodeSource, QUERY_SPECS, decode_bqrs_json, decode_rows, run_query
 from dosweb.codeql.database import DatabaseInfo
 from dosweb.errors import AnalyzerError
 from dosweb.resource_lifecycle.adapters import (
+    ExtractedFacts,
+    _unit_from_rows,
     adapt_codeql_rows,
     extracted_from_dict,
     extracted_to_dict,
@@ -83,6 +87,114 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
 
 
 class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
+    def test_schema_1_0_facts_loader_defaults_missing_relation_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "final class Fixture {}\n", encoding="utf-8"
+            )
+            current = adapt_codeql_rows(
+                (lifecycle_row(),),
+                source_root=source_root,
+                query_sha256="a" * 64,
+            )
+        current_fact = current.facts[0]
+        legacy_semantic = {
+            "unit_id": current_fact.unit_id,
+            "site_file": current_fact.location.path,
+            "site_start_line": current_fact.location.start_line,
+            "site_start_column": current_fact.site_start_column,
+            "fact_kind": current_fact.fact_kind,
+            "instance_key": current_fact.instance_key,
+            "resource_type": current_fact.resource_type,
+            "requires_close": current_fact.requires_close,
+            "holder_kind": current_fact.holder_kind,
+            "holder_scope": current_fact.holder_scope,
+            "holder_key": current_fact.holder_key,
+            "target_event": current_fact.target_event,
+            "capacity": current_fact.capacity,
+            "normal_path": current_fact.normal_path,
+            "exceptional_path": current_fact.exceptional_path,
+            "source_evidence": current_fact.source_evidence,
+            "coverage_status": current_fact.coverage_status,
+            "coverage_note": current_fact.coverage_note,
+        }
+        legacy_fact = replace(
+            current_fact,
+            fact_id=stable_identifier(
+                "lifecycle-fact",
+                {
+                    **legacy_semantic,
+                    "source_sha256": current_fact.location.source_sha256,
+                    "query_sha256": "a" * 64,
+                },
+            ),
+        )
+        relation_fields = {
+            "site_callable",
+            "program_point",
+            "related_point",
+            "relation_depth",
+            "binding_index",
+            "max_workers",
+            "rejection_policy",
+        }
+        legacy_fact_payload = {
+            key: value
+            for key, value in asdict(legacy_fact).items()
+            if key not in relation_fields
+        }
+        legacy = ExtractedFacts(
+            current.source_kind,
+            hashlib.sha256(canonical_json([legacy_fact_payload])).hexdigest(),
+            current.extractor_version,
+            current.budget,
+            (_unit_from_rows(current_fact.unit_id, (legacy_fact,)),),
+            (legacy_fact,),
+            {
+                **current.coverage,
+                "end_to_end_mode": "imported_static_facts",
+                "source_snapshot_sha256": "b" * 64,
+            },
+        )
+        payload = json.loads(json.dumps(extracted_to_dict(legacy)))
+        payload["schema_version"] = "1.0"
+        for unit in payload["units"]:
+            unit["program"]["schema_version"] = "1.0"
+            for field in (
+                "program_points",
+                "call_bindings",
+                "task_bindings",
+                "task_exits",
+            ):
+                unit["program"].pop(field)
+            for transition in unit["program"]["transitions"]:
+                transition.pop("population_effects")
+            for contract in unit["executor_contracts"]:
+                contract.pop("max_workers")
+                contract.pop("rejection_policy")
+                contract.pop("termination")
+        for fact in payload["facts"]:
+            for field in (
+                "site_callable",
+                "program_point",
+                "related_point",
+                "relation_depth",
+                "binding_index",
+                "max_workers",
+                "rejection_policy",
+            ):
+                fact.pop(field)
+
+        rebuilt = validate_extracted(extracted_from_dict(payload))
+
+        self.assertEqual(SYNTHETIC_HANDLE_ID, rebuilt.facts[0].site_callable)
+        self.assertEqual("none", rebuilt.facts[0].related_point)
+        self.assertEqual(0, rebuilt.facts[0].relation_depth)
+        self.assertEqual(-1, rebuilt.facts[0].binding_index)
+        self.assertEqual("unknown", rebuilt.facts[0].max_workers)
+        self.assertEqual("unknown", rebuilt.facts[0].rejection_policy)
+
     def test_schema_1_1_is_used_for_lifecycle_facts_and_program_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source_root = Path(tmp)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 from pathlib import Path
 import re
@@ -190,6 +190,20 @@ _LEGACY_RAW_ROW_FIELDS = _RAW_ROW_FIELDS - {
 }
 _DECODED_ROW_METADATA_FIELDS = {"query_name", "query_sha256", "site_location"}
 _DECODED_ROW_FIELDS = _RAW_ROW_FIELDS | _DECODED_ROW_METADATA_FIELDS
+_V1_1_RAW_FACT_FIELDS = frozenset(
+    {
+        "site_callable",
+        "program_point",
+        "related_point",
+        "relation_depth",
+        "binding_index",
+        "max_workers",
+        "rejection_policy",
+    }
+)
+_V1_1_EXECUTOR_CONTRACT_FIELDS = frozenset(
+    {"max_workers", "rejection_policy", "termination"}
+)
 
 
 def _source_digests(source_root: Path, relative_path: str, site_line: int) -> tuple[str, str]:
@@ -876,6 +890,77 @@ def _executor_contract_from_dict(value: object) -> ExecutorContract:
     return ExecutorContract(**record)  # type: ignore[arg-type]
 
 
+def _fact_semantic(fact: RawLifecycleFact, *, legacy: bool = False) -> dict[str, object]:
+    semantic: dict[str, object] = {
+        "unit_id": fact.unit_id,
+        "site_file": fact.location.path,
+        "site_start_line": fact.location.start_line,
+        "site_start_column": fact.site_start_column,
+        "fact_kind": fact.fact_kind,
+        "instance_key": fact.instance_key,
+        "resource_type": fact.resource_type,
+        "requires_close": fact.requires_close,
+        "holder_kind": fact.holder_kind,
+        "holder_scope": fact.holder_scope,
+        "holder_key": fact.holder_key,
+        "target_event": fact.target_event,
+        "capacity": fact.capacity,
+        "normal_path": fact.normal_path,
+        "exceptional_path": fact.exceptional_path,
+        "source_evidence": fact.source_evidence,
+        "coverage_status": fact.coverage_status,
+        "coverage_note": fact.coverage_note,
+    }
+    if not legacy:
+        semantic.update(
+            {
+                "site_callable": fact.site_callable,
+                "program_point": fact.program_point,
+                "related_point": fact.related_point,
+                "relation_depth": fact.relation_depth,
+                "binding_index": fact.binding_index,
+                "max_workers": fact.max_workers,
+                "rejection_policy": fact.rejection_policy,
+            }
+        )
+    return semantic
+
+
+def _legacy_facts_are_relation_free(units: list[object], facts: list[object]) -> None:
+    for item in units:
+        if not isinstance(item, Mapping):
+            raise ValueError("analysis unit is invalid")
+        program = item.get("program")
+        contracts = item.get("executor_contracts")
+        if not isinstance(program, Mapping) or program.get("schema_version") != "1.0":
+            raise ValueError("legacy facts schema cannot contain a v1.1 program")
+        if any(
+            program.get(field) not in (None, [])
+            for field in ("program_points", "call_bindings", "task_bindings", "task_exits")
+        ):
+            raise ValueError("legacy facts schema cannot contain v1.1 relations")
+        transitions = program.get("transitions")
+        if isinstance(transitions, list) and any(
+            isinstance(transition, Mapping)
+            and transition.get("population_effects") not in (None, [])
+            for transition in transitions
+        ):
+            raise ValueError("legacy facts schema cannot contain v1.1 population effects")
+        if not isinstance(contracts, list) or any(
+            not isinstance(contract, Mapping)
+            or bool(set(contract).intersection(_V1_1_EXECUTOR_CONTRACT_FIELDS))
+            for contract in contracts
+        ):
+            raise ValueError("legacy facts schema cannot contain v1.1 executor semantics")
+    for item in facts:
+        if (
+            not isinstance(item, Mapping)
+            or bool(set(item).intersection(_V1_1_RAW_FACT_FIELDS))
+            or item.get("fact_kind") in {"call_binding", "cfg_edge", "task_exit"}
+        ):
+            raise ValueError("legacy facts schema cannot contain v1.1 raw relations")
+
+
 def extracted_from_dict(value: object) -> ExtractedFacts:
     if not isinstance(value, Mapping) or set(value) != {
         "schema_version", "source_kind", "snapshot_sha256", "extractor_version", "budget", "units", "facts", "coverage",
@@ -883,8 +968,13 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
         raise ValueError("facts artifact fields are invalid")
     if value.get("schema_version") not in {"1.0", SCHEMA_VERSION} or not isinstance(value.get("units"), list) or not isinstance(value.get("facts"), list):
         raise ValueError("facts artifact schema is invalid")
+    legacy_schema = value.get("schema_version") == "1.0"
+    unit_values = value["units"]  # type: ignore[index]
+    fact_values = value["facts"]  # type: ignore[index]
+    if legacy_schema:
+        _legacy_facts_are_relation_free(unit_values, fact_values)
     units: list[AnalysisUnit] = []
-    for item in value["units"]:  # type: ignore[index]
+    for item in unit_values:
         if (
             not isinstance(item, Mapping)
             or set(item) != {"unit_id", "program", "invariants", "executor_contracts"}
@@ -901,18 +991,113 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
             )
         )
     facts: list[RawLifecycleFact] = []
-    for item in value["facts"]:  # type: ignore[index]
+    for item in fact_values:
         if not isinstance(item, Mapping):
             raise ValueError("raw lifecycle fact is invalid")
         record = dict(item)
-        record["location"] = location_from_dict(record.get("location"))
+        location = location_from_dict(record.get("location"))
+        record["location"] = location
+        if legacy_schema:
+            record.update(
+                {
+                    "site_callable": str(record.get("unit_id")),
+                    "program_point": (
+                        f"legacy-point:{location.path}:{location.start_line}:"
+                        f"{record.get('site_start_column')}:{record.get('fact_kind')}"
+                    ),
+                    "related_point": "none",
+                    "relation_depth": 0,
+                    "binding_index": -1,
+                    "max_workers": "unknown",
+                    "rejection_policy": "unknown",
+                }
+            )
         facts.append(RawLifecycleFact(**record))  # type: ignore[arg-type]
     coverage = value.get("coverage")
     if not isinstance(coverage, Mapping):
         raise ValueError("coverage is invalid")
+    snapshot_sha256 = str(value["snapshot_sha256"])
+    if legacy_schema and facts:
+        prefix = "resource-lifecycle-codeql:"
+        extractor_version = str(value["extractor_version"])
+        if not extractor_version.startswith(prefix):
+            raise ValueError("legacy static facts extractor identity is invalid")
+        query_sha256 = extractor_version[len(prefix):]
+        for fact in facts:
+            expected_id = stable_identifier(
+                "lifecycle-fact",
+                {
+                    **_fact_semantic(fact, legacy=True),
+                    "source_sha256": fact.location.source_sha256,
+                    "query_sha256": query_sha256,
+                },
+            )
+            if fact.fact_id != expected_id:
+                raise ValueError("legacy static fact identifier is inconsistent")
+        expected_legacy_snapshot = hashlib.sha256(
+            canonical_json(
+                [
+                    {
+                        key: field_value
+                        for key, field_value in asdict(fact).items()
+                        if key not in _V1_1_RAW_FACT_FIELDS
+                    }
+                    for fact in facts
+                ]
+            )
+        ).hexdigest()
+        if snapshot_sha256 != expected_legacy_snapshot:
+            raise ValueError("legacy static facts snapshot digest is inconsistent")
+        requested_entries = coverage.get("requested_entry_methods")
+        if not isinstance(requested_entries, list) or any(
+            not isinstance(item, str) for item in requested_entries
+        ):
+            raise ValueError("legacy static facts entry selection is invalid")
+        grouped_legacy: dict[str, list[RawLifecycleFact]] = defaultdict(list)
+        for fact in facts:
+            grouped_legacy[fact.unit_id].append(fact)
+        rebuilt_legacy_units = tuple(
+            _unit_from_rows(
+                unit_id,
+                grouped_legacy[unit_id],
+                external_entry=unit_id in set(requested_entries),
+            )
+            for unit_id in sorted(grouped_legacy)
+        )
+        if tuple(units) != rebuilt_legacy_units:
+            raise ValueError("legacy derived analysis units do not match raw static facts")
+        normalized_facts = tuple(
+            replace(
+                fact,
+                fact_id=stable_identifier(
+                    "lifecycle-fact",
+                    {
+                        **_fact_semantic(fact),
+                        "source_sha256": fact.location.source_sha256,
+                        "query_sha256": query_sha256,
+                    },
+                ),
+            )
+            for fact in facts
+        )
+        grouped_current: dict[str, list[RawLifecycleFact]] = defaultdict(list)
+        for fact in normalized_facts:
+            grouped_current[fact.unit_id].append(fact)
+        units = [
+            _unit_from_rows(
+                unit_id,
+                grouped_current[unit_id],
+                external_entry=unit_id in set(requested_entries),
+            )
+            for unit_id in sorted(grouped_current)
+        ]
+        facts = list(normalized_facts)
+        snapshot_sha256 = hashlib.sha256(
+            canonical_json([asdict(item) for item in facts])
+        ).hexdigest()
     return ExtractedFacts(
         str(value["source_kind"]),
-        str(value["snapshot_sha256"]),
+        snapshot_sha256,
         str(value["extractor_version"]),
         budget_from_dict(value["budget"]),
         tuple(units),
@@ -953,36 +1138,13 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
     for fact in extracted.facts:
         if fact.location.source_kind != "static_verified" or fact.location.extractor_version != extracted.extractor_version:
             raise ValueError("static fact source metadata is invalid")
-        semantic = {
-            "unit_id": fact.unit_id,
-            "site_callable": fact.site_callable,
-            "site_file": fact.location.path,
-            "site_start_line": fact.location.start_line,
-            "site_start_column": fact.site_start_column,
-            "program_point": fact.program_point,
-            "related_point": fact.related_point,
-            "relation_depth": fact.relation_depth,
-            "binding_index": fact.binding_index,
-            "fact_kind": fact.fact_kind,
-            "instance_key": fact.instance_key,
-            "resource_type": fact.resource_type,
-            "requires_close": fact.requires_close,
-            "holder_kind": fact.holder_kind,
-            "holder_scope": fact.holder_scope,
-            "holder_key": fact.holder_key,
-            "target_event": fact.target_event,
-            "capacity": fact.capacity,
-            "max_workers": fact.max_workers,
-            "rejection_policy": fact.rejection_policy,
-            "normal_path": fact.normal_path,
-            "exceptional_path": fact.exceptional_path,
-            "source_evidence": fact.source_evidence,
-            "coverage_status": fact.coverage_status,
-            "coverage_note": fact.coverage_note,
-        }
         expected_id = stable_identifier(
             "lifecycle-fact",
-            {**semantic, "source_sha256": fact.location.source_sha256, "query_sha256": query_sha256},
+            {
+                **_fact_semantic(fact),
+                "source_sha256": fact.location.source_sha256,
+                "query_sha256": query_sha256,
+            },
         )
         if fact.fact_id != expected_id:
             raise ValueError("static fact identifier is inconsistent")

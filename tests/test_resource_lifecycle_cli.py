@@ -15,6 +15,7 @@ from dosweb.resource_lifecycle.adapters import (
     ExtractedFacts,
     adapt_codeql_rows,
     extracted_from_dict,
+    extracted_to_dict,
 )
 from dosweb.resource_lifecycle.commands import _analyze_payload, _evidence_payload
 from dosweb.resource_lifecycle.models import (
@@ -219,6 +220,24 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "task exit kind"):
             replace(valid.task_exits[0], kind="guessed")
 
+    def test_schema_1_1_relation_identifiers_are_unique_across_relation_kinds(self) -> None:
+        valid = self._schema_1_1_relation_program()
+        cross_kind_collision = lifecycle_models.CallBinding(
+            valid.task_bindings[0].binding_id,
+            "point:call",
+            "point:callee",
+            "Fixture.handle",
+            "Fixture.wrapper",
+            0,
+            0,
+            "instance:stream",
+            1,
+            ("fact:call-binding",),
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicate relation identifier"):
+            replace(valid, call_bindings=(cross_kind_collision,))
+
     def test_schema_1_1_executor_contract_has_explicit_termination_semantics(self) -> None:
         contract = ExecutorContract(
             contract_id="contract:executor",
@@ -245,6 +264,42 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "termination"):
             replace(contract, termination="guessed")
 
+    def test_executor_contract_numeric_strings_follow_numeric_limit_rules(self) -> None:
+        contract = ExecutorContract(
+            "contract:executor",
+            "queued",
+            3,
+            True,
+            True,
+            True,
+            "drops_capture",
+            "manual_fixture",
+            "executor-contract-v1",
+            2,
+            "abort",
+            "drops_capture",
+        )
+        for field, invalid, message in (
+            ("queue_capacity", "0", "capacity"),
+            ("queue_capacity", "-1", "capacity"),
+            ("max_workers", "0", "worker"),
+            ("max_workers", "-1", "worker"),
+            ("queue_capacity", True, "capacity"),
+            ("max_workers", True, "worker"),
+        ):
+            with self.subTest(field=field, invalid=invalid), self.assertRaisesRegex(
+                ValueError, message
+            ):
+                replace(contract, **{field: invalid})
+        self.assertEqual(
+            "configuredCapacity",
+            replace(contract, queue_capacity="configuredCapacity").queue_capacity,
+        )
+        self.assertEqual(
+            "configuredWorkers",
+            replace(contract, max_workers="configuredWorkers").max_workers,
+        )
+
     def test_schema_1_1_loader_rejects_non_string_relation_evidence(self) -> None:
         payload = json.loads(
             json.dumps(program_to_dict(self._schema_1_1_relation_program()))
@@ -268,6 +323,42 @@ class ResourceLifecycleCliTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "legacy schema"):
             program_from_dict(payload)
+
+    def test_schema_1_0_facts_rejects_nested_v1_1_relations(self) -> None:
+        program = self._schema_1_1_relation_program()
+        contract = ExecutorContract(
+            "contract:executor",
+            "queued",
+            3,
+            True,
+            True,
+            True,
+            "drops_capture",
+            "manual_fixture",
+            "executor-contract-v1",
+            2,
+            "abort",
+            "drops_capture",
+        )
+        extracted = ExtractedFacts(
+            "manual_fixture",
+            "a" * 64,
+            "manual-fixture-import-v1",
+            AnalysisBudget(),
+            (AnalysisUnit("manual:relations", program, (), (contract,)),),
+            (),
+            {
+                "units": 1,
+                "facts": 0,
+                "partial_or_unsupported": 0,
+                "end_to_end_mode": "manual_ir",
+            },
+        )
+        payload = json.loads(json.dumps(extracted_to_dict(extracted)))
+        payload["schema_version"] = "1.0"
+
+        with self.assertRaisesRegex(ValueError, "legacy facts schema"):
+            extracted_from_dict(payload)
 
     def test_precision_unknown_depends_on_the_effect_evidence(self) -> None:
         program = program_for(

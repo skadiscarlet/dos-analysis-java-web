@@ -422,10 +422,19 @@ class Program:
         holder_ids = _unique_identifiers(self.holders, "holder_id", "holder")
         event_ids = _unique_identifiers(self.events, "event_id", "event")
         point_ids = _unique_identifiers(self.program_points, "point_id", "program point")
-        _unique_identifiers(self.call_bindings, "binding_id", "call binding")
-        _unique_identifiers(self.task_bindings, "binding_id", "task binding")
+        call_binding_ids = _unique_identifiers(
+            self.call_bindings, "binding_id", "call binding"
+        )
+        task_binding_ids = _unique_identifiers(
+            self.task_bindings, "binding_id", "task binding"
+        )
         task_ids = _unique_identifiers(self.task_bindings, "task_id", "task")
-        _unique_identifiers(self.task_exits, "exit_id", "task exit")
+        task_exit_ids = _unique_identifiers(self.task_exits, "exit_id", "task exit")
+        relation_ids = point_ids | call_binding_ids | task_binding_ids | task_exit_ids
+        if len(relation_ids) != sum(
+            map(len, (point_ids, call_binding_ids, task_binding_ids, task_exit_ids))
+        ):
+            raise ValueError("duplicate relation identifier")
         _unique_identifiers(self.transitions, "transition_id", "transition")
         population_effects = tuple(
             effect

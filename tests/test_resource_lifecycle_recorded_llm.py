@@ -295,12 +295,17 @@ class ResourceLifecycleRecordedLlmTests(unittest.TestCase):
             self.assertEqual(0, status)
             manifest = json.loads((run / "run-manifest.json").read_text(encoding="utf-8"))
             summaries = json.loads((run / "llm-summaries.json").read_text(encoding="utf-8"))
+            recording_snapshot = json.loads(
+                (run / "llm-recording.private.json").read_text(encoding="utf-8")
+            )
             results = json.loads((run / "lifecycle-results.json").read_text(encoding="utf-8"))
             evidence = json.loads((run / "evidence.json").read_text(encoding="utf-8"))
             facts_payload = json.loads(facts.read_text(encoding="utf-8"))
             unknown_fact_ids = {
                 item["fact_id"] for item in facts_payload["facts"] if item["fact_kind"] == "unknown_call"
             }
+            self.assertEqual("1.1", recording_snapshot["schema_version"])
+            self.assertEqual("1.1", summaries["schema_version"])
             self.assertEqual(
                 {
                     "mode": "replay",

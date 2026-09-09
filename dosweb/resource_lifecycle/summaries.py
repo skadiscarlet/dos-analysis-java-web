@@ -13,14 +13,17 @@ from typing import TYPE_CHECKING, Literal
 
 from dosweb.artifacts.identifiers import canonical_json
 from dosweb.resource_lifecycle.io import atomic_write_json, effect_from_dict, location_from_dict
-from dosweb.resource_lifecycle.models import Effect, SourceLocation
+from dosweb.resource_lifecycle.models import Effect, SCHEMA_VERSION, SourceLocation
 
 if TYPE_CHECKING:
     from dosweb.resource_lifecycle.adapters import ExtractedFacts
 
 
-SUMMARY_RECORDING_SCHEMA_VERSION = "resource-lifecycle-summary-recording-v1"
-SUMMARY_VALIDATION_SCHEMA_VERSION = "resource-lifecycle-summary-validation-v1"
+SUMMARY_RECORDING_SCHEMA_VERSION = SCHEMA_VERSION
+SUMMARY_VALIDATION_SCHEMA_VERSION = SCHEMA_VERSION
+_LEGACY_SUMMARY_RECORDING_SCHEMA_VERSION = (
+    "resource-lifecycle-summary-recording-v1"
+)
 _MAX_SNIPPET_BYTES = 64 * 1024
 _MAX_RECORDING_RESPONSES = 4096
 _OperationIdentity = tuple[
@@ -476,7 +479,10 @@ def recording_from_dict(value: object) -> SummaryRecording:
         "schema_version", "provider", "model", "contract_version", "budget", "responses",
     }:
         raise ValueError("recorded summary configuration fields are invalid")
-    if value.get("schema_version") != SUMMARY_RECORDING_SCHEMA_VERSION:
+    if value.get("schema_version") not in {
+        SUMMARY_RECORDING_SCHEMA_VERSION,
+        _LEGACY_SUMMARY_RECORDING_SCHEMA_VERSION,
+    }:
         raise ValueError("recorded summary schema version is invalid")
     budget_value = value.get("budget")
     if not isinstance(budget_value, Mapping) or set(budget_value) != {

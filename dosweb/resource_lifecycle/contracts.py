@@ -9,6 +9,25 @@ from dosweb.resource_lifecycle.models import SOURCE_KINDS
 EXECUTOR_CONTRACT_VERSION: Final = "executor-contract-v1"
 
 
+def _validate_positive_limit(value: int | str | None, label: str) -> None:
+    if value is None:
+        return
+    if type(value) is int:
+        if value <= 0:
+            raise ValueError(f"executor {label} must be positive")
+        return
+    if not isinstance(value, str):
+        raise ValueError(f"executor {label} is invalid")
+    if not value:
+        raise ValueError(f"symbolic executor {label} must be non-empty")
+    try:
+        numeric = int(value)
+    except ValueError:
+        return
+    if numeric <= 0:
+        raise ValueError(f"executor {label} must be positive")
+
+
 @dataclass(frozen=True)
 class ExecutorContract:
     contract_id: str
@@ -43,20 +62,8 @@ class ExecutorContract:
             raise ValueError("executor contract semantic flags must be boolean")
         if self.scheduling not in {"inline", "queued"}:
             raise ValueError("executor scheduling is invalid")
-        if isinstance(self.queue_capacity, int) and (isinstance(self.queue_capacity, bool) or self.queue_capacity <= 0):
-            raise ValueError("executor capacity must be positive")
-        if isinstance(self.queue_capacity, str) and not self.queue_capacity:
-            raise ValueError("symbolic executor capacity must be non-empty")
-        if self.queue_capacity is not None and not isinstance(self.queue_capacity, (int, str)):
-            raise ValueError("executor capacity is invalid")
-        if isinstance(self.max_workers, int) and (
-            isinstance(self.max_workers, bool) or self.max_workers <= 0
-        ):
-            raise ValueError("executor worker limit must be positive")
-        if isinstance(self.max_workers, str) and not self.max_workers:
-            raise ValueError("executor worker limit must be non-empty")
-        if self.max_workers is not None and not isinstance(self.max_workers, (int, str)):
-            raise ValueError("executor worker limit is invalid")
+        _validate_positive_limit(self.queue_capacity, "capacity")
+        _validate_positive_limit(self.max_workers, "worker limit")
         if self.rejection_policy not in {
             "abort",
             "caller_runs",
