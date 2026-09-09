@@ -359,6 +359,54 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             legacy_contract_id,
             rebuilt.units[0].executor_contracts[0].contract_id,
         )
+        self.assertIsNone(rebuilt.units[0].executor_contracts[0].max_workers)
+        self.assertEqual(
+            "unknown", rebuilt.units[0].executor_contracts[0].rejection_policy
+        )
+        self.assertEqual("unknown", rebuilt.units[0].executor_contracts[0].termination)
+
+    def test_schema_1_1_facts_requires_every_executor_semantic_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "final class Fixture {}\n", encoding="utf-8"
+            )
+            current = adapt_codeql_rows(
+                (
+                    lifecycle_row(),
+                    lifecycle_row(
+                        fact_kind="dispatch",
+                        site_start_column=2,
+                        program_point="point:Fixture.java:1:2:dispatch",
+                        holder_kind="queue",
+                        holder_scope="task",
+                        holder_key="queue:jobs",
+                        target_event="Fixture.task",
+                        capacity="2",
+                        source_evidence="dispatch",
+                    ),
+                ),
+                source_root=source_root,
+                query_sha256="a" * 64,
+            )
+            current = replace(
+                current,
+                coverage={
+                    **current.coverage,
+                    "source_snapshot_sha256": lifecycle_commands._java_source_snapshot(
+                        source_root
+                    )[1],
+                },
+            )
+            payload = json.loads(json.dumps(extracted_to_dict(current)))
+
+            for field in ("max_workers", "rejection_policy", "termination"):
+                invalid = json.loads(json.dumps(payload))
+                invalid["units"][0]["executor_contracts"][0].pop(field)
+                with self.subTest(field=field), self.assertRaisesRegex(
+                    ValueError, "schema 1.1 executor contract"
+                ):
+                    validate_extracted(extracted_from_dict(invalid))
 
     def test_schema_1_1_is_used_for_lifecycle_facts_and_program_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -879,7 +879,9 @@ def _invariant_from_dict(value: object) -> InvariantCandidate:
     return InvariantCandidate(**record)  # type: ignore[arg-type]
 
 
-def _executor_contract_from_dict(value: object) -> ExecutorContract:
+def _executor_contract_from_dict(
+    value: object, *, schema_version: str = SCHEMA_VERSION
+) -> ExecutorContract:
     if not isinstance(value, Mapping):
         raise ValueError("executor contract must be an object")
     record = dict(value)
@@ -888,12 +890,22 @@ def _executor_contract_from_dict(value: object) -> ExecutorContract:
         "completion_drops_capture", "rejection_drops_capture", "cancellation",
         "source_kind", "version", "max_workers", "rejection_policy", "termination",
     }
-    optional = {"max_workers", "rejection_policy", "termination"}
-    if not set(record) <= expected or not expected - optional <= set(record):
-        raise ValueError("executor contract fields are invalid")
-    record.setdefault("max_workers", None)
-    record.setdefault("rejection_policy", "unknown")
-    record.setdefault("termination", "unknown")
+    if schema_version == SCHEMA_VERSION:
+        if set(record) != expected:
+            raise ValueError("schema 1.1 executor contract fields are invalid")
+    elif schema_version == "1.0":
+        legacy_fields = expected - _V1_1_EXECUTOR_CONTRACT_FIELDS
+        if set(record) != legacy_fields:
+            raise ValueError("legacy executor contract fields are invalid")
+        record.update(
+            {
+                "max_workers": None,
+                "rejection_policy": "unknown",
+                "termination": "unknown",
+            }
+        )
+    else:
+        raise ValueError("executor contract schema is unsupported")
     return ExecutorContract(**record)  # type: ignore[arg-type]
 
 
@@ -1000,7 +1012,13 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
                 str(item["unit_id"]),
                 program_from_dict(program_value),
                 tuple(_invariant_from_dict(row) for row in item["invariants"]),
-                tuple(_executor_contract_from_dict(row) for row in item["executor_contracts"]),
+                tuple(
+                    _executor_contract_from_dict(
+                        row,
+                        schema_version="1.0" if legacy_schema else SCHEMA_VERSION,
+                    )
+                    for row in item["executor_contracts"]
+                ),
             )
         )
     facts: list[RawLifecycleFact] = []
