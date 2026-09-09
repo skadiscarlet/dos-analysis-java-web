@@ -115,13 +115,33 @@ class Holder:
 @dataclass(frozen=True)
 class Event:
     event_id: str
-    kind: Literal["request", "request_exit", "method", "task_submit", "task_queue", "task_run", "task_exit"]
+    kind: Literal[
+        "request",
+        "request_exit",
+        "method",
+        "task_submit",
+        "task_queue",
+        "task_run",
+        "task_exit",
+        "task_reject",
+        "task_cancel",
+    ]
     callable: str
     activation_condition: str
 
     def __post_init__(self) -> None:
         _identifier(self.event_id, "event_id")
-        if self.kind not in {"request", "request_exit", "method", "task_submit", "task_queue", "task_run", "task_exit"}:
+        if self.kind not in {
+            "request",
+            "request_exit",
+            "method",
+            "task_submit",
+            "task_queue",
+            "task_run",
+            "task_exit",
+            "task_reject",
+            "task_cancel",
+        }:
             raise ValueError("event kind is invalid")
         _identifier(self.callable, "event callable")
         _identifier(self.activation_condition, "activation_condition")
@@ -193,10 +213,13 @@ class TaskBinding:
     instance_id: str
     holder_id: str
     executor_contract_id: str
+    submit_event_id: str
     queued_event_id: str
     run_event_id: str
     normal_exit_event_id: str
     exceptional_exit_event_id: str
+    rejected_event_id: str
+    cancelled_event_id: str
     task_callable: str
     evidence_ids: tuple[str, ...]
 
@@ -207,10 +230,13 @@ class TaskBinding:
             (self.instance_id, "task binding instance"),
             (self.holder_id, "task binding holder"),
             (self.executor_contract_id, "task executor contract"),
+            (self.submit_event_id, "task submit event"),
             (self.queued_event_id, "task queued event"),
             (self.run_event_id, "task run event"),
             (self.normal_exit_event_id, "task normal exit event"),
             (self.exceptional_exit_event_id, "task exceptional exit event"),
+            (self.rejected_event_id, "task rejected event"),
+            (self.cancelled_event_id, "task cancelled event"),
             (self.task_callable, "task callable"),
         ):
             _identifier(value, label)
@@ -482,23 +508,44 @@ class Program:
         holders = {item.holder_id: item for item in self.holders}
         events = {item.event_id: item for item in self.events}
         tasks = {item.task_id: item for item in self.task_bindings}
+        task_stage_event_ids = tuple(
+            event_id
+            for binding in self.task_bindings
+            for event_id in (
+                binding.submit_event_id,
+                binding.queued_event_id,
+                binding.run_event_id,
+                binding.normal_exit_event_id,
+                binding.exceptional_exit_event_id,
+                binding.rejected_event_id,
+                binding.cancelled_event_id,
+            )
+        )
+        if len(set(task_stage_event_ids)) != len(task_stage_event_ids):
+            raise ValueError("task binding stage event ownership is ambiguous")
         for binding in self.task_bindings:
             if binding.instance_id not in instance_ids:
                 raise ValueError("task binding references an unknown instance")
             if binding.holder_id not in holder_ids or holders[binding.holder_id].kind != "task":
                 raise ValueError("task binding references an invalid task holder")
             if not {
+                binding.submit_event_id,
                 binding.queued_event_id,
                 binding.run_event_id,
                 binding.normal_exit_event_id,
                 binding.exceptional_exit_event_id,
+                binding.rejected_event_id,
+                binding.cancelled_event_id,
             } <= event_ids:
                 raise ValueError("task binding event reference is invalid")
             if (
-                events[binding.queued_event_id].kind != "task_queue"
+                events[binding.submit_event_id].kind != "task_submit"
+                or events[binding.queued_event_id].kind != "task_queue"
                 or events[binding.run_event_id].kind != "task_run"
                 or events[binding.normal_exit_event_id].kind != "task_exit"
                 or events[binding.exceptional_exit_event_id].kind != "task_exit"
+                or events[binding.rejected_event_id].kind != "task_reject"
+                or events[binding.cancelled_event_id].kind != "task_cancel"
             ):
                 raise ValueError("task binding event kind is invalid")
             if any(
@@ -508,6 +555,8 @@ class Program:
                     binding.run_event_id,
                     binding.normal_exit_event_id,
                     binding.exceptional_exit_event_id,
+                    binding.rejected_event_id,
+                    binding.cancelled_event_id,
                 )
             ):
                 raise ValueError("task binding event callable is inconsistent")
@@ -553,6 +602,31 @@ class Program:
                     raise ValueError("effect holder reference is invalid")
                 if effect.target_event_id is not None and effect.target_event_id not in event_ids:
                     raise ValueError("effect target event reference is invalid")
+
+        internal_successors: dict[str, set[str]] = {}
+        for transition in self.transitions:
+            if transition.exit_kind == "internal":
+                internal_successors.setdefault(transition.source_event_id, set()).add(
+                    transition.target_event_id
+                )
+        active_sources_by_task: dict[str, set[str]] = {}
+        for binding in self.task_bindings:
+            reachable = {binding.run_event_id}
+            pending = [binding.run_event_id]
+            while pending:
+                source_event_id = pending.pop()
+                for target_event_id in internal_successors.get(source_event_id, ()):
+                    target = events[target_event_id]
+                    if (
+                        target.kind == "method"
+                        and target.callable == binding.task_callable
+                        and target_event_id not in reachable
+                    ):
+                        reachable.add(target_event_id)
+                        pending.append(target_event_id)
+            active_sources_by_task[binding.task_id] = reachable
+
+        for transition in self.transitions:
             for effect in transition.population_effects:
                 if effect.task_id not in task_ids:
                     raise ValueError("population effect references an unknown task")
@@ -561,36 +635,60 @@ class Program:
                     raise ValueError("population effect executor reference is invalid")
                 if effect.location.source_kind not in RELATION_SOURCE_KINDS:
                     raise ValueError("population effect requires a trusted source kind")
-                attachment_valid = {
-                    "enqueue": transition.target_event_id
-                    == binding.queued_event_id,
-                    "direct_accept": transition.target_event_id
-                    == binding.run_event_id,
+                exact_attachments = {
+                    "direct_accept": (
+                        binding.submit_event_id,
+                        binding.run_event_id,
+                        "internal",
+                    ),
+                    "enqueue": (
+                        binding.submit_event_id,
+                        binding.queued_event_id,
+                        "internal",
+                    ),
                     "assign_slot": (
-                        transition.source_event_id == binding.queued_event_id
-                        and transition.target_event_id == binding.run_event_id
+                        binding.queued_event_id,
+                        binding.run_event_id,
+                        "internal",
                     ),
-                    "start": transition.target_event_id == binding.run_event_id,
+                    "start": (
+                        binding.run_event_id,
+                        binding.run_event_id,
+                        "internal",
+                    ),
+                    "reject": (
+                        binding.submit_event_id,
+                        binding.rejected_event_id,
+                        "rejected",
+                    ),
                     "cancel_queued": (
-                        transition.source_event_id == binding.queued_event_id
-                        and transition.exit_kind == "cancelled"
+                        binding.queued_event_id,
+                        binding.cancelled_event_id,
+                        "cancelled",
                     ),
-                    "cancel_active": (
-                        transition.source_event_id == binding.run_event_id
-                        and transition.exit_kind == "cancelled"
-                    ),
-                    "reject": transition.exit_kind == "rejected",
                 }
                 if effect.kind == "terminate":
                     exit_kind = transition.exit_kind
                     task_exit = exits_by_task[effect.task_id].get(exit_kind)
                     valid = (
-                        transition.source_event_id == binding.run_event_id
+                        transition.source_event_id
+                        in active_sources_by_task[effect.task_id]
                         and task_exit is not None
                         and transition.target_event_id == task_exit.event_id
                     )
+                elif effect.kind == "cancel_active":
+                    valid = (
+                        transition.source_event_id
+                        in active_sources_by_task[effect.task_id]
+                        and transition.target_event_id == binding.cancelled_event_id
+                        and transition.exit_kind == "cancelled"
+                    )
                 else:
-                    valid = attachment_valid[effect.kind]
+                    valid = (
+                        transition.source_event_id,
+                        transition.target_event_id,
+                        transition.exit_kind,
+                    ) == exact_attachments[effect.kind]
                 if not valid:
                     raise ValueError("population effect transition attachment is invalid")
         _identifier(self.contracts_version, "contracts_version")

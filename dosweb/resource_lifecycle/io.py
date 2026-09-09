@@ -41,10 +41,34 @@ T = TypeVar("T")
 _V1_1_RELATION_FIELDS = frozenset(
     {"program_points", "call_bindings", "task_bindings", "task_exits"}
 )
-_V1_1_PROGRAM_FIELDS = frozenset(item.name for item in fields(Program))
-_V1_0_PROGRAM_FIELDS = _V1_1_PROGRAM_FIELDS - _V1_1_RELATION_FIELDS
-_V1_1_TRANSITION_FIELDS = frozenset(item.name for item in fields(Transition))
-_V1_0_TRANSITION_FIELDS = _V1_1_TRANSITION_FIELDS - {"population_effects"}
+_V1_0_PROGRAM_FIELDS = frozenset(
+    {
+        "schema_version",
+        "families",
+        "instances",
+        "holders",
+        "events",
+        "transitions",
+        "entry_event_ids",
+        "exit_event_ids",
+        "coverage_complete",
+        "contracts_version",
+        "coverage_gaps",
+    }
+)
+_V1_1_PROGRAM_FIELDS = _V1_0_PROGRAM_FIELDS | _V1_1_RELATION_FIELDS
+_V1_0_TRANSITION_FIELDS = frozenset(
+    {
+        "transition_id",
+        "source_event_id",
+        "target_event_id",
+        "guard",
+        "effects",
+        "exit_kind",
+        "assumptions",
+    }
+)
+_V1_1_TRANSITION_FIELDS = _V1_0_TRANSITION_FIELDS | {"population_effects"}
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:

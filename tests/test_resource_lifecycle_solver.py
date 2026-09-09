@@ -142,10 +142,13 @@ class ResourceLifecycleSchemaTests(unittest.TestCase):
         PopulationEffect = getattr(lifecycle_models, "PopulationEffect")
         base = program_for(())
         task_events = (
+            Event("event:submit", "task_submit", "Fixture.handle", "submitted"),
             Event("event:queue", "task_queue", "Fixture.task", "accepted"),
             Event("event:run", "task_run", "Fixture.task", "worker reserved"),
             Event("event:task-normal", "task_exit", "Fixture.task", "normal"),
             Event("event:task-error", "task_exit", "Fixture.task", "exceptional"),
+            Event("event:task-rejected", "task_reject", "Fixture.task", "rejected"),
+            Event("event:task-cancelled", "task_cancel", "Fixture.task", "cancelled"),
         )
         points = (
             ProgramPoint("point:call", "Fixture.handle", "call", location()),
@@ -166,17 +169,20 @@ class ResourceLifecycleSchemaTests(unittest.TestCase):
             ("fact:call",),
         )
         task = TaskBinding(
-            "task-binding:stream",
-            "task:stream",
-            "instance:stream",
-            "holder:task",
-            "contract:executor",
-            "event:queue",
-            "event:run",
-            "event:task-normal",
-            "event:task-error",
-            "Fixture.task",
-            ("fact:capture",),
+            binding_id="task-binding:stream",
+            task_id="task:stream",
+            instance_id="instance:stream",
+            holder_id="holder:task",
+            executor_contract_id="contract:executor",
+            submit_event_id="event:submit",
+            queued_event_id="event:queue",
+            run_event_id="event:run",
+            normal_exit_event_id="event:task-normal",
+            exceptional_exit_event_id="event:task-error",
+            rejected_event_id="event:task-rejected",
+            cancelled_event_id="event:task-cancelled",
+            task_callable="Fixture.task",
+            evidence_ids=("fact:capture",),
         )
         population = PopulationEffect(
             "population:enqueue",
@@ -213,7 +219,7 @@ class ResourceLifecycleSchemaTests(unittest.TestCase):
         )
         transition = Transition(
             "transition:enqueue",
-            "event:entry",
+            "event:submit",
             "event:queue",
             "accepted",
             (),
@@ -292,17 +298,20 @@ class ResourceLifecycleSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "program point"):
             replace(base, program_points=(point,), call_bindings=(dangling_call,))
         dangling_task = TaskBinding(
-            "task-binding:dangling",
-            "task:stream",
-            "instance:stream",
-            "holder:task",
-            "contract:executor",
-            "event:missing-queue",
-            "event:missing-run",
-            "event:missing-normal",
-            "event:missing-error",
-            "Fixture.task",
-            ("fact:capture",),
+            binding_id="task-binding:dangling",
+            task_id="task:stream",
+            instance_id="instance:stream",
+            holder_id="holder:task",
+            executor_contract_id="contract:executor",
+            submit_event_id="event:missing-submit",
+            queued_event_id="event:missing-queue",
+            run_event_id="event:missing-run",
+            normal_exit_event_id="event:missing-normal",
+            exceptional_exit_event_id="event:missing-error",
+            rejected_event_id="event:missing-rejected",
+            cancelled_event_id="event:missing-cancelled",
+            task_callable="Fixture.task",
+            evidence_ids=("fact:capture",),
         )
         with self.assertRaisesRegex(ValueError, "task binding event"):
             replace(

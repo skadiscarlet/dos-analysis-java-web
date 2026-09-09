@@ -5,7 +5,7 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task2_quality_review_green`
+- current_stage: `task2_population_attachment_review_green`
 - next_action: `Task 3：从真实 Java/CodeQL 提取 CFG、调用、捕获、执行器和出口事实`
 
 ## 适用标准
@@ -26,6 +26,7 @@
 
 ## Task 2 完成证据
 
+- population attachment 复审已关闭：`TaskBinding` 显式绑定 submit/queued/run/normal/exceptional/rejected/cancelled 七个 task-stage event，七类 ID 跨 binding 唯一；submit 可属于 caller，其余 stage callable 必须等于 task callable。八类 population effect 以 source/target/exit-kind 精确附着；active termination/cancellation source 可为 run 或从 run 经 `Program.transitions` 的 internal、同 callable CFG 边可达的 method event，断开或跨 callable method 拒绝。Program/Transition 的 `1.0/1.1` exact field sets 已改为显式不可变集合，旧 `1.0` 不迁移新增 TaskBinding 字段。真实 RED 为 `6 failed, 1 passed`；核心 GREEN 为 `7 passed, 34 subtests passed`，相邻 schema 为 `4 passed, 13 subtests passed`，lifecycle 全量为 `244 passed, 5 skipped, 194 subtests passed`，真实 CodeQL 为 `36 passed, 16 subtests passed`（530.26s）。P0 schema/tool 保持 `2.5/0.4.0`；Task 4 solver 未提前实现。
 - Task 2 code-quality review 的五个 Important 已关闭：task event/callable/exit 与 population transition endpoint 精确绑定；executor enum 成为 dispatch 语义唯一来源且与 legacy boolean 冲突时 fail closed；manual ProgramPoint/PopulationEffect provenance 在两个导入/验证入口均限定为 `manual_fixture`；QL program-point identity 改为 callable + file + start/end span 的 site identity，同 site dispatch/invariant 不再因 fact kind 分裂；Program/Transition 使用集中式 `1.0/1.1` exact field sets，`1.1 coverage_gaps` 必填，旧 schema 携带任何新增空 relation/population 字段也拒绝。旧 `1.0` coverage evidence 保留，只有新增 relation/population collection 在 exact schema 校验后迁移为空。
 - 五项 review 最终验收：lifecycle 全量 `232 passed, 5 skipped, 128 subtests passed`；真实 Java/CodeQL compile、query、decode、adapter 与 CLI `36 passed, 16 subtests passed`（526.12s）；direct/embedded QL 字节一致，P0 schema/tool 仍为 `2.5/0.4.0`。Item 4 focused 真实反例先观测到同 location 的 `#dispatch/#invariant` identity 分裂，修复后同 site program point 相等；Item 5 focused exact-schema 用例为 `4 passed, 10 subtests passed`。
 - lifecycle Program/facts 及全部 `resource-*` JSON 输出统一为 schema `1.1`，tool identity 为 `resource-lifecycle-v1.1`；旧 `1.0` Program/facts 只在无 v1.1 relation/population/executor 字段时兼容读取，legacy raw facts 会在旧 ID/snapshot/derived-unit 校验后归一化为当前模型；旧 named-v1 recording 只由 exact-field/typed loader 受限读取，新 private recording 与 validation 输出均为 `1.1`。P0 schema/tool `2.5/0.4.0` 未改。

@@ -306,7 +306,17 @@ def load_suite(path: Path) -> RegressionSuite:
         raise AnalyzerError("ARTIFACT_INPUT_INVALID", "Resource lifecycle regression suite is invalid.", {"path": str(path)}) from exc
 
 
-def _event_kind(event_id: str) -> Literal["request", "request_exit", "method", "task_submit", "task_queue", "task_run", "task_exit"]:
+def _event_kind(event_id: str) -> Literal[
+    "request",
+    "request_exit",
+    "method",
+    "task_submit",
+    "task_queue",
+    "task_run",
+    "task_exit",
+    "task_reject",
+    "task_cancel",
+]:
     if event_id == "entry":
         return "request"
     if "queue" in event_id:
