@@ -576,6 +576,9 @@ def _evidence_payload(
     async_rules: set[str] = set()
     units_by_id = {unit.unit_id: unit for unit in extracted.units}
     for source_unit in extracted.units:
+        for point in source_unit.program.program_points:
+            register(stable_identifier("program-point-evidence", {"unit_id": source_unit.unit_id, "point_id": point.point_id}),
+                     "program_point_evidence", {"unit_id": source_unit.unit_id, **asdict(point)})
         for resource in source_unit.program.families:
             register(resource.family_id, "resource_family", {
                 "resource_type": resource.resource_type, "location": asdict(resource.allocation)})
@@ -616,6 +619,8 @@ def _evidence_payload(
         if source_unit is None:
             continue
         transitions = {item.transition_id: item for item in source_unit.program.transitions}
+        events_by_id = {event.event_id: event for event in source_unit.program.events}
+        points_by_id = {point.point_id: point for point in source_unit.program.program_points}
         traces = unit.get("traces")
         exit_states = unit.get("exit_states")
         effects_by_id = {
@@ -819,10 +824,60 @@ def _evidence_payload(
                     raise ValueError("property path trace does not match its solved derivation")
                 path_evidence = set(path["evidence_ids"])
                 path_locations = dict(locations)
+                relation_evidence = []
+
+                def add_point_relation(edge, endpoint, point, task_exit=None):
+                    event_id = edge.source_event_id if endpoint == "source" else edge.target_event_id
+                    point_evidence_id = stable_identifier("program-point-evidence", {
+                        "unit_id": unit_id, "point_id": point.point_id})
+                    evidence = {point_evidence_id}
+                    if task_exit is not None:
+                        evidence.update(task_exit.evidence_ids)
+                    path_evidence.update(evidence)
+                    path_locations[(point.location.path, point.location.start_line,
+                                    point.location.end_line, point.location.source_sha256)] = asdict(point.location)
+                    relation = {
+                        "kind": "task_exit" if task_exit is not None else "cfg_program_point",
+                        "unit_id": unit_id,
+                        "transition_id": edge.transition_id, "source_event_id": edge.source_event_id,
+                        "target_event_id": edge.target_event_id, "endpoint": endpoint, "event_id": event_id,
+                        "point_id": point.point_id, "task_exit_id": task_exit.exit_id if task_exit else None,
+                        "evidence_ids": sorted(evidence), "location": asdict(point.location),
+                    }
+                    relation_id = stable_identifier("point-relation-evidence", {
+                        "unit_id": unit_id, "transition_id": edge.transition_id, "endpoint": endpoint,
+                        "point_id": point.point_id, "task_exit_id": task_exit.exit_id if task_exit else None,
+                    })
+                    # A CFG endpoint is shared by many path/dimension proofs.
+                    # Intern its full relation once; each child keeps the exact
+                    # IDs without multiplying source metadata past replay limits.
+                    register(relation_id, "program_point_relation", relation)
+                    path_evidence.add(relation_id)
+                    relation_evidence.append(relation_id)
+
                 for transition_id in path["trace"]["transition_ids"]:
                     edge = transitions.get(transition_id)
                     if edge is None:
                         raise ValueError("property path transition is unresolved")
+                    # CFG events carry an exact ProgramPoint identifier, not a
+                    # callable/line approximation. Only this path's endpoints
+                    # can contribute locations to its child proof.
+                    for endpoint, endpoint_id in (("source", edge.source_event_id), ("target", edge.target_event_id)):
+                        event = events_by_id[endpoint_id]
+                        point = points_by_id.get(event.activation_condition)
+                        if point is not None:
+                            if point.callable != event.callable:
+                                raise ValueError("property path event/program point callable mismatch")
+                            add_point_relation(edge, endpoint, point)
+                    exits = [item for item in source_unit.program.task_exits
+                             if item.event_id == edge.target_event_id and item.kind == edge.exit_kind]
+                    if len(exits) > 1:
+                        source_point = events_by_id[edge.source_event_id].activation_condition
+                        exits = [item for item in exits if item.point_id == source_point]
+                        if len(exits) != 1:
+                            raise ValueError("property path task exit location is ambiguous")
+                    for task_exit in exits:
+                        add_point_relation(edge, "target", points_by_id[task_exit.point_id], task_exit)
                     for effect in edge.effects:
                         if effect.family_id == family_id and set(effect.evidence_ids).intersection(path_evidence):
                             path_locations[(effect.location.path, effect.location.start_line,
@@ -830,6 +885,7 @@ def _evidence_payload(
                 path_body = {
                     "unit_id": unit_id, "scope": dimension.get("scope"), "dimension": dimension.get("dimension"),
                     "resource_family_id": family_id, **path, "state": recorded["state"],
+                    "evidence_ids": sorted(path_evidence), "relation_evidence": relation_evidence,
                     "code_locations": [path_locations[key] for key in sorted(path_locations)],
                 }
                 path_id = hashlib.sha256(canonical_json(path_body)).hexdigest()
@@ -838,6 +894,8 @@ def _evidence_payload(
                 for rule_id, evidence_id in path["trace"]["rule_dependencies"]:
                     rules.add(rule_id)
                     dependency_pairs.add((rule_id, evidence_id))
+            evidence_ids = tuple(sorted(set(evidence_ids).union(
+                evidence_id for path in path_derivations for evidence_id in path["evidence_ids"])))
             if dimension.get("property_event_ids"):
                 # This is an all-path aggregate, not a concatenated CFG path.
                 # Each source location and state belongs to its own child proof.

@@ -1,3 +1,10 @@
+## [2026-09-10] Resource lifecycle v1.1 Task 4 terminal evidence fixes
+
+- fresh quality final 发现 conditional child proof 只采集 effect location，漏实际 TaskExit/CFG ProgramPoint；按已执行 transition endpoints 补关系证据与位置，不混入互斥路径。另修 pure Abort reject-only 的 termination_guaranteed 被历史 async_states 误压为 false。先保存有效 RED，G3 继续 pending fresh review，Task5 / push 不启动。
+- CFG 端点仅按 Event.activation_condition 的精确 ProgramPoint ID 解析，TaskExit 按 event/kind 与多出口情况下的 source point 解析；child proof 引用独立 `program_point_evidence` / `program_point_relation` registry IDs，并保留对应位置与依赖。同一事件多个正常出口的 solver evidence 现按 source point 选唯一 TaskExit，条件维度不再追加 event 级任意出口事实；不能唯一绑定则 scoped unknown。termination_guaranteed 根据 caller-exit cuts 的 queued/reserved/running pending 计算，reject-only 可为 true，但 obligation_gap 不变。
+- 有效 RED：normal/exceptional × 有/无 close、真实 cached line39、pure reject 共 `6 failed`；同kind互斥出口证据混合另为 `1 failed`。最终本轮 `9 passed`，含真实cached的 focused `175 passed, 156 subtests`，全 lifecycle `343 passed, 13 skipped, 235 subtests`；compileall / diff-check 通过，TaskExit/CFG位置及关系删除篡改被 replay 检出。
+- 集成回归首次发现重复嵌入 endpoint relation 令真实 evidence.json 达18,469,998 bytes，超现有16MiB限额；改为registry规范化、child引用精确ID后为8,998,683 bytes，未放宽读取上限，真实facts→CLI→replay通过。新增cached体积断言。未改/重跑QL或adapter，原SourcePairs source coverage gaps保持unknown；本轮新commit、不amend/push，G3仍pending fresh review。
+
 ## [2026-09-10] Resource lifecycle v1.1 Task 4 fresh re-review fixes
 
 - fresh re-review 发现 A property trace 合并互斥接纳路径并支撑条件 bounded、B 纯 Abort reject 被误当 pending 而公开状态漏 obligation_gap、C dispatch matching 漏 family_id / Program 未校验 instance-family 一致性。G3 继续 fail；逐项补 RED 后修复，最终追加新提交，不 amend/push，Task5 不启动。

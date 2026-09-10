@@ -615,7 +615,9 @@ def check_invariants(
                         evidence.update(item.instance_id for item in program.instances
                                         if item.family_id == dimension.resource_family_id)
                         if task_exit is not None:
-                            evidence.update(task_exit.evidence_ids)
+                            # The path trace carries the exact reached TaskExit.
+                            # An event may represent several same-kind returns;
+                            # choosing one from the event lookup would mix them.
                             evidence.update(bindings[task_exit.task_id].evidence_ids)
                         path_results.setdefault((dimension.dimension, dimension.resource_family_id), []).append(
                             PropertyPathResult(record.property_event_id, path_index, record.trace, dimension.lifecycle_status,

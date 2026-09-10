@@ -392,7 +392,10 @@ def _task_step(program: Program, binding: TaskBinding, transition: Transition,
     elif target in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}:
         exits = [item for item in program.task_exits if item.task_id == binding.task_id
                  and item.event_id == target and item.kind == transition.exit_kind]
-        if phase != "running" or not exits:
+        if len(exits) > 1:
+            source_point = next(event.activation_condition for event in program.events if event.event_id == source)
+            exits = [item for item in exits if item.point_id == source_point]
+        if phase != "running" or len(exits) != 1:
             return None
         phase_out, operation = "terminated", "drop"
         evidence.update(item for task_exit in exits for item in task_exit.evidence_ids)
@@ -628,6 +631,9 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                 binding = tasks[cursor.actor]
                 result = _task_step(program, binding, transition, source_state, cursor.phase)
                 if result is None:
+                    if (cursor.phase == "running" and transition.target_event_id
+                            in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}):
+                        unknown.add("task_exit_relation_unresolved:" + binding.task_id)
                     continue
                 next_state, phase, applied = result
                 next_trace = _trace_step(source_trace, transition, applied)
@@ -704,7 +710,8 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
     return AnalysisResult(exit_states, states, traces, terminated, tuple(sorted(unknown)),
                           _statuses(exit_states, unknown, tuple(exit_cuts)), steps, property_states,
                           dict(async_states), async_traces,
-                          termination_guaranteed=not async_states and not unknown,
+                          termination_guaranteed=(terminated and bool(exit_cuts) and not unknown
+                                                  and not any(pending for _state, pending in exit_cuts)),
                           property_traces=property_traces, async_origins=async_origins,
                           async_derivations={task: tuple(records) for task, records in async_derivations.items()},
                           property_derivations={scope: {event: tuple(records) for event, records in events.items()}
