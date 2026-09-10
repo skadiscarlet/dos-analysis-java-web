@@ -683,11 +683,13 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             cancellation="drops_capture",
             source_kind="manual_fixture",
             version="executor-contract-v1",
+            core_workers=1,
             max_workers=2,
             rejection_policy="abort",
             termination="drops_capture",
         )
 
+        self.assertEqual(1, contract.core_workers)
         self.assertEqual(2, contract.max_workers)
         self.assertEqual("abort", contract.rejection_policy)
         self.assertEqual("drops_capture", contract.termination)
@@ -695,6 +697,10 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             replace(contract, queue_capacity=-1)
         with self.assertRaisesRegex(ValueError, "worker"):
             replace(contract, max_workers=-1)
+        with self.assertRaisesRegex(ValueError, "core worker"):
+            replace(contract, core_workers=-1)
+        with self.assertRaisesRegex(ValueError, "core worker.*maximum worker"):
+            replace(contract, core_workers=3)
         with self.assertRaisesRegex(ValueError, "termination"):
             replace(contract, termination="guessed")
 
@@ -718,8 +724,11 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             ("queue_capacity", "-1", "capacity"),
             ("max_workers", "0", "worker"),
             ("max_workers", "-1", "worker"),
+            ("core_workers", "-1", "core worker"),
+            ("core_workers", "3", "core worker"),
             ("queue_capacity", True, "capacity"),
             ("max_workers", True, "worker"),
+            ("core_workers", True, "core worker"),
         ):
             with self.subTest(field=field, invalid=invalid), self.assertRaisesRegex(
                 ValueError, message
@@ -733,6 +742,12 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             "configuredWorkers",
             replace(contract, max_workers="configuredWorkers").max_workers,
         )
+        self.assertEqual(
+            "configuredCoreWorkers",
+            replace(contract, core_workers="configuredCoreWorkers").core_workers,
+        )
+        self.assertEqual(0, replace(contract, core_workers=0).core_workers)
+        self.assertEqual("0", replace(contract, core_workers="0").core_workers)
 
     def test_schema_1_1_loader_rejects_non_string_relation_evidence(self) -> None:
         payload = json.loads(

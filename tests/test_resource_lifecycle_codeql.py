@@ -88,6 +88,9 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
         "site_start_column": 1,
         "program_point": "point:Fixture.java:1:1:create",
         "related_point": "none",
+        "related_file": "Fixture.java",
+        "related_start_line": 1,
+        "related_start_column": 1,
         "relation_depth": 0,
         "binding_index": -1,
         "fact_kind": "create",
@@ -99,6 +102,7 @@ def lifecycle_row(**overrides: object) -> dict[str, object]:
         "holder_key": "none",
         "target_event": "none",
         "capacity": "unknown",
+        "core_workers": "unknown",
         "max_workers": "unknown",
         "rejection_policy": "unknown",
         "normal_path": True,
@@ -117,8 +121,11 @@ _V1_1_FACT_FIELDS = {
     "site_callable",
     "program_point",
     "related_point",
+    "related_location",
+    "related_start_column",
     "relation_depth",
     "binding_index",
+    "core_workers",
     "max_workers",
     "rejection_policy",
 }
@@ -206,6 +213,7 @@ def _legacy_facts_payload(current, *, legacy_executor_identity: bool = False):
                         "target_event": fact.target_event,
                         "target_event_id": target_event_id,
                         "capacity": fact.capacity,
+                        "core_workers": fact.core_workers,
                         "max_workers": fact.max_workers,
                         "rejection_policy": fact.rejection_policy,
                     },
@@ -319,6 +327,7 @@ def _legacy_facts_payload(current, *, legacy_executor_identity: bool = False):
         for transition in unit["program"]["transitions"]:
             transition.pop("population_effects")
         for contract in unit["executor_contracts"]:
+            contract.pop("core_workers")
             contract.pop("max_workers")
             contract.pop("rejection_policy")
             contract.pop("termination")
@@ -428,7 +437,12 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             )
             payload = json.loads(json.dumps(extracted_to_dict(current)))
 
-            for field in ("max_workers", "rejection_policy", "termination"):
+            for field in (
+                "core_workers",
+                "max_workers",
+                "rejection_policy",
+                "termination",
+            ):
                 invalid = json.loads(json.dumps(payload))
                 invalid["units"][0]["executor_contracts"][0].pop(field)
                 with self.subTest(field=field), self.assertRaisesRegex(
@@ -462,6 +476,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
 
         self.assertEqual("drops_capture", migrated.termination)
         self.assertEqual("unknown", migrated.rejection_policy)
+        self.assertIsNone(migrated.core_workers)
         self.assertTrue(migrated.rejection_drops_capture)
 
     def test_schema_1_1_is_used_for_lifecycle_facts_and_program_only(self) -> None:
@@ -536,11 +551,9 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                 SYNTHETIC_SOURCE, encoding="utf-8"
             )
             for query_name, fact_kind in (
-                ("resource_lifecycle", "cfg_edge"),
                 ("resource_lifecycle", "task_exit"),
                 ("resource_lifecycle_task_relations", "create"),
                 ("resource_lifecycle_task_relations", "retain"),
-                ("resource_lifecycle_task_relations", "release"),
             ):
                 spec = QUERY_SPECS[query_name]
                 row = lifecycle_row(fact_kind=fact_kind)
@@ -554,6 +567,920 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                             DecodeSource(source_root, "a" * 64),
                         )
                     self.assertEqual("ENUM_INVALID", raised.exception.details["reason"])
+            task_spec = QUERY_SPECS["resource_lifecycle_task_relations"]
+            task_release = lifecycle_row(fact_kind="release")
+            decoded = decode_rows(
+                "resource_lifecycle_task_relations",
+                task_spec.columns,
+                [[task_release[column] for column in task_spec.columns]],
+                DecodeSource(source_root, "a" * 64),
+            )
+            self.assertEqual("release", decoded[0]["fact_kind"])
+
+    def _base_source_cfg_release_states(self, coverage, evidence, note, *, call_failed=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text("// synthetic raw CFG fixture\n" * 8)
+            owner = SYNTHETIC_HANDLE_ID
+            create_point, close_point, after_point = "point:create", "point:close", "point:after"
+
+            def row(**fields):
+                return decoded_query_row(source_root, "resource_lifecycle", "a" * 64, **fields)
+
+            def cfg(source, target, line, related_line, source_evidence):
+                return row(fact_kind="cfg_edge", program_point=source, related_point=target,
+                           site_start_line=line, related_start_line=related_line,
+                           target_event=owner, normal_path=True, exceptional_path=False,
+                           source_evidence=source_evidence)
+
+            rows = [
+                row(program_point=create_point, site_start_line=2,
+                    source_evidence="codeql_closeable_allocation"),
+                row(fact_kind="retain", program_point=create_point, site_start_line=2,
+                    holder_kind="field", holder_scope="global", holder_key="Fixture.shared#static"),
+                cfg(owner + "#cfg_entry", create_point, 1, 2, "codeql_callable_cfg_entry"),
+                cfg(create_point, close_point, 2, 3, "codeql_callable_cfg_edge"),
+                row(fact_kind="release", program_point=close_point, site_start_line=3,
+                    coverage_status=coverage, coverage_note=note, source_evidence=evidence,
+                    normal_path=evidence != "ambiguous_alias", exceptional_path=coverage == "complete"),
+            ]
+            if call_failed:
+                rows.append(cfg(close_point, owner + "#cfg_normal_exit", 3, 1,
+                                "codeql_callable_cfg_exit_after_exception"))
+            else:
+                rows.extend((cfg(close_point, after_point, 3, 4, "codeql_callable_cfg_edge"),
+                             cfg(after_point, owner + "#cfg_normal_exit", 4, 1,
+                                 "codeql_callable_cfg_exit_after_success")))
+            extracted = adapt_codeql_rows(rows, source_root=source_root, query_sha256="a" * 64)
+        program = extracted.units[0].program
+        result = solve(program, budget=AnalysisBudget())
+        close_event = next(event.event_id for event in program.events if event.activation_condition == close_point)
+        close_edge = next(edge for edge in program.transitions if edge.source_event_id == close_event)
+        return extracted, result.event_states[close_event], result.event_states[close_edge.target_event_id], close_edge
+
+    def test_base_source_cfg_partial_release_preserves_state(self) -> None:
+        cases = (
+            ("partial", "ambiguous_alias", "conditional_release_not_must", False),
+            ("partial", "codeql_parameter_close_effect", "conditional_release_not_must", False),
+            ("unsupported", "codeql_close_receiver_local_flow_candidate", "unsupported_receiver_identity", False),
+            ("complete", "codeql_close_receiver_local_flow_candidate", "singleton_finally_exact_local_release", True),
+        )
+        for coverage, evidence, note, released in cases:
+            with self.subTest(coverage=coverage, evidence=evidence):
+                extracted, before, after, edge = self._base_source_cfg_release_states(coverage, evidence, note)
+                self.assertTrue(before.open_obligations)
+                self.assertEqual(before.held_edges, after.held_edges, "Close must not erase holder edges")
+                self.assertEqual(before.held_counts, after.held_counts)
+                if released:
+                    self.assertFalse(after.open_obligations)
+                    self.assertTrue(all(count.upper == 0 for _, count in after.obligation_counts))
+                else:
+                    self.assertEqual(before.open_obligations, after.open_obligations)
+                    self.assertEqual(before.instance_obligation_counts, after.instance_obligation_counts)
+                    self.assertEqual(before.obligation_counts, after.obligation_counts)
+                    release_fact = next(fact for fact in extracted.facts if fact.fact_kind == "release")
+                    self.assertTrue(any(point.point_id == release_fact.program_point
+                                        for point in extracted.units[0].program.program_points))
+                    self.assertTrue(any(gap[4] == release_fact.fact_id
+                                        for gap in extracted.units[0].program.coverage_gaps))
+                self.assertEqual(released, any(effect.kind == "release" for effect in edge.effects))
+
+    def test_base_source_cfg_complete_release_requires_call_success(self) -> None:
+        _, before, after, edge = self._base_source_cfg_release_states(
+            "complete", "codeql_close_receiver_local_flow_candidate", "singleton_finally_exact_local_release",
+            call_failed=True,
+        )
+        self.assertEqual(before.open_obligations, after.open_obligations)
+        self.assertEqual(before.obligation_counts, after.obligation_counts)
+        self.assertEqual(before.held_counts, after.held_counts)
+        self.assertFalse(any(effect.kind == "release" for effect in edge.effects))
+
+    def test_base_source_without_cfg_never_executes_fallback_release(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text("// missing source CFG\n" * 8)
+            wrapper = "java-callable-v1:Fixture.wrapper(Lfixture/Resource;)V"
+            for coverage in ("complete", "partial", "unsupported"):
+                with self.subTest(coverage=coverage):
+                    def row(**fields):
+                        return decoded_query_row(source_root, "resource_lifecycle", "a" * 64, **fields)
+                    rows = [
+                        row(source_evidence="codeql_closeable_allocation"),
+                        row(fact_kind="release", program_point="point:root:close",
+                            coverage_status=coverage, normal_path=True, exceptional_path=True,
+                            source_evidence="codeql_close_receiver_local_flow_candidate",
+                            coverage_note="singleton_finally_exact_local_release"),
+                        row(fact_kind="call_binding", site_start_line=2, related_start_line=3,
+                            program_point="point:call", related_point="point:parameter",
+                            relation_depth=1, binding_index=0, target_event=wrapper),
+                        row(fact_kind="cfg_edge", site_callable=wrapper,
+                            site_start_line=3, related_start_line=4, relation_depth=1,
+                            program_point="point:parameter", related_point="point:close",
+                            target_event=wrapper, source_evidence="codeql_parameter_cfg_entry"),
+                        row(fact_kind="release", site_callable=wrapper, site_start_line=4,
+                            program_point="point:close", relation_depth=1,
+                            coverage_status=coverage, normal_path=True, exceptional_path=True,
+                            source_evidence="codeql_parameter_close_effect"),
+                    ]
+                    extracted = adapt_codeql_rows(rows, source_root=source_root, query_sha256="a" * 64)
+                    unit = extracted.units[0]
+                    self.assertFalse(any(effect.kind == "release"
+                                         for edge in unit.program.transitions for effect in edge.effects))
+                    releases = [fact for fact in extracted.facts if fact.fact_kind == "release"]
+                    self.assertEqual(2, len(releases))
+                    self.assertTrue({fact.program_point for fact in releases}
+                                    <= {point.point_id for point in unit.program.program_points})
+                    self.assertTrue(any(gap[3] == "callable_cfg_unavailable" for gap in unit.program.coverage_gaps))
+                    self.assertTrue({fact.fact_id for fact in releases}
+                                    <= {gap[4] for gap in unit.program.coverage_gaps})
+                    result = solve(unit.program, budget=AnalysisBudget())
+                    dimensions = check_invariants(unit.program, result, unit.invariants,
+                                                  timeout_ms=100, executor_contracts=unit.executor_contracts)
+                    self.assertTrue(all(value.lifecycle_status == "unknown" for value in dimensions
+                                        if value.dimension == "close_obligation"))
+
+    def test_synthetic_complete_wrapper_release_keeps_legacy_import_attachment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "\n".join(f"// line {line}" for line in range(1, 9)) + "\n",
+                encoding="utf-8",
+            )
+            wrapper = "java-callable-v1:Fixture.wrapper(Lfixture/Resource;)V"
+            create = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                program_point="point:1:create",
+            )
+            binding = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                fact_kind="call_binding",
+                site_start_line=2,
+                related_start_line=3,
+                program_point="point:2:call",
+                related_point="point:3:parameter",
+                relation_depth=1,
+                binding_index=0,
+                target_event=wrapper,
+            )
+            cfg_edge = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                fact_kind="cfg_edge",
+                site_callable=wrapper,
+                site_start_line=3,
+                related_start_line=4,
+                program_point="point:3:parameter",
+                related_point="point:4:close",
+                relation_depth=1,
+                target_event=wrapper,
+            )
+            release = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                fact_kind="release",
+                site_callable=wrapper,
+                site_start_line=4,
+                related_start_line=4,
+                program_point="point:4:close",
+                normal_path=True,
+                exceptional_path=True,
+                relation_depth=1,
+                source_evidence="codeql_parameter_close_effect",
+            )
+
+            extracted = adapt_codeql_rows(
+                (create, binding, cfg_edge, release),
+                source_root=source_root,
+                query_sha256="a" * 64,
+            )
+
+        unit = extracted.units[0]
+        self.assertTrue(all(fact.source_evidence == "test" for fact in extracted.facts
+                            if fact.fact_kind == "create"))
+        release_fact = next(
+            fact for fact in extracted.facts if fact.fact_kind == "release"
+        )
+        transition = next(
+            transition
+            for transition in unit.program.transitions
+            if any(
+                release_fact.fact_id in effect.evidence_ids
+                for effect in transition.effects
+            )
+        )
+        events = {event.event_id: event for event in unit.program.events}
+        self.assertEqual(
+            "point:3:parameter",
+            events[transition.source_event_id].activation_condition,
+        )
+        self.assertEqual(
+            "point:4:close",
+            events[transition.target_event_id].activation_condition,
+        )
+        self.assertEqual(("release",), tuple(effect.kind for effect in transition.effects))
+        self.assertTrue(
+            any(
+                events[edge.source_event_id].activation_condition
+                == "point:2:call"
+                and events[edge.target_event_id].activation_condition
+                == "point:3:parameter"
+                and not edge.effects
+                for edge in unit.program.transitions
+            )
+        )
+        self.assertEqual(
+            1,
+            sum(
+                release_fact.fact_id in effect.evidence_ids
+                for edge in unit.program.transitions
+                for effect in edge.effects
+            ),
+        )
+
+    def test_base_cfg_attaches_wrapper_summary_effect_kinds_and_conditions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "\n".join(f"// line {line}" for line in range(1, 11)) + "\n",
+                encoding="utf-8",
+            )
+            wrapper = "java-callable-v1:Fixture.wrapper(Lfixture/Resource;)V"
+            rows = [
+                decoded_query_row(
+                    source_root,
+                    "resource_lifecycle",
+                    "a" * 64,
+                    program_point="point:1:create",
+                ),
+                decoded_query_row(
+                    source_root,
+                    "resource_lifecycle",
+                    "a" * 64,
+                    fact_kind="call_binding",
+                    site_start_line=2,
+                    related_start_line=3,
+                    program_point="point:2:call",
+                    related_point="point:3:parameter",
+                    relation_depth=1,
+                    binding_index=0,
+                    target_event=wrapper,
+                ),
+            ]
+            for source_line, source_name, target_line, target_name in (
+                (3, "parameter", 4, "retain"),
+                (4, "retain", 5, "close"),
+                (5, "close", 6, "return"),
+            ):
+                rows.append(
+                    decoded_query_row(
+                        source_root,
+                        "resource_lifecycle",
+                        "a" * 64,
+                        fact_kind="cfg_edge",
+                        site_callable=wrapper,
+                        site_start_line=source_line,
+                        related_start_line=target_line,
+                        program_point=f"point:{source_line}:{source_name}",
+                        related_point=f"point:{target_line}:{target_name}",
+                        relation_depth=1,
+                        target_event=wrapper,
+                    )
+                )
+            rows.extend(
+                (
+                    decoded_query_row(
+                        source_root,
+                        "resource_lifecycle",
+                        "a" * 64,
+                        fact_kind="retain",
+                        site_callable=wrapper,
+                        site_start_line=4,
+                        related_start_line=4,
+                        program_point="point:4:retain",
+                        relation_depth=1,
+                        holder_kind="field",
+                        holder_scope="global",
+                        holder_key="Fixture.SHARED#static",
+                        source_evidence="codeql_parameter_to_static_field_effect",
+                    ),
+                    decoded_query_row(
+                        source_root,
+                        "resource_lifecycle",
+                        "a" * 64,
+                        fact_kind="release",
+                        site_callable=wrapper,
+                        site_start_line=5,
+                        related_start_line=5,
+                        program_point="point:5:close",
+                        relation_depth=1,
+                        normal_path=True,
+                        exceptional_path=False,
+                        coverage_status="partial",
+                        coverage_note="conditional_release_not_must",
+                        source_evidence="codeql_parameter_close_effect",
+                    ),
+                    decoded_query_row(
+                        source_root,
+                        "resource_lifecycle",
+                        "a" * 64,
+                        fact_kind="unknown_call",
+                        site_callable=wrapper,
+                        site_start_line=6,
+                        related_start_line=6,
+                        program_point="point:6:return",
+                        relation_depth=1,
+                        normal_path=True,
+                        exceptional_path=False,
+                        coverage_status="partial",
+                        coverage_note="returned_resource_ownership_unmodeled",
+                        source_evidence="codeql_parameter_return_effect",
+                    ),
+                )
+            )
+
+            extracted = adapt_codeql_rows(
+                rows, source_root=source_root, query_sha256="a" * 64
+            )
+
+        unit = extracted.units[0]
+        event_by_id = {event.event_id: event for event in unit.program.events}
+        attached = {
+            event_by_id[transition.target_event_id].activation_condition: effect
+            for transition in unit.program.transitions
+            for effect in transition.effects
+            if any(
+                fact.site_callable == wrapper
+                and fact.fact_id in effect.evidence_ids
+                for fact in extracted.facts
+            )
+        }
+        self.assertEqual(
+            {"point:4:retain", "point:6:return"},
+            set(attached),
+        )
+        self.assertEqual("retain", attached["point:4:retain"].kind)
+        release_fact = next(fact for fact in extracted.facts if fact.fact_kind == "release")
+        self.assertTrue(any(point.point_id == release_fact.program_point
+                            for point in unit.program.program_points))
+        self.assertTrue(any(gap[4] == release_fact.fact_id for gap in unit.program.coverage_gaps))
+        self.assertEqual("unknown_call", attached["point:6:return"].kind)
+        self.assertEqual("normal_path", attached["point:6:return"].condition)
+        return_point = next(
+            point
+            for point in unit.program.program_points
+            if point.point_id == "point:6:return"
+        )
+        self.assertEqual("return", return_point.kind)
+        self.assertEqual(
+            2,
+            sum(
+                fact.site_callable == wrapper
+                and fact.fact_id in effect.evidence_ids
+                for transition in unit.program.transitions
+                for effect in transition.effects
+                for fact in extracted.facts
+            ),
+        )
+
+    def test_lifecycle_rows_bind_related_location(self) -> None:
+        required = {
+            "related_file",
+            "related_start_line",
+            "related_start_column",
+        }
+
+        self.assertTrue(
+            required <= set(QUERY_SPECS["resource_lifecycle"].columns)
+        )
+        self.assertTrue(
+            required
+            <= set(QUERY_SPECS["resource_lifecycle_task_relations"].columns)
+        )
+
+    def test_base_query_projects_related_parameter_location_outside_recursive_relation(self) -> None:
+        query = DIRECT_QUERY.read_text(encoding="utf-8")
+        relation = query.split("predicate lifecycleRelationFact(", 1)[1].split(
+            "predicate resourceLifecycleRow(", 1
+        )[0]
+        row_projection = query.split("predicate resourceLifecycleRow(", 1)[1]
+
+        self.assertNotIn("parameter.getLocation()", relation)
+        self.assertIn("relatedParameter.getLocation()", row_projection)
+
+    def test_task_query_uses_immediate_cfg_edges_only(self) -> None:
+        query = DIRECT_TASK_QUERY.read_text(encoding="utf-8")
+
+        self.assertNotIn("getASuccessor+()", query)
+
+    def test_lifecycle_rows_expose_thread_pool_core_workers(self) -> None:
+        self.assertIn(
+            "core_workers", QUERY_SPECS["resource_lifecycle"].columns
+        )
+        self.assertIn(
+            "core_workers",
+            QUERY_SPECS["resource_lifecycle_task_relations"].columns,
+        )
+
+    def test_related_program_point_uses_target_source_location(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            create = decoded_query_row(
+                source_root, "resource_lifecycle", "a" * 64
+            )
+            binding = decoded_query_row(
+                source_root,
+                "resource_lifecycle",
+                "a" * 64,
+                fact_kind="call_binding",
+                program_point="point:Fixture.java:1:1:call",
+                related_point="point:Fixture.java:4:1:parameter",
+                related_file="Fixture.java",
+                related_start_line=4,
+                related_start_column=1,
+                relation_depth=1,
+                binding_index=0,
+                target_event="java-callable-v1:Fixture.wrapper(Ljava/lang/Object;)V",
+            )
+
+            extracted = adapt_codeql_rows(
+                (create, binding),
+                source_root=source_root,
+                query_sha256="a" * 64,
+            )
+
+        point = next(
+            item
+            for item in extracted.units[0].program.program_points
+            if item.point_id == binding["related_point"]
+        )
+        self.assertEqual(4, point.location.start_line)
+
+    def test_thread_pool_contract_binds_core_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                SYNTHETIC_SOURCE, encoding="utf-8"
+            )
+            create = decoded_query_row(
+                source_root, "resource_lifecycle", "a" * 64
+            )
+            task_callable = "java-callable-v1:Fixture.lambda$task()V"
+            dispatch = decoded_query_row(
+                source_root,
+                "resource_lifecycle_task_relations",
+                "b" * 64,
+                fact_kind="dispatch",
+                program_point="point:Fixture.java:1:1:dispatch",
+                related_point="point:Fixture.java:2:1:task-entry",
+                related_start_line=2,
+                holder_kind="queue",
+                holder_scope="task",
+                holder_key="Fixture.EXECUTOR#static",
+                target_event=task_callable,
+                capacity="3",
+                core_workers="1",
+                max_workers="2",
+                rejection_policy="abort",
+            )
+            exits = tuple(
+                decoded_query_row(
+                    source_root,
+                    "resource_lifecycle_task_relations",
+                    "b" * 64,
+                    fact_kind="task_exit",
+                    site_callable=task_callable,
+                    program_point=f"point:Fixture.java:{line}:1:{kind}",
+                    site_start_line=line,
+                    related_point="point:Fixture.java:2:1:task-entry",
+                    related_start_line=2,
+                    target_event=task_callable,
+                    normal_path=kind == "normal",
+                    exceptional_path=kind == "exceptional",
+                )
+                for line, kind in ((3, "normal"), (4, "exceptional"))
+            )
+            cfg_edges = tuple(
+                decoded_query_row(
+                    source_root,
+                    "resource_lifecycle_task_relations",
+                    "b" * 64,
+                    fact_kind="cfg_edge",
+                    site_callable=task_callable,
+                    program_point="point:Fixture.java:2:1:task-entry",
+                    site_start_line=2,
+                    related_point=exit_row["program_point"],
+                    related_start_line=exit_row["site_start_line"],
+                    target_event=task_callable,
+                )
+                for exit_row in exits
+            )
+            extracted = adapt_codeql_rows(
+                (create, dispatch, *cfg_edges, *exits),
+                source_root=source_root,
+                query_provenance=(
+                    {
+                        "query_name": "resource_lifecycle",
+                        "query_sha256": "a" * 64,
+                        "bqrs_sha256": "c" * 64,
+                    },
+                    {
+                        "query_name": "resource_lifecycle_task_relations",
+                        "query_sha256": "b" * 64,
+                        "bqrs_sha256": "d" * 64,
+                    },
+                ),
+                database_fingerprint="e" * 64,
+                source_snapshot_sha256="f" * 64,
+            )
+
+        unit = extracted.units[0]
+        self.assertEqual(1, unit.executor_contracts[0].core_workers)
+        direct_accept = next(
+            effect
+            for transition in unit.program.transitions
+            for effect in transition.population_effects
+            if effect.kind == "direct_accept"
+        )
+        self.assertEqual("a<C or (q>=K and a<W)", direct_accept.guard)
+
+    def test_executor_population_transitions_require_supported_contract_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "\n".join(f"// line {line}" for line in range(1, 12)) + "\n",
+                encoding="utf-8",
+            )
+            task_callable = "java-callable-v1:Fixture.lambda$task()V"
+
+            def extracted_for(
+                rejection_policy: str,
+                exit_specs=((4, "normal"), (5, "exceptional")),
+                core_workers="1",
+                release_evidence=None,
+                release_at_exit=False,
+                release_coverage="complete",
+                cfg_evidence="codeql_task_cfg_successor",
+                synthetic_suffix=None,
+                terminal_evidence="codeql_task_annotated_cfg_exit",
+                parallel_cfg=False,
+            ):
+                create = decoded_query_row(
+                    source_root, "resource_lifecycle", "a" * 64
+                )
+                common = {
+                    "program_point": "point:Fixture.java:2:1:dispatch",
+                    "related_point": "point:Fixture.java:3:1:task-entry",
+                    "related_start_line": 3,
+                    "holder_kind": "queue",
+                    "holder_scope": "task",
+                    "holder_key": "Fixture.EXECUTOR#static",
+                    "target_event": task_callable,
+                    "capacity": "3",
+                    "core_workers": core_workers,
+                    "max_workers": "2",
+                    "rejection_policy": rejection_policy,
+                }
+                dispatch = decoded_query_row(
+                    source_root,
+                    "resource_lifecycle_task_relations",
+                    "b" * 64,
+                    fact_kind="dispatch",
+                    **common,
+                )
+                invariant = decoded_query_row(
+                    source_root,
+                    "resource_lifecycle_task_relations",
+                    "b" * 64,
+                    fact_kind="invariant",
+                    **common,
+                )
+                exits = tuple(
+                    decoded_query_row(
+                        source_root,
+                        "resource_lifecycle_task_relations",
+                        "b" * 64,
+                        fact_kind="task_exit",
+                        site_callable=task_callable,
+                        program_point=f"point:Fixture.java:{line}:1:{kind}",
+                        site_start_line=line,
+                        related_point="point:Fixture.java:3:1:task-entry",
+                        related_start_line=3,
+                        target_event=task_callable,
+                        normal_path=kind == "normal",
+                        exceptional_path=kind == "exceptional",
+                    )
+                    for line, kind in exit_specs
+                )
+                cfg_edges = tuple(
+                    decoded_query_row(
+                        source_root,
+                        "resource_lifecycle_task_relations",
+                        "b" * 64,
+                        fact_kind="cfg_edge",
+                        site_callable=task_callable,
+                        program_point="point:Fixture.java:3:1:task-entry",
+                        site_start_line=3,
+                        related_point=exit["program_point"],
+                        related_start_line=exit["site_start_line"],
+                        target_event=task_callable,
+                        normal_path=True,
+                        exceptional_path=False,
+                        source_evidence=cfg_evidence,
+                        coverage_note="reachable_task_cfg_edge",
+                    )
+                    for exit in exits
+                )
+                releases = () if release_evidence is None else (
+                    decoded_query_row(
+                        source_root, "resource_lifecycle_task_relations", "b" * 64,
+                        fact_kind="release", site_callable=task_callable,
+                        program_point=exits[0]["program_point"] if release_at_exit else "point:Fixture.java:3:1:task-entry",
+                        related_point=exits[0]["program_point"],
+                        site_start_line=exits[0]["site_start_line"] if release_at_exit else 3,
+                        related_start_line=exits[0]["site_start_line"],
+                        target_event=task_callable,
+                        source_evidence=release_evidence,
+                        coverage_note="exact_captured_task_finally_close",
+                        coverage_status=release_coverage,
+                        normal_path=True, exceptional_path=False,
+                    ),
+                )
+                if parallel_cfg:
+                    cfg_edges += ({**cfg_edges[0], "normal_path": False, "exceptional_path": True},)
+                if synthetic_suffix is not None:
+                    close_point = "point:Fixture.java:3:1:task-entry"
+                    success_point = close_point + synthetic_suffix
+                    cfg_edges = (decoded_query_row(
+                        source_root, "resource_lifecycle_task_relations", "b" * 64,
+                        fact_kind="cfg_edge", site_callable=task_callable,
+                        program_point=close_point, related_point=success_point,
+                        site_start_line=3, related_start_line=3, target_event=task_callable,
+                        normal_path=True, exceptional_path=False,
+                        source_evidence=cfg_evidence,
+                        coverage_note="exact_close_normal_success_continuation",
+                    ),)
+                    exits = tuple(decoded_query_row(
+                        source_root, "resource_lifecycle_task_relations", "b" * 64,
+                        fact_kind="task_exit", site_callable=task_callable,
+                        program_point=point, related_point=close_point,
+                        site_start_line=3, related_start_line=3, target_event=task_callable,
+                        normal_path=kind == "normal", exceptional_path=kind == "exceptional",
+                        source_evidence=terminal_evidence,
+                        coverage_note=kind + "_task_annotated_cfg_exit",
+                    ) for point, kind in ((success_point, "normal"), (success_point, "exceptional"),
+                                           (close_point, "exceptional")))
+                    releases = (decoded_query_row(
+                        source_root, "resource_lifecycle_task_relations", "b" * 64,
+                        fact_kind="release", site_callable=task_callable,
+                        program_point=close_point, related_point=success_point,
+                        site_start_line=3, related_start_line=3, target_event=task_callable,
+                        source_evidence=release_evidence,
+                        coverage_note="exact_captured_task_finally_close",
+                        coverage_status=release_coverage, normal_path=True, exceptional_path=False,
+                    ),)
+                return adapt_codeql_rows(
+                    (create, dispatch, invariant, *cfg_edges, *exits, *releases),
+                    source_root=source_root,
+                    query_provenance=(
+                        {
+                            "query_name": "resource_lifecycle",
+                            "query_sha256": "a" * 64,
+                            "bqrs_sha256": "c" * 64,
+                        },
+                        {
+                            "query_name": "resource_lifecycle_task_relations",
+                            "query_sha256": "b" * 64,
+                            "bqrs_sha256": "d" * 64,
+                        },
+                    ),
+                    database_fingerprint="e" * 64,
+                    source_snapshot_sha256="f" * 64,
+                )
+
+            caller_runs = extracted_for("caller_runs")
+            abort = extracted_for("abort")
+            for specs in (((4, "normal"),), ((5, "exceptional"),),
+                          ((4, "normal"), (5, "exceptional"), (6, "normal")), ()):
+                with self.subTest(exits=specs):
+                    program = extracted_for("abort", specs).units[0].program
+                    self.assertEqual(1, len(program.task_bindings))
+                    self.assertEqual(len(specs), len(program.task_exits))
+            zero_core = extracted_for("abort", core_workers="0")
+            self.assertEqual(0, zero_core.units[0].executor_contracts[0].core_workers)
+            unknown_core = extracted_for("abort", core_workers="configuredCoreWorkers").units[0].program
+            self.assertFalse(any(edge.population_effects for edge in unknown_core.transitions))
+            self.assertIn("executor_worker_limits_unknown", {gap[3] for gap in unknown_core.coverage_gaps})
+            forged = extracted_for("abort", release_evidence="invented_release")
+            trusted = extracted_for("abort", release_evidence="codeql_task_callback_close_finally")
+            self.assertFalse(any(effect.kind == "release"
+                for edge in forged.units[0].program.transitions for effect in edge.effects))
+            self.assertTrue(any(effect.kind == "release"
+                for edge in trusted.units[0].program.transitions for effect in edge.effects))
+            forged_cfg = extracted_for("abort", release_evidence="codeql_task_callback_close_finally",
+                                       cfg_evidence="invented_cfg")
+            self.assertFalse(any(effect.kind == "release"
+                for edge in forged_cfg.units[0].program.transitions for effect in edge.effects))
+            parallel = extracted_for("abort", release_evidence="codeql_task_callback_close_finally",
+                                     parallel_cfg=True).units[0].program
+            parallel_edges = [edge for edge in parallel.transitions if edge.guard == "task_cfg_edge"]
+            self.assertEqual(3, len(parallel_edges))
+            self.assertEqual(3, len({edge.transition_id for edge in parallel_edges}))
+            self.assertEqual(1, sum(effect.kind == "release" for edge in parallel_edges for effect in edge.effects))
+            for kind, evidence, coverage, expected in (
+                ("normal", "codeql_task_callback_close_finally", "complete", 0),
+                ("exceptional", "codeql_task_callback_close_finally", "complete", 0),
+                ("normal", "invented_release", "complete", 0),
+                ("normal", "codeql_task_callback_close_finally", "partial", 0),
+            ):
+                with self.subTest(terminal_kind=kind, release_evidence=evidence, coverage=coverage):
+                    terminal_program = extracted_for(
+                        "abort", ((4, kind),), release_evidence=evidence,
+                        release_at_exit=True, release_coverage=coverage,
+                    ).units[0].program
+                    releases = [effect for edge in terminal_program.transitions
+                                for effect in edge.effects if effect.kind == "release"]
+                    self.assertEqual(expected, len(releases))
+            for suffix, cfg_evidence, terminal_evidence, expected in (
+                ("#normal-success:call-cfg-v1", "codeql_task_close_normal_successor", "codeql_task_annotated_cfg_exit", 1),
+                ("#normal-success:invented", "codeql_task_close_normal_successor", "codeql_task_annotated_cfg_exit", 0),
+                ("#normal-success:call-cfg-v1", "invented_cfg", "codeql_task_annotated_cfg_exit", 0),
+                ("#normal-success:call-cfg-v1", "codeql_task_close_normal_successor", "invented_terminal", 0),
+            ):
+                with self.subTest(suffix=suffix, cfg_evidence=cfg_evidence, terminal_evidence=terminal_evidence):
+                    program = extracted_for(
+                        "abort", release_evidence="codeql_task_callback_close_finally",
+                        cfg_evidence=cfg_evidence, synthetic_suffix=suffix,
+                        terminal_evidence=terminal_evidence,
+                    ).units[0].program
+                    self.assertEqual(3, len(program.task_exits))
+                    release_edges = [edge for edge in program.transitions
+                                     if any(effect.kind == "release" for effect in edge.effects)]
+                    self.assertEqual(expected, len(release_edges))
+                    self.assertTrue(all(edge.guard == "task_cfg_edge" for edge in release_edges))
+                    self.assertFalse(any(edge.effects for edge in program.transitions
+                                         if edge.guard in {"normal_task_exit", "exceptional_task_exit"}))
+
+        def population_kinds(extracted) -> set[str]:
+            return {
+                effect.kind
+                for transition in extracted.units[0].program.transitions
+                for effect in transition.population_effects
+            }
+
+        caller_runs_kinds = population_kinds(caller_runs)
+        self.assertTrue(
+            {"direct_accept", "enqueue", "assign_slot", "start"}
+            <= caller_runs_kinds
+        )
+        self.assertFalse(
+            {"reject", "cancel_queued", "cancel_active", "terminate"}
+            & caller_runs_kinds
+        )
+        caller_runs_contract = caller_runs.units[0].executor_contracts[0]
+        self.assertEqual((1, 2, 3), (
+            caller_runs_contract.core_workers,
+            caller_runs_contract.max_workers,
+            caller_runs_contract.queue_capacity,
+        ))
+        guards = {
+            effect.kind: effect.guard
+            for transition in caller_runs.units[0].program.transitions
+            for effect in transition.population_effects
+        }
+        self.assertEqual({
+            "direct_accept": "a<C or (q>=K and a<W)",
+            "enqueue": "q<K",
+            "assign_slot": "q>0 and a<W",
+        }, {key: guards[key] for key in ("direct_accept", "enqueue", "assign_slot")})
+
+        abort_kinds = population_kinds(abort)
+        self.assertIn("reject", abort_kinds)
+        self.assertFalse(
+            {"cancel_queued", "cancel_active", "terminate"} & abort_kinds
+        )
+
+    def test_static_field_holder_identity_is_shared_across_callables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "\n".join(f"// line {line}" for line in range(1, 9)) + "\n",
+                encoding="utf-8",
+            )
+            units = (
+                ("java-callable-v1:Fixture.first()V", 1, 2),
+                ("java-callable-v1:Fixture.second()V", 3, 4),
+            )
+            rows = []
+            for unit_id, create_line, retain_line in units:
+                instance_key = f"Fixture.java:{create_line}:1"
+                rows.extend(
+                    (
+                        lifecycle_row(
+                            unit_id=unit_id,
+                            site_callable=unit_id,
+                            site_start_line=create_line,
+                            related_start_line=create_line,
+                            program_point=f"point:{create_line}:create",
+                            instance_key=instance_key,
+                        ),
+                        lifecycle_row(
+                            unit_id=unit_id,
+                            site_callable=unit_id,
+                            site_start_line=retain_line,
+                            related_start_line=retain_line,
+                            program_point=f"point:{retain_line}:retain",
+                            fact_kind="retain",
+                            instance_key=instance_key,
+                            holder_kind="field",
+                            holder_scope="global",
+                            holder_key="Fixture.SHARED#static",
+                        ),
+                    )
+                )
+
+            extracted = adapt_codeql_rows(
+                rows, source_root=source_root, query_sha256="a" * 64
+            )
+
+        field_holders = [
+            next(holder for holder in unit.program.holders if holder.kind == "field")
+            for unit in extracted.units
+        ]
+        self.assertEqual(1, len({holder.holder_id for holder in field_holders}))
+        self.assertTrue(
+            all(holder.identity_precision == "exact" for holder in field_holders)
+        )
+
+    def test_unknown_instance_field_receivers_do_not_merge_and_emit_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source_root = Path(tmp)
+            (source_root / "Fixture.java").write_text(
+                "\n".join(f"// line {line}" for line in range(1, 9)) + "\n",
+                encoding="utf-8",
+            )
+            rows = (
+                lifecycle_row(
+                    site_start_line=1,
+                    related_start_line=1,
+                    program_point="point:1:create",
+                    instance_key="Fixture.java:1:1",
+                ),
+                lifecycle_row(
+                    site_start_line=2,
+                    related_start_line=2,
+                    program_point="point:2:create",
+                    instance_key="Fixture.java:2:1",
+                ),
+                lifecycle_row(
+                    site_start_line=3,
+                    related_start_line=3,
+                    program_point="point:3:retain",
+                    fact_kind="retain",
+                    instance_key="Fixture.java:1:1",
+                    holder_kind="field",
+                    holder_scope="instance",
+                    holder_key="Fixture.resource",
+                ),
+                lifecycle_row(
+                    site_start_line=4,
+                    related_start_line=4,
+                    program_point="point:4:retain",
+                    fact_kind="retain",
+                    instance_key="Fixture.java:2:1",
+                    holder_kind="field",
+                    holder_scope="instance",
+                    holder_key="Fixture.resource",
+                ),
+            )
+
+            extracted = adapt_codeql_rows(
+                rows, source_root=source_root, query_sha256="a" * 64
+            )
+
+        unit = extracted.units[0]
+        field_holders = [holder for holder in unit.program.holders if holder.kind == "field"]
+        self.assertEqual(2, len(field_holders))
+        self.assertEqual(
+            {"unknown"}, {holder.identity_precision for holder in field_holders}
+        )
+        self.assertEqual(
+            2,
+            sum(
+                dimension == "held_instances"
+                and reason == "field_receiver_identity_unresolved"
+                for dimension, _family, _scope, reason, _evidence
+                in unit.program.coverage_gaps
+            ),
+        )
 
     def test_task_query_family_match_is_exact_and_precedes_base_match(self) -> None:
         self.assertEqual(
@@ -1119,7 +2046,13 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             bare = {
                 key: value
                 for key, value in decoded.items()
-                if key not in {"query_name", "query_sha256", "site_location"}
+                if key
+                not in {
+                    "query_name",
+                    "query_sha256",
+                    "site_location",
+                    "related_location",
+                }
             }
 
             from_decoded = adapt_codeql_rows(
@@ -1457,7 +2390,9 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertNotIn("predicate lifecycleFact", task_content)
         self.assertNotIn('factKind = "create"', task_content)
         self.assertNotIn('factKind = "retain"', task_content)
-        self.assertNotIn('factKind = "release"', task_content)
+        self.assertIn('factKind = "release"', task_content)
+        self.assertIn("predicate exactCapturedFinallyClose", task_content)
+        self.assertIn("codeql_task_callback_close_finally", task_content)
 
     def test_program_point_identity_is_site_based_and_uses_the_full_span(self) -> None:
         content = DIRECT_QUERY.read_text(encoding="utf-8")
@@ -1590,6 +2525,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                     "cancellation": "unknown",
                     "source_kind": "static_verified",
                     "version": "executor-contract-v1",
+                    "core_workers": None,
                     "max_workers": None,
                     "rejection_policy": "unknown",
                     "termination": "unknown",
@@ -1927,6 +2863,293 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
+    def test_v1_1_unsupported_executor_policies_emit_bound_coverage_gaps_from_java(self) -> None:
+        source_root = (
+            ROOT
+            / "tests/fixtures/resource_lifecycle_v1_1_task_policies/src/main/java"
+        )
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_query(DIRECT_TASK_QUERY, database, Path(tmp) / "task-query")
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+        rows = decode_bqrs_json(
+            "resource_lifecycle_task_relations",
+            payload,
+            DecodeSource(database.source_root, result.query_sha256),
+        )
+        prefix = "java-callable-v1:fixture.lifecyclev11.policies.TaskExecutorPolicies."
+        cases = {
+            "callerCallerRuns(I)V": (
+                "dispatchCallerRuns(Lfixture/lifecyclev11/policies/TaskExecutorPolicies$TrackedResource;)V",
+                "unsupported_rejection_policy_caller_runs",
+            ),
+            "callerDiscard(I)V": (
+                "dispatchDiscard(Lfixture/lifecyclev11/policies/TaskExecutorPolicies$TrackedResource;)V",
+                "unsupported_rejection_policy_discard",
+            ),
+            "callerDiscardOldest(I)V": (
+                "dispatchDiscardOldest(Lfixture/lifecyclev11/policies/TaskExecutorPolicies$TrackedResource;)V",
+                "unsupported_rejection_policy_discard_oldest",
+            ),
+        }
+
+        for caller, (submitter, coverage_note) in cases.items():
+            source_rows = [row for row in rows if row["unit_id"] == prefix + caller]
+            gaps = [
+                row
+                for row in source_rows
+                if row["fact_kind"] == "unknown_call"
+                and row["coverage_status"] == "unsupported"
+                and row["coverage_note"] == coverage_note
+                and row["source_evidence"]
+                == "codeql_unsupported_executor_rejection_policy"
+            ]
+            self.assertEqual(1, len(gaps), caller)
+            gap = gaps[0]
+            self.assertEqual(prefix + submitter, gap["site_callable"])
+            self.assertEqual(1, gap["relation_depth"])
+            self.assertEqual(0, gap["binding_index"])
+            self.assertFalse(
+                any(
+                    row["fact_kind"]
+                    in {"dispatch", "invariant", "cfg_edge", "task_exit", "release"}
+                    for row in source_rows
+                ),
+                caller,
+            )
+
+        escaped = [row for row in rows if row["unit_id"] == prefix + "callerEscapedExecutor(I)V"]
+        self.assertEqual(1, len(escaped))
+        self.assertEqual(("unknown_call", "partial", "executor_configuration_mutable_or_escaped"),
+                         tuple(escaped[0][key] for key in ("fact_kind", "coverage_status", "coverage_note")))
+        self.assertEqual((1, 0), (escaped[0]["relation_depth"], escaped[0]["binding_index"]))
+
+    def test_v1_1_unsupported_task_forms_emit_bound_coverage_gaps_from_java(self) -> None:
+        source_root = (
+            ROOT
+            / "tests/fixtures/resource_lifecycle_v1_1_task_unsupported/src/main/java"
+        )
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_query(DIRECT_TASK_QUERY, database, Path(tmp) / "task-query")
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+        rows = decode_bqrs_json(
+            "resource_lifecycle_task_relations",
+            payload,
+            DecodeSource(database.source_root, result.query_sha256),
+        )
+        prefix = "java-callable-v1:fixture.lifecyclev11.unsupported.TaskUnsupportedForms."
+        cases = {
+            "callerSubmitCallable(I)V": (
+                "submitCallable(Lfixture/lifecyclev11/unsupported/TaskUnsupportedForms$TrackedResource;)V",
+                "unsupported_submit_callable",
+            ),
+            "callerAnonymousRunnable(I)V": (
+                "submitAnonymousRunnable(Lfixture/lifecyclev11/unsupported/TaskUnsupportedForms$TrackedResource;)V",
+                "unsupported_anonymous_runnable",
+            ),
+            "callerMethodReference(I)V": (
+                "submitMethodReference(Lfixture/lifecyclev11/unsupported/TaskUnsupportedForms$TrackedResource;)V",
+                "unsupported_method_reference",
+            ),
+            "callerLocalExecutor(I)V": (
+                "submitLocalExecutor(Lfixture/lifecyclev11/unsupported/TaskUnsupportedForms$TrackedResource;)V",
+                "executor_receiver_identity_unresolved",
+            ),
+            "callerLocalCapture(I)V": (
+                "submitLocalCapture(Lfixture/lifecyclev11/unsupported/TaskUnsupportedForms$TrackedResource;)V",
+                "unsupported_local_capture",
+            ),
+        }
+
+        for caller, (submitter, coverage_note) in cases.items():
+            source_rows = [row for row in rows if row["unit_id"] == prefix + caller]
+            gaps = [
+                row
+                for row in source_rows
+                if row["fact_kind"] == "unknown_call"
+                and row["coverage_status"] == "unsupported"
+                and row["coverage_note"] == coverage_note
+            ]
+            self.assertEqual(1, len(gaps), caller)
+            gap = gaps[0]
+            self.assertEqual(prefix + submitter, gap["site_callable"])
+            self.assertEqual(1, gap["relation_depth"])
+            self.assertEqual(0, gap["binding_index"])
+            self.assertNotEqual("none", gap["program_point"])
+            self.assertNotEqual("none", gap["related_point"])
+            self.assertFalse(
+                any(
+                    row["fact_kind"]
+                    in {"dispatch", "invariant", "cfg_edge", "task_exit", "release"}
+                    for row in source_rows
+                ),
+                caller,
+            )
+
+    def test_v1_1_task_terminals_are_conservative_from_java(self) -> None:
+        source_root = (
+            ROOT
+            / "tests/fixtures/resource_lifecycle_v1_1_task_terminals/src/main/java"
+        )
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_query(DIRECT_TASK_QUERY, database, Path(tmp) / "task-query")
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+        rows = decode_bqrs_json(
+            "resource_lifecycle_task_relations",
+            payload,
+            DecodeSource(database.source_root, result.query_sha256),
+        )
+        prefix = "java-callable-v1:fixture.lifecyclev11.terminals.TaskTerminals."
+
+        def rows_for(caller: str) -> list[dict[str, object]]:
+            return [row for row in rows if row["unit_id"] == prefix + caller]
+
+        caught = rows_for("callerCaughtThrow(I)V")
+        caught_exits = [row for row in caught if row["fact_kind"] == "task_exit"]
+        self.assertEqual(
+            {(True, False), (False, True)},
+            {(row["normal_path"], row["exceptional_path"]) for row in caught_exits},
+        )
+        self.assertEqual({(31, True, False), (28, False, True)},
+                         {(row["site_start_line"], row["normal_path"], row["exceptional_path"])
+                          for row in caught_exits})
+        self.assertFalse(any(row["site_start_line"] == 27 for row in caught_exits),
+                         "The caught explicit throw cannot terminate the task before its catch")
+        self.assertTrue(
+            any(
+                row["fact_kind"] == "unknown_call"
+                and row["coverage_status"] == "partial"
+                and row["coverage_note"] == "task_terminal_coverage_incomplete"
+                for row in caught
+            )
+        )
+
+        implicit = rows_for("callerImplicitNormal(I)V")
+        implicit_exits = [row for row in implicit if row["fact_kind"] == "task_exit"]
+        self.assertEqual({(True, False)},
+                         {(row["normal_path"], row["exceptional_path"]) for row in implicit_exits})
+        self.assertTrue(all(row["source_evidence"] == "codeql_task_annotated_cfg_exit"
+                            for row in implicit_exits))
+        self.assertTrue(
+            any(
+                row["fact_kind"] == "unknown_call"
+                and row["coverage_note"] == "task_terminal_coverage_incomplete"
+                for row in implicit
+            )
+        )
+
+        call_exception = rows_for("callerCallException(I)V")
+        call_exits = [
+            row for row in call_exception if row["fact_kind"] == "task_exit"
+        ]
+        self.assertEqual(
+            {(True, False)},
+            {(row["normal_path"], row["exceptional_path"]) for row in call_exits},
+        )
+        self.assertTrue(
+            any(
+                row["fact_kind"] == "unknown_call"
+                and row["coverage_note"] == "task_terminal_coverage_incomplete"
+                for row in call_exception
+            )
+        )
+        for caller, expected_kind in (("callerMultipleNormalExits(I)V", (True, False)),
+                                      ("callerMultipleExceptionalExits(I)V", (False, True))):
+            with self.subTest(caller=caller):
+                exits = [row for row in rows_for(caller) if row["fact_kind"] == "task_exit"]
+                self.assertEqual(2, len(exits))
+                self.assertEqual(2, len({row["program_point"] for row in exits}))
+                self.assertEqual({expected_kind}, {(row["normal_path"], row["exceptional_path"])
+                                                   for row in exits})
+
+    def test_v1_1_task_cfg_success_exception_and_executor_gaps_from_java(self) -> None:
+        source_root = ROOT / "tests/fixtures/resource_lifecycle_v1_1_task_cfg/src/main/java"
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            base = run_query(DIRECT_QUERY, database, Path(tmp) / "base")
+            task = run_query(DIRECT_TASK_QUERY, database, Path(tmp) / "task")
+            rows = decode_bqrs_json(
+                "resource_lifecycle", json.loads(base.decoded_path.read_text()),
+                DecodeSource(database.source_root, base.query_sha256),
+            ) + decode_bqrs_json(
+                "resource_lifecycle_task_relations", json.loads(task.decoded_path.read_text()),
+                DecodeSource(database.source_root, task.query_sha256),
+            )
+        extracted = adapt_codeql_rows(
+            rows, source_root=database.source_root,
+            query_provenance=tuple({"query_name": result.query_name,
+                                    "query_sha256": result.query_sha256,
+                                    "bqrs_sha256": result.bqrs_sha256} for result in (base, task)),
+            database_fingerprint=database.fingerprint,
+            source_snapshot_sha256=lifecycle_commands._verify_database_source_snapshot(database),
+        )
+        prefix = "java-callable-v1:fixture.lifecyclev11.taskcfg.TaskCfgCoverage."
+
+        def task_rows(caller):
+            return [row for row in rows if row["unit_id"] == prefix + caller + "(I)V"
+                    and row["query_name"] == "resource_lifecycle_task_relations"]
+
+        for caller, reason in (
+            ("callerExpressionBody", "unsupported_expression_body_lambda_caller_bound"),
+            ("callerMutableExecutor", "executor_configuration_mutable_or_escaped"),
+            ("callerUnresolvedExecutor", "executor_contract_unresolved"),
+        ):
+            with self.subTest(caller=caller):
+                facts = task_rows(caller)
+                self.assertTrue(any(row["coverage_note"] == reason for row in facts))
+                self.assertFalse(any(row["fact_kind"] in {"dispatch", "invariant", "cfg_edge", "task_exit", "release"}
+                                     for row in facts))
+                unit = next(unit for unit in extracted.units if unit.unit_id == prefix + caller + "(I)V")
+                self.assertFalse(unit.program.task_bindings)
+                self.assertTrue(unit.program.coverage_gaps)
+        constants = next(row for row in task_rows("callerConstants") if row["fact_kind"] == "dispatch")
+        self.assertEqual(("2", "2", "2", "abort"),
+                         tuple(constants[key] for key in ("core_workers", "max_workers", "capacity", "rejection_policy")))
+        for caller in ("callerDirectClose", "callerComplexFinally"):
+            with self.subTest(caller=caller):
+                facts = task_rows(caller)
+                self.assertTrue(any(row["fact_kind"] == "dispatch" for row in facts))
+                self.assertFalse(any(row["fact_kind"] == "release" for row in facts))
+                self.assertTrue(any(row["coverage_note"] == "task_callback_effect_unmodeled"
+                                    and row["coverage_status"] == "partial" for row in facts))
+
+        facts = task_rows("callerFinally")
+        release = next(row for row in facts if row["fact_kind"] == "release")
+        self.assertEqual(release["program_point"] + "#normal-success:call-cfg-v1", release["related_point"])
+        self.assertEqual((True, False), (release["normal_path"], release["exceptional_path"]))
+        terminals = [row for row in facts if row["fact_kind"] == "task_exit"]
+        self.assertEqual({(release["related_point"], True, False),
+                          (release["related_point"], False, True),
+                          (release["program_point"], False, True)},
+                         {(row["program_point"], row["normal_path"], row["exceptional_path"]) for row in terminals})
+        unit = next(unit for unit in extracted.units if unit.unit_id == prefix + "callerFinally(I)V")
+        program = unit.program
+        self.assertEqual(3, len(program.task_exits))
+        events = {event.event_id: event for event in program.events}
+        releases = [edge for edge in program.transitions if any(effect.kind == "release" for effect in edge.effects)]
+        self.assertEqual(1, len(releases))
+        self.assertEqual(release["program_point"], events[releases[0].source_event_id].activation_condition)
+        self.assertEqual(release["related_point"], events[releases[0].target_event_id].activation_condition)
+        self.assertFalse(any(edge.effects for edge in program.transitions
+                             if edge.guard in {"normal_task_exit", "exceptional_task_exit"}))
+        failed_close_exit = next(exit for exit in program.task_exits if exit.point_id == release["program_point"])
+        self.assertEqual("exceptional", failed_close_exit.kind)
+        failed_edges = [edge for edge in program.transitions
+                        if edge.target_event_id == failed_close_exit.event_id
+                        and events[edge.source_event_id].activation_condition == release["program_point"]]
+        self.assertEqual(1, len(failed_edges))
+        self.assertFalse(failed_edges[0].effects)
+        reachable = set(program.entry_event_ids)
+        while True:
+            expanded = reachable | {edge.target_event_id for edge in program.transitions
+                                    if edge.source_event_id in reachable}
+            if expanded == reachable:
+                break
+            reachable = expanded
+        self.assertTrue(all(exit.event_id in reachable for exit in program.task_exits))
+
     def test_v1_1_source_relations_are_extracted_from_java(self) -> None:
         source_root = ROOT / "tests/fixtures/resource_lifecycle_v1_1/src/main/java"
         database = fixture_database(str(source_root))
@@ -1969,6 +3192,9 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
         ]
         cfg_edges = [row for row in source_rows if row["fact_kind"] == "cfg_edge"]
         dispatch = next(row for row in source_rows if row["fact_kind"] == "dispatch")
+        callback_release = next(
+            row for row in source_rows if row["fact_kind"] == "release"
+        )
         task_exits = [row for row in source_rows if row["fact_kind"] == "task_exit"]
 
         self.assertEqual(
@@ -1986,14 +3212,49 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
                 for row in call_bindings
             )
         )
-        self.assertTrue(cfg_edges)
+        task_cfg_edges = [
+            row for row in cfg_edges if row["target_event"] == dispatch["target_event"]
+        ]
         self.assertTrue(
-            any(
-                row["program_point"] != row["related_point"]
-                and row["site_start_line"] != create["site_start_line"]
-                for row in cfg_edges
+            {
+                (31, 13, 31, 17),
+                (31, 17, 32, 17),
+                (36, 23, 37, 17),
+            }
+            <= {
+                (
+                    row["site_start_line"],
+                    row["site_start_column"],
+                    row["related_start_line"],
+                    row["related_start_column"],
+                )
+                for row in task_cfg_edges
+            }
+        )
+        self.assertTrue(
+            all(
+                row["query_name"] == "resource_lifecycle_task_relations"
+                and row["site_callable"] == dispatch["target_event"]
+                and row["program_point"] != row["related_point"]
+                for row in task_cfg_edges
             )
         )
+        self.assertEqual(dispatch["target_event"], callback_release["site_callable"])
+        self.assertEqual(create["instance_key"], callback_release["instance_key"])
+        self.assertEqual(37, callback_release["site_start_line"])
+        self.assertEqual(17, callback_release["site_start_column"])
+        self.assertTrue(callback_release["normal_path"])
+        self.assertFalse(callback_release["exceptional_path"])
+        self.assertEqual(
+            "codeql_task_callback_close_finally",
+            callback_release["source_evidence"],
+        )
+        self.assertTrue(any(
+            row["program_point"] == callback_release["program_point"]
+            and row["related_point"] == callback_release["related_point"]
+            and row["normal_path"] and not row["exceptional_path"]
+            for row in task_cfg_edges
+        ), "Release must name an actual successful call continuation, never an incoming statement edge")
 
         self.assertEqual(wrapper2, dispatch["site_callable"])
         self.assertNotEqual("none", dispatch["related_point"])
@@ -2001,6 +3262,7 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
         self.assertEqual(create["instance_key"], dispatch["instance_key"])
         self.assertEqual("fixture.lifecyclev11.SourcePairs.EXECUTOR#static", dispatch["holder_key"])
         self.assertEqual("3", dispatch["capacity"])
+        self.assertEqual("2", dispatch["core_workers"])
         self.assertEqual("2", dispatch["max_workers"])
         self.assertEqual("abort", dispatch["rejection_policy"])
         self.assertEqual(0, dispatch["binding_index"])
@@ -2015,6 +3277,9 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
         })
         self.assertEqual(2, len({row["program_point"] for row in task_exits}))
         self.assertEqual(2, len({row["site_start_line"] for row in task_exits}))
+        self.assertEqual({37, 39}, {row["site_start_line"] for row in task_exits})
+        self.assertTrue(all(row["source_evidence"] == "codeql_task_annotated_cfg_exit"
+                            for row in task_exits))
         self.assertTrue(
             all(
                 row["related_point"] == dispatch["related_point"]
@@ -2060,11 +3325,264 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
             for item in unit.executor_contracts
             if item.contract_id == task_binding.executor_contract_id
         )
-        self.assertEqual((3, 2, "abort"), (
+        self.assertEqual((3, 2, 2, "abort"), (
             contract.queue_capacity,
+            contract.core_workers,
             contract.max_workers,
             contract.rejection_policy,
         ))
+        self.assertFalse(contract.completion_drops_capture)
+        self.assertTrue(contract.rejection_drops_capture)
+        self.assertEqual("unknown", contract.cancellation)
+        self.assertEqual("unknown", contract.termination)
+        release_fact = next(
+            fact
+            for fact in extracted.facts
+            if fact.unit_id == caller and fact.fact_kind == "release"
+        )
+        self.assertEqual(callback_release["program_point"], release_fact.program_point)
+        self.assertEqual(dispatch["target_event"], release_fact.site_callable)
+        cfg_release_transitions = [
+            transition
+            for transition in unit.program.transitions
+            if transition.guard == "task_cfg_edge"
+            and any(
+                effect.kind == "release"
+                and effect.condition == "true"
+                and effect.evidence_ids == (release_fact.fact_id,)
+                for effect in transition.effects
+            )
+        ]
+        self.assertEqual(1, len(cfg_release_transitions))
+        events = {event.event_id: event for event in unit.program.events}
+        self.assertEqual(release_fact.program_point,
+                         events[cfg_release_transitions[0].source_event_id].activation_condition)
+        self.assertEqual(release_fact.related_point,
+                         events[cfg_release_transitions[0].target_event_id].activation_condition)
+        reachable = set(unit.program.entry_event_ids)
+        while True:
+            expanded = reachable | {edge.target_event_id for edge in unit.program.transitions
+                                    if edge.source_event_id in reachable}
+            if expanded == reachable:
+                break
+            reachable = expanded
+        self.assertIn(task_binding.submit_event_id, reachable)
+        self.assertTrue(all(exit.event_id in reachable for exit in unit.program.task_exits))
+        # In this exact-finally fixture every modeled terminal must pass close
+        # success. The throw inside try must never bypass the finally block.
+        unreleased = {task_binding.run_event_id}
+        while True:
+            expanded = unreleased | {edge.target_event_id for edge in unit.program.transitions
+                                      if edge.source_event_id in unreleased
+                                      and not any(effect.kind == "release" for effect in edge.effects)}
+            if expanded == unreleased:
+                break
+            unreleased = expanded
+        self.assertTrue(all(exit.event_id not in unreleased for exit in unit.program.task_exits))
+
+
+    def test_v1_1_wrapper_summary_effects_are_extracted_from_java(self) -> None:
+        source_root = (
+            ROOT
+            / "tests/fixtures/resource_lifecycle_v1_1_wrappers/src/main/java"
+        )
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_query(DIRECT_QUERY, database, Path(tmp) / "base-query")
+            payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
+        rows = decode_bqrs_json(
+            "resource_lifecycle",
+            payload,
+            DecodeSource(database.source_root, result.query_sha256),
+        )
+        prefix = "java-callable-v1:fixture.lifecyclev11.wrappers.WrapperEffects."
+        resource = "Lfixture/lifecyclev11/wrappers/WrapperEffects$TrackedResource;"
+        caller_effects = prefix + "callerEffects(IZ)V"
+        wrapper_effect2 = prefix + f"wrapperEffect2({resource}Z)V"
+        effect_rows = [
+            row
+            for row in rows
+            if row["unit_id"] == caller_effects
+            and row["site_callable"] == wrapper_effect2
+        ]
+        for row in effect_rows:
+            if row["fact_kind"] == "cfg_edge" and "#site:" in row["related_point"]:
+                span = row["related_point"].rsplit("#site:", 1)[1].rsplit(":", 4)
+                self.assertEqual(
+                    (span[0], int(span[1]), int(span[2])),
+                    (row["related_file"], row["related_start_line"], row["related_start_column"]),
+                    "CFG target evidence must locate the target AST, not its parameter",
+                )
+        retain = next(row for row in effect_rows if row["fact_kind"] == "retain")
+        release = next(row for row in effect_rows if row["fact_kind"] == "release")
+        normal_exit_edge = next(
+            row
+            for row in effect_rows
+            if row["fact_kind"] == "cfg_edge"
+            and row["normal_path"]
+            and not row["exceptional_path"]
+        )
+        self.assertEqual(
+            (
+                "field",
+                "global",
+                "fixture.lifecyclev11.wrappers.WrapperEffects.SHARED#static",
+            ),
+            (retain["holder_kind"], retain["holder_scope"], retain["holder_key"]),
+        )
+        self.assertEqual(
+            (True, False, "conditional_release_not_must"),
+            (
+                release["normal_path"],
+                release["exceptional_path"],
+                release["coverage_note"],
+            ),
+        )
+        self.assertNotEqual(
+            normal_exit_edge["program_point"], normal_exit_edge["related_point"]
+        )
+
+        caller_return = prefix + f"callerReturn(I){resource}"
+        wrapper_return2 = prefix + f"wrapperReturn2({resource}){resource}"
+        returned = next(
+            row
+            for row in rows
+            if row["unit_id"] == caller_return
+            and row["site_callable"] == wrapper_return2
+            and row["coverage_note"] == "returned_resource_identity_bound"
+        )
+        self.assertEqual(
+            ("retain", True, False),
+            (
+                returned["fact_kind"],
+                returned["normal_path"],
+                returned["exceptional_path"],
+            ),
+        )
+
+        caller_instance = prefix + "callerInstanceField(I)V"
+        instance_retain = next(
+            row
+            for row in rows
+            if row["unit_id"] == caller_instance
+            and row["fact_kind"] == "retain"
+            and row["holder_kind"] == "field"
+            and row["holder_scope"] == "instance"
+        )
+        self.assertEqual(
+            ("partial", "field_receiver_identity_unresolved"),
+            (instance_retain["coverage_status"], instance_retain["coverage_note"]),
+        )
+        reassigned_rows = [row for row in rows if row["unit_id"] == prefix + "callerReassigned(I)V"]
+        self.assertFalse(any(row["fact_kind"] == "call_binding" and row["relation_depth"] == 2
+                             for row in reassigned_rows))
+        self.assertFalse(any(row["fact_kind"] == "release" for row in reassigned_rows))
+        returned_closed = [row for row in rows if row["unit_id"] == prefix + "callerReturnClosed(I)V"]
+        returned_create = next(row for row in returned_closed if row["fact_kind"] == "create")
+        returned_release = next(row for row in returned_closed if row["fact_kind"] == "release")
+        self.assertEqual(returned_create["instance_key"], returned_release["instance_key"])
+
+        extracted = adapt_codeql_rows(
+            rows,
+            source_root=database.source_root,
+            query_sha256=result.query_sha256,
+        )
+        effect_unit = next(
+            item for item in extracted.units if item.unit_id == caller_effects
+        )
+        finally_unit = next(item for item in extracted.units
+                            if item.unit_id == prefix + "callerFinallyWrapper(I)V")
+        finally_events = {event.event_id: event for event in finally_unit.program.events}
+        finally_binding = next(binding for binding in finally_unit.program.call_bindings
+                               if binding.context_depth == 1)
+        restored_exception_edges = [
+            edge for edge in finally_unit.program.transitions
+            if edge.exit_kind == "exceptional"
+            and finally_events[edge.source_event_id].activation_condition
+            == finally_binding.callee_callable + "#cfg_normal_exit"
+        ]
+        self.assertTrue(restored_exception_edges,
+                        "A successful wrapper in finally must restore the caller's pending exception")
+        repeated = next(item.program for item in extracted.units
+                        if item.unit_id == prefix + "callerRepeated(I)V")
+        first_bindings = [binding for binding in repeated.call_bindings if binding.context_depth == 1]
+        self.assertEqual(2, len(first_bindings))
+        self.assertNotEqual(first_bindings[0].source_point_id, first_bindings[1].source_point_id)
+        adjacency = {}
+        for edge in repeated.transitions:
+            adjacency.setdefault(edge.source_event_id, set()).add(edge.target_event_id)
+        active, done = set(), set()
+        def visit(event):
+            self.assertNotIn(event, active, "Call-return contexts must not create a cycle in acyclic Java")
+            if event in done:
+                return
+            active.add(event)
+            for target in adjacency.get(event, ()):
+                visit(target)
+            active.remove(event)
+            done.add(event)
+        for entry in repeated.entry_event_ids:
+            visit(entry)
+        reachable = set(effect_unit.program.entry_event_ids)
+        while True:
+            expanded = reachable | {
+                edge.target_event_id for edge in effect_unit.program.transitions
+                if edge.source_event_id in reachable
+            }
+            if expanded == reachable:
+                break
+            reachable = expanded
+        self.assertTrue(all(
+            any(event.activation_condition == binding.target_point_id
+                and event.event_id in reachable for event in effect_unit.program.events)
+            for binding in effect_unit.program.call_bindings
+        ), "Every bound wrapper parameter must be reachable from the real caller entry")
+        for point in effect_unit.program.program_points:
+            if "#site:" in point.point_id:
+                span = point.point_id.rsplit("#site:", 1)[1].rsplit(":", 4)
+                self.assertEqual((span[0], int(span[1])),
+                                 (point.location.path, point.location.start_line))
+        effect_facts = {
+            fact.fact_id: fact
+            for fact in extracted.facts
+            if fact.unit_id == caller_effects
+            and fact.site_callable == wrapper_effect2
+            and fact.fact_kind in {"retain", "release"}
+        }
+        attached_effects = [
+            effect
+            for transition in effect_unit.program.transitions
+            for effect in transition.effects
+            if any(evidence_id in effect_facts for evidence_id in effect.evidence_ids)
+        ]
+        self.assertEqual(
+            {"retain"}, {effect.kind for effect in attached_effects}
+        )
+        partial_releases = [fact for fact in effect_facts.values() if fact.fact_kind == "release"]
+        self.assertTrue(partial_releases)
+        wrapper_result = solve(effect_unit.program, budget=AnalysisBudget())
+        for fact in partial_releases:
+            self.assertEqual("partial", fact.coverage_status)
+            self.assertEqual("codeql_parameter_close_effect", fact.source_evidence)
+            self.assertTrue(any(point.point_id == fact.program_point
+                                for point in effect_unit.program.program_points))
+            self.assertTrue(any(gap[4] == fact.fact_id for gap in effect_unit.program.coverage_gaps))
+            close_events = {event.event_id for event in effect_unit.program.events
+                            if event.activation_condition == fact.program_point}
+            reached_edges = [edge for edge in effect_unit.program.transitions
+                             if edge.source_event_id in close_events
+                             and edge.source_event_id in wrapper_result.event_states
+                             and edge.target_event_id in wrapper_result.event_states]
+            self.assertTrue(reached_edges, "Partial wrapper release must remain on a reachable CFG site")
+            for edge in reached_edges:
+                before = wrapper_result.event_states[edge.source_event_id]
+                after = wrapper_result.event_states[edge.target_event_id]
+                self.assertTrue(before.open_obligations)
+                self.assertEqual(before.open_obligations, after.open_obligations)
+                self.assertEqual(before.obligation_counts, after.obligation_counts)
+                self.assertEqual(before.instance_obligation_counts, after.instance_obligation_counts)
+                self.assertEqual(before.held_edges, after.held_edges)
+                self.assertEqual(before.held_counts, after.held_counts)
 
     def test_same_site_dispatch_and_invariant_share_program_point_identity(self) -> None:
         source_root = ROOT / "tests/fixtures/resource_lifecycle/src/main/java"
@@ -2300,6 +3818,39 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
             )
 
         sync = by_unit[fixture_callable("syncClosed", "(I)V")]
+        sync_release = next(
+            fact for fact in extracted.facts
+            if fact.unit_id == sync.unit_id and fact.fact_kind == "release"
+        )
+        close_exits = [
+            fact for fact in extracted.facts
+            if fact.unit_id == sync.unit_id and fact.fact_kind == "cfg_edge"
+            and fact.program_point == sync_release.program_point
+            and fact.related_point in {
+                sync.unit_id + "#cfg_normal_exit", sync.unit_id + "#cfg_exceptional_exit"
+            }
+        ]
+        self.assertEqual(
+            {sync.unit_id + "#cfg_normal_exit", sync.unit_id + "#cfg_exceptional_exit"},
+            {fact.related_point for fact in close_exits},
+        )
+        # Restoring a pending exception after a successful finally close is not
+        # an exception thrown by close itself. Preserve its successful effect.
+        self.assertTrue(all(
+            fact.source_evidence == "codeql_callable_cfg_exit_after_success"
+            for fact in close_exits
+        ))
+        sync_events = {event.event_id: event for event in sync.program.events}
+        release_transitions = [
+            edge for edge in sync.program.transitions
+            if any(sync_release.fact_id in effect.evidence_ids and effect.kind == "release"
+                   for effect in edge.effects)
+        ]
+        self.assertEqual({"normal", "exceptional"}, {edge.exit_kind for edge in release_transitions})
+        self.assertTrue(all(
+            sync_events[edge.source_event_id].activation_condition == sync_release.program_point
+            for edge in release_transitions
+        ))
         sync_result = solve(sync.program, budget=AnalysisBudget())
         sync_dimensions = check_invariants(
             sync.program,
@@ -2478,9 +4029,32 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
                         for fact in ambiguous_releases
                     )
                 )
+                ambiguous_result = solve(ambiguous.program, budget=AnalysisBudget())
+                release_ids = {fact.fact_id for fact in ambiguous_releases}
+                self.assertFalse(any(
+                    effect.kind == "release" and release_ids.intersection(effect.evidence_ids)
+                    for edge in ambiguous.program.transitions for effect in edge.effects
+                ))
+                release_points = {fact.program_point for fact in ambiguous_releases}
+                self.assertTrue(release_points <= {point.point_id for point in ambiguous.program.program_points})
+                self.assertTrue(release_ids <= {gap[4] for gap in ambiguous.program.coverage_gaps})
+                close_events = {event.event_id for event in ambiguous.program.events
+                                if event.activation_condition in release_points}
+                reached_edges = [edge for edge in ambiguous.program.transitions
+                                 if edge.source_event_id in close_events
+                                 and edge.source_event_id in ambiguous_result.event_states
+                                 and edge.target_event_id in ambiguous_result.event_states]
+                self.assertTrue(reached_edges)
+                for edge in reached_edges:
+                    before = ambiguous_result.event_states[edge.source_event_id]
+                    after = ambiguous_result.event_states[edge.target_event_id]
+                    self.assertTrue(before.open_obligations)
+                    self.assertEqual(before.open_obligations, after.open_obligations)
+                    self.assertEqual(before.obligation_counts, after.obligation_counts)
+                    self.assertEqual(before.instance_obligation_counts, after.instance_obligation_counts)
                 ambiguous_dimensions = check_invariants(
                     ambiguous.program,
-                    solve(ambiguous.program, budget=AnalysisBudget()),
+                    ambiguous_result,
                     ambiguous.invariants,
                     timeout_ms=100,
                     executor_contracts=ambiguous.executor_contracts,
@@ -2525,7 +4099,15 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
         )
 
         bounded = by_unit[fixture_callable("boundedQueued", "(I)Z")]
+        bounded_returns = [
+            fact for fact in extracted.facts
+            if fact.unit_id == bounded.unit_id and fact.fact_kind == "cfg_edge"
+            and fact.related_point == bounded.unit_id + "#cfg_normal_exit"
+        ]
+        self.assertEqual(2, len({fact.program_point for fact in bounded_returns}),
+                         "Both boolean return statements must reach the actual normal exit")
         bounded_result = solve(bounded.program, budget=AnalysisBudget())
+        self.assertEqual(set(bounded.program.exit_event_ids), set(bounded_result.exit_states))
         bounded_dimensions = check_invariants(
             bounded.program,
             bounded_result,

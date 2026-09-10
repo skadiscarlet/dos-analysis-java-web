@@ -7,11 +7,34 @@
 
 import java
 import semmle.code.java.dataflow.DataFlow
+private import codeql.controlflow.SuccessorType
 
 predicate allocationFlowsTo(Expr allocation, Expr sink) {
   exists(DataFlow::Node sourceNode, DataFlow::Node sinkNode |
     sourceNode.asExpr() = allocation and sinkNode.asExpr() = sink and
     DataFlow::localFlow(sourceNode, sinkNode)
+  )
+  or
+  exists(MethodCall returned, Parameter parameter, int depth |
+    depth in [1 .. 2] and returnsParameterAtDepth(returned.getMethod(), parameter, depth) and
+    DataFlow::localFlow(DataFlow::exprNode(allocation), DataFlow::exprNode(returned.getArgument(parameter.getPosition()))) and
+    DataFlow::localFlow(DataFlow::exprNode(returned), DataFlow::exprNode(sink))
+  )
+}
+
+/** Finite nonrecursive summary: every normal return preserves this parameter identity. */
+predicate returnsParameterAtDepth(Method method, Parameter parameter, int depth) {
+  exactSourceCallee(method) and parameter.getCallable() = method and depth in [1 .. 2] and
+  not exists(parameter.getAnAssignedValue()) and
+  exists(ReturnStmt returned | returned.getEnclosingCallable() = method) and
+  forall(ReturnStmt returned | returned.getEnclosingCallable() = method |
+    returned.getExpr().(VarAccess).getVariable() = parameter
+    or
+    exists(MethodCall nested, Parameter nestedParameter |
+      depth = 2 and nested = returned.getExpr() and nested.getMethod() != method and
+      returnsParameterAtDepth(nested.getMethod(), nestedParameter, 1) and
+      nested.getArgument(nestedParameter.getPosition()).(VarAccess).getVariable() = parameter
+    )
   )
 }
 
@@ -47,6 +70,52 @@ Callable enclosingCallable(ExprParent site) {
   site instanceof Expr and result = site.(Expr).getEnclosingCallable()
   or
   site instanceof Stmt and result = site.(Stmt).getEnclosingCallable()
+}
+
+ControlFlowNode controlFlowNode(ExprParent site) {
+  site instanceof Expr and result = site.(Expr).getControlFlowNode()
+  or
+  site instanceof Stmt and result = site.(Stmt).getControlFlowNode()
+}
+
+/** One AST-level CFG step; synthetic CFG nodes may be traversed, AST nodes may not. */
+predicate isAstControlFlowNode(ControlFlowNode node) {
+  node.injects(_) or
+  node instanceof ControlFlow::EntryNode or
+  node instanceof ControlFlow::AnnotatedExitNode or
+  node instanceof ControlFlow::ExitNode
+}
+
+predicate successorAfterNonAstNodes(ControlFlowNode source, ControlFlowNode target) {
+  target = source.getASuccessor() and isAstControlFlowNode(target)
+  or
+  exists(ControlFlowNode middle |
+    middle = source.getASuccessor() and
+    not isAstControlFlowNode(middle) and
+    successorAfterNonAstNodes(middle, target)
+  )
+}
+
+predicate normalSuccessorAfterNonAstNodes(ControlFlowNode source, ControlFlowNode target) {
+  target = source.getASuccessor(any(SuccessorType kind | not kind instanceof ExceptionSuccessor)) and
+  isAstControlFlowNode(target)
+  or
+  exists(ControlFlowNode middle |
+    middle = source.getASuccessor(any(SuccessorType kind | not kind instanceof ExceptionSuccessor)) and
+    not isAstControlFlowNode(middle) and
+    // Only the operation's first edge classifies its outcome. A synthetic
+    // finally bridge can subsequently restore an already-pending exception.
+    successorAfterNonAstNodes(middle, target)
+  )
+}
+
+predicate exceptionalSuccessorAfterNonAstNodes(ControlFlowNode source, ControlFlowNode target) {
+  target = source.getAnExceptionSuccessor() and isAstControlFlowNode(target)
+  or
+  exists(ControlFlowNode middle |
+    middle = source.getAnExceptionSuccessor() and not isAstControlFlowNode(middle) and
+    successorAfterNonAstNodes(middle, target)
+  )
 }
 
 bindingset[site]
@@ -104,13 +173,13 @@ predicate rootCallBinding(
     call.getMethod() != call.getEnclosingCallable()
   )
   or
-  exists(MethodCall firstCall, Parameter firstParameter, VarAccess parameterAccess |
+  exists(MethodCall firstCall, Parameter firstParameter, int position |
     depth = 2 and exactArgumentBinding(allocation, firstCall, firstParameter) and
     firstCall.getEnclosingCallable() = allocation.getEnclosingCallable() and
     firstCall.getMethod() != firstCall.getEnclosingCallable() and
-    parameterAccess.getVariable() = firstParameter and
-    parameterAccess.getEnclosingCallable() = firstParameter.getCallable() and
-    exactArgumentBinding(parameterAccess, call, parameter) and
+    position = parameter.getPosition() and parameter = call.getMethod().getParameter(position) and
+    exactSourceCallee(call.getMethod()) and
+    DataFlow::localFlow(DataFlow::parameterNode(firstParameter), DataFlow::exprNode(call.getArgument(position))) and
     call.getEnclosingCallable() = firstParameter.getCallable() and
     call.getMethod() != call.getEnclosingCallable() and
     call.getMethod() != firstCall.getEnclosingCallable()
@@ -453,10 +522,11 @@ predicate allocationCloseFlag(Expr allocation, boolean requiresClose) {
 predicate lifecycleRelationFact(
   Expr allocation, ExprParent site, Callable owner, string factKind,
   boolean requiresClose, string holderKind, string holderScope, string holderKey,
-  string targetEvent, string capacityValue, string maxWorkersValue,
+  string targetEvent, string capacityValue, string coreWorkersValue, string maxWorkersValue,
   string rejectionPolicyValue, boolean normalPath, boolean exceptionalPath,
   string evidence, string coverageStatus, string coverageNote,
-  string programPoint, string relatedPoint, int relationDepth, int bindingIndex
+  string programPoint, string relatedPoint, Parameter relatedParameter,
+  int relationDepth, int bindingIndex
 ) {
   trackedAllocation(allocation) and owner = allocation.getEnclosingCallable() and
   owner.fromSource() and allocationCloseFlag(allocation, requiresClose) and
@@ -465,13 +535,115 @@ predicate lifecycleRelationFact(
       rootCallBinding(allocation, call, parameter, depth) and site = call and
       factKind = "call_binding" and holderKind = "none" and holderScope = "none" and
       holderKey = "none" and targetEvent = canonicalCallableIdentity(call.getMethod()) and
-      capacityValue = "unknown" and maxWorkersValue = "unknown" and
+      capacityValue = "unknown" and coreWorkersValue = "unknown" and
+      maxWorkersValue = "unknown" and
       rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = true and
       evidence = "codeql_exact_argument_parameter_binding" and
       coverageStatus = "complete" and coverageNote = "exact_non_virtual_source_callee" and
       programPoint = programPointIdentity(call) and
-      relatedPoint = parameterPointIdentity(parameter) and relationDepth = depth and
+      relatedPoint = parameterPointIdentity(parameter) and
+      relatedParameter = parameter and relationDepth = depth and
       bindingIndex = parameter.getPosition()
+    )
+    or
+    exists(
+      MethodCall call, Parameter parameter, int depth, AssignExpr assignment,
+      FieldAccess destination, VarAccess parameterAccess
+    |
+      rootCallBinding(allocation, call, parameter, depth) and
+      parameterAccess.getVariable() = parameter and
+      parameterAccess.getEnclosingCallable() = parameter.getCallable() and
+      DataFlow::localFlow(DataFlow::parameterNode(parameter), DataFlow::exprNode(parameterAccess)) and
+      assignment.getSource() = parameterAccess and assignment.getDest() = destination and
+      assignment.getEnclosingCallable() = parameter.getCallable() and
+      site = assignment and factKind = "retain" and
+      targetEvent = "none" and capacityValue = "unknown" and
+      coreWorkersValue = "unknown" and maxWorkersValue = "unknown" and
+      rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = false and
+      holderKind = "field" and
+      (
+        destination.getField().isStatic() and holderScope = "global" and
+        holderKey = destination.getField().getDeclaringType().getQualifiedName() + "." +
+          destination.getField().getName() + "#static" and
+        evidence = "codeql_parameter_to_static_field_effect" and coverageStatus = "complete" and
+        coverageNote = "exact_static_field_identity"
+        or
+        not destination.getField().isStatic() and holderScope = "instance" and
+        holderKey = destination.getField().getDeclaringType().getQualifiedName() + "." +
+          destination.getField().getName() and
+        evidence = "codeql_parameter_to_instance_field_effect" and coverageStatus = "partial" and
+        coverageNote = "field_receiver_identity_unresolved"
+      ) and
+      programPoint = programPointIdentity(assignment) and
+      relatedPoint = parameterPointIdentity(parameter) and relatedParameter = parameter and
+      relationDepth = depth and bindingIndex = parameter.getPosition()
+    )
+    or
+    exists(
+      MethodCall call, Parameter parameter, int depth, MethodCall release,
+      VarAccess receiver
+    |
+      rootCallBinding(allocation, call, parameter, depth) and
+      receiver = release.getQualifier() and receiver.getVariable() = parameter and
+      release.getEnclosingCallable() = parameter.getCallable() and
+      DataFlow::localFlow(DataFlow::parameterNode(parameter), DataFlow::exprNode(receiver)) and
+      release.getNumArgument() = 0 and autoCloseableReleaseMethod(release.getMethod()) and
+      site = release and factKind = "release" and
+      holderKind = "none" and holderScope = "none" and holderKey = "none" and
+      targetEvent = "none" and capacityValue = "unknown" and
+      coreWorkersValue = "unknown" and maxWorkersValue = "unknown" and
+      rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = false and
+      evidence = "codeql_parameter_close_effect" and coverageStatus = "partial" and
+      coverageNote = "conditional_release_not_must" and
+      programPoint = programPointIdentity(release) and
+      relatedPoint = parameterPointIdentity(parameter) and relatedParameter = parameter and
+      relationDepth = depth and bindingIndex = parameter.getPosition()
+    )
+    or
+    exists(
+      MethodCall call, Parameter parameter, int depth, ReturnStmt returned,
+      VarAccess returnedValue
+    |
+      rootCallBinding(allocation, call, parameter, depth) and
+      returned.getExpr() = returnedValue and returnedValue.getVariable() = parameter and
+      returned.getEnclosingCallable() = parameter.getCallable() and
+      DataFlow::localFlow(DataFlow::parameterNode(parameter), DataFlow::exprNode(returnedValue)) and
+      site = returned and factKind = "retain" and
+      holderKind = "local" and holderScope = "instance" and
+      holderKey = canonicalCallableIdentity(parameter.getCallable()) + "#return" and
+      targetEvent = "none" and capacityValue = "unknown" and
+      coreWorkersValue = "unknown" and maxWorkersValue = "unknown" and
+      rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = false and
+      evidence = "codeql_parameter_return_binding" and coverageStatus = "complete" and
+      coverageNote = "returned_resource_identity_bound" and
+      programPoint = programPointIdentity(returned) and
+      relatedPoint = parameterPointIdentity(parameter) and relatedParameter = parameter and
+      relationDepth = depth and bindingIndex = parameter.getPosition()
+    )
+    or
+    exists(
+      MethodCall call, Parameter parameter, int depth, MethodCall unknown, Expr value
+    |
+      rootCallBinding(allocation, call, parameter, depth) and
+      unknown.getEnclosingCallable() = parameter.getCallable() and
+      (value = unknown.getAnArgument() or value = unknown.getQualifier()) and
+      DataFlow::localFlow(DataFlow::parameterNode(parameter), DataFlow::exprNode(value)) and
+      not autoCloseableReleaseMethod(unknown.getMethod()) and
+      not exists(Parameter targetParameter, int targetDepth |
+        rootCallBinding(allocation, unknown, targetParameter, targetDepth)
+      ) and
+      not rootDepthLimitExceeded(allocation, unknown) and
+      site = unknown and factKind = "unknown_call" and
+      holderKind = "none" and holderScope = "none" and holderKey = "none" and
+      targetEvent = canonicalCallableIdentity(unknown.getMethod()) and
+      capacityValue = "unknown" and coreWorkersValue = "unknown" and
+      maxWorkersValue = "unknown" and rejectionPolicyValue = "unknown" and
+      normalPath = true and exceptionalPath = true and
+      evidence = "codeql_parameter_unknown_call" and coverageStatus = "partial" and
+      coverageNote = "callee_resource_effects_unmodeled" and
+      programPoint = programPointIdentity(unknown) and
+      relatedPoint = parameterPointIdentity(parameter) and relatedParameter = parameter and
+      relationDepth = depth and bindingIndex = -1
     )
     or
     exists(MethodCall call, Parameter parameter |
@@ -480,13 +652,85 @@ predicate lifecycleRelationFact(
       site = call and factKind = "unknown_call" and holderKind = "none" and
       holderScope = "none" and holderKey = "none" and
       targetEvent = canonicalCallableIdentity(call.getMethod()) and
-      capacityValue = "unknown" and maxWorkersValue = "unknown" and
+      capacityValue = "unknown" and coreWorkersValue = "unknown" and
+      maxWorkersValue = "unknown" and
       rejectionPolicyValue = "unknown" and normalPath = true and exceptionalPath = true and
       evidence = "codeql_call_depth_coverage_gap" and coverageStatus = "partial" and
       coverageNote = "exact_call_depth_exceeds_2" and
       programPoint = programPointIdentity(call) and
-      relatedPoint = parameterPointIdentity(parameter) and relationDepth = 2 and
+      relatedPoint = parameterPointIdentity(parameter) and
+      relatedParameter = parameter and relationDepth = 2 and
       bindingIndex = parameter.getPosition()
+    )
+  )
+}
+
+/** The root and its finite, exact, nonrecursive callee scopes. */
+predicate resourceCallableScope(Expr allocation, Callable callable, int depth) {
+  callable = allocation.getEnclosingCallable() and depth = 0
+  or
+  exists(MethodCall call, Parameter parameter |
+    rootCallBinding(allocation, call, parameter, depth) and callable = parameter.getCallable()
+  )
+}
+
+/** Real CFG edges and explicit boundary nodes; source coordinates are evidence only. */
+predicate callableCfgFact(
+  Expr allocation, ExprParent site, ExprParent relatedSite, Callable owner,
+  string programPoint, string relatedPoint, string targetEvent, int depth,
+  boolean normalPath, boolean exceptionalPath, string evidence
+) {
+  trackedAllocation(allocation) and owner = allocation.getEnclosingCallable() and owner.fromSource() and
+  exists(Callable callable |
+    resourceCallableScope(allocation, callable, depth) and exists(callable.getBody()) and
+    targetEvent = canonicalCallableIdentity(callable) and
+    (
+      enclosingCallable(site) = callable and enclosingCallable(relatedSite) = callable and
+      site != relatedSite and
+      successorAfterNonAstNodes(controlFlowNode(site), controlFlowNode(relatedSite)) and
+      programPoint = programPointIdentity(site) and relatedPoint = programPointIdentity(relatedSite) and
+      (
+        normalSuccessorAfterNonAstNodes(controlFlowNode(site), controlFlowNode(relatedSite)) and
+        normalPath = true and exceptionalPath = false
+        or
+        exceptionalSuccessorAfterNonAstNodes(controlFlowNode(site), controlFlowNode(relatedSite)) and
+        normalPath = false and exceptionalPath = true
+      ) and evidence = "codeql_callable_cfg_edge"
+      or
+      exists(ControlFlow::EntryNode entry |
+        entry.getEnclosingCallable() = callable and
+        successorAfterNonAstNodes(entry, controlFlowNode(relatedSite)) and
+        site = callable.getBody() and
+        programPoint = targetEvent + "#cfg_entry" and relatedPoint = programPointIdentity(relatedSite) and
+        normalPath = true and exceptionalPath = false and evidence = "codeql_callable_cfg_entry"
+      )
+      or
+      exists(ControlFlow::AnnotatedExitNode terminal |
+        terminal.getEnclosingCallable() = callable and enclosingCallable(site) = callable and
+        successorAfterNonAstNodes(controlFlowNode(site), terminal) and relatedSite = callable.getBody() and
+        programPoint = programPointIdentity(site) and
+        (
+          terminal instanceof ControlFlow::NormalExitNode and normalPath = true and exceptionalPath = false and
+          relatedPoint = targetEvent + "#cfg_normal_exit"
+          or
+          terminal instanceof ControlFlow::ExceptionalExitNode and normalPath = false and exceptionalPath = true and
+          relatedPoint = targetEvent + "#cfg_exceptional_exit"
+        ) and
+        (
+          normalSuccessorAfterNonAstNodes(controlFlowNode(site), terminal) and
+          evidence = "codeql_callable_cfg_exit_after_success"
+          or
+          exceptionalSuccessorAfterNonAstNodes(controlFlowNode(site), terminal) and
+          evidence = "codeql_callable_cfg_exit_after_exception"
+        )
+      )
+      or
+      exists(MethodCall call, Parameter parameter |
+        rootCallBinding(allocation, call, parameter, depth) and parameter.getCallable() = callable and
+        site = callable.getBody() and relatedSite = callable.getBody() and
+        programPoint = parameterPointIdentity(parameter) and relatedPoint = targetEvent + "#cfg_entry" and
+        normalPath = true and exceptionalPath = false and evidence = "codeql_parameter_cfg_entry"
+      )
     )
   )
 }
@@ -494,10 +738,11 @@ predicate lifecycleRelationFact(
 predicate resourceLifecycleRow(
   Expr allocation, ExprParent site, Callable owner, string factKind,
   boolean requiresClose, string holderKind, string holderScope, string holderKey,
-  string targetEvent, string capacityValue, string maxWorkersValue,
+  string targetEvent, string capacityValue, string coreWorkersValue, string maxWorkersValue,
   string rejectionPolicyValue, boolean normalPath, boolean exceptionalPath,
   string evidence, string coverageStatus, string coverageNote,
-  string programPoint, string relatedPoint, int relationDepth, int bindingIndex
+  string programPoint, string relatedPoint, string relatedFile, int relatedStartLine,
+  int relatedStartColumn, int relationDepth, int bindingIndex
 ) {
   exists(Expr expressionSite |
     site = expressionSite and
@@ -507,29 +752,62 @@ predicate resourceLifecycleRow(
       evidence, coverageStatus, coverageNote
     ) and
     programPoint = programPointIdentity(expressionSite) and relatedPoint = "none" and
+    relatedFile = expressionSite.getLocation().getFile().getRelativePath() and
+    relatedStartLine = expressionSite.getLocation().getStartLine() and
+    relatedStartColumn = expressionSite.getLocation().getStartColumn() and
     relationDepth = 0 and bindingIndex = -1 and maxWorkersValue = "unknown" and
-    rejectionPolicyValue = "unknown"
+    coreWorkersValue = "unknown" and rejectionPolicyValue = "unknown"
   )
   or
-  lifecycleRelationFact(
-    allocation, site, owner, factKind, requiresClose, holderKind, holderScope, holderKey,
-    targetEvent, capacityValue, maxWorkersValue, rejectionPolicyValue, normalPath,
-    exceptionalPath, evidence, coverageStatus, coverageNote, programPoint, relatedPoint,
-    relationDepth, bindingIndex
+  exists(Parameter relatedParameter |
+    lifecycleRelationFact(
+      allocation, site, owner, factKind, requiresClose, holderKind, holderScope, holderKey,
+      targetEvent, capacityValue, coreWorkersValue, maxWorkersValue, rejectionPolicyValue, normalPath,
+      exceptionalPath, evidence, coverageStatus, coverageNote, programPoint, relatedPoint,
+      relatedParameter, relationDepth, bindingIndex
+    ) and
+    (
+      factKind != "cfg_edge" and
+      relatedFile = relatedParameter.getLocation().getFile().getRelativePath() and
+      relatedStartLine = relatedParameter.getLocation().getStartLine() and
+      relatedStartColumn = relatedParameter.getLocation().getStartColumn()
+      or
+      factKind = "cfg_edge" and exists(ExprParent target |
+        enclosingCallable(target) = relatedParameter.getCallable() and
+        programPointIdentity(target) = relatedPoint and
+        relatedFile = target.getLocation().getFile().getRelativePath() and
+        relatedStartLine = target.getLocation().getStartLine() and
+        relatedStartColumn = target.getLocation().getStartColumn()
+      )
+    )
+  )
+  or
+  exists(ExprParent target |
+    callableCfgFact(allocation, site, target, owner, programPoint, relatedPoint,
+      targetEvent, relationDepth, normalPath, exceptionalPath, evidence) and
+    allocationCloseFlag(allocation, requiresClose) and factKind = "cfg_edge" and
+    holderKind = "none" and holderScope = "none" and holderKey = "none" and
+    capacityValue = "unknown" and coreWorkersValue = "unknown" and maxWorkersValue = "unknown" and
+    rejectionPolicyValue = "unknown" and bindingIndex = -1 and
+    coverageStatus = "complete" and coverageNote = evidence and
+    relatedFile = target.getLocation().getFile().getRelativePath() and
+    relatedStartLine = target.getLocation().getStartLine() and
+    relatedStartColumn = target.getLocation().getStartColumn()
   )
 }
 
 from Expr allocation, ExprParent site, Callable owner, string factKind, boolean requiresClose,
   string holderKind, string holderScope, string holderKey, string targetEvent,
-  string capacityValue, string maxWorkersValue, string rejectionPolicyValue,
+  string capacityValue, string coreWorkersValue, string maxWorkersValue, string rejectionPolicyValue,
   boolean normalPath, boolean exceptionalPath, string evidence,
   string coverageStatus, string coverageNote, string programPoint, string relatedPoint,
+  string relatedFile, int relatedStartLine, int relatedStartColumn,
   int relationDepth, int bindingIndex
 where resourceLifecycleRow(
   allocation, site, owner, factKind, requiresClose, holderKind, holderScope, holderKey,
-  targetEvent, capacityValue, maxWorkersValue, rejectionPolicyValue, normalPath,
+  targetEvent, capacityValue, coreWorkersValue, maxWorkersValue, rejectionPolicyValue, normalPath,
   exceptionalPath, evidence, coverageStatus, coverageNote, programPoint, relatedPoint,
-  relationDepth, bindingIndex
+  relatedFile, relatedStartLine, relatedStartColumn, relationDepth, bindingIndex
 )
 select
   canonicalCallableIdentity(owner) as unit_id,
@@ -539,6 +817,9 @@ select
   site.getLocation().getStartColumn() as site_start_column,
   programPoint as program_point,
   relatedPoint as related_point,
+  relatedFile as related_file,
+  relatedStartLine as related_start_line,
+  relatedStartColumn as related_start_column,
   relationDepth as relation_depth,
   bindingIndex as binding_index,
   factKind as fact_kind,
@@ -550,6 +831,7 @@ select
   holderKey as holder_key,
   targetEvent as target_event,
   capacityValue as capacity,
+  coreWorkersValue as core_workers,
   maxWorkersValue as max_workers,
   rejectionPolicyValue as rejection_policy,
   normalPath as normal_path,

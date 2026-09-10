@@ -561,6 +561,7 @@ class Program:
             ):
                 raise ValueError("task binding event callable is inconsistent")
         exits_by_task: dict[str, dict[str, TaskExit]] = {}
+        seen_exit_points: set[tuple[str, str, str]] = set()
         for task_exit in self.task_exits:
             binding = tasks.get(task_exit.task_id)
             if binding is None:
@@ -577,18 +578,16 @@ class Program:
             ):
                 raise ValueError("task exit callable is inconsistent")
             exits = exits_by_task.setdefault(task_exit.task_id, {})
-            if task_exit.kind in exits:
-                raise ValueError("duplicate task exit kind")
+            exit_identity = (task_exit.task_id, task_exit.kind, task_exit.point_id)
+            if exit_identity in seen_exit_points:
+                raise ValueError("duplicate task exit point and kind")
+            seen_exit_points.add(exit_identity)
             exits[task_exit.kind] = task_exit
-        for binding in self.task_bindings:
-            exits = exits_by_task.get(binding.task_id, {})
-            if set(exits) != {"normal", "exceptional"}:
-                raise ValueError("task binding requires normal and exceptional task exits")
-            if (
-                exits["normal"].event_id != binding.normal_exit_event_id
-                or exits["exceptional"].event_id
-                != binding.exceptional_exit_event_id
-            ):
+            expected_event = (
+                binding.normal_exit_event_id if task_exit.kind == "normal"
+                else binding.exceptional_exit_event_id
+            )
+            if task_exit.event_id != expected_event:
                 raise ValueError("task binding and task exits are inconsistent")
         for transition in self.transitions:
             if transition.source_event_id not in event_ids or transition.target_event_id not in event_ids:
@@ -669,7 +668,7 @@ class Program:
                 }
                 if effect.kind == "terminate":
                     exit_kind = transition.exit_kind
-                    task_exit = exits_by_task[effect.task_id].get(exit_kind)
+                    task_exit = exits_by_task.get(effect.task_id, {}).get(exit_kind)
                     valid = (
                         transition.source_event_id
                         in active_sources_by_task[effect.task_id]

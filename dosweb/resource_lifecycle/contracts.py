@@ -44,6 +44,7 @@ class ExecutorContract:
         "abort", "caller_runs", "discard", "discard_oldest", "unknown"
     ] = "unknown"
     termination: Literal["drops_capture", "retains_capture", "unknown"] = "unknown"
+    core_workers: int | str | None = None
 
     def __post_init__(self) -> None:
         if any(
@@ -63,7 +64,25 @@ class ExecutorContract:
         if self.scheduling not in {"inline", "queued"}:
             raise ValueError("executor scheduling is invalid")
         _validate_positive_limit(self.queue_capacity, "capacity")
+        if not (type(self.core_workers) is int and self.core_workers == 0
+                or type(self.core_workers) is str and self.core_workers == "0"):
+            _validate_positive_limit(self.core_workers, "core worker limit")
         _validate_positive_limit(self.max_workers, "worker limit")
+        def numeric_limit(value: int | str | None) -> int | None:
+            if type(value) is int:
+                return value
+            if isinstance(value, str):
+                try:
+                    return int(value)
+                except ValueError:
+                    pass
+            return None
+        core_limit = numeric_limit(self.core_workers)
+        maximum_limit = numeric_limit(self.max_workers)
+        if core_limit is not None and maximum_limit is not None and core_limit > maximum_limit:
+            raise ValueError(
+                "executor core worker limit cannot exceed maximum worker limit"
+            )
         if self.rejection_policy not in {
             "abort",
             "caller_runs",

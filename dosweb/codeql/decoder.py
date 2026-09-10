@@ -68,10 +68,11 @@ LIFECYCLE_SUMMARY_COLUMNS: Final = (
 )
 RESOURCE_LIFECYCLE_COLUMNS: Final = (
     "unit_id", "site_callable", "site_file", "site_start_line", "site_start_column",
-    "program_point", "related_point", "relation_depth", "binding_index", "fact_kind", "instance_key",
+    "program_point", "related_point", "related_file", "related_start_line",
+    "related_start_column", "relation_depth", "binding_index", "fact_kind", "instance_key",
     "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
-    "capacity", "max_workers", "rejection_policy", "normal_path", "exceptional_path", "source_evidence",
-    "coverage_status", "coverage_note",
+    "capacity", "core_workers", "max_workers", "rejection_policy", "normal_path",
+    "exceptional_path", "source_evidence", "coverage_status", "coverage_note",
 )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -143,17 +144,18 @@ _RESOURCE_LIFECYCLE_BASE_FACT_KINDS = frozenset(
         "unknown_call",
         "invariant",
         "call_binding",
+        "cfg_edge",
     }
 )
 _RESOURCE_LIFECYCLE_TASK_FACT_KINDS = frozenset(
-    {"dispatch", "unknown_call", "invariant", "cfg_edge", "task_exit"}
+    {"dispatch", "release", "unknown_call", "invariant", "cfg_edge", "task_exit"}
 )
 
 QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
     {
         "resource_lifecycle": _spec(
             "resource_lifecycle", RESOURCE_LIFECYCLE_COLUMNS,
-            integers={"site_start_line", "site_start_column", "relation_depth", "binding_index"},
+            integers={"site_start_line", "site_start_column", "related_start_line", "related_start_column", "relation_depth", "binding_index"},
             booleans={"requires_close", "normal_path", "exceptional_path"},
             enums={
                 "fact_kind": _RESOURCE_LIFECYCLE_BASE_FACT_KINDS,
@@ -162,13 +164,13 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
                 "rejection_policy": frozenset({"abort", "caller_runs", "discard", "discard_oldest", "unknown"}),
                 "coverage_status": _COVERAGE,
             },
-            paths=frozenset({"site_file"}),
-            lines=frozenset({"site_start_line"}),
-            columns_positions=frozenset({"site_start_column"}),
+            paths=frozenset({"site_file", "related_file"}),
+            lines=frozenset({"site_start_line", "related_start_line"}),
+            columns_positions=frozenset({"site_start_column", "related_start_column"}),
         ),
         "resource_lifecycle_task_relations": _spec(
             "resource_lifecycle_task_relations", RESOURCE_LIFECYCLE_COLUMNS,
-            integers={"site_start_line", "site_start_column", "relation_depth", "binding_index"},
+            integers={"site_start_line", "site_start_column", "related_start_line", "related_start_column", "relation_depth", "binding_index"},
             booleans={"requires_close", "normal_path", "exceptional_path"},
             enums={
                 "fact_kind": _RESOURCE_LIFECYCLE_TASK_FACT_KINDS,
@@ -177,9 +179,9 @@ QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
                 "rejection_policy": frozenset({"abort", "caller_runs", "discard", "discard_oldest", "unknown"}),
                 "coverage_status": _COVERAGE,
             },
-            paths=frozenset({"site_file"}),
-            lines=frozenset({"site_start_line"}),
-            columns_positions=frozenset({"site_start_column"}),
+            paths=frozenset({"site_file", "related_file"}),
+            lines=frozenset({"site_start_line", "related_start_line"}),
+            columns_positions=frozenset({"site_start_column", "related_start_column"}),
         ),
         "entries": _spec(
             "entries", ENTRY_COLUMNS,

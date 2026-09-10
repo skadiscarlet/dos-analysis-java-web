@@ -53,12 +53,15 @@ class RawLifecycleFact:
     coverage_status: str
     coverage_note: str
     location: SourceLocation
+    related_location: SourceLocation
     site_start_column: int
+    related_start_column: int
     site_line_sha256: str
     program_point: str
     related_point: str
     relation_depth: int
     binding_index: int
+    core_workers: str
     max_workers: str
     rejection_policy: str
 
@@ -91,7 +94,12 @@ class RawLifecycleFact:
             raise ValueError("raw lifecycle coverage status is invalid")
         if not re.fullmatch(r"[0-9a-f]{64}", self.site_line_sha256):
             raise ValueError("raw lifecycle site line digest is invalid")
-        if type(self.site_start_column) is not int or self.site_start_column < 1:
+        if (
+            type(self.site_start_column) is not int
+            or self.site_start_column < 1
+            or type(self.related_start_column) is not int
+            or self.related_start_column < 1
+        ):
             raise ValueError("raw lifecycle site column is invalid")
         if type(self.relation_depth) is not int or self.relation_depth not in {0, 1, 2}:
             raise ValueError("raw lifecycle relation depth is invalid")
@@ -107,9 +115,12 @@ class RawLifecycleFact:
             raise ValueError("raw lifecycle rejection policy is invalid")
         for value, label in (
             (self.capacity, "capacity"),
+            (self.core_workers, "core worker limit"),
             (self.max_workers, "worker limit"),
         ):
-            if re.fullmatch(r"-?[0-9]+", value) and int(value) <= 0:
+            if re.fullmatch(r"-?[0-9]+", value) and (
+                int(value) < 0 if label == "core worker limit" else int(value) <= 0
+            ):
                 raise ValueError(f"raw lifecycle {label} must be positive")
         if self.fact_kind == "call_binding" and (
             self.relation_depth not in {1, 2}
@@ -143,6 +154,7 @@ class RawLifecycleFact:
             self.holder_key,
             self.target_event,
             self.capacity,
+            self.core_workers,
             self.max_workers,
             self.source_evidence,
             self.coverage_note,
@@ -188,21 +200,31 @@ class ExtractedFacts:
 
 _RAW_ROW_FIELDS = {
     "unit_id", "site_callable", "site_file", "site_start_line", "site_start_column",
-    "program_point", "related_point", "relation_depth", "binding_index", "fact_kind", "instance_key",
+    "program_point", "related_point", "related_file", "related_start_line", "related_start_column",
+    "relation_depth", "binding_index", "fact_kind", "instance_key",
     "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
-    "capacity", "max_workers", "rejection_policy", "normal_path", "exceptional_path", "source_evidence", "coverage_status",
-    "coverage_note",
+    "capacity", "core_workers", "max_workers", "rejection_policy", "normal_path", "exceptional_path",
+    "source_evidence", "coverage_status", "coverage_note",
 }
 _LEGACY_RAW_ROW_FIELDS = _RAW_ROW_FIELDS - {
     "site_callable",
     "program_point",
     "related_point",
+    "related_file",
+    "related_start_line",
+    "related_start_column",
     "relation_depth",
     "binding_index",
+    "core_workers",
     "max_workers",
     "rejection_policy",
 }
-_DECODED_ROW_METADATA_FIELDS = {"query_name", "query_sha256", "site_location"}
+_DECODED_ROW_METADATA_FIELDS = {
+    "query_name",
+    "query_sha256",
+    "site_location",
+    "related_location",
+}
 _DECODED_ROW_FIELDS = _RAW_ROW_FIELDS | _DECODED_ROW_METADATA_FIELDS
 _V1_1_RAW_FACT_FIELDS = frozenset(
     {
@@ -211,14 +233,17 @@ _V1_1_RAW_FACT_FIELDS = frozenset(
         "site_callable",
         "program_point",
         "related_point",
+        "related_location",
+        "related_start_column",
         "relation_depth",
         "binding_index",
+        "core_workers",
         "max_workers",
         "rejection_policy",
     }
 )
 _V1_1_EXECUTOR_CONTRACT_FIELDS = frozenset(
-    {"max_workers", "rejection_policy", "termination"}
+    {"core_workers", "max_workers", "rejection_policy", "termination"}
 )
 _FORMAL_QUERY_NAMES = (
     "resource_lifecycle",
@@ -339,6 +364,18 @@ def _raw_fact(
             }
         ):
             raise ValueError("CodeQL lifecycle row site location is invalid")
+        related_location = row["related_location"]
+        if (
+            not isinstance(related_location, Mapping)
+            or set(related_location) != {"file", "start_line", "start_column"}
+            or dict(related_location)
+            != {
+                "file": row["related_file"],
+                "start_line": row["related_start_line"],
+                "start_column": row["related_start_column"],
+            }
+        ):
+            raise ValueError("CodeQL lifecycle row related location is invalid")
         raw_row = {key: row[key] for key in _RAW_ROW_FIELDS}
     elif row_fields == _RAW_ROW_FIELDS:
         if tuple(query_digests) != ("resource_lifecycle",):
@@ -360,21 +397,24 @@ def _raw_fact(
                     f"{raw_row['site_start_column']}:{raw_row['fact_kind']}"
                 ),
                 "related_point": "none",
+                "related_file": raw_row["site_file"],
+                "related_start_line": raw_row["site_start_line"],
+                "related_start_column": raw_row["site_start_column"],
                 "relation_depth": 0,
                 "binding_index": -1,
+                "core_workers": "unknown",
                 "max_workers": "unknown",
                 "rejection_policy": "unknown",
             }
         )
     else:
         raise ValueError("CodeQL lifecycle row fields are invalid")
-    if isinstance(raw_row["site_start_line"], bool) or not isinstance(raw_row["site_start_line"], int):
-        raise ValueError("CodeQL lifecycle row line is invalid")
-    if (
-        type(raw_row["site_start_column"]) is not int
-        or raw_row["site_start_column"] < 1
-    ):
-        raise ValueError("CodeQL lifecycle row column is invalid")
+    for field in ("site_start_line", "related_start_line"):
+        if isinstance(raw_row[field], bool) or not isinstance(raw_row[field], int):
+            raise ValueError("CodeQL lifecycle row line is invalid")
+    for field in ("site_start_column", "related_start_column"):
+        if type(raw_row[field]) is not int or raw_row[field] < 1:
+            raise ValueError("CodeQL lifecycle row column is invalid")
     if (
         not isinstance(raw_row["requires_close"], bool)
         or not isinstance(raw_row["normal_path"], bool)
@@ -387,6 +427,8 @@ def _raw_fact(
         - {
             "site_start_line",
             "site_start_column",
+            "related_start_line",
+            "related_start_column",
             "relation_depth",
             "binding_index",
             "requires_close",
@@ -409,16 +451,37 @@ def _raw_fact(
         extractor_version=extractor_version,
         source_kind="static_verified",
     )
+    related_path = str(raw_row["related_file"])
+    related_source_sha256, _related_line_sha256 = _source_digests(
+        source_root,
+        related_path,
+        int(raw_row["related_start_line"]),
+    )
+    related_location = SourceLocation(
+        path=related_path,
+        start_line=int(raw_row["related_start_line"]),
+        end_line=int(raw_row["related_start_line"]),
+        source_sha256=related_source_sha256,
+        extractor_version=extractor_version,
+        source_kind="static_verified",
+    )
     semantic = {
         key: raw_row[key]
         for key in (
             "unit_id", "site_file", "site_start_line", "site_start_column", "fact_kind", "instance_key",
             "site_callable", "program_point", "related_point", "relation_depth", "binding_index",
             "resource_type", "requires_close", "holder_kind", "holder_scope", "holder_key", "target_event",
-            "capacity", "max_workers", "rejection_policy", "normal_path", "exceptional_path", "source_evidence", "coverage_status",
-            "coverage_note",
+            "capacity", "core_workers", "max_workers", "rejection_policy", "normal_path",
+            "exceptional_path", "source_evidence", "coverage_status", "coverage_note",
         )
     }
+    semantic.update(
+        {
+            "related_file": related_path,
+            "related_start_line": int(raw_row["related_start_line"]),
+            "related_start_column": int(raw_row["related_start_column"]),
+        }
+    )
     return RawLifecycleFact(
         fact_id=stable_identifier(
             "lifecycle-fact",
@@ -448,12 +511,15 @@ def _raw_fact(
         coverage_status=str(raw_row["coverage_status"]),
         coverage_note=str(raw_row["coverage_note"]),
         location=location,
+        related_location=related_location,
         site_start_column=raw_row["site_start_column"],
+        related_start_column=raw_row["related_start_column"],
         site_line_sha256=site_line_sha256,
         program_point=str(raw_row["program_point"]),
         related_point=str(raw_row["related_point"]),
         relation_depth=raw_row["relation_depth"],
         binding_index=raw_row["binding_index"],
+        core_workers=str(raw_row["core_workers"]),
         max_workers=str(raw_row["max_workers"]),
         rejection_policy=str(raw_row["rejection_policy"]),
     )
@@ -468,6 +534,7 @@ def _effect(
     *,
     target_event_id: str | None = None,
     contract_id: str | None = None,
+    condition: str = "true",
 ) -> Effect:
     return Effect(
         effect_id=stable_identifier("effect", {"fact_id": fact.fact_id, "kind": kind, "holder_id": holder_id}),
@@ -476,7 +543,7 @@ def _effect(
         family_id=family_id,
         holder_id=holder_id,
         target_event_id=target_event_id,
-        condition="true",
+        condition=condition,
         location=fact.location,
         evidence_ids=(fact.fact_id,),
         contract_id=contract_id,
@@ -552,6 +619,36 @@ def _unit_from_rows(
 
     invariants: list[InvariantCandidate] = []
     normalized: list[tuple[RawLifecycleFact, str, str, str | None]] = []
+    static_source_unit = not legacy_executor_identity and any(
+        fact.fact_kind == "create" and fact.source_evidence.startswith("codeql_")
+        for fact in rows
+    )
+
+    def field_holder(fact: RawLifecycleFact) -> Holder:
+        if fact.holder_scope == "global" and not legacy_executor_identity:
+            identity = {
+                "holder_key": fact.holder_key.removesuffix("#static") + "#static",
+                "kind": "field",
+                "scope": "global",
+            }
+            precision = "exact"
+        else:
+            identity = {
+                "unit_id": unit_id,
+                "holder_key": fact.holder_key,
+                "kind": "field",
+                "scope": fact.holder_scope,
+            }
+            if not legacy_executor_identity:
+                identity["receiver_evidence"] = fact.fact_id
+            precision = "exact" if legacy_executor_identity else "unknown"
+        holder_id = stable_identifier("holder", identity)
+        return Holder(
+            holder_id,
+            "field",
+            fact.holder_scope,  # type: ignore[arg-type]
+            precision,  # type: ignore[arg-type]
+        )
 
     def task_holder_id(fact: RawLifecycleFact) -> str:
         return stable_identifier(
@@ -575,6 +672,14 @@ def _unit_from_rows(
         )
 
     def queue_contract_id(fact: RawLifecycleFact, holder_id: str) -> str:
+        if not legacy_executor_identity and fact.holder_key.endswith("#static"):
+            return stable_identifier("executor-contract", {
+                "executor_field": fact.holder_key,
+                "capacity": fact.capacity,
+                "core_workers": fact.core_workers,
+                "max_workers": fact.max_workers,
+                "rejection_policy": fact.rejection_policy,
+            })
         identity = {
             "unit_id": unit_id,
             "holder_id": holder_id,
@@ -586,6 +691,7 @@ def _unit_from_rows(
         if not legacy_executor_identity:
             identity.update(
                 {
+                    "core_workers": fact.core_workers,
                     "max_workers": fact.max_workers,
                     "rejection_policy": fact.rejection_policy,
                 }
@@ -597,7 +703,7 @@ def _unit_from_rows(
 
     for fact in sorted(
         rows,
-        key=lambda item: (
+        key=lambda item: (0, 0, 0, item.fact_id) if static_source_unit else (
             item.location.start_line,
             item.site_start_column,
             {"create": 0, "retain": 1, "dispatch": 2, "unknown_call": 3, "release": 4, "invariant": 5}.get(item.fact_kind, 9),
@@ -610,16 +716,9 @@ def _unit_from_rows(
         family_id, instance_id = identity
         holder_id: str | None = None
         if fact.fact_kind == "retain" and fact.holder_kind == "field":
-            holder_id = stable_identifier(
-                "holder",
-                {
-                    "unit_id": unit_id,
-                    "holder_key": fact.holder_key,
-                    "kind": "field",
-                    "scope": fact.holder_scope,
-                },
-            )
-            holders[holder_id] = Holder(holder_id, "field", fact.holder_scope, "exact")  # type: ignore[arg-type]
+            holder = field_holder(fact)
+            holder_id = holder.holder_id
+            holders[holder_id] = holder
         elif fact.fact_kind in {"dispatch", "invariant"} and fact.holder_kind == "queue":
             holder_id = task_holder_id(fact)
             holders[holder_id] = Holder(holder_id, "task", fact.holder_scope, "exact")  # type: ignore[arg-type]
@@ -691,7 +790,9 @@ def _unit_from_rows(
     point_records: dict[str, tuple[str, str, SourceLocation]] = {}
     point_kind_priority = {
         "effect": 0,
+        "entry": 1,
         "call": 1,
+        "return": 2,
         "task_start": 2,
         "task_submit": 3,
         "task_exit": 4,
@@ -713,7 +814,13 @@ def _unit_from_rows(
             else "task_submit"
             if fact.fact_kind == "dispatch" and fact.related_point != "none"
             else "call"
-            if fact.fact_kind in {"call_binding", "unknown_call"}
+            if fact.fact_kind == "call_binding"
+            or fact.fact_kind == "unknown_call"
+            and fact.coverage_note != "returned_resource_ownership_unmodeled"
+            else "return"
+            if fact.fact_kind == "unknown_call"
+            and fact.coverage_note == "returned_resource_ownership_unmodeled"
+            or fact.coverage_note == "returned_resource_identity_bound"
             else "effect"
         )
         record_point(
@@ -729,10 +836,15 @@ def _unit_from_rows(
         related_kind = (
             "task_start"
             if fact.fact_kind in {"dispatch", "task_exit"}
+            else "entry"
+            if fact.fact_kind == "call_binding"
             else "effect"
         )
         record_point(
-            fact.related_point, related_callable, related_kind, fact.location
+            fact.related_point,
+            related_callable,
+            related_kind,
+            fact.related_location,
         )
     program_points = tuple(
         ProgramPoint(point_id, callable_id, kind, location)  # type: ignore[arg-type]
@@ -753,7 +865,42 @@ def _unit_from_rows(
             (fact.fact_id,),
         )
         for fact in rows
-        if fact.fact_kind == "call_binding"
+        if fact.fact_kind == "call_binding" and fact.coverage_status == "complete"
+    )
+    base_relation_point_ids = {
+        point_id
+        for fact in rows
+        if fact.query_name == "resource_lifecycle"
+        and fact.fact_kind in {"call_binding", "cfg_edge"}
+        for point_id in (fact.program_point, fact.related_point)
+        if point_id != "none"
+    }
+    base_point_event_ids = {
+        point_id: stable_identifier(
+            "event", {"unit_id": unit_id, "program_point": point_id}
+        )
+        for point_id in base_relation_point_ids
+    }
+    has_source_cfg = any(
+        fact.source_evidence == "codeql_callable_cfg_entry"
+        and fact.site_callable == unit_id for fact in rows
+    )
+    if has_source_cfg:
+        for suffix, event_id in (
+            ("#cfg_entry", entry_id),
+            ("#cfg_normal_exit", normal_id),
+            ("#cfg_exceptional_exit", error_id),
+        ):
+            if unit_id + suffix in base_point_event_ids:
+                base_point_event_ids[unit_id + suffix] = event_id
+    base_relation_events = tuple(
+        Event(
+            event_id,
+            "method",
+            point_records[point_id][0],
+            point_id,
+        )
+        for point_id, event_id in sorted(base_point_event_ids.items())
     )
 
     task_bindings: list[TaskBinding] = []
@@ -761,23 +908,26 @@ def _unit_from_rows(
     task_events: list[Event] = []
     task_dispatch_by_id: dict[str, RawLifecycleFact] = {}
     task_point_event_ids: dict[str, dict[str, str]] = {}
-    exit_facts_by_task: dict[tuple[str, str], dict[str, RawLifecycleFact]] = defaultdict(dict)
+    capture_instances: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for dispatch in dispatch_facts:
+        if dispatch.query_name == "resource_lifecycle_task_relations":
+            capture_instances[(dispatch.program_point, dispatch.target_event)].add(dispatch.instance_key)
+    exit_facts_by_task: dict[tuple[str, str], list[RawLifecycleFact]] = defaultdict(list)
     for fact in rows:
-        if fact.fact_kind != "task_exit":
+        if fact.fact_kind != "task_exit" or fact.coverage_status != "complete":
             continue
-        kind = "normal" if fact.normal_path and not fact.exceptional_path else "exceptional"
-        exit_facts_by_task[(fact.instance_key, fact.target_event)][kind] = fact
+        exit_facts_by_task[(fact.instance_key, fact.target_event)].append(fact)
     for dispatch in dispatch_facts:
         if (
             dispatch.query_name != "resource_lifecycle_task_relations"
+            or dispatch.coverage_status != "complete"
             or dispatch.related_point == "none"
+            or len(capture_instances[(dispatch.program_point, dispatch.target_event)]) != 1
         ):
             continue
         exit_facts = exit_facts_by_task.get(
-            (dispatch.instance_key, dispatch.target_event), {}
+            (dispatch.instance_key, dispatch.target_event), []
         )
-        if set(exit_facts) != {"normal", "exceptional"}:
-            continue
         _family_id, instance_id = instance_by_key[dispatch.instance_key]
         holder_id = task_holder_id(dispatch)
         contract_id = queue_contract_id(dispatch, holder_id)
@@ -844,7 +994,7 @@ def _unit_from_rows(
             for fact in rows
             if fact.instance_key == dispatch.instance_key
             and fact.target_event == dispatch.target_event
-            and fact.fact_kind in {"cfg_edge", "task_exit"}
+            and fact.fact_kind in {"cfg_edge", "release", "task_exit"}
         )
         point_ids = {dispatch.related_point}
         point_ids.update(fact.program_point for fact in task_relation_facts)
@@ -860,14 +1010,12 @@ def _unit_from_rows(
             for point_id in point_ids
         }
         task_events.extend(
-            Event(event_id, "method", dispatch.target_event, "cfg_reachable")
+            Event(event_id, "method", dispatch.target_event, point_id)
             for point_id, event_id in sorted(task_point_event_ids[task_id].items())
         )
-        for kind, event_id in (
-            ("normal", normal_exit_id),
-            ("exceptional", exceptional_exit_id),
-        ):
-            exit_fact = exit_facts[kind]
+        for exit_fact in exit_facts:
+            kind = "normal" if exit_fact.normal_path and not exit_fact.exceptional_path else "exceptional"
+            event_id = normal_exit_id if kind == "normal" else exceptional_exit_id
             task_exits.append(
                 TaskExit(
                     stable_identifier("task-exit", {"fact_id": exit_fact.fact_id}),
@@ -881,7 +1029,7 @@ def _unit_from_rows(
             )
     ordered_events: list[Event] = []
     seen_event_ids: set[str] = set()
-    for event in base_events + queue_events + tuple(
+    for event in base_events + queue_events + base_relation_events + tuple(
         sorted(task_events, key=lambda item: item.event_id)
     ):
         if event.event_id not in seen_event_ids:
@@ -891,7 +1039,17 @@ def _unit_from_rows(
 
     def path_effects(path_name: str) -> tuple[Effect, ...]:
         output: list[Effect] = []
+        if static_source_unit and not has_source_cfg:
+            for create in creates:
+                family_id, instance_id = instance_by_key[create.instance_key]
+                output.extend((
+                    _effect(create, "create", family_id, instance_id),
+                    _effect(create, "unknown_call", family_id, instance_id),
+                ))
+            return tuple(output)
         for fact, family_id, instance_id, holder_id in normalized:
+            if fact.site_callable != unit_id:
+                continue
             enabled = fact.normal_path if path_name == "normal" else fact.exceptional_path
             if not enabled:
                 continue
@@ -967,6 +1125,219 @@ def _unit_from_rows(
             (),
         ),
     )
+    normalized_by_fact_id = {
+        fact.fact_id: (fact, family_id, instance_id, holder_id)
+        for fact, family_id, instance_id, holder_id in normalized
+    }
+    base_relation_transitions: list[Transition] = []
+    for binding in call_bindings:
+        base_relation_transitions.append(
+            Transition(
+                stable_identifier(
+                    "transition",
+                    {"call_binding_id": binding.binding_id},
+                ),
+                base_point_event_ids[binding.source_point_id],
+                base_point_event_ids[binding.target_point_id],
+                "exact call binding",
+                (),
+                "internal",
+                (),
+            )
+        )
+    for cfg_fact in rows:
+        if (
+            cfg_fact.query_name != "resource_lifecycle"
+            or cfg_fact.fact_kind != "cfg_edge"
+        ):
+            continue
+        attached: list[Effect] = []
+        for effect_fact, family_id, instance_id, holder_id in normalized_by_fact_id.values():
+            # Without caller CFG, real-source facts cannot establish an
+            # executable release. Legacy synthetic complete facts retain their
+            # old import semantics; partial facts never supply a negative effect.
+            if effect_fact.fact_kind == "release" and (
+                static_source_unit or effect_fact.coverage_status != "complete"
+            ):
+                continue
+            if (
+                effect_fact.site_callable != unit_id
+                and effect_fact.program_point == cfg_fact.related_point
+                and effect_fact.fact_kind in {"retain", "release", "unknown_call"}
+                and (effect_fact.fact_kind != "retain" or holder_id is not None)
+            ):
+                condition = (
+                    "true"
+                    if effect_fact.normal_path and effect_fact.exceptional_path
+                    else "normal_path"
+                    if effect_fact.normal_path
+                    else "exceptional_path"
+                    if effect_fact.exceptional_path
+                    else "unreachable_path"
+                )
+                effect = _effect(
+                    effect_fact,
+                    effect_fact.fact_kind,
+                    family_id,
+                    instance_id,
+                    holder_id,
+                    condition=condition,
+                )
+                attached.append(
+                    replace(
+                        effect,
+                        effect_id=stable_identifier(
+                            "effect",
+                            {
+                                "fact_id": effect_fact.fact_id,
+                                "cfg_fact_id": cfg_fact.fact_id,
+                            },
+                        ),
+                    )
+                )
+        base_relation_transitions.append(
+            Transition(
+                stable_identifier(
+                    "transition", {"cfg_fact_id": cfg_fact.fact_id}
+                ),
+                base_point_event_ids[cfg_fact.program_point],
+                base_point_event_ids[cfg_fact.related_point],
+                "verified CFG edge",
+                tuple(attached),
+                "internal",
+                (),
+            )
+        )
+    transitions += tuple(
+        sorted(base_relation_transitions, key=lambda item: item.transition_id)
+    )
+    verified_base_release_ids: set[str] = set()
+    if has_source_cfg:
+        # Execute facts on their actual CFG edges. Positions never define order.
+        # Entering an exact call suspends its caller until the callee exit.
+        cfg_transitions: list[Transition] = []
+        scoped_events: dict[str, Event] = {}
+        instance_keys_by_id = {instance: key for key, (_family, instance) in instance_by_key.items()}
+        exact_instance_ids = {
+            instance.instance_id for instance in instances
+            if instance.abstraction == "recent" and instance.identity_confidence == "exact"
+        }
+        # Local-flow candidates are not necessarily unique receiver bindings.
+        # Only the query's complete singleton-finally contract proves the
+        # current base-query subset's exact local identity and covered release.
+        verified_base_release_ids = {
+            item.fact_id for item, _family, instance_id, _holder in normalized
+            if item.query_name == "resource_lifecycle" and item.fact_kind == "release"
+            and item.coverage_status == "complete" and instance_id in exact_instance_ids
+            and item.site_callable == unit_id
+            and item.location.source_kind == "static_verified"
+            and item.source_evidence == "codeql_close_receiver_local_flow_candidate"
+            and item.coverage_note == "singleton_finally_exact_local_release"
+        }
+        source_contexts: dict[tuple[str, str], set[tuple[str, ...]]] = defaultdict(set)
+        for instance_key in instance_by_key:
+            source_contexts[(instance_key, unit_id)].add(())
+        expanded_bindings: list[tuple[CallBinding, tuple[str, ...], tuple[str, ...]]] = []
+        for binding in sorted(call_bindings, key=lambda item: (item.context_depth, item.binding_id)):
+            instance_key = instance_keys_by_id[binding.instance_id]
+            for caller_context in sorted(source_contexts[(instance_key, binding.caller_callable)]):
+                callee_context = caller_context + (binding.source_point_id,)
+                source_contexts[(instance_key, binding.callee_callable)].add(callee_context)
+                expanded_bindings.append((binding, caller_context, callee_context))
+
+        def source_cfg_event(point_id: str, context: tuple[str, ...]) -> str:
+            callable_id = point_records[point_id][0]
+            if callable_id == unit_id:
+                return base_point_event_ids[point_id]
+            event_id = stable_identifier("event", {
+                "unit_id": unit_id, "program_point": point_id,
+                "call_context": context,
+            })
+            scoped_events[event_id] = Event(event_id, "method", callable_id, point_id)
+            return event_id
+
+        bindings_by_source: dict[tuple[str, tuple[str, ...]], list[tuple[CallBinding, tuple[str, ...]]]] = defaultdict(list)
+        for binding, caller_context, callee_context in expanded_bindings:
+            bindings_by_source[(binding.source_point_id, caller_context)].append((binding, callee_context))
+            cfg_transitions.append(Transition(
+                stable_identifier("transition", {"call_binding_id": binding.binding_id, "context": callee_context}),
+                source_cfg_event(binding.source_point_id, caller_context),
+                source_cfg_event(binding.target_point_id, callee_context),
+                "exact call binding", (), "internal", (),
+            ))
+
+        def cfg_effects(fact: RawLifecycleFact, context: tuple[str, ...]) -> tuple[Effect, ...]:
+            effects: list[Effect] = []
+            for item, family_id, instance_id, holder_id in normalized:
+                if item.query_name != "resource_lifecycle" or item.program_point != fact.program_point:
+                    continue
+                if context not in source_contexts[(item.instance_key, item.site_callable)]:
+                    continue
+                if fact.exceptional_path and not fact.normal_path and fact.source_evidence != "codeql_callable_cfg_exit_after_success":
+                    continue
+                if item.fact_kind == "create":
+                    effects.extend((
+                        _effect(item, "create", family_id, instance_id),
+                        _effect(item, "retain", family_id, instance_id, local_holder_by_instance[instance_id]),
+                    ))
+                elif item.fact_kind == "retain" and holder_id is not None:
+                    effects.append(_effect(item, "retain", family_id, instance_id, holder_id))
+                elif item.fact_kind == "release":
+                    call_succeeded = (
+                        fact.source_evidence == "codeql_callable_cfg_exit_after_success"
+                        or fact.source_evidence == "codeql_callable_cfg_edge"
+                        and fact.normal_path and not fact.exceptional_path
+                    )
+                    if item.fact_id in verified_base_release_ids and call_succeeded:
+                        effects.append(_effect(item, "release", family_id, instance_id))
+                elif item.fact_kind == "unknown_call":
+                    effects.append(_effect(item, "unknown_call", family_id, instance_id))
+                elif item.fact_kind == "dispatch" and holder_id is not None:
+                    effects.append(_effect(item, "dispatch", family_id, instance_id, holder_id,
+                        target_event_id=queue_event_id(item), contract_id=queue_contract_id(item, holder_id)))
+            if fact.related_point in {unit_id + "#cfg_normal_exit", unit_id + "#cfg_exceptional_exit"}:
+                for create in creates:
+                    family_id, instance_id = instance_by_key[create.instance_key]
+                    effects.append(_effect(create, "drop", family_id, instance_id, local_holder_by_instance[instance_id]))
+            return tuple(replace(effect, effect_id=stable_identifier("effect", {
+                "cfg_fact_id": fact.fact_id, "effect_id": effect.effect_id, "context": context,
+            })) for effect in effects)
+
+        for fact in rows:
+            if fact.query_name != "resource_lifecycle" or fact.fact_kind != "cfg_edge" or not (
+                fact.source_evidence.startswith("codeql_callable_cfg_")
+                or fact.source_evidence == "codeql_parameter_cfg_entry"
+            ):
+                continue
+            for context in sorted(source_contexts[(fact.instance_key, fact.site_callable)]):
+                sources = [source_cfg_event(fact.program_point, context)]
+                bound_calls = bindings_by_source.get((fact.program_point, context), [])
+                if bound_calls:
+                    call_failed = (
+                        fact.source_evidence == "codeql_callable_cfg_exit_after_exception"
+                        or (
+                            fact.exceptional_path and not fact.normal_path
+                            and fact.source_evidence != "codeql_callable_cfg_exit_after_success"
+                        )
+                    )
+                    suffix = "#cfg_exceptional_exit" if call_failed else "#cfg_normal_exit"
+                    sources = sorted({
+                        source_cfg_event(binding.callee_callable + suffix, callee_context)
+                        for binding, callee_context in bound_calls
+                        if binding.callee_callable + suffix in base_point_event_ids
+                    })
+                for source in sources:
+                    cfg_transitions.append(Transition(
+                        stable_identifier("transition", {"cfg_fact_id": fact.fact_id, "source": source, "context": context}),
+                        source, source_cfg_event(fact.related_point, context),
+                        "verified CFG return" if bound_calls else "verified CFG edge",
+                        cfg_effects(fact, context),
+                        "exceptional" if fact.related_point == unit_id + "#cfg_exceptional_exit"
+                        else "normal" if fact.related_point == unit_id + "#cfg_normal_exit"
+                        else "internal", (),
+                    ))
+        transitions = tuple(sorted(cfg_transitions, key=lambda item: item.transition_id))
+        events += tuple(scoped_events.values())
     task_transitions: list[Transition] = []
 
     def population_effect(
@@ -976,7 +1347,7 @@ def _unit_from_rows(
         kind: str,
     ) -> PopulationEffect:
         semantics = {
-            "direct_accept": ("a<W", 0, 1, "absent", "reserved"),
+            "direct_accept": ("a<C or (q>=K and a<W)", 0, 1, "absent", "reserved"),
             "enqueue": ("q<K", 1, 0, "absent", "queued"),
             "assign_slot": ("q>0 and a<W", -1, 1, "queued", "reserved"),
             "start": ("reserved", 0, 0, "reserved", "running"),
@@ -1011,6 +1382,7 @@ def _unit_from_rows(
         exit_kind: str,
         fact: RawLifecycleFact,
         population_kind: str | None = None,
+        effects: tuple[Effect, ...] = (),
     ) -> Transition:
         population = (
             (
@@ -1026,6 +1398,10 @@ def _unit_from_rows(
                 ),
             )
             if population_kind is not None
+            and fact.capacity.isdecimal() and int(fact.capacity) > 0
+            and fact.core_workers.isdecimal()
+            and fact.max_workers.isdecimal() and int(fact.max_workers) > 0
+            and int(fact.core_workers) <= int(fact.max_workers)
             else ()
         )
         return Transition(
@@ -1036,12 +1412,13 @@ def _unit_from_rows(
                     "phase": phase,
                     "source": source_id,
                     "target": target_id,
+                    "fact_id": fact.fact_id,
                 },
             ),
             source_id,
             target_id,
             phase,
-            (),
+            effects,
             exit_kind,  # type: ignore[arg-type]
             (),
             population,
@@ -1049,6 +1426,13 @@ def _unit_from_rows(
 
     for binding in task_bindings:
         dispatch = task_dispatch_by_id[binding.task_id]
+        if has_source_cfg and dispatch.program_point in base_point_event_ids:
+            for context in sorted(source_contexts[(dispatch.instance_key, dispatch.site_callable)]):
+                task_transitions.append(task_transition(
+                    binding.task_id, "source_submit_binding",
+                    source_cfg_event(dispatch.program_point, context),
+                    binding.submit_event_id, "internal", dispatch,
+                ))
         task_transitions.extend(
             (
                 task_transition(
@@ -1089,33 +1473,6 @@ def _unit_from_rows(
                 ),
                 task_transition(
                     binding.task_id,
-                    "reject",
-                    binding.submit_event_id,
-                    binding.rejected_event_id,
-                    "rejected",
-                    dispatch,
-                    "reject",
-                ),
-                task_transition(
-                    binding.task_id,
-                    "cancel_queued",
-                    binding.queued_event_id,
-                    binding.cancelled_event_id,
-                    "cancelled",
-                    dispatch,
-                    "cancel_queued",
-                ),
-                task_transition(
-                    binding.task_id,
-                    "cancel_active",
-                    binding.run_event_id,
-                    binding.cancelled_event_id,
-                    "cancelled",
-                    dispatch,
-                    "cancel_active",
-                ),
-                task_transition(
-                    binding.task_id,
                     "enter_task_cfg",
                     binding.run_event_id,
                     task_point_event_ids[binding.task_id][dispatch.related_point],
@@ -1124,12 +1481,99 @@ def _unit_from_rows(
                 ),
             )
         )
+        if dispatch.rejection_policy == "abort":
+            task_transitions.append(
+                task_transition(
+                    binding.task_id,
+                    "reject",
+                    binding.submit_event_id,
+                    binding.rejected_event_id,
+                    "rejected",
+                    dispatch,
+                    "reject",
+                )
+            )
         for fact in rows:
             if (
                 fact.fact_kind == "cfg_edge"
+                and fact.query_name == "resource_lifecycle_task_relations"
+                and fact.coverage_status == "complete"
                 and fact.instance_key == dispatch.instance_key
                 and fact.target_event == dispatch.target_event
             ):
+                attached: list[Effect] = []
+                for effect_fact, family_id, instance_id, holder_id in normalized_by_fact_id.values():
+                    if (
+                        effect_fact.query_name == "resource_lifecycle_task_relations"
+                        and effect_fact.fact_kind == "release"
+                        and effect_fact.coverage_status == "complete"
+                        and effect_fact.source_evidence == "codeql_task_callback_close_finally"
+                        and effect_fact.coverage_note == "exact_captured_task_finally_close"
+                        and effect_fact.normal_path and not effect_fact.exceptional_path
+                        and effect_fact.instance_key == dispatch.instance_key
+                        and effect_fact.target_event == dispatch.target_event
+                        and effect_fact.site_callable == dispatch.target_event
+                        and effect_fact.program_point == fact.program_point
+                        and "#normal-success:" not in fact.program_point
+                        and effect_fact.related_point == fact.related_point
+                        and effect_fact.relation_depth == fact.relation_depth
+                        and effect_fact.location == fact.location
+                        and effect_fact.related_location == fact.related_location
+                        and effect_fact.site_start_column == fact.site_start_column
+                        and effect_fact.related_start_column == fact.related_start_column
+                        and fact.site_callable == dispatch.target_event
+                        and (
+                            fact.source_evidence == "codeql_task_cfg_successor"
+                            and fact.coverage_note == "reachable_task_cfg_edge"
+                            and "#normal-success:" not in fact.related_point
+                            or
+                            fact.source_evidence == "codeql_task_close_normal_successor"
+                            and fact.coverage_note == "exact_close_normal_success_continuation"
+                            and fact.related_point == fact.program_point + "#normal-success:call-cfg-v1"
+                            and fact.location == fact.related_location
+                            and fact.site_start_column == fact.related_start_column
+                            and any(
+                                terminal.query_name == "resource_lifecycle_task_relations"
+                                and terminal.fact_kind == "task_exit"
+                                and terminal.coverage_status == "complete"
+                                and terminal.source_evidence == "codeql_task_annotated_cfg_exit"
+                                and terminal.normal_path != terminal.exceptional_path
+                                and terminal.coverage_note == (
+                                    "normal_task_annotated_cfg_exit" if terminal.normal_path
+                                    else "exceptional_task_annotated_cfg_exit"
+                                )
+                                and terminal.program_point == fact.related_point
+                                and terminal.related_point == dispatch.related_point
+                                and terminal.instance_key == fact.instance_key
+                                and terminal.site_callable == fact.site_callable
+                                and terminal.target_event == fact.target_event
+                                and terminal.location == fact.location
+                                and terminal.site_start_column == fact.site_start_column
+                                for terminal in rows
+                            )
+                        )
+                        and fact.normal_path and not fact.exceptional_path
+                    ):
+                        effect = _effect(
+                            effect_fact,
+                            "release",
+                            family_id,
+                            instance_id,
+                            holder_id,
+                            condition="true",
+                        )
+                        attached.append(
+                            replace(
+                                effect,
+                                effect_id=stable_identifier(
+                                    "effect",
+                                    {
+                                        "fact_id": effect_fact.fact_id,
+                                        "cfg_fact_id": fact.fact_id,
+                                    },
+                                ),
+                            )
+                        )
                 task_transitions.append(
                     task_transition(
                         binding.task_id,
@@ -1138,6 +1582,7 @@ def _unit_from_rows(
                         task_point_event_ids[binding.task_id][fact.related_point],
                         "internal",
                         fact,
+                        effects=tuple(attached),
                     )
                 )
         for task_exit in task_exits:
@@ -1148,6 +1593,8 @@ def _unit_from_rows(
                 for fact in rows
                 if fact.fact_id in task_exit.evidence_ids
             )
+            # Exit kind is not a call-success proof. Terminal close operations
+            # pass through their verified synthetic success CFG edge above.
             task_transitions.append(
                 task_transition(
                     binding.task_id,
@@ -1156,7 +1603,6 @@ def _unit_from_rows(
                     task_exit.event_id,
                     task_exit.kind,
                     exit_fact,
-                    "terminate",
                 )
             )
     transitions += tuple(
@@ -1199,6 +1645,12 @@ def _unit_from_rows(
             cancellation="unknown",
             source_kind="static_verified",
             version="executor-contract-v1",
+            core_workers=(
+                int(dispatch_fact.core_workers)
+                if dispatch_fact.core_workers.isdecimal()
+                and int(dispatch_fact.core_workers) >= 0
+                else None
+            ),
             max_workers=(
                 int(dispatch_fact.max_workers)
                 if dispatch_fact.max_workers.isdecimal()
@@ -1231,6 +1683,7 @@ def _unit_from_rows(
                 cancellation="unknown",
                 source_kind="static_verified",
                 version=contract.version,
+                core_workers=contract.core_workers,
                 max_workers=contract.max_workers,
                 rejection_policy=merged_rejection_policy,
                 termination="unknown",
@@ -1264,9 +1717,65 @@ def _unit_from_rows(
         for dimension in dimensions_by_fact_kind[item.fact_kind]
         if dimension != "close_obligation" or item.requires_close
     }
+    if static_source_unit and not has_source_cfg:
+        for create in creates:
+            family_id, _instance_id = instance_by_key[create.instance_key]
+            for dimension in dimensions_by_fact_kind["create"]:
+                if dimension != "close_obligation" or create.requires_close:
+                    coverage_gaps.add((dimension, family_id, "*", "callable_cfg_unavailable", create.fact_id))
+    for item, family_id, _instance_id, _holder_id in normalized:
+        if ((static_source_unit or has_source_cfg) and item.query_name == "resource_lifecycle"
+                and item.fact_kind == "release" and item.coverage_status == "complete"
+                and item.fact_id not in verified_base_release_ids):
+            coverage_gaps.add(("close_obligation", family_id, "*", "unverified_base_release", item.fact_id))
+        if item.query_name == "resource_lifecycle_task_relations" and item.fact_kind == "release" and not (
+            item.coverage_status == "complete"
+            and item.source_evidence == "codeql_task_callback_close_finally"
+            and item.coverage_note == "exact_captured_task_finally_close"
+            and item.normal_path and not item.exceptional_path
+        ):
+            coverage_gaps.add(("close_obligation", family_id, "*", "unverified_task_release", item.fact_id))
+        elif item.query_name == "resource_lifecycle_task_relations" and item.fact_kind == "release" and not any(
+            item.fact_id in effect.evidence_ids
+            for transition in transitions for effect in transition.effects
+        ):
+            coverage_gaps.add(("close_obligation", family_id, "*", "task_release_cfg_attachment_unavailable", item.fact_id))
+    for item, family_id, _instance_id, holder_id in normalized:
+        if (
+            item.fact_kind == "retain"
+            and item.holder_kind == "field"
+            and item.holder_scope != "global"
+            and holder_id is not None
+            and not legacy_executor_identity
+        ):
+            coverage_gaps.add(
+                (
+                    "held_instances",
+                    family_id,
+                    "*",
+                    "field_receiver_identity_unresolved",
+                    item.fact_id,
+                )
+            )
     for item in rows:
         if item.fact_kind == "dispatch":
             family_id, _instance_id = instance_by_key[item.instance_key]
+            if item.query_name == "resource_lifecycle_task_relations" and not (
+                item.core_workers.isdecimal() and item.max_workers.isdecimal()
+                and int(item.max_workers) > 0
+                and int(item.core_workers) <= int(item.max_workers)
+            ):
+                coverage_gaps.add(("held_instances", family_id, "*", "executor_worker_limits_unknown", item.fact_id))
+            if len(capture_instances.get((item.program_point, item.target_event), ())) > 1:
+                for dimension in dimensions_by_fact_kind["task_exit"]:
+                    if dimension != "close_obligation" or item.requires_close:
+                        coverage_gaps.add((dimension, family_id, "*", "multiple_resource_task_capture_unmodeled", item.fact_id))
+            if item.query_name == "resource_lifecycle_task_relations" and not exit_facts_by_task.get(
+                (item.instance_key, item.target_event)
+            ):
+                for dimension in dimensions_by_fact_kind["task_exit"]:
+                    if dimension != "close_obligation" or item.requires_close:
+                        coverage_gaps.add((dimension, family_id, "*", "task_exit_coverage_unavailable", item.fact_id))
             holder_id = task_holder_id(item)
             scope = queue_result_scope(
                 queue_contract_id(item, holder_id), holder_id, queue_event_id(item)
@@ -1297,6 +1806,20 @@ def _unit_from_rows(
         call_bindings = ()
         task_bindings = []
         task_exits = []
+    modeled_exit_ids = (normal_id, error_id)
+    if has_source_cfg:
+        modeled_exit_ids = tuple(
+            event_id for point_id, event_id in (
+                (unit_id + "#cfg_normal_exit", normal_id),
+                (unit_id + "#cfg_exceptional_exit", error_id),
+            )
+            if any(fact.query_name == "resource_lifecycle" and fact.fact_kind == "cfg_edge"
+                   and fact.related_point == point_id
+                   and fact.source_evidence in {
+                       "codeql_callable_cfg_exit_after_success", "codeql_callable_cfg_exit_after_exception"
+                   }
+                   for fact in rows)
+        ) or (normal_id, error_id)
     program = Program(
         SCHEMA_VERSION,
         tuple(families),
@@ -1305,7 +1828,7 @@ def _unit_from_rows(
         events,
         transitions,
         (entry_id,),
-        (normal_id, error_id),
+        modeled_exit_ids,
         coverage_complete,
         "resource-lifecycle-contracts-v1",
         tuple(sorted(coverage_gaps)),
@@ -1409,7 +1932,7 @@ def adapt_codeql_rows(
                 raise ValueError("task relation references an unknown base unit")
             if (fact.unit_id, fact.instance_key) not in base_instances:
                 raise ValueError("task relation has an orphan instance_key")
-            if fact.fact_kind in {"cfg_edge", "task_exit"} and (
+            if fact.fact_kind in {"cfg_edge", "release", "task_exit"} and (
                 fact.unit_id,
                 fact.instance_key,
                 fact.target_event,
@@ -1508,7 +2031,8 @@ def _executor_contract_from_dict(
     expected = {
         "contract_id", "scheduling", "queue_capacity", "capacity_atomic",
         "completion_drops_capture", "rejection_drops_capture", "cancellation",
-        "source_kind", "version", "max_workers", "rejection_policy", "termination",
+        "source_kind", "version", "core_workers", "max_workers",
+        "rejection_policy", "termination",
     }
     if schema_version == SCHEMA_VERSION:
         if set(record) != expected:
@@ -1526,6 +2050,7 @@ def _executor_contract_from_dict(
             raise ValueError("legacy executor contract fields are invalid")
         record.update(
             {
+                "core_workers": None,
                 "max_workers": None,
                 "rejection_policy": "unknown",
                 "termination": (
@@ -1569,8 +2094,12 @@ def _fact_semantic(fact: RawLifecycleFact, *, legacy: bool = False) -> dict[str,
                 "site_callable": fact.site_callable,
                 "program_point": fact.program_point,
                 "related_point": fact.related_point,
+                "related_file": fact.related_location.path,
+                "related_start_line": fact.related_location.start_line,
+                "related_start_column": fact.related_start_column,
                 "relation_depth": fact.relation_depth,
                 "binding_index": fact.binding_index,
+                "core_workers": fact.core_workers,
                 "max_workers": fact.max_workers,
                 "rejection_policy": fact.rejection_policy,
             }
@@ -1681,11 +2210,18 @@ def extracted_from_dict(value: object) -> ExtractedFacts:
                         f"{record.get('site_start_column')}:{record.get('fact_kind')}"
                     ),
                     "related_point": "none",
+                    "related_location": location,
+                    "related_start_column": record.get("site_start_column"),
                     "relation_depth": 0,
                     "binding_index": -1,
+                    "core_workers": "unknown",
                     "max_workers": "unknown",
                     "rejection_policy": "unknown",
                 }
+            )
+        else:
+            record["related_location"] = location_from_dict(
+                record.get("related_location")
             )
         facts.append(RawLifecycleFact(**record))  # type: ignore[arg-type]
     coverage = value.get("coverage")
