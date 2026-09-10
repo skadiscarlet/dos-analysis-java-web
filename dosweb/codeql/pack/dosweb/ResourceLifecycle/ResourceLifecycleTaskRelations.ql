@@ -130,13 +130,16 @@ predicate rootCallBinding(
     call.getMethod() != call.getEnclosingCallable()
   )
   or
-  exists(MethodCall firstCall, Parameter firstParameter, VarAccess parameterAccess |
+  exists(MethodCall firstCall, Parameter firstParameter, int position |
     depth = 2 and exactArgumentBinding(allocation, firstCall, firstParameter) and
     firstCall.getEnclosingCallable() = allocation.getEnclosingCallable() and
     firstCall.getMethod() != firstCall.getEnclosingCallable() and
-    parameterAccess.getVariable() = firstParameter and
-    parameterAccess.getEnclosingCallable() = firstParameter.getCallable() and
-    exactArgumentBinding(parameterAccess, call, parameter) and
+    position = parameter.getPosition() and position >= 0 and
+    parameter = call.getMethod().getParameter(position) and
+    exactSourceCallee(call.getMethod()) and
+    DataFlow::localFlow(
+      DataFlow::parameterNode(firstParameter), DataFlow::exprNode(call.getArgument(position))
+    ) and
     call.getEnclosingCallable() = firstParameter.getCallable() and
     call.getMethod() != call.getEnclosingCallable() and
     call.getMethod() != firstCall.getEnclosingCallable()
@@ -271,6 +274,10 @@ predicate executorEscapes(Field executor) {
   exists(ReturnStmt returned, Expr value |
     value = returned.getExpr() and executorReference(value, executor)
   )
+  or
+  exists(Field alias |
+    alias != executor and executorReference(alias.getInitializer(), executor)
+  )
 }
 
 predicate stableThreadPoolConfiguration(Field executor) {
@@ -354,9 +361,8 @@ predicate unsupportedTaskForm(
       "java.util.concurrent", "ThreadPoolExecutor", "execute"
     ) and
     exists(ClassInstanceExpr task, Class anonymous, VarAccess access |
-      task = submit.getArgument(0) and anonymous = task.getAnonymousClass() and
-      not exists(LambdaExpr lambda | lambda = submit.getArgument(0)) and
-      not exists(MemberRefExpr reference | reference = submit.getArgument(0)) and
+      allocationFlowsTo(task, submit.getArgument(0)) and anonymous = task.getAnonymousClass() and
+      not task instanceof LambdaExpr and not task instanceof MemberRefExpr and
       access.getVariable() = captured and
       access.getEnclosingCallable().getDeclaringType() = anonymous
     ) and
@@ -366,7 +372,8 @@ predicate unsupportedTaskForm(
       "java.util.concurrent", "ThreadPoolExecutor", "execute"
     ) and
     exists(MemberRefExpr reference, VarAccess receiver |
-      reference = submit.getArgument(0) and receiver = reference.getReceiverExpr() and
+      allocationFlowsTo(reference, submit.getArgument(0)) and
+      receiver = reference.getReceiverExpr() and
       receiver.getVariable() = captured
     ) and
     coverageNote = "unsupported_method_reference"
@@ -395,6 +402,33 @@ predicate unsupportedTaskForm(
       access.getEnclosingCallable() = lambda.asMethod()
     ) and
     coverageNote = "unsupported_local_capture"
+  )
+}
+
+/** Resolve captured variables from the source task object, including functional expressions. */
+predicate taskCapturesVariable(ClassInstanceExpr task, Variable captured) {
+  exists(VarAccess access |
+    access.getVariable() = captured and
+    access.getEnclosingCallable().getDeclaringType() = task.getAnonymousClass()
+  )
+}
+
+/** Direct caller-local capture is not the supported interprocedural parameter contract. */
+predicate unsupportedCallerLocalTask(
+  Expr allocation, MethodCall submit, ClassInstanceExpr task
+) {
+  submit.getEnclosingCallable() = allocation.getEnclosingCallable() and
+  submit.getNumArgument() = 1 and submit.getMethod().getName() = ["execute", "submit"] and
+  submit.getMethod().getDeclaringType().getASourceSupertype*().hasQualifiedName(
+    "java.util.concurrent", "Executor"
+  ) and
+  task.getEnclosingCallable() = allocation.getEnclosingCallable() and
+  allocationFlowsTo(task, submit.getArgument(0)) and
+  exists(LocalVariableDecl captured, Expr assigned |
+    captured.getCallable() = allocation.getEnclosingCallable() and
+    assigned = captured.getAnAssignedValue() and
+    assigned.getEnclosingCallable() = allocation.getEnclosingCallable() and
+    allocationFlowsTo(allocation, assigned) and taskCapturesVariable(task, captured)
   )
 }
 
@@ -549,6 +583,55 @@ predicate closeExceptionalSuccessAnnotatedExit(
 /** Synthetic but source-backed continuation after the `close` call returned normally. */
 string closeNormalSuccessProgramPointIdentity(MethodCall release) {
   result = programPointIdentity(release) + "#normal-success:call-cfg-v1"
+}
+
+/** Values with the captured resource as their local origin inside this callback. */
+predicate capturedTaskValue(LambdaExpr lambda, Parameter captured, Expr value) {
+  value.getEnclosingCallable() = lambda.asMethod() and
+  exists(VarAccess access |
+    access.getVariable() = captured and access.getEnclosingCallable() = lambda.asMethod() and
+    allocationFlowsTo(access, value)
+  )
+}
+
+/** Each unmodeled effect is independent of any exact finally-close in the same task. */
+predicate unmodeledCapturedTaskEffect(
+  LambdaExpr lambda, Parameter captured, ExprParent effect
+) {
+  exists(AssignExpr assignment |
+    effect = assignment and assignment.getEnclosingCallable() = lambda.asMethod() and
+    (assignment.getDest() instanceof FieldAccess or assignment.getDest() instanceof ArrayAccess) and
+    capturedTaskValue(lambda, captured, assignment.getSource())
+  )
+  or
+  exists(Call call, Expr value |
+    effect = call and call.getEnclosingCallable() = lambda.asMethod() and
+    (value = call.getAnArgument() or value = call.getQualifier()) and
+    capturedTaskValue(lambda, captured, value) and
+    not exists(MethodCall release |
+      release = call and exactCapturedFinallyClose(lambda, captured, release)
+    )
+  )
+  or
+  exists(ReturnStmt returned |
+    effect = returned and returned.getEnclosingCallable() = lambda.asMethod() and
+    capturedTaskValue(lambda, captured, returned.getExpr())
+  )
+  or
+  exists(ClassInstanceExpr nestedTask |
+    effect = nestedTask and nestedTask.getEnclosingCallable() = lambda.asMethod() and
+    taskCapturesVariable(nestedTask, captured)
+  )
+}
+
+predicate taskCallbackEffectCoverageGap(
+  LambdaExpr lambda, Parameter captured, ExprParent effect
+) {
+  unmodeledCapturedTaskEffect(lambda, captured, effect)
+  or
+  not exists(MethodCall release | exactCapturedFinallyClose(lambda, captured, release)) and
+  not exists(ExprParent unmodeled | unmodeledCapturedTaskEffect(lambda, captured, unmodeled)) and
+  effect = lambda
 }
 
 predicate knownContainerOrTaskCapture(MethodCall call, Expr captured) {
@@ -807,10 +890,11 @@ predicate lifecycleTaskRelationFact(
     )
     or
     exists(
-      MethodCall submit, Field executor, LambdaExpr lambda, Parameter captured, int depth
+      MethodCall submit, Field executor, LambdaExpr lambda, Parameter captured, int depth,
+      ExprParent effect
     |
       exactCapturedTask(allocation, submit, executor, lambda, captured, depth) and
-      not exists(MethodCall release | exactCapturedFinallyClose(lambda, captured, release)) and
+      taskCallbackEffectCoverageGap(lambda, captured, effect) and
       site = submit and factKind = "unknown_call" and holderKind = "none" and
       holderScope = "none" and holderKey = "none" and
       targetEvent = canonicalCallableIdentity(lambda.asMethod()) and
@@ -820,7 +904,7 @@ predicate lifecycleTaskRelationFact(
       evidence = "codeql_task_callback_effect_coverage_gap" and coverageStatus = "partial" and
       coverageNote = "task_callback_effect_unmodeled" and
       programPoint = programPointIdentity(submit) and
-      relatedSite = lambda and relatedPoint = programPointIdentity(relatedSite) and
+      relatedSite = effect and relatedPoint = programPointIdentity(relatedSite) and
       relationDepth = depth and bindingIndex = 0
     )
     or
@@ -902,6 +986,21 @@ predicate lifecycleTaskRelationFact(
       programPoint = programPointIdentity(submit) and
       relatedSite = submit.getArgument(0) and relatedPoint = programPointIdentity(relatedSite) and
       relationDepth = depth and bindingIndex = 0
+    )
+    or
+    exists(MethodCall submit, ClassInstanceExpr task |
+      unsupportedCallerLocalTask(allocation, submit, task) and
+      site = submit and factKind = "unknown_call" and holderKind = "none" and
+      holderScope = "none" and holderKey = "none" and
+      targetEvent = canonicalCallableIdentity(submit.getEnclosingCallable()) and
+      capacityValue = "unknown" and coreWorkersValue = "unknown" and
+      maxWorkersValue = "unknown" and rejectionPolicyValue = "unknown" and
+      normalPath = true and exceptionalPath = true and
+      evidence = "codeql_unsupported_task_form" and coverageStatus = "unsupported" and
+      coverageNote = "unsupported_local_capture" and
+      programPoint = programPointIdentity(submit) and
+      relatedSite = task and relatedPoint = programPointIdentity(relatedSite) and
+      relationDepth = 0 and bindingIndex = 0
     )
   )
 }

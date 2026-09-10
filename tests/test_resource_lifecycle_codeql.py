@@ -1132,11 +1132,20 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                 synthetic_suffix=None,
                 terminal_evidence="codeql_task_annotated_cfg_exit",
                 parallel_cfg=False,
+                dispatch_owner=SYNTHETIC_HANDLE_ID,
+                dispatch_depth=0,
+                dispatch_binding=-1,
+                base_bindings=(),
+                callback_gap=False,
+                callback_gap_owner=None,
             ):
                 create = decoded_query_row(
                     source_root, "resource_lifecycle", "a" * 64
                 )
                 common = {
+                    "site_callable": dispatch_owner,
+                    "relation_depth": dispatch_depth,
+                    "binding_index": dispatch_binding,
                     "program_point": "point:Fixture.java:2:1:dispatch",
                     "related_point": "point:Fixture.java:3:1:task-entry",
                     "related_start_line": 3,
@@ -1247,8 +1256,20 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                         coverage_note="exact_captured_task_finally_close",
                         coverage_status=release_coverage, normal_path=True, exceptional_path=False,
                     ),)
+                additional_facts = tuple(decoded_query_row(
+                    source_root, "resource_lifecycle", "a" * 64, **fields,
+                ) for fields in base_bindings)
+                if callback_gap:
+                    additional_facts += (decoded_query_row(
+                        source_root, "resource_lifecycle_task_relations", "b" * 64,
+                        fact_kind="unknown_call", program_point=common["program_point"],
+                        related_point=(callback_gap_owner or task_callable) + "#site:Fixture.java:7:1:7:1",
+                        related_start_line=7, target_event=task_callable,
+                        source_evidence="codeql_task_callback_effect_coverage_gap",
+                        coverage_note="task_callback_effect_unmodeled", coverage_status="partial",
+                    ),)
                 return adapt_codeql_rows(
-                    (create, dispatch, invariant, *cfg_edges, *exits, *releases),
+                    (create, dispatch, invariant, *cfg_edges, *exits, *releases, *additional_facts),
                     source_root=source_root,
                     query_provenance=(
                         {
@@ -1285,6 +1306,56 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                 for edge in forged.units[0].program.transitions for effect in edge.effects))
             self.assertTrue(any(effect.kind == "release"
                 for edge in trusted.units[0].program.transitions for effect in edge.effects))
+            escaped = extracted_for("abort", release_evidence="codeql_task_callback_close_finally",
+                                    callback_gap=True)
+            escaped_program = escaped.units[0].program
+            escape_fact = next(fact for fact in escaped.facts
+                               if fact.source_evidence == "codeql_task_callback_effect_coverage_gap")
+            self.assertTrue(any(effect.kind == "release" for edge in escaped_program.transitions
+                                for effect in edge.effects))
+            self.assertEqual({"held_instances", "item_size_bytes", "close_obligation"},
+                             {gap[0] for gap in escaped_program.coverage_gaps if gap[4] == escape_fact.fact_id})
+            self.assertEqual(task_callable, next(point.callable for point in escaped_program.program_points
+                                                 if point.point_id == escape_fact.related_point))
+            fallback = extracted_for("abort", callback_gap=True, callback_gap_owner=SYNTHETIC_HANDLE_ID)
+            fallback_gap = next(fact for fact in fallback.facts
+                                if fact.source_evidence == "codeql_task_callback_effect_coverage_gap")
+            self.assertEqual(SYNTHETIC_HANDLE_ID, next(point.callable
+                             for point in fallback.units[0].program.program_points
+                             if point.point_id == fallback_gap.related_point))
+            first = "java-callable-v1:Fixture.wrapper1(Lfixture/Resource;)V"
+            second = "java-callable-v1:Fixture.wrapper2(Lfixture/Resource;)V"
+            first_binding = dict(fact_kind="call_binding", program_point="point:call1",
+                                 related_point="point:param1", target_event=first,
+                                 relation_depth=1, binding_index=0)
+            second_binding = dict(fact_kind="call_binding", site_callable=first,
+                                  program_point="point:call2", related_point="point:param2",
+                                  target_event=second, relation_depth=2, binding_index=0)
+            for bindings, position, expected in (
+                ((), 0, False),
+                ((second_binding,), 0, False),
+                ((first_binding, {**second_binding, "coverage_status": "partial"}), 0, False),
+                ((first_binding, second_binding), 1, False),
+                ((first_binding, second_binding), 0, True),
+                ((first_binding, {**second_binding, "binding_index": 1}), 0, True),
+            ):
+                with self.subTest(base_binding_chain=len(bindings), parameter=position, expected=expected):
+                    adapted = extracted_for(
+                        "abort", release_evidence="codeql_task_callback_close_finally",
+                        dispatch_owner=second, dispatch_depth=2, dispatch_binding=position,
+                        base_bindings=bindings,
+                    )
+                    program = adapted.units[0].program
+                    self.assertEqual(expected, bool(program.task_bindings))
+                    self.assertEqual(expected, any(edge.population_effects for edge in program.transitions))
+                    self.assertEqual(expected, any(effect.kind == "release" for edge in program.transitions
+                                                   for effect in edge.effects))
+                    if not expected:
+                        dispatch_fact = next(fact for fact in adapted.facts if fact.fact_kind == "dispatch")
+                        self.assertEqual({"held_instances", "item_size_bytes", "close_obligation"},
+                                         {gap[0] for gap in program.coverage_gaps
+                                          if gap[3] == "task_capture_call_binding_unverified"
+                                          and gap[4] == dispatch_fact.fact_id})
             forged_cfg = extracted_for("abort", release_evidence="codeql_task_callback_close_finally",
                                        cfg_evidence="invented_cfg")
             self.assertFalse(any(effect.kind == "release"
@@ -2863,6 +2934,102 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
+    def test_v1_1_fresh_review_gaps_from_java(self) -> None:
+        source_root = ROOT / "tests/fixtures/resource_lifecycle_v1_1_task_review/src/main/java"
+        database = fixture_database(str(source_root))
+        with tempfile.TemporaryDirectory() as tmp:
+            base = run_query(DIRECT_QUERY, database, Path(tmp) / "base")
+            task = run_query(DIRECT_TASK_QUERY, database, Path(tmp) / "task")
+            rows = decode_bqrs_json(
+                "resource_lifecycle", json.loads(base.decoded_path.read_text()),
+                DecodeSource(database.source_root, base.query_sha256),
+            ) + decode_bqrs_json(
+                "resource_lifecycle_task_relations", json.loads(task.decoded_path.read_text()),
+                DecodeSource(database.source_root, task.query_sha256),
+            )
+        extracted = adapt_codeql_rows(
+            rows, source_root=database.source_root,
+            query_provenance=tuple({"query_name": result.query_name,
+                                    "query_sha256": result.query_sha256,
+                                    "bqrs_sha256": result.bqrs_sha256} for result in (base, task)),
+            database_fingerprint=database.fingerprint,
+            source_snapshot_sha256=lifecycle_commands._verify_database_source_snapshot(database),
+        )
+        prefix = "java-callable-v1:fixture.lifecyclev11.taskreview.TaskReviewGaps."
+        by_unit = {unit.unit_id: unit for unit in extracted.units}
+
+        def source_facts(caller):
+            return [fact for fact in extracted.facts if fact.unit_id == prefix + caller + "(I)V"]
+
+        def task_facts(caller):
+            return [fact for fact in source_facts(caller)
+                    if fact.query_name == "resource_lifecycle_task_relations"]
+
+        original = by_unit[prefix + "callerReassigned(I)V"]
+        self.assertFalse(any(fact.fact_kind in {"dispatch", "release", "invariant", "cfg_edge", "task_exit"}
+                             for fact in task_facts("callerReassigned")))
+        self.assertFalse(original.program.task_bindings)
+        self.assertFalse(any(edge.population_effects or any(effect.kind == "release" for effect in edge.effects)
+                             for edge in original.program.transitions))
+        original_result = solve(original.program, budget=AnalysisBudget())
+        self.assertTrue(any(state.open_obligations for event_id, state in original_result.event_states.items()
+                            if event_id in original.program.exit_event_ids),
+                        "Rejecting a replacement capture must not close the original allocation")
+        preserved = by_unit[prefix + "callerPreserved(I)V"]
+        self.assertEqual({1, 2}, {binding.context_depth for binding in preserved.program.call_bindings})
+        self.assertTrue(preserved.program.task_bindings)
+        self.assertTrue(any(effect.kind == "release" for edge in preserved.program.transitions for effect in edge.effects))
+        self.assertNotIn("task_capture_call_binding_unverified", {gap[3] for gap in preserved.program.coverage_gaps})
+
+        for caller in ("callerCloseFieldEscape", "callerCloseContainerEscape", "callerCloseUnknownCall"):
+            with self.subTest(caller=caller):
+                unit = by_unit[prefix + caller + "(I)V"]
+                gaps = [fact for fact in task_facts(caller)
+                        if fact.source_evidence == "codeql_task_callback_effect_coverage_gap"
+                        and fact.coverage_note == "task_callback_effect_unmodeled"
+                        and fact.coverage_status == "partial"]
+                self.assertTrue(gaps, "Exact close must not suppress independent callback effect coverage")
+                self.assertTrue(any(fact.fact_kind == "release" and fact.coverage_status == "complete"
+                                    for fact in task_facts(caller)))
+                self.assertTrue(any(effect.kind == "release" for edge in unit.program.transitions for effect in edge.effects))
+                for fact in gaps:
+                    self.assertNotEqual("none", fact.related_point)
+                    self.assertNotEqual(fact.program_point, fact.related_point)
+                    point = next(point for point in unit.program.program_points if point.point_id == fact.related_point)
+                    self.assertEqual(fact.target_event, point.callable)
+                    self.assertEqual(fact.related_location, point.location)
+                    self.assertEqual({"held_instances", "item_size_bytes", "close_obligation"},
+                                     {gap[0] for gap in unit.program.coverage_gaps if gap[4] == fact.fact_id})
+                dimensions = check_invariants(unit.program, solve(unit.program, budget=AnalysisBudget()),
+                                              unit.invariants, timeout_ms=100, executor_contracts=unit.executor_contracts)
+                self.assertTrue(all(value.lifecycle_status == "unknown" for value in dimensions
+                                    if value.dimension == "held_instances"))
+
+        for caller, reason, depth in (
+            ("callerStoredMethodReference", "unsupported_method_reference", 1),
+            ("callerStoredAnonymous", "unsupported_anonymous_runnable", 1),
+            ("callerLocalLambda", "unsupported_local_capture", 0),
+            ("callerLocalMethodReference", "unsupported_local_capture", 0),
+            ("callerLocalAnonymous", "unsupported_local_capture", 0),
+            ("callerFieldAliasExecutor", "executor_configuration_mutable_or_escaped", 1),
+        ):
+            with self.subTest(caller=caller):
+                facts = task_facts(caller)
+                gaps = [fact for fact in facts if fact.fact_kind == "unknown_call" and fact.coverage_note == reason]
+                self.assertTrue(gaps)
+                self.assertTrue(all(fact.relation_depth == depth and fact.binding_index == 0 for fact in gaps))
+                self.assertFalse(any(fact.fact_kind in {"dispatch", "release", "invariant", "cfg_edge", "task_exit"}
+                                     for fact in facts))
+                unit = by_unit[prefix + caller + "(I)V"]
+                self.assertFalse(unit.program.task_bindings)
+                self.assertFalse(any(edge.population_effects or any(effect.kind == "release" for effect in edge.effects)
+                                     for edge in unit.program.transitions))
+                for fact in gaps:
+                    self.assertNotEqual("none", fact.program_point)
+                    self.assertNotEqual("none", fact.related_point)
+                    self.assertEqual({"held_instances", "item_size_bytes", "close_obligation"},
+                                     {gap[0] for gap in unit.program.coverage_gaps if gap[4] == fact.fact_id})
+
     def test_v1_1_unsupported_executor_policies_emit_bound_coverage_gaps_from_java(self) -> None:
         source_root = (
             ROOT
@@ -2994,12 +3161,26 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
         )
         database = fixture_database(str(source_root))
         with tempfile.TemporaryDirectory() as tmp:
+            base = run_query(DIRECT_QUERY, database, Path(tmp) / "base-query")
+            base_payload = json.loads(base.decoded_path.read_text(encoding="utf-8"))
             result = run_query(DIRECT_TASK_QUERY, database, Path(tmp) / "task-query")
             payload = json.loads(result.decoded_path.read_text(encoding="utf-8"))
         rows = decode_bqrs_json(
             "resource_lifecycle_task_relations",
             payload,
             DecodeSource(database.source_root, result.query_sha256),
+        )
+        base_rows = decode_bqrs_json(
+            "resource_lifecycle", base_payload,
+            DecodeSource(database.source_root, base.query_sha256),
+        )
+        extracted = adapt_codeql_rows(
+            base_rows + rows, source_root=database.source_root,
+            query_provenance=tuple({"query_name": query.query_name,
+                                    "query_sha256": query.query_sha256,
+                                    "bqrs_sha256": query.bqrs_sha256} for query in (base, result)),
+            database_fingerprint=database.fingerprint,
+            source_snapshot_sha256=lifecycle_commands._verify_database_source_snapshot(database),
         )
         prefix = "java-callable-v1:fixture.lifecyclev11.terminals.TaskTerminals."
 
@@ -3063,6 +3244,19 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
                 self.assertEqual(2, len({row["program_point"] for row in exits}))
                 self.assertEqual({expected_kind}, {(row["normal_path"], row["exceptional_path"])
                                                    for row in exits})
+                unit = next(unit for unit in extracted.units if unit.unit_id == prefix + caller)
+                fallback_gaps = [fact for fact in extracted.facts if fact.unit_id == unit.unit_id
+                                 and fact.source_evidence == "codeql_task_callback_effect_coverage_gap"]
+                self.assertTrue(fallback_gaps)
+                for fact in fallback_gaps:
+                    self.assertTrue(fact.related_point.startswith(fact.site_callable + "#site:"))
+                    self.assertFalse(fact.related_point.startswith(fact.target_event + "#site:"))
+                    point = next(point for point in unit.program.program_points if point.point_id == fact.related_point)
+                    self.assertEqual(fact.site_callable, point.callable,
+                                     "The fallback LambdaExpr belongs to the wrapper, not its generated body")
+                    self.assertEqual(fact.related_location, point.location)
+                    self.assertEqual({"held_instances", "item_size_bytes", "close_obligation"},
+                                     {gap[0] for gap in unit.program.coverage_gaps if gap[4] == fact.fact_id})
 
     def test_v1_1_task_cfg_success_exception_and_executor_gaps_from_java(self) -> None:
         source_root = ROOT / "tests/fixtures/resource_lifecycle_v1_1_task_cfg/src/main/java"

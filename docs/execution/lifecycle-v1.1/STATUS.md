@@ -36,7 +36,14 @@
 - Task 2 第三次 spec 复审把 executor contract loader 绑定到外层 facts schema：`1.1` 要求 `max_workers/rejection_policy/termination` 与其余 contract 字段一起精确存在，只有显式外层 `1.0` facts 才补 `None/unknown/unknown`；manual extraction manifest 是独立输入边界，继续按 current contract 严格解析，不借其 manifest 版本启用 facts compatibility。有效 RED 为 `3 failed, 2 passed`，定向 GREEN 为 `2 passed, 3 subtests passed`，lifecycle 全量为 `215 passed, 4 skipped, 61 subtests passed`。
 - 真实 CodeQL：query compile `Done [1/1]`，四个 source fixture 为 `33 passed, 15 subtests passed`；direct/embedded QL 字节一致。
 
-## Task 3 完成证据（G2 源码关系范围）
+## Task 3 完成证据（V2 follow-up，限定 G2 源码关系范围）
+
+- 最终 fresh spec rereview3：`Spec compliant`。G2 恢复 `pass`、Task 3 完成；整体保持 `partial`，G3–G8 未通过，Task 4 仅为下一步。本次 follow-up 以 `d2311f64c61a665fa52932f8b8c498919e01caf6` 为父提交，不 amend、不 push。
+- V2 最终受影响真实双 query→adapter 验收为 `2 passed, 64 deselected, 11 subtests passed in 531.24s`（`/tmp/task3-v2-final-owner-codeql.xml`）：覆盖 TaskReviewGaps 原 allocation obligation 保留、depth=2 正控、独立 escape gap、间接 unsupported task/configuration gap，以及 TaskTerminals 实际 body/fallback LambdaExpr 的程序点归属/位置/coverage。最终非 fixture 为 `267 passed, 12 skipped, 235 subtests passed in 4.24s`（`/tmp/task3-v2-final-nonfixture.xml`）；两对 QL 字节一致、`compileall`、`git diff --check` 通过。此最终定向证据与下列完整 suite 的版本范围分别记录，不声称最后 owner 修复后又跑过完整 suite。
+- `d2311f64c61a665fa52932f8b8c498919e01caf6` 后 fresh spec 复审提出四项源码关系核查：depth=2 参数 overwrite task 错绑；exact callback close 遮住 field escape gap；间接 anonymous/member-reference/local capture 静默；field-initializer executor alias mutator 是否漏检。当时 G2 回退 `fail / in_progress`，此前历史 GREEN 不覆盖这些反例；现经修复、真实源码验收与再次复审关闭。第四项的实际核验结果见下文，不把审查假设当作已复现缺陷。
+- V2 Task QL 已冻结为 `19b78920abd44927b627d29b1ea9e726cb38c9a38e1654a44122de59ae33cbae`；前三类真实 query RED 为 14 条断言失败，修复后 0 失败（115→102 rows）。第四类 field alias 在旧 CodeQL 结果中已保守降级，本轮只补显式 initializer alias 加固/回归，不宣称复现了该项旧缺陷。完整真实 suite 为 `1 failed, 65 passed, 58 subtests passed in 2172.11s`（`/tmp/task3-v2-full-codeql.xml`），唯一失败是新测试错误要求完整建模的 rejected capture unit 必有 gap；已换成原 allocation obligation 仍存的状态断言。
+- fresh spec 复审确认最后 blocker 是 callback gap fallback LambdaExpr owner。现区分实际 lambda body effect site 与 wrapper 内 LambdaExpr AST，合成 RED→GREEN 为 `1 failed` → `1 passed, 18 subtests passed`；最终 fresh-review 与 TaskTerminals 双 query adapter 复验已通过，见上文。
+- 明确限制：已支持 wrapper call-depth<=2 不等于支持嵌套 task；nested task depth>1、nested capture/local-alias propagation 仍为 unsupported，相关 gap 覆盖尚未证明完整。本轮未实现嵌套异步闭环，不将这些形态声称为完整静态覆盖或无条件安全；后续必须补独立源码验收。
 
 - 最终 release gate 验收分层记录：最后 base gate 修复前的完整真实 CodeQL 套件为 `62 passed, 45 subtests passed in 1829.42s`，JUnit `/tmp/task3-final-codeql.xml`；不能据此声称最终 adapter 又跑过全套查询。最新 adapter 非 fixture 为 `267 passed, 11 skipped, 229 subtests passed in 4.16s`，JUnit `/tmp/task3-final-nonfixture.xml`。
 - base partial release 的状态级 RED 为 `4 failed, 1 passed, 1 subtests passed`，缺 caller CFG fallback 的 RED 为 `3 failed, 1 passed`；当前定向 GREEN 为 `7 passed, 7 subtests passed`。只允许 complete singleton-finally exact-local release 在可信成功 CFG 出边执行；partial/unsupported/未证明 receiver identity/缺 CFG 一律保留 raw、程序点和 scoped gap，不附 release 负效应。synthetic complete 旧导入例显式隔离，不作为真实源码验收证据。
@@ -59,7 +66,7 @@
 | Gate | 状态 | 当前证据/缺口 |
 | --- | --- | --- |
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
-| G2 源码关系 | `pass` | 真实 caller CFG、depth<=2 call-site context、参数/返回 identity、静态字段/executor identity、lambda capture、TPE 契约、task AST CFG/annotated 多出口与成功出边 callback release 已完成源码验收；partial/unsupported/缺 CFG release 不执行负效应并保留 gap。完整真实、定向真实与最终 adapter 回放按上文分层记录；不将此门槛外推为 G3–G8 通过。 |
+| G2 源码关系 | `pass` | V2 真实源码验收与 fresh spec rereview3 通过：depth=2 overwrite identity、close/escape 独立 gap、间接 unsupported task、executor field-alias 加固，以及 body/fallback PP owner 已核验。完整/最终定向测试按上文分层记录；nested task 限制保留，不外推为 G3–G8 通过。 |
 | G3 主求解异步 | `fail` | `commands._analyze_payload` 先 `solve`，后 `_async_stages` 展示后继 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
 | G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |

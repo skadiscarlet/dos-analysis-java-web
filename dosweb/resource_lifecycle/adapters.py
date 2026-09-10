@@ -828,8 +828,13 @@ def _unit_from_rows(
         )
         related_callable = (
             fact.target_event
-            if fact.fact_kind
-            in {"call_binding", "dispatch", "cfg_edge", "task_exit"}
+            if (fact.fact_kind in {"call_binding", "dispatch", "cfg_edge", "task_exit"}
+                or fact.query_name == "resource_lifecycle_task_relations"
+                and fact.fact_kind == "unknown_call"
+                and fact.source_evidence == "codeql_task_callback_effect_coverage_gap"
+                # A body-effect site belongs to the generated lambda callable;
+                # the fallback LambdaExpr AST still belongs to its wrapper.
+                and fact.related_point.startswith(fact.target_event + "#site:"))
             and fact.target_event != "none"
             else fact.site_callable
         )
@@ -908,6 +913,26 @@ def _unit_from_rows(
     task_events: list[Event] = []
     task_dispatch_by_id: dict[str, RawLifecycleFact] = {}
     task_point_event_ids: dict[str, dict[str, str]] = {}
+    # The task query's parameter capture must agree with the independent base
+    # query's exact call chain. A detached depth-two binding is not a witness.
+    proven_callable_depths = {
+        (instance_id, unit_id, 0) for _family_id, instance_id in instance_by_key.values()
+    }
+    for call in sorted(call_bindings, key=lambda item: (item.context_depth, item.binding_id)):
+        if (call.instance_id, call.caller_callable, call.context_depth - 1) in proven_callable_depths:
+            proven_callable_depths.add((call.instance_id, call.callee_callable, call.context_depth))
+    unverified_task_capture_ids = {
+        dispatch.fact_id for dispatch in dispatch_facts
+        if dispatch.query_name == "resource_lifecycle_task_relations"
+        and not (
+            dispatch.site_callable == unit_id and dispatch.relation_depth == 0
+            # Task binding_index is execute's task-argument slot, not the
+            # captured wrapper parameter's position in the base call binding.
+            or dispatch.binding_index == 0
+            and (instance_by_key[dispatch.instance_key][1], dispatch.site_callable,
+                 dispatch.relation_depth) in proven_callable_depths
+        )
+    }
     capture_instances: dict[tuple[str, str], set[str]] = defaultdict(set)
     for dispatch in dispatch_facts:
         if dispatch.query_name == "resource_lifecycle_task_relations":
@@ -922,6 +947,7 @@ def _unit_from_rows(
             dispatch.query_name != "resource_lifecycle_task_relations"
             or dispatch.coverage_status != "complete"
             or dispatch.related_point == "none"
+            or dispatch.fact_id in unverified_task_capture_ids
             or len(capture_instances[(dispatch.program_point, dispatch.target_event)]) != 1
         ):
             continue
@@ -1760,6 +1786,10 @@ def _unit_from_rows(
     for item in rows:
         if item.fact_kind == "dispatch":
             family_id, _instance_id = instance_by_key[item.instance_key]
+            if item.fact_id in unverified_task_capture_ids:
+                for dimension in dimensions_by_fact_kind["unknown_call"]:
+                    if dimension != "close_obligation" or item.requires_close:
+                        coverage_gaps.add((dimension, family_id, "*", "task_capture_call_binding_unverified", item.fact_id))
             if item.query_name == "resource_lifecycle_task_relations" and not (
                 item.core_workers.isdecimal() and item.max_workers.isdecimal()
                 and int(item.max_workers) > 0
