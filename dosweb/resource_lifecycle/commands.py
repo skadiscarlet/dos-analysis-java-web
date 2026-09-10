@@ -341,6 +341,11 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         source_snapshot_sha256=source_snapshot_sha256,
         entry_methods=entry_methods,
     )
+    # Adaptation reads the live source tree again to bind individual locations.
+    # Never publish facts stamped with the earlier database snapshot if those
+    # reads raced with a source update.
+    if _verify_database_source_snapshot(database) != source_snapshot_sha256:
+        raise ValueError("CodeQL source snapshot changed during adaptation")
     return ExtractedFacts(
         extracted.source_kind,
         extracted.snapshot_sha256,

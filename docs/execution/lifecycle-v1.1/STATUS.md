@@ -6,7 +6,7 @@
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
 - current_stage: `task3_source_relations_complete`
-- next_action: `Task 4 主求解异步语义；本次不启动`
+- next_action: `Task 4 仅作为后续任务，未启动；不 push`
 
 ## 适用标准
 
@@ -36,8 +36,15 @@
 - Task 2 第三次 spec 复审把 executor contract loader 绑定到外层 facts schema：`1.1` 要求 `max_workers/rejection_policy/termination` 与其余 contract 字段一起精确存在，只有显式外层 `1.0` facts 才补 `None/unknown/unknown`；manual extraction manifest 是独立输入边界，继续按 current contract 严格解析，不借其 manifest 版本启用 facts compatibility。有效 RED 为 `3 failed, 2 passed`，定向 GREEN 为 `2 passed, 3 subtests passed`，lifecycle 全量为 `215 passed, 4 skipped, 61 subtests passed`。
 - 真实 CodeQL：query compile `Done [1/1]`，四个 source fixture 为 `33 passed, 15 subtests passed`；direct/embedded QL 字节一致。
 
-## Task 3 完成证据（V2 follow-up，限定 G2 源码关系范围）
+## Task 3 完成证据（V4 follow-up，限定 G2 源码关系范围）
 
+- V4 最终验收完成，G2 `pass`、Task 3 complete；整体仍 `partial`，G3–G8 仍 `fail`，不启动 Task 4、不 push。fresh quality 为 `Ready: Yes`（Critical/Important/Minor 均无），fresh spec 为 `Spec compliant`。最终非 fixture `285 passed, 13 skipped, 235 subtests passed in 4.79s`（`/tmp/task3-v4-final-nonfixture.xml`）。四项既有真实 wrapper/task/fresh-review 在冻结批次中全部通过；该批次唯一失败是新增 RepeatedSubmit 测试误猜每 task 三出口，而 raw query 实为一个出口，详见下面分层记录，不计生产缺陷 RED。仅修正测试后，四形态 Java→双 query→最终 adapter 补验为 `1 passed, 18 deselected in 267.94s`（`/tmp/task3-v4-final-repeated.xml`）：depth1/depth2/mixed/same-depth-prefix 分别 2/2/4/4 tasks，14/14/28/28 stage events，逐 task 出口 evidence 与 matching raw instance/depth/entry/target 的完整集合相等。production/fixture 在这两次最终真实运行间没有变化。最终 `compileall`、两对 QL `cmp`、`git diff --check` 通过；QL SHA 维持冻结值，P0 未改。
+
+- `12e297eb586e1407a5aab49e1fe1b31fcb7bf231` 后 fresh quality review 为 `No`，G2 回退 `fail / in_progress`：I1 重复 submit 的 task instance identity、I2 声明深度/上下文预算、I3 adapter 读取源码期间 TOCTOU、I4 related-location provenance 均须修复并重新验收。下列 spec/GREEN 为先前里程碑，不覆盖此次质量 blocker。
+- V3 follow-up 实施已完成，尚待最终真实回归与独立复审，G2 不提前改 pass。新增 `tests/test_resource_lifecycle_review_safety.py`：I1 单 submit 正控通过、双 submit 的两种 identity 异常取得有效 RED `2 failed`；I2 给定四边图越界深度/孤立前缀/预算取得有效 RED `3 failed, 1 passed`；I3 adapter 期间修改临时源码后旧实现仍发布，I4 四种 related-location 篡改在重建 derived/snapshot 与 JSON 往返后旧实现仍通过，合计有效 RED `5 failed`。Minor source CFG 构造 9 个 effect 而仅需 3 个的有效 RED 已修复。
+- V3 首轮非 fixture 全 lifecycle：`279 passed, 13 skipped, 235 subtests passed in 4.41s`（`/tmp/task3-v3-nonfixture.xml`）；单独真实 RepeatedSubmit Java→Base+Task query→adapter 为 `1 passed in 272.66s`（`/tmp/task3-v3-repeated-java.xml`），两次 submit 保留同资源/共享 executor，但拥有独立 14 stage events、holders、TaskExit、population 与 callback release attachment IDs。最终五项真实回归正在执行，不能以此前进程代表最终代码验收。
+- V3 context 展开仅允许声明 depth-1 的已证明前缀，缺失关系不生成 CallBinding 并输出 family/evidence scoped gap，深度不匹配不得串用 CFG/effect/submit 证据；每 unit 非空 contexts 与 expanded bindings 均硬限 4096，超过即 fatal，不按 hash 顺序截断。I3 publication 前复核 adaptation 后 source snapshot；I4 current fact identity 绑定完整 related SourceLocation，主/related 均校验 static source kind 与 extractor，legacy 1.0 仍先核验原始 identity 再迁移。`compileall`、两对 QL `cmp` 与 `git diff --check` 已通过；两 QL SHA 与 V2 冻结值一致，未改变 P0 或 Task 4。
+- V3 五项冻结真实回归已结束：`5 passed, 74 deselected, 11 subtests passed in 1215.62s`（`/tmp/task3-v3-final-real.xml`）。quality 复审仍为 No，仅余 I1 同 site 的跨 call-context 归属；不能把该批次作为 V4 最终验收。V4 完整前缀 normalization 的有效 RED 为 `4 failed, 2 passed`（两种单 depth 正控先通过），修复后同 depth 双前缀与 mixed-depth 均为 2 tasks/14 stages/2 exits、共享 executor；缺深层 body 时保留 2 tasks 但仅 1 exit/CFG/release 并有 scoped gap。task-context 乘积同样硬限 4096，dispatch/invariant 任一先出现均先预算检查。最终非 fixture `285 passed, 13 skipped, 235 subtests passed in 4.56s`（`/tmp/task3-v4-nonfixture.xml`），真实 fixture 已扩为 depth1/depth2/mixed/same-depth-prefix 四形态；最终真实验收与 quality 复审仍待，G2 不提前 pass。
 - 最终 fresh spec rereview3：`Spec compliant`。G2 恢复 `pass`、Task 3 完成；整体保持 `partial`，G3–G8 未通过，Task 4 仅为下一步。本次 follow-up 以 `d2311f64c61a665fa52932f8b8c498919e01caf6` 为父提交，不 amend、不 push。
 - V2 最终受影响真实双 query→adapter 验收为 `2 passed, 64 deselected, 11 subtests passed in 531.24s`（`/tmp/task3-v2-final-owner-codeql.xml`）：覆盖 TaskReviewGaps 原 allocation obligation 保留、depth=2 正控、独立 escape gap、间接 unsupported task/configuration gap，以及 TaskTerminals 实际 body/fallback LambdaExpr 的程序点归属/位置/coverage。最终非 fixture 为 `267 passed, 12 skipped, 235 subtests passed in 4.24s`（`/tmp/task3-v2-final-nonfixture.xml`）；两对 QL 字节一致、`compileall`、`git diff --check` 通过。此最终定向证据与下列完整 suite 的版本范围分别记录，不声称最后 owner 修复后又跑过完整 suite。
 - `d2311f64c61a665fa52932f8b8c498919e01caf6` 后 fresh spec 复审提出四项源码关系核查：depth=2 参数 overwrite task 错绑；exact callback close 遮住 field escape gap；间接 anonymous/member-reference/local capture 静默；field-initializer executor alias mutator 是否漏检。当时 G2 回退 `fail / in_progress`，此前历史 GREEN 不覆盖这些反例；现经修复、真实源码验收与再次复审关闭。第四项的实际核验结果见下文，不把审查假设当作已复现缺陷。
@@ -66,7 +73,7 @@
 | Gate | 状态 | 当前证据/缺口 |
 | --- | --- | --- |
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
-| G2 源码关系 | `pass` | V2 真实源码验收与 fresh spec rereview3 通过：depth=2 overwrite identity、close/escape 独立 gap、间接 unsupported task、executor field-alias 加固，以及 body/fallback PP owner 已核验。完整/最终定向测试按上文分层记录；nested task 限制保留，不外推为 G3–G8 通过。 |
+| G2 源码关系 | `pass` | I1–I4 与 Minor 完成有效 RED→GREEN；任务与完整调用前缀隔离、depth/budget fail-closed、post-adapter snapshot 复核、related provenance 全字段绑定。最终非 fixture 285 passed；既有四项真实通过，四形态新 fixture 单项真实补验通过；fresh quality Ready Yes、fresh spec compliant。 |
 | G3 主求解异步 | `fail` | `commands._analyze_payload` 先 `solve`，后 `_async_stages` 展示后继 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
 | G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |

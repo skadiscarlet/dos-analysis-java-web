@@ -1256,6 +1256,11 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                         coverage_note="exact_captured_task_finally_close",
                         coverage_status=release_coverage, normal_path=True, exceptional_path=False,
                     ),)
+                # Real task-query body rows carry the capture's declared depth;
+                # a depth-two submit cannot borrow the old helper's depth-zero body.
+                cfg_edges = tuple({**row, "relation_depth": dispatch_depth} for row in cfg_edges)
+                exits = tuple({**row, "relation_depth": dispatch_depth} for row in exits)
+                releases = tuple({**row, "relation_depth": dispatch_depth} for row in releases)
                 additional_facts = tuple(decoded_query_row(
                     source_root, "resource_lifecycle", "a" * 64, **fields,
                 ) for fields in base_bindings)

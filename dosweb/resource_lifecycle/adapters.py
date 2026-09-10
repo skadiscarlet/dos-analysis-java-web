@@ -31,6 +31,11 @@ from dosweb.resource_lifecycle.models import (
 )
 
 
+# Bound both context storage and expanded relation work. Exceeding the limit
+# aborts the unit instead of retaining a hash-order-dependent partial graph.
+_MAX_CALL_CONTEXTS = 4096
+
+
 @dataclass(frozen=True)
 class RawLifecycleFact:
     fact_id: str
@@ -480,6 +485,7 @@ def _raw_fact(
             "related_file": related_path,
             "related_start_line": int(raw_row["related_start_line"]),
             "related_start_column": int(raw_row["related_start_column"]),
+            "related_location": asdict(related_location),
         }
     )
     return RawLifecycleFact(
@@ -617,8 +623,63 @@ def _unit_from_rows(
         holders[local_holder] = Holder(local_holder, local_kind, local_scope, "exact")  # type: ignore[arg-type]
         local_holder_by_instance[instance_id] = local_holder
 
+    call_bindings = tuple(
+        CallBinding(
+            stable_identifier("call-binding", {"fact_id": fact.fact_id}),
+            fact.program_point,
+            fact.related_point,
+            fact.site_callable,
+            fact.target_event,
+            fact.binding_index,
+            fact.binding_index,
+            instance_by_key[fact.instance_key][1],
+            fact.relation_depth,
+            (fact.fact_id,),
+        )
+        for fact in rows
+        if fact.fact_kind == "call_binding" and fact.coverage_status == "complete"
+    )
+    instance_keys_by_id = {instance: key for key, (_family, instance) in instance_by_key.items()}
+    source_contexts: dict[tuple[str, str], set[tuple[str, ...]]] = defaultdict(set)
+    for instance_key in instance_by_key:
+        source_contexts[(instance_key, unit_id)].add(())
+    context_count = len(instance_by_key)
+    if context_count > _MAX_CALL_CONTEXTS:
+        raise ValueError("lifecycle call context budget exceeded")
+    expanded_bindings: list[tuple[CallBinding, tuple[str, ...], tuple[str, ...]]] = []
+    context_gap_reasons: dict[str, set[str]] = defaultdict(set)
+    for binding in sorted(call_bindings, key=lambda item: (
+        item.context_depth, item.caller_callable, item.source_point_id,
+        item.callee_callable, item.target_point_id, item.instance_id, item.argument_index,
+    )):
+        instance_key = instance_keys_by_id[binding.instance_id]
+        callers = source_contexts[(instance_key, binding.caller_callable)]
+        matching = sorted(context for context in callers
+            if len(context) == binding.context_depth - 1)
+        if not matching:
+            context_gap_reasons[binding.evidence_ids[0]].add("call_binding_context_missing")
+        for caller_context in matching:
+            callee_context = caller_context + (binding.source_point_id,)
+            callees = source_contexts[(instance_key, binding.callee_callable)]
+            if callee_context not in callees:
+                context_count += 1
+                if context_count > _MAX_CALL_CONTEXTS:
+                    raise ValueError("lifecycle call context budget exceeded")
+                callees.add(callee_context)
+            if len(expanded_bindings) >= _MAX_CALL_CONTEXTS:
+                raise ValueError("lifecycle call context budget exceeded")
+            expanded_bindings.append((binding, caller_context, callee_context))
+    # Evaluate mismatches after both depth layers, never during hash ordering:
+    # a later path reaching B at depth two cannot consume B->C depth-two facts.
+    for binding in call_bindings:
+        callers = source_contexts[(instance_keys_by_id[binding.instance_id], binding.caller_callable)]
+        if any(len(context) != binding.context_depth - 1 for context in callers):
+            context_gap_reasons[binding.evidence_ids[0]].add("call_binding_context_depth_mismatch")
+    proven_binding_ids = {binding.binding_id for binding, _caller, _callee in expanded_bindings}
+    call_bindings = tuple(binding for binding in call_bindings if binding.binding_id in proven_binding_ids)
+
     invariants: list[InvariantCandidate] = []
-    normalized: list[tuple[RawLifecycleFact, str, str, str | None]] = []
+    normalized: list[tuple[RawLifecycleFact, str, str, str | None, tuple[str, ...] | None]] = []
     static_source_unit = not legacy_executor_identity and any(
         fact.fact_kind == "create" and fact.source_evidence.startswith("codeql_")
         for fact in rows
@@ -650,7 +711,21 @@ def _unit_from_rows(
             precision,  # type: ignore[arg-type]
         )
 
-    def task_holder_id(fact: RawLifecycleFact) -> str:
+    def submit_context(fact: RawLifecycleFact, context: tuple[str, ...] | None = ()) -> dict[str, object]:
+        # Dispatch and its invariant share a submission; two execute sites
+        # capturing the same instance/body must not share task-owned state.
+        # Keep the base-query queue/legacy contract identity unchanged.
+        if fact.query_name != "resource_lifecycle_task_relations":
+            return {}
+        return {"submit_context": {
+            "instance_key": fact.instance_key,
+            "site_callable": fact.site_callable,
+            "submit_point": fact.program_point,
+            "task_callable": fact.target_event,
+            "call_context": context,
+        }}
+
+    def task_holder_id(fact: RawLifecycleFact, context: tuple[str, ...] | None = ()) -> str:
         return stable_identifier(
             "holder",
             {
@@ -658,20 +733,22 @@ def _unit_from_rows(
                 "holder_key": fact.holder_key,
                 "kind": "task",
                 "scope": fact.holder_scope,
+                **submit_context(fact, context),
             },
         )
 
-    def queue_event_id(fact: RawLifecycleFact) -> str:
+    def queue_event_id(fact: RawLifecycleFact, context: tuple[str, ...] | None = ()) -> str:
         return stable_identifier(
             "event",
             {
                 "unit_id": unit_id,
                 "phase": "task_queue",
                 "target_event": fact.target_event,
+                **submit_context(fact, context),
             },
         )
 
-    def queue_contract_id(fact: RawLifecycleFact, holder_id: str) -> str:
+    def queue_contract_id(fact: RawLifecycleFact, holder_id: str, context: tuple[str, ...] | None = ()) -> str:
         if not legacy_executor_identity and fact.holder_key.endswith("#static"):
             return stable_identifier("executor-contract", {
                 "executor_field": fact.holder_key,
@@ -685,7 +762,7 @@ def _unit_from_rows(
             "holder_id": holder_id,
             "holder_key": fact.holder_key,
             "target_event": fact.target_event,
-            "target_event_id": queue_event_id(fact),
+            "target_event_id": queue_event_id(fact, context),
             "capacity": fact.capacity,
         }
         if not legacy_executor_identity:
@@ -701,6 +778,13 @@ def _unit_from_rows(
             identity,
         )
 
+    def normalization_contexts(fact: RawLifecycleFact) -> tuple[tuple[str, ...] | None, ...]:
+        if fact.query_name != "resource_lifecycle_task_relations" or fact.fact_kind not in {"dispatch", "invariant"}:
+            return (None,)
+        return tuple(sorted(context for context in source_contexts[(fact.instance_key, fact.site_callable)]
+            if len(context) == fact.relation_depth)) or (None,)
+
+    task_contexts_seen: set[tuple[object, ...]] = set()
     for fact in sorted(
         rows,
         key=lambda item: (0, 0, 0, item.fact_id) if static_source_unit else (
@@ -714,50 +798,59 @@ def _unit_from_rows(
         if identity is None:
             continue
         family_id, instance_id = identity
-        holder_id: str | None = None
-        if fact.fact_kind == "retain" and fact.holder_kind == "field":
-            holder = field_holder(fact)
-            holder_id = holder.holder_id
-            holders[holder_id] = holder
-        elif fact.fact_kind in {"dispatch", "invariant"} and fact.holder_kind == "queue":
-            holder_id = task_holder_id(fact)
-            holders[holder_id] = Holder(holder_id, "task", fact.holder_scope, "exact")  # type: ignore[arg-type]
-        normalized.append((fact, family_id, instance_id, holder_id))
-        if (
-            fact.fact_kind == "invariant"
-            and fact.coverage_status == "complete"
-            and fact.capacity.isdecimal()
-            and int(fact.capacity) > 0
-        ):
-            invariants.append(
-                InvariantCandidate(
-                    candidate_id=stable_identifier("invariant", {"fact_id": fact.fact_id, "capacity": fact.capacity}),
-                    family_id=family_id,
-                    dimension="held_instances",
-                    scope="task_queue",
-                    upper_bound=int(fact.capacity),
-                    initial_holds=True,
-                    transitions_preserve=True,
-                    covers_writers=True,
-                    atomic=True,
-                    source_kind="static_verified",
-                    assumptions=("exact java.util.concurrent bounded queue implementation",),
-                    evidence_ids=(fact.fact_id,),
-                    executor_contract_id=queue_contract_id(fact, holder_id),
-                    writer_holder_id=holder_id,
-                    writer_target_event_id=queue_event_id(fact),
+        for context in normalization_contexts(fact):
+            if fact.query_name == "resource_lifecycle_task_relations" and fact.fact_kind in {"dispatch", "invariant"}:
+                task_context_key = (fact.instance_key, fact.site_callable, fact.program_point, fact.target_event, context)
+                if task_context_key not in task_contexts_seen:
+                    if len(task_contexts_seen) >= _MAX_CALL_CONTEXTS:
+                        raise ValueError("lifecycle task context budget exceeded")
+                    task_contexts_seen.add(task_context_key)
+            holder_id: str | None = None
+            if fact.fact_kind == "retain" and fact.holder_kind == "field":
+                holder = field_holder(fact)
+                holder_id = holder.holder_id
+                holders[holder_id] = holder
+            elif fact.fact_kind in {"dispatch", "invariant"} and fact.holder_kind == "queue":
+                holder_id = task_holder_id(fact, context)
+                holders[holder_id] = Holder(holder_id, "task", fact.holder_scope, "exact")  # type: ignore[arg-type]
+            normalized.append((fact, family_id, instance_id, holder_id, context))
+            if (
+                fact.fact_kind == "invariant"
+                and fact.coverage_status == "complete"
+                and fact.capacity.isdecimal()
+                and int(fact.capacity) > 0
+            ):
+                invariants.append(
+                    InvariantCandidate(
+                        candidate_id=stable_identifier("invariant", {"fact_id": fact.fact_id, "capacity": fact.capacity,
+                            **submit_context(fact, context)}),
+                        family_id=family_id,
+                        dimension="held_instances",
+                        scope="task_queue",
+                        upper_bound=int(fact.capacity),
+                        initial_holds=True,
+                        transitions_preserve=True,
+                        covers_writers=True,
+                        atomic=True,
+                        source_kind="static_verified",
+                        assumptions=("exact java.util.concurrent bounded queue implementation",),
+                        evidence_ids=(fact.fact_id,),
+                        executor_contract_id=queue_contract_id(fact, holder_id, context),
+                        writer_holder_id=holder_id,
+                        writer_target_event_id=queue_event_id(fact, context),
+                    )
                 )
-            )
 
     dispatch_facts = tuple(item for item in rows if item.fact_kind == "dispatch")
+    normalized_dispatches = tuple(item for item in normalized if item[0].fact_kind == "dispatch")
     queue_events_by_id = {
-        queue_event_id(fact): Event(
-            queue_event_id(fact),
+        queue_event_id(fact, context): Event(
+            queue_event_id(fact, context),
             "task_queue",
             fact.target_event,
             "submission accepted",
         )
-        for fact in dispatch_facts
+        for fact, _family, _instance, _holder, context in normalized_dispatches
     }
     has_dispatch = bool(dispatch_facts)
     entry_id = stable_identifier("event", {"unit_id": unit_id, "phase": "entry"})
@@ -856,22 +949,6 @@ def _unit_from_rows(
         for point_id, (callable_id, kind, location) in sorted(point_records.items())
     )
 
-    call_bindings = tuple(
-        CallBinding(
-            stable_identifier("call-binding", {"fact_id": fact.fact_id}),
-            fact.program_point,
-            fact.related_point,
-            fact.site_callable,
-            fact.target_event,
-            fact.binding_index,
-            fact.binding_index,
-            instance_by_key[fact.instance_key][1],
-            fact.relation_depth,
-            (fact.fact_id,),
-        )
-        for fact in rows
-        if fact.fact_kind == "call_binding" and fact.coverage_status == "complete"
-    )
     base_relation_point_ids = {
         point_id
         for fact in rows
@@ -912,15 +989,15 @@ def _unit_from_rows(
     task_exits: list[TaskExit] = []
     task_events: list[Event] = []
     task_dispatch_by_id: dict[str, RawLifecycleFact] = {}
+    task_context_by_id: dict[str, tuple[str, ...]] = {}
     task_point_event_ids: dict[str, dict[str, str]] = {}
     # The task query's parameter capture must agree with the independent base
     # query's exact call chain. A detached depth-two binding is not a witness.
     proven_callable_depths = {
-        (instance_id, unit_id, 0) for _family_id, instance_id in instance_by_key.values()
+        (instance_by_key[key][1], callable_id, len(context))
+        for (key, callable_id), contexts in source_contexts.items()
+        for context in contexts
     }
-    for call in sorted(call_bindings, key=lambda item: (item.context_depth, item.binding_id)):
-        if (call.instance_id, call.caller_callable, call.context_depth - 1) in proven_callable_depths:
-            proven_callable_depths.add((call.instance_id, call.callee_callable, call.context_depth))
     unverified_task_capture_ids = {
         dispatch.fact_id for dispatch in dispatch_facts
         if dispatch.query_name == "resource_lifecycle_task_relations"
@@ -937,14 +1014,15 @@ def _unit_from_rows(
     for dispatch in dispatch_facts:
         if dispatch.query_name == "resource_lifecycle_task_relations":
             capture_instances[(dispatch.program_point, dispatch.target_event)].add(dispatch.instance_key)
-    exit_facts_by_task: dict[tuple[str, str], list[RawLifecycleFact]] = defaultdict(list)
+    exit_facts_by_task: dict[tuple[str, str, int, str], list[RawLifecycleFact]] = defaultdict(list)
     for fact in rows:
         if fact.fact_kind != "task_exit" or fact.coverage_status != "complete":
             continue
-        exit_facts_by_task[(fact.instance_key, fact.target_event)].append(fact)
-    for dispatch in dispatch_facts:
+        exit_facts_by_task[(fact.instance_key, fact.target_event, fact.relation_depth, fact.related_point)].append(fact)
+    for dispatch, _family_id, instance_id, holder_id, context in normalized_dispatches:
         if (
             dispatch.query_name != "resource_lifecycle_task_relations"
+            or context is None
             or dispatch.coverage_status != "complete"
             or dispatch.related_point == "none"
             or dispatch.fact_id in unverified_task_capture_ids
@@ -952,11 +1030,10 @@ def _unit_from_rows(
         ):
             continue
         exit_facts = exit_facts_by_task.get(
-            (dispatch.instance_key, dispatch.target_event), []
+            (dispatch.instance_key, dispatch.target_event, dispatch.relation_depth, dispatch.related_point), []
         )
-        _family_id, instance_id = instance_by_key[dispatch.instance_key]
-        holder_id = task_holder_id(dispatch)
-        contract_id = queue_contract_id(dispatch, holder_id)
+        assert holder_id is not None
+        contract_id = queue_contract_id(dispatch, holder_id, context)
         task_id = stable_identifier(
             "task",
             {
@@ -965,6 +1042,7 @@ def _unit_from_rows(
                 "submit_point": dispatch.program_point,
                 "task_callable": dispatch.target_event,
                 "executor_contract_id": contract_id,
+                "call_context": context,
             },
         )
 
@@ -974,7 +1052,7 @@ def _unit_from_rows(
             )
 
         submit_id = stage_id("submit")
-        queued_id = queue_event_id(dispatch)
+        queued_id = queue_event_id(dispatch, context)
         run_id = stage_id("run")
         normal_exit_id = stage_id("normal_exit")
         exceptional_exit_id = stage_id("exceptional_exit")
@@ -998,7 +1076,7 @@ def _unit_from_rows(
         )
         task_bindings.append(
             TaskBinding(
-                stable_identifier("task-binding", {"fact_id": dispatch.fact_id}),
+                stable_identifier("task-binding", {"fact_id": dispatch.fact_id, "task_id": task_id}),
                 task_id,
                 instance_id,
                 holder_id,
@@ -1015,11 +1093,13 @@ def _unit_from_rows(
             )
         )
         task_dispatch_by_id[task_id] = dispatch
+        task_context_by_id[task_id] = context
         task_relation_facts = tuple(
             fact
             for fact in rows
             if fact.instance_key == dispatch.instance_key
             and fact.target_event == dispatch.target_event
+            and fact.relation_depth == dispatch.relation_depth
             and fact.fact_kind in {"cfg_edge", "release", "task_exit"}
         )
         point_ids = {dispatch.related_point}
@@ -1044,7 +1124,7 @@ def _unit_from_rows(
             event_id = normal_exit_id if kind == "normal" else exceptional_exit_id
             task_exits.append(
                 TaskExit(
-                    stable_identifier("task-exit", {"fact_id": exit_fact.fact_id}),
+                    stable_identifier("task-exit", {"task_id": task_id, "fact_id": exit_fact.fact_id}),
                     task_id,
                     exit_fact.program_point,
                     event_id,
@@ -1073,7 +1153,7 @@ def _unit_from_rows(
                     _effect(create, "unknown_call", family_id, instance_id),
                 ))
             return tuple(output)
-        for fact, family_id, instance_id, holder_id in normalized:
+        for fact, family_id, instance_id, holder_id, context in normalized:
             if fact.site_callable != unit_id:
                 continue
             enabled = fact.normal_path if path_name == "normal" else fact.exceptional_path
@@ -1093,8 +1173,8 @@ def _unit_from_rows(
                         family_id,
                         instance_id,
                         holder_id,
-                        target_event_id=queue_event_id(fact),
-                        contract_id=queue_contract_id(fact, holder_id),
+                        target_event_id=queue_event_id(fact, context),
+                        contract_id=queue_contract_id(fact, holder_id, context),
                     )
                 )
             elif fact.fact_kind == "release":
@@ -1106,8 +1186,8 @@ def _unit_from_rows(
             output.append(_effect(create, "drop", family_id, instance_id, local_holder_by_instance[instance_id]))
         return tuple(output)
 
-    normal_effects = path_effects("normal")
-    transitions = (
+    normal_effects = path_effects("normal") if not has_source_cfg else ()
+    transitions = () if has_source_cfg else ((
         (
             Transition(
                 stable_identifier("transition", {"unit_id": unit_id, "phase": "queue_capture"}),
@@ -1151,12 +1231,13 @@ def _unit_from_rows(
             (),
         ),
     )
+    )
     normalized_by_fact_id = {
         fact.fact_id: (fact, family_id, instance_id, holder_id)
-        for fact, family_id, instance_id, holder_id in normalized
+        for fact, family_id, instance_id, holder_id, _context in normalized
     }
     base_relation_transitions: list[Transition] = []
-    for binding in call_bindings:
+    for binding in () if has_source_cfg else call_bindings:
         base_relation_transitions.append(
             Transition(
                 stable_identifier(
@@ -1171,7 +1252,7 @@ def _unit_from_rows(
                 (),
             )
         )
-    for cfg_fact in rows:
+    for cfg_fact in () if has_source_cfg else rows:
         if (
             cfg_fact.query_name != "resource_lifecycle"
             or cfg_fact.fact_kind != "cfg_edge"
@@ -1243,7 +1324,6 @@ def _unit_from_rows(
         # Entering an exact call suspends its caller until the callee exit.
         cfg_transitions: list[Transition] = []
         scoped_events: dict[str, Event] = {}
-        instance_keys_by_id = {instance: key for key, (_family, instance) in instance_by_key.items()}
         exact_instance_ids = {
             instance.instance_id for instance in instances
             if instance.abstraction == "recent" and instance.identity_confidence == "exact"
@@ -1252,7 +1332,7 @@ def _unit_from_rows(
         # Only the query's complete singleton-finally contract proves the
         # current base-query subset's exact local identity and covered release.
         verified_base_release_ids = {
-            item.fact_id for item, _family, instance_id, _holder in normalized
+            item.fact_id for item, _family, instance_id, _holder, _context in normalized
             if item.query_name == "resource_lifecycle" and item.fact_kind == "release"
             and item.coverage_status == "complete" and instance_id in exact_instance_ids
             and item.site_callable == unit_id
@@ -1260,20 +1340,9 @@ def _unit_from_rows(
             and item.source_evidence == "codeql_close_receiver_local_flow_candidate"
             and item.coverage_note == "singleton_finally_exact_local_release"
         }
-        source_contexts: dict[tuple[str, str], set[tuple[str, ...]]] = defaultdict(set)
-        for instance_key in instance_by_key:
-            source_contexts[(instance_key, unit_id)].add(())
-        expanded_bindings: list[tuple[CallBinding, tuple[str, ...], tuple[str, ...]]] = []
-        for binding in sorted(call_bindings, key=lambda item: (item.context_depth, item.binding_id)):
-            instance_key = instance_keys_by_id[binding.instance_id]
-            for caller_context in sorted(source_contexts[(instance_key, binding.caller_callable)]):
-                callee_context = caller_context + (binding.source_point_id,)
-                source_contexts[(instance_key, binding.callee_callable)].add(callee_context)
-                expanded_bindings.append((binding, caller_context, callee_context))
-
         def source_cfg_event(point_id: str, context: tuple[str, ...]) -> str:
             callable_id = point_records[point_id][0]
-            if callable_id == unit_id:
+            if callable_id == unit_id and not context:
                 return base_point_event_ids[point_id]
             event_id = stable_identifier("event", {
                 "unit_id": unit_id, "program_point": point_id,
@@ -1294,10 +1363,12 @@ def _unit_from_rows(
 
         def cfg_effects(fact: RawLifecycleFact, context: tuple[str, ...]) -> tuple[Effect, ...]:
             effects: list[Effect] = []
-            for item, family_id, instance_id, holder_id in normalized:
+            for item, family_id, instance_id, holder_id, _normalization_context in normalized:
                 if item.query_name != "resource_lifecycle" or item.program_point != fact.program_point:
                     continue
                 if context not in source_contexts[(item.instance_key, item.site_callable)]:
+                    continue
+                if len(context) != item.relation_depth:
                     continue
                 if fact.exceptional_path and not fact.normal_path and fact.source_evidence != "codeql_callable_cfg_exit_after_success":
                     continue
@@ -1336,6 +1407,8 @@ def _unit_from_rows(
             ):
                 continue
             for context in sorted(source_contexts[(fact.instance_key, fact.site_callable)]):
+                if len(context) != fact.relation_depth:
+                    continue
                 sources = [source_cfg_event(fact.program_point, context)]
                 bound_calls = bindings_by_source.get((fact.program_point, context), [])
                 if bound_calls:
@@ -1453,12 +1526,12 @@ def _unit_from_rows(
     for binding in task_bindings:
         dispatch = task_dispatch_by_id[binding.task_id]
         if has_source_cfg and dispatch.program_point in base_point_event_ids:
-            for context in sorted(source_contexts[(dispatch.instance_key, dispatch.site_callable)]):
-                task_transitions.append(task_transition(
-                    binding.task_id, "source_submit_binding",
-                    source_cfg_event(dispatch.program_point, context),
-                    binding.submit_event_id, "internal", dispatch,
-                ))
+            context = task_context_by_id[binding.task_id]
+            task_transitions.append(task_transition(
+                binding.task_id, "source_submit_binding",
+                source_cfg_event(dispatch.program_point, context),
+                binding.submit_event_id, "internal", dispatch,
+            ))
         task_transitions.extend(
             (
                 task_transition(
@@ -1526,6 +1599,7 @@ def _unit_from_rows(
                 and fact.coverage_status == "complete"
                 and fact.instance_key == dispatch.instance_key
                 and fact.target_event == dispatch.target_event
+                and fact.relation_depth == dispatch.relation_depth
             ):
                 attached: list[Effect] = []
                 for effect_fact, family_id, instance_id, holder_id in normalized_by_fact_id.values():
@@ -1573,6 +1647,7 @@ def _unit_from_rows(
                                 and terminal.instance_key == fact.instance_key
                                 and terminal.site_callable == fact.site_callable
                                 and terminal.target_event == fact.target_event
+                                and terminal.relation_depth == fact.relation_depth
                                 and terminal.location == fact.location
                                 and terminal.site_start_column == fact.site_start_column
                                 for terminal in rows
@@ -1596,6 +1671,7 @@ def _unit_from_rows(
                                     {
                                         "fact_id": effect_fact.fact_id,
                                         "cfg_fact_id": fact.fact_id,
+                                        "task_id": binding.task_id,
                                     },
                                 ),
                             )
@@ -1636,8 +1712,7 @@ def _unit_from_rows(
     )
     executor_contracts_by_id: dict[str, ExecutorContract] = {}
     invariant_facts = tuple(item for item in rows if item.fact_kind == "invariant")
-    normalized_dispatches = tuple(item for item in normalized if item[0].fact_kind == "dispatch")
-    for dispatch_fact, _family_id, _instance_id, dispatch_holder_id in normalized_dispatches:
+    for dispatch_fact, _family_id, _instance_id, dispatch_holder_id, context in normalized_dispatches:
         if dispatch_holder_id is None:
             raise ValueError("static dispatch queue identity is invalid")
         numeric_capacity = (
@@ -1645,7 +1720,7 @@ def _unit_from_rows(
             if dispatch_fact.capacity.isdecimal() and int(dispatch_fact.capacity) > 0
             else None
         )
-        contract_id = queue_contract_id(dispatch_fact, dispatch_holder_id)
+        contract_id = queue_contract_id(dispatch_fact, dispatch_holder_id, context)
         matching_invariant = any(
             invariant.instance_key == dispatch_fact.instance_key
             and invariant.holder_kind == dispatch_fact.holder_kind
@@ -1731,25 +1806,31 @@ def _unit_from_rows(
             dimension,
             family_id,
             queue_result_scope(
-                queue_contract_id(item, holder_id), holder_id, queue_event_id(item)
+                queue_contract_id(item, holder_id, context), holder_id, queue_event_id(item, context)
             )
             if item.fact_kind in {"dispatch", "invariant"} and holder_id is not None
             else "*",
             item.coverage_note,
             item.fact_id,
         )
-        for item, family_id, _instance_id, holder_id in normalized
+        for item, family_id, _instance_id, holder_id, context in normalized
         if item.coverage_status != "complete"
         for dimension in dimensions_by_fact_kind[item.fact_kind]
         if dimension != "close_obligation" or item.requires_close
     }
+    for item in rows:
+        for reason in context_gap_reasons.get(item.fact_id, ()):
+            family_id, _instance_id = instance_by_key[item.instance_key]
+            for dimension in dimensions_by_fact_kind["call_binding"]:
+                if dimension != "close_obligation" or item.requires_close:
+                    coverage_gaps.add((dimension, family_id, "*", reason, item.fact_id))
     if static_source_unit and not has_source_cfg:
         for create in creates:
             family_id, _instance_id = instance_by_key[create.instance_key]
             for dimension in dimensions_by_fact_kind["create"]:
                 if dimension != "close_obligation" or create.requires_close:
                     coverage_gaps.add((dimension, family_id, "*", "callable_cfg_unavailable", create.fact_id))
-    for item, family_id, _instance_id, _holder_id in normalized:
+    for item, family_id, _instance_id, _holder_id, _context in normalized:
         if ((static_source_unit or has_source_cfg) and item.query_name == "resource_lifecycle"
                 and item.fact_kind == "release" and item.coverage_status == "complete"
                 and item.fact_id not in verified_base_release_ids):
@@ -1766,7 +1847,7 @@ def _unit_from_rows(
             for transition in transitions for effect in transition.effects
         ):
             coverage_gaps.add(("close_obligation", family_id, "*", "task_release_cfg_attachment_unavailable", item.fact_id))
-    for item, family_id, _instance_id, holder_id in normalized:
+    for item, family_id, _instance_id, holder_id, _context in normalized:
         if (
             item.fact_kind == "retain"
             and item.holder_kind == "field"
@@ -1783,9 +1864,8 @@ def _unit_from_rows(
                     item.fact_id,
                 )
             )
-    for item in rows:
+    for item, family_id, _instance_id, holder_id, context in normalized_dispatches:
         if item.fact_kind == "dispatch":
-            family_id, _instance_id = instance_by_key[item.instance_key]
             if item.fact_id in unverified_task_capture_ids:
                 for dimension in dimensions_by_fact_kind["unknown_call"]:
                     if dimension != "close_obligation" or item.requires_close:
@@ -1801,14 +1881,14 @@ def _unit_from_rows(
                     if dimension != "close_obligation" or item.requires_close:
                         coverage_gaps.add((dimension, family_id, "*", "multiple_resource_task_capture_unmodeled", item.fact_id))
             if item.query_name == "resource_lifecycle_task_relations" and not exit_facts_by_task.get(
-                (item.instance_key, item.target_event)
+                (item.instance_key, item.target_event, item.relation_depth, item.related_point)
             ):
                 for dimension in dimensions_by_fact_kind["task_exit"]:
                     if dimension != "close_obligation" or item.requires_close:
                         coverage_gaps.add((dimension, family_id, "*", "task_exit_coverage_unavailable", item.fact_id))
-            holder_id = task_holder_id(item)
+            assert holder_id is not None
             scope = queue_result_scope(
-                queue_contract_id(item, holder_id), holder_id, queue_event_id(item)
+                queue_contract_id(item, holder_id, context), holder_id, queue_event_id(item, context)
             )
             if item.requires_close:
                 coverage_gaps.add(
@@ -2127,6 +2207,7 @@ def _fact_semantic(fact: RawLifecycleFact, *, legacy: bool = False) -> dict[str,
                 "related_file": fact.related_location.path,
                 "related_start_line": fact.related_location.start_line,
                 "related_start_column": fact.related_start_column,
+                "related_location": asdict(fact.related_location),
                 "relation_depth": fact.relation_depth,
                 "binding_index": fact.binding_index,
                 "core_workers": fact.core_workers,
@@ -2431,7 +2512,11 @@ def validate_extracted(extracted: ExtractedFacts) -> ExtractedFacts:
     else:
         raise ValueError("static facts extractor identity is invalid")
     for fact in extracted.facts:
-        if fact.location.source_kind != "static_verified" or fact.location.extractor_version != extracted.extractor_version:
+        if any(
+            location.source_kind != "static_verified"
+            or location.extractor_version != extracted.extractor_version
+            for location in (fact.location, fact.related_location)
+        ):
             raise ValueError("static fact source metadata is invalid")
         if query_digests.get(fact.query_name) != fact.query_sha256:
             raise ValueError("static fact row query provenance is inconsistent")
