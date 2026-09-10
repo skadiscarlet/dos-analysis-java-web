@@ -724,6 +724,7 @@ class ResourceState:
     peak_held_counts: tuple[tuple[str, int | None], ...] = ()
     repeated_instances: frozenset[str] = frozenset()
     unknown_reasons: tuple[str, ...] = ()
+    task_phases: frozenset[tuple[str, str]] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -761,6 +762,12 @@ class AnalysisResult:
     unknown_reasons: tuple[str, ...]
     lifecycle_statuses: tuple[str, ...]
     steps: int
+    property_states: dict[str, dict[str, ResourceState]] = field(default_factory=dict)
+    async_states: dict[str, dict[str, ResourceState]] = field(default_factory=dict)
+    async_traces: dict[str, Trace] = field(default_factory=dict)
+    termination_guaranteed: bool = False
+    property_traces: dict[str, dict[str, Trace]] = field(default_factory=dict)
+    async_origins: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

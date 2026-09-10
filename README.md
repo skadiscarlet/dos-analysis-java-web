@@ -27,9 +27,11 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-## Resource Lifecycle v1 离线工作流
+## Resource Lifecycle v1.1 离线工作流
 
 Resource Lifecycle v1 是并行的离线状态分析链，不修改现有 P0 schema/tool `2.5/0.4.0`，也不把 lifecycle property 映射为 vulnerability 布尔量。干净 checkout 不需要 API key 或网络即可运行仓库内人工 IR、重放证据并重新生成固定评价：
+
+v1.1 Task4 将真实 TaskBinding、逐步 callback CFG 与 caller continuation 放入同一主求解工作列表。`lifecycle-results.json` 的 `property_states` / `property_traces` 区分 request 返回、task 正常/异常终止、拒绝/取消和 request 返回后已提交任务均终止的状态；条件维度使用 `after_task_termination:<task_id>:<kind>` 等 scope。`termination_guaranteed=false` 表示未证明任务最终一定结束。缺 TaskBinding 的旧 dispatch 只保存 capture 和 unknown，不能由 executor 的 termination 字段生成已完成状态。当前 G1–G3 pass、G4–G8 fail；不具备 q/a 重复接纳归纳证明。
 
 ```bash
 dos-web-analyzer resource-extract \
@@ -78,6 +80,14 @@ dos-web-analyzer resource-analyze \
 `resource-analyze` 写出 `facts.snapshot.json`、`run-manifest.json`、`lifecycle-results.json`、`evidence.json` 和 `summary.md`。replay 模式还写出 owner-only `0600` 的 `llm-recording.private.json` 与 `llm-summaries.json`；它们可能包含局部源码摘要，不属于可公开评价报告。recording identity 绑定目标 unknown call、源码路径/行/列、caller 文件 SHA、完整 Java source snapshot SHA、canonical exact callee、model、contract 和 budget。当前 CodeQL adapter 尚未提取与 caller executable Effect 分离的 callee-summary witness，因此已验证的同位 `create`/`retain`/`dispatch` 仅保留为 audit/display，并以 `llm_proposed_effect_already_static` 阻止重复执行；它不会增强生产 solver。`drop`/`release` 永不作为消除或有界证明。`--llm live` 明确未实现并会拒绝运行。复用同一个 `--out` 时，工具只清理自身已知的 mode-specific/stale artifact 并保留未知用户文件；已知 artifact 若被替换成 symlink 或目录则在改写旧 run 前 fail closed。
 
 `resource-replay` 校验 facts、完整 source snapshot、extractor、contract、tool、budget、私有 recording/summary 权限与 identity，并重新计算 result、evidence 和 `summary.md`。已跟踪评价报告位于 `reports/lifecycle-v1/`；状态语义和准确支持边界见 `docs/analysis-semantics.md` 与 `docs/limitations.md`。
+
+Task4 状态/CLI/replay 回归和真实离线 Java 验收：
+
+```bash
+python3 -m pytest -q tests/test_resource_lifecycle_async_solver.py tests/test_resource_lifecycle_solver.py tests/test_resource_lifecycle_cli.py tests/test_resource_lifecycle_replay.py
+DOSWEB_RUN_CODEQL_FIXTURES=1 DOSWEB_TASK4_FACTS_OUT=/tmp/lifecycle-task4-facts.json python3 -m pytest -q tests/test_resource_lifecycle_codeql.py::ResourceLifecycleCodeqlFixtureTests::test_v1_1_source_relations_are_extracted_from_java
+DOSWEB_TASK4_CACHED_FACTS=/tmp/lifecycle-task4-facts.json python3 -m pytest -q tests/test_resource_lifecycle_async_solver.py -k cached
+```
 
 
 ## Analysis model

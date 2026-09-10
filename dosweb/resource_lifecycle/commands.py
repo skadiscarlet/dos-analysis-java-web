@@ -33,7 +33,6 @@ from dosweb.resource_lifecycle.invariants import (
     check_invariants,
     queue_result_scope,
 )
-from dosweb.resource_lifecycle.events import expand_dispatch
 from dosweb.resource_lifecycle.io import (
     atomic_write_json,
     atomic_write_text,
@@ -47,7 +46,7 @@ from dosweb.resource_lifecycle.io import (
     state_to_dict,
 )
 from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult, SCHEMA_VERSION
-from dosweb.resource_lifecycle.solver import apply_effect, initial_state, solve
+from dosweb.resource_lifecycle.solver import merge_states, solve
 from dosweb.resource_lifecycle.summaries import (
     AppliedSummaries,
     SummaryRecording,
@@ -384,92 +383,54 @@ def resource_extract(values: Mapping[str, object]) -> dict[str, object]:
 
 
 def _async_stages(unit: AnalysisUnit, analysis: AnalysisResult) -> list[dict[str, object]]:
-    event_states = analysis.event_states
-    contracts = {contract.contract_id: contract for contract in unit.executor_contracts}
-    stages: list[dict[str, object]] = []
-    for transition in sorted(unit.program.transitions, key=lambda item: item.transition_id):
-        if not any(effect.kind == "dispatch" for effect in transition.effects):
+    """Serialize solver snapshots; no effect replay or completion inference."""
+    contracts = {item.contract_id: item for item in unit.executor_contracts}
+    bindings = {item.task_id: item for item in unit.program.task_bindings}
+    transitions = {item.transition_id: item for item in unit.program.transitions}
+    dispatches = {effect.effect_id: (transition, index, effect)
+                  for transition in unit.program.transitions
+                  for index, effect in enumerate(transition.effects) if effect.kind == "dispatch"}
+    stages = []
+    for identity, snapshots in sorted(analysis.async_states.items()):
+        binding = bindings.get(identity)
+        dispatch = dispatches.get(identity)
+        if binding is not None:
+            transition = transitions[analysis.async_origins[identity]]
+            index, effect = None, None
+            contract_id = binding.executor_contract_id
+            target = binding.run_event_id
+        elif dispatch is not None:
+            transition, index, effect = dispatch
+            contract_id, target = effect.contract_id, effect.target_event_id
+        else:
             continue
-        source_state = event_states.get(transition.source_event_id)
-        if source_state is None:
-            source_state = replace(
-                initial_state(unit.program),
-                unknown_reasons=(f"dispatch_source_state_missing:{transition.transition_id}",),
-            )
-        replay_state = source_state
-        prefix_rule_ids: list[str] = []
-        prefix_evidence_ids: set[str] = set()
-        prefix_rule_dependencies: set[tuple[str, str]] = set()
-        for index, effect in enumerate(transition.effects):
-            if effect.kind != "dispatch":
-                applied = apply_effect(replay_state, effect)
-                replay_state = applied.state
-                prefix_rule_ids.extend(applied.rule_ids)
-                prefix_evidence_ids.update(applied.evidence_ids)
-                prefix_rule_dependencies.update(
-                    (rule_id, evidence_id)
-                    for rule_id in applied.rule_ids
-                    for evidence_id in applied.evidence_ids
-                )
-                continue
-            contract = contracts.get(effect.contract_id or "")
-            trusted = contract is not None and contract.source_kind in {
-                "static_verified",
-                "trusted_contract",
-                "manual_fixture",
-            }
-            expansion = expand_dispatch(replay_state, effect, contract if trusted else None)
-            stage_identity = {
-                "unit_id": unit.unit_id,
-                "transition_id": transition.transition_id,
-                "effect_index": index,
-                "dispatch_effect_id": effect.effect_id,
-            }
-            dispatch_rule_dependencies = {
-                (rule_id, evidence_id)
-                for rule_id in expansion.rule_ids
-                for evidence_id in expansion.evidence_ids
-            }
-            rule_ids = tuple(dict.fromkeys((*prefix_rule_ids, *expansion.rule_ids)))
-            rule_dependencies = prefix_rule_dependencies.union(
-                dispatch_rule_dependencies
-            )
-            stages.append(
-                {
-                    "stage_id": stable_identifier("async-stage", stage_identity),
-                    "transition_id": transition.transition_id,
-                    "effect_index": index,
-                    "dispatch_effect_id": effect.effect_id,
-                    "source_event_id": transition.source_event_id,
-                    "target_event_id": effect.target_event_id,
-                    "contract_id": effect.contract_id,
-                    "contract_source_kind": contract.source_kind if contract is not None else None,
-                    "contract_status": (
-                        "trusted" if trusted else "untrusted" if contract is not None else "missing"
-                    ),
-                    "prefix_effect_ids": [item.effect_id for item in transition.effects[:index]],
-                    "submitted": state_to_dict(expansion.submitted),
-                    "started": state_to_dict(expansion.started),
-                    "completed": state_to_dict(expansion.completed),
-                    "rejected": state_to_dict(expansion.rejected),
-                    "cancelled": state_to_dict(expansion.cancelled),
-                    "rule_ids": list(rule_ids),
-                    "prefix_rule_ids": list(dict.fromkeys(prefix_rule_ids)),
-                    "rule_dependencies": [
-                        list(item) for item in sorted(rule_dependencies)
-                    ],
-                    "evidence_ids": sorted(prefix_evidence_ids.union(expansion.evidence_ids)),
-                }
-            )
-            applied_dispatch = apply_effect(replay_state, effect)
-            replay_state = applied_dispatch.state
-            prefix_rule_ids.extend(applied_dispatch.rule_ids)
-            prefix_evidence_ids.update(applied_dispatch.evidence_ids)
-            prefix_rule_dependencies.update(
-                (rule_id, evidence_id)
-                for rule_id in applied_dispatch.rule_ids
-                for evidence_id in applied_dispatch.evidence_ids
-            )
+        contract = contracts.get(contract_id or "")
+        trace = analysis.async_traces[identity]
+        states = {phase: state_to_dict(state) for phase, state in sorted(snapshots.items())}
+        completed = [snapshots[phase] for phase in ("normal", "exceptional") if phase in snapshots]
+        stages.append({
+            "stage_id": stable_identifier("async-stage", {"unit_id": unit.unit_id, "identity": identity}),
+            "task_id": binding.task_id if binding is not None else None,
+            "transition_id": transition.transition_id,
+            "effect_index": index,
+            "dispatch_effect_id": effect.effect_id if effect is not None else None,
+            "source_event_id": transition.source_event_id,
+            "target_event_id": target,
+            "contract_id": contract_id,
+            "contract_source_kind": contract.source_kind if contract is not None else None,
+            "contract_status": "missing" if contract is None else (
+                "untrusted" if contract.source_kind == "llm_proposed" else "trusted"),
+            "prefix_effect_ids": [item.effect_id for item in transition.effects[:index]] if index is not None else [],
+            **{phase: states.get(phase) for phase in ("submitted", "started", "normal", "exceptional", "rejected", "cancelled")},
+            "completed": state_to_dict(merge_states(completed)) if completed else None,
+            "property_slice": "after_task_termination",
+            "termination_guaranteed": False,
+            "unresolved_phases": [phase for phase in ("started", "normal", "exceptional", "rejected", "cancelled") if phase not in states],
+            "rule_ids": list(trace.rule_ids),
+            "prefix_rule_ids": [],
+            "rule_dependencies": [list(item) for item in trace.rule_dependencies],
+            "evidence_ids": list(trace.evidence_ids),
+        })
     return stages
 
 
@@ -493,6 +454,16 @@ def _analyze_payload(
             {
                 "unit_id": unit.unit_id,
                 "terminated": analysis.terminated,
+                "termination_guaranteed": analysis.termination_guaranteed,
+                "property_slice": "all_modeled_exits",
+                "property_states": {
+                    scope: {event_id: state_to_dict(state) for event_id, state in sorted(states.items())}
+                    for scope, states in sorted(analysis.property_states.items())
+                },
+                "property_traces": {
+                    scope: {event_id: asdict(trace) for event_id, trace in sorted(traces.items())}
+                    for scope, traces in sorted(analysis.property_traces.items())
+                },
                 "steps": analysis.steps,
                 "unknown_reasons": list(analysis.unknown_reasons),
                 "lifecycle_statuses": dimension_statuses,
@@ -520,6 +491,7 @@ def _analyze_payload(
                         ],
                         "peak_held_counts": [list(item) for item in state.peak_held_counts],
                         "unknown_reasons": list(state.unknown_reasons),
+                        "task_phases": [list(item) for item in sorted(state.task_phases)],
                     }
                     for event_id, state in sorted(analysis.exit_states.items())
                 },
@@ -566,6 +538,13 @@ def _evidence_payload(
                 instance.instance_id,
                 {"kind": "abstract_instance", **asdict(instance)},
             )
+        for relation in (*source_unit.program.task_bindings, *source_unit.program.task_exits):
+            for evidence_id in relation.evidence_ids:
+                facts.setdefault(evidence_id, {"kind": "task_relation_evidence", **asdict(relation)})
+        for transition in source_unit.program.transitions:
+            for population in transition.population_effects:
+                for evidence_id in population.evidence_ids:
+                    facts.setdefault(evidence_id, {"kind": "population_effect_evidence", **asdict(population)})
         for candidate in source_unit.invariants:
             for evidence_id in candidate.evidence_ids:
                 facts.setdefault(
@@ -610,7 +589,8 @@ def _evidence_payload(
                 if not isinstance(stage, Mapping):
                     continue
                 dispatch_effect = effects_by_id.get(str(stage.get("dispatch_effect_id") or ""))
-                if dispatch_effect is None:
+                binding = next((item for item in source_unit.program.task_bindings if item.task_id == stage.get("task_id")), None)
+                if dispatch_effect is None and binding is None:
                     continue
                 evidence_ids = tuple(
                     sorted(
@@ -647,21 +627,25 @@ def _evidence_payload(
                     raise ValueError("async stage evidence dependencies are incomplete")
                 conclusions = {
                     phase: dict(stage[phase])
-                    for phase in ("submitted", "started", "completed", "rejected", "cancelled")
+                    for phase in ("submitted", "started", "normal", "exceptional", "completed", "rejected", "cancelled")
                     if isinstance(stage.get(phase), Mapping)
                 }
                 derivation_body = {
                     "unit_id": unit_id,
                     "stage_id": stage.get("stage_id"),
                     "transition_id": stage.get("transition_id"),
-                    "dispatch_effect_id": dispatch_effect.effect_id,
+                    "dispatch_effect_id": dispatch_effect.effect_id if dispatch_effect is not None else None,
+                    "task_id": binding.task_id if binding is not None else None,
                     "contract_id": stage.get("contract_id"),
                     "contract_status": stage.get("contract_status"),
                     "target_event_id": stage.get("target_event_id"),
                     "rule_ids": list(rule_ids),
                     "evidence_ids": list(evidence_ids),
                     "conclusions": conclusions,
-                    "code_locations": [asdict(dispatch_effect.location)],
+                    "code_locations": ([asdict(dispatch_effect.location)] if dispatch_effect is not None else
+                        [asdict(point.location) for point in source_unit.program.program_points
+                         if any(item.task_id == binding.task_id and item.point_id == point.point_id
+                                for item in source_unit.program.task_exits)]),
                 }
                 derivation_id = hashlib.sha256(canonical_json(derivation_body)).hexdigest()
                 async_derivations.append(
@@ -886,8 +870,8 @@ def _evidence_payload(
             {
                 "rule_id": item,
                 "implementation": (
-                    "resource_lifecycle.events.expand_dispatch"
-                    if item in async_rules
+                    "resource_lifecycle.solver._task_step"
+                    if item.startswith("task_") or item == "dispatch_capture_on_accept"
                     else "resource_lifecycle.solver.apply_effect"
                 ),
             }

@@ -1333,7 +1333,7 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         self.assertTrue(replay["consistent"])
         self.assertEqual(results["result_sha256"], replay["recomputed_result_sha256"])
 
-    def test_manual_async_contract_emits_five_complete_production_stages(self) -> None:
+    def test_manual_dispatch_without_task_binding_only_emits_solved_capture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             facts = root / "facts"
@@ -1394,30 +1394,25 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             "peak_held_counts",
             "repeated_instances",
             "unknown_reasons",
+            "task_phases",
         }
-        for phase in ("submitted", "started", "completed", "rejected", "cancelled"):
+        for phase in ("submitted",):
             self.assertEqual(expected_state_fields, set(stage[phase]))
             self.assertIn("instance:stream", stage[phase]["open_obligations"])
         task_edge = ["instance:stream", "holder:task"]
         self.assertIn(task_edge, stage["submitted"]["held_edges"])
-        self.assertIn(task_edge, stage["started"]["held_edges"])
-        self.assertNotIn(task_edge, stage["completed"]["held_edges"])
-        self.assertNotIn(task_edge, stage["rejected"]["held_edges"])
-        self.assertNotIn(task_edge, stage["cancelled"]["held_edges"])
-        self.assertIn("task_completion_drops_capture", stage["rule_ids"])
+        for phase in ("started", "completed", "rejected", "cancelled"):
+            self.assertIsNone(stage[phase])
+        self.assertFalse(stage["termination_guaranteed"])
+        self.assertIn("task_binding_unavailable:effect:dispatch:task", stage["submitted"]["unknown_reasons"])
+        self.assertNotIn("task_completion_drops_capture", stage["rule_ids"])
         self.assertIn("create_instance", stage["rule_ids"])
         self.assertIn("retain_holder_edge", stage["rule_ids"])
         self.assertEqual(
             {
                 ("create_instance", "fact:create"),
                 ("retain_holder_edge", "fact:retain"),
-                ("dispatch_capture_on_accept", "fact:dispatch"),
-                ("task_dequeue_is_phase_change", "fact:dispatch"),
-                ("task_completion_drops_capture", "fact:dispatch"),
-                ("task_rejection_does_not_capture", "fact:dispatch"),
-                ("task_rejection_abort_does_not_capture", "fact:dispatch"),
-                ("task_cancel_drops_capture", "fact:dispatch"),
-                ("queued_execution_contract", "fact:dispatch"),
+                ("dispatch_capture_on_contract", "fact:dispatch"),
             },
             {tuple(item) for item in stage["rule_dependencies"]},
         )
@@ -1460,23 +1455,12 @@ class ResourceLifecycleCliTests(unittest.TestCase):
                 ][0]
 
                 self.assertEqual(expected_status, stage["contract_status"])
-                for phase in ("submitted", "started", "completed", "rejected", "cancelled"):
-                    self.assertIn(task_edge, stage[phase]["held_edges"])
-                    self.assertTrue(stage[phase]["unknown_reasons"])
-                self.assertIn(
-                    "completion_contract_unknown:contract:manual-executor",
-                    stage["completed"]["unknown_reasons"],
-                )
-                self.assertIn(
-                    "rejection_contract_unknown:contract:manual-executor",
-                    stage["rejected"]["unknown_reasons"],
-                )
-                self.assertIn(
-                    "cancel_contract_unknown:contract:manual-executor",
-                    stage["cancelled"]["unknown_reasons"],
-                )
+                self.assertIn(task_edge, stage["submitted"]["held_edges"])
+                self.assertIn("task_binding_unavailable:effect:dispatch:task", stage["submitted"]["unknown_reasons"])
+                for phase in ("started", "completed", "rejected", "cancelled"):
+                    self.assertIsNone(stage[phase])
 
-    def test_explicit_trusted_contract_drops_only_task_capture(self) -> None:
+    def test_explicit_trusted_contract_cannot_replace_a_task_binding_and_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             facts = root / "facts"
@@ -1517,10 +1501,11 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         stage = results["units"][0]["async_stages"][0]
         task_edge = ["instance:stream", "holder:task"]
         self.assertEqual("trusted_contract", stage["contract_source_kind"])
-        self.assertNotIn(task_edge, stage["completed"]["held_edges"])
-        self.assertNotIn(task_edge, stage["cancelled"]["held_edges"])
-        self.assertIn("instance:stream", stage["completed"]["open_obligations"])
-        self.assertIn("instance:stream", stage["cancelled"]["open_obligations"])
+        self.assertIsNone(stage["completed"])
+        self.assertIsNone(stage["cancelled"])
+        self.assertIn(task_edge, stage["submitted"]["held_edges"])
+        self.assertIn("instance:stream", stage["submitted"]["open_obligations"])
+        self.assertIn("task_binding_unavailable:effect:dispatch:task", results["units"][0]["unknown_reasons"])
 
     def test_tracked_manual_manifest_is_a_runnable_offline_chain(self) -> None:
         manifest = Path("tests/fixtures/resource_lifecycle/manual-manifest.json")

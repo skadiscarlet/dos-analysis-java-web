@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from dosweb.resource_lifecycle.contracts import ExecutorContract
@@ -79,7 +79,7 @@ def _analysis_precision_reasons(result: AnalysisResult) -> tuple[str, ...]:
         sorted(
             reason
             for reason in result.unknown_reasons
-            if reason.startswith(("analysis_budget", "solver_timeout", "widening:", "exit_state_", "unknown_call:", "dispatch_contract_", "dispatch_identity_", "holder_scope_identity_unknown:", "weak_update:", "untrusted_negative_effect:", "conditional_negative_effect:", "repeated_abstract_instance:"))
+            if reason.startswith(("analysis_budget", "solver_timeout", "iteration_limit:", "exit_state_", "unknown_call:", "dispatch_contract_", "dispatch_identity_", "holder_scope_identity_unknown:", "weak_update:", "untrusted_negative_effect:", "conditional_negative_effect:", "repeated_abstract_instance:"))
         )
     )
     return relevant
@@ -387,6 +387,15 @@ def check_invariants(
     holders = {item.holder_id: item for item in program.holders}
     for resource in sorted(program.families, key=lambda item: item.family_id):
         precision_evidence = _precision_evidence(program, precision_reasons, resource.family_id)
+        family_instances = {item.instance_id for item in program.instances if item.family_id == resource.family_id}
+        relevant_tasks = [item for item in program.task_bindings if item.instance_id in family_instances]
+        relevant_dispatches = [effect for transition in program.transitions for effect in transition.effects
+                               if effect.kind == "dispatch" and effect.instance_id in family_instances]
+        temporal_reasons = tuple(reason for reason in result.unknown_reasons if
+            reason.startswith("task_") and any(reason.endswith(item.task_id) for item in relevant_tasks)
+            or reason.startswith("task_binding_unavailable:") and any(reason.endswith(item.effect_id) for item in relevant_dispatches))
+        temporal_evidence = tuple(sorted({evidence for item in relevant_tasks for evidence in item.evidence_ids}
+                                        | {evidence for item in relevant_dispatches for evidence in item.evidence_ids}))
         if resource.allocation.source_kind == "llm_proposed":
             output.extend(
                 _unknown(dimension, scope, ("untrusted_resource_family",), (resource.family_id,), resource.family_id)
@@ -460,7 +469,7 @@ def check_invariants(
             count_coverage, count_evidence = _coverage_details(
                 program, "held_instances", resource.family_id
             )
-            count_reasons = tuple(sorted(set(precision_reasons).union(count_coverage)))
+            count_reasons = tuple(sorted(set(precision_reasons).union(count_coverage, temporal_reasons)))
             held = any(
                 dict(state.instance_families).get(instance_id) == resource.family_id
                 for state in result.exit_states.values()
@@ -470,7 +479,7 @@ def check_invariants(
                 output.append(DimensionResult("held_instances", "all_exits", "bounded", 0, evidence_ids=(), resource_family_id=resource.family_id))
             else:
                 reasons = count_reasons or (("no_verified_count_invariant",) if held else ("coverage_incomplete",))
-                held_evidence = set(count_evidence).union(precision_evidence)
+                held_evidence = set(count_evidence).union(precision_evidence, temporal_evidence)
                 if held:
                     held_evidence.update(
                         _family_effect_evidence(program, resource.family_id, frozenset({"retain", "dispatch"}))
@@ -532,7 +541,7 @@ def check_invariants(
         close_coverage, close_evidence = _coverage_details(
             program, "close_obligation", resource.family_id
         )
-        close_reasons = tuple(sorted(set(precision_reasons).union(close_coverage)))
+        close_reasons = tuple(sorted(set(precision_reasons).union(close_coverage, temporal_reasons)))
         if not resource.requires_close:
             output.append(DimensionResult("close_obligation", "all_exits", "not_applicable", 0, resource_family_id=resource.family_id))
         elif close_reasons:
@@ -541,7 +550,7 @@ def check_invariants(
                     "close_obligation",
                     "all_exits",
                     close_reasons,
-                    tuple(sorted(set(close_evidence).union(precision_evidence))),
+                    tuple(sorted(set(close_evidence).union(precision_evidence, temporal_evidence))),
                     resource.family_id,
                 )
             )
@@ -559,4 +568,35 @@ def check_invariants(
             )
         else:
             output.append(DimensionResult("close_obligation", "all_exits", "bounded", 0, evidence_ids=tuple(sorted(family_instances)), resource_family_id=resource.family_id))
+    # Conditional exit properties use states saved by the same main worklist.
+    # Liveness/cancel/rejection gaps remain on the overall result, while solver
+    # precision and source coverage gaps still apply to these conditional slices.
+    if result.property_states:
+        task_exit_by_event = {item.event_id: item for item in program.task_exits}
+        bindings = {item.task_id: item for item in program.task_bindings}
+        for slice_name, exit_states in result.property_states.items():
+            if slice_name not in {"after_task_termination", "all_tasks_terminated_after_request"}:
+                continue
+            for event_id, state in sorted(exit_states.items()):
+                task_exit = task_exit_by_event.get(event_id)
+                sliced = replace(result, exit_states={event_id: state}, property_states={},
+                    unknown_reasons=tuple(reason for reason in result.unknown_reasons
+                        if not reason.startswith(("task_termination_not_guaranteed:", "task_cancellation_unmodeled:",
+                                                  "task_rejection_continuation_unknown:"))))
+                selected = check_invariants(program, sliced, (), timeout_ms=timeout_ms,
+                                            executor_contracts=executor_contracts)
+                scope = slice_name
+                family_id = None
+                if task_exit is not None:
+                    scope += f":{task_exit.task_id}:{task_exit.kind}"
+                    instance_id = bindings[task_exit.task_id].instance_id
+                    family_id = next(item.family_id for item in program.instances if item.instance_id == instance_id)
+                for dimension in selected:
+                    if dimension.dimension == "item_size_bytes" or family_id is not None and dimension.resource_family_id != family_id:
+                        continue
+                    output.append(replace(dimension, scope=scope,
+                        assumptions=dimension.assumptions + ("conditional on reaching the recorded exit slice; termination is not guaranteed",),
+                        evidence_ids=tuple(sorted(set(dimension.evidence_ids) | (
+                            set(task_exit.evidence_ids) | set(bindings[task_exit.task_id].evidence_ids) if task_exit else set()
+                        )))))
     return tuple(output)

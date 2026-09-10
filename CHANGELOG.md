@@ -1,3 +1,11 @@
+## [2026-09-10] Resource lifecycle v1.1 Task 4 main solver
+
+- G3 主求解异步接通：唯一、同 callable 的 `source_submit_binding` 接入 caller/task 控制位置乘积工作列表；排队/直接接纳才 capture，reserved→running 不重复 capture，真实 callback CFG effect 与 TaskExit 之后的 task holder drop 使用共享状态操作。request return 不结束 task，close 不删除 field 引用；重复 task context 保持独立。
+- `exit_states` 保留 request 出口语义；新增 `property_states/property_traces` 明确记录 task normal/exception、拒绝/取消及 request 返回后已提交任务均终止的条件切面。对应 DimensionResult 使用 `after_task_termination:<task_id>:<kind>` 等 scope；缺调度/终止、取消或拒绝回接证据时整体维度按捕获资源族输出 unknown。`_async_stages` 只序列化主求解保存状态，不再执行完成/取消语义；legacy 无 TaskBinding 只保留 conservative capture，后继为 null，不能由 executor termination 标志推导 callback close。
+- 有效 RED：主状态 6 failed、connector 结构 5 failed。源码 SourcePairs 真实双 query→adapter→默认预算 solver 为 1 passed（267.53s），caller 327 steps；normal/exception 两出口关闭义务归零，删除已有 release 后重新为 1。该 fixture 自有 coverage gap，因此条件维度仍 unknown，不算 G4 通过。人工完整 Program 验证关闭维度 bounded→obligation_gap、额外 field holder 和拒绝分支差异；已完成真实缓存 facts→CLI→replay。
+- G1–G3 pass，G4–G8 fail，整体 partial；Task 5 群体归纳证明未实现。每控制配置更新超限命名为 `iteration_limit`，不再假称 widening。P0 schema/tool 2.5/0.4.0、三态与异步 Release 限制不变；本轮不 push。
+- 最终 Task4 定向 `138 passed, 156 subtests`、全 lifecycle `306 passed, 13 skipped, 235 subtests`，均包含真实 SourcePairs 完整 facts→CLI→replay；`compileall`、`git diff --check` 通过。首次真实查询验收为 1 passed；最终 solver 修改由该同批 facts 回放覆盖，没有声称最后实现后重新运行整套真实 query。
+
 ## [2026-09-10] Resource lifecycle v1.1 Task 3 source relations follow-up
 
 - V4 最终关闭 G2/Task 3：fresh quality `Ready: Yes`、Critical/Important/Minor 均无，fresh spec `Spec compliant`。最终非 fixture `285 passed, 13 skipped, 235 subtests passed in 4.79s`；冻结批次既有四项真实全部通过，唯一新测试错误分层记录如下。仅改出口 evidence 集合断言后，RepeatedSubmit 四形态真实 Java→双 query→最终 adapter 为 `1 passed, 18 deselected in 267.94s`（`/tmp/task3-v4-final-repeated.xml`）；两次最终真实运行间 production/fixture 未变。depth1/depth2/mixed/same-depth-prefix 为 2/2/4/4 tasks，stage/holder/invariant/exit/CFG/population 归属保持独立且共享 executor。最终 `compileall`、两对 QL `cmp`、`git diff --check` 通过；整体仍 `partial`，G3–G8 未完成，Task 4 与 push 不启动。

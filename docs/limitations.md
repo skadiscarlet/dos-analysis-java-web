@@ -1,6 +1,10 @@
-# Resource Lifecycle v1 实际限制
+# Resource Lifecycle v1.1 实际限制
 
-下表描述 2026-09-07 分支上的真实实现，不是路线图承诺。
+2026-09-10 Task4 增量：caller 与真实 task CFG 已进入同一主状态工作列表，normal/exception/reject/cancel 切面和条件维度可从保存的状态导出。G1–G3 pass、G4–G8 fail。任务终止后 close/drop 的性质不代表最终一定终止；缺调度/取消/拒绝回接证据仍为 unknown。任务出队不结束 holder，close 不清空其他 field/heap holder，无 holder 不代表 GC 已执行。完整 Program 的人工状态回归与含 coverage gap 的真实 SourcePairs 验收分别计数；后者正常/异常终止状态义务归零仍不能消除 gap 或作为 G4 精确源码收益。
+
+群体 `PopulationEffect` 在主转移中校验 task identity/阶段并保留原始计数语义和证据，但 Task5 的 q/a 归纳证明与重复接纳上界尚未实现。重复 task context 再入、nested task、无法证明的 callback effect、复杂调度和未知 executor 均不扩展支持范围。乘积状态可能增加预算开销；超限准确返回 iteration_limit / analysis_budget_exhausted / solver_timeout。当前无 TaskBinding 的旧 dispatch 不再生成 contract-only 完成快照，未求解阶段为 null。
+
+下表保留 2026-09-07 v1 基线边界；异步主求解的增量和仍未完成的门槛以上述 Task4 说明为准。
 
 | 领域 | 已支持 | 未支持或保守处理 |
 | --- | --- | --- |

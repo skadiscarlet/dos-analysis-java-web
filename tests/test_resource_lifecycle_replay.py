@@ -131,7 +131,7 @@ class ResourceLifecycleReplayTests(unittest.TestCase):
         self.assertRegex(derivation["stage_id"], r"^async-stage:[0-9a-f]{24}$")
         self.assertEqual("effect:dispatch:task", derivation["dispatch_effect_id"])
         self.assertEqual(
-            {"submitted", "started", "completed", "rejected", "cancelled"},
+            {"submitted"},
             set(derivation["conclusions"]),
         )
         self.assertEqual(1, len(derivation["code_locations"]))
@@ -157,7 +157,7 @@ class ResourceLifecycleReplayTests(unittest.TestCase):
         )
         dispatch_rule_ids = async_rule_ids - {"create_instance", "retain_holder_edge"}
         self.assertEqual(
-            {"resource_lifecycle.events.expand_dispatch"},
+            {"resource_lifecycle.solver.apply_effect"},
             {async_rules[rule_id] for rule_id in dispatch_rule_ids},
         )
         dependencies = {
@@ -182,7 +182,7 @@ class ResourceLifecycleReplayTests(unittest.TestCase):
             run = self._async_run(Path(tmp))
             path = run / "lifecycle-results.json"
             value = json.loads(path.read_text(encoding="utf-8"))
-            value["units"][0]["async_stages"][0]["completed"]["held_edges"].append(
+            value["units"][0]["async_stages"][0]["submitted"]["held_edges"].append(
                 ["instance:fabricated", "holder:fabricated"]
             )
             path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")

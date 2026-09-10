@@ -5,8 +5,8 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task3_source_relations_complete`
-- next_action: `Task 4 仅作为后续任务，未启动；不 push`
+- current_stage: `task4_main_solver_complete_pending_review`
+- next_action: `Task 4 fresh spec-quality review；最终测试通过，Task 5 未启动，不 push`
 
 ## 适用标准
 
@@ -68,13 +68,25 @@
 - 双查询/provenance RED 为 `8 failed, 37 deselected`，GREEN 为 `8 passed, 37 deselected, 9 subtests passed`；非真实 fixture contract 为 `39 passed, 6 deselected, 20 subtests passed`；最终源码组合为 `1 passed, 45 deselected in 436.13s`；最终 lifecycle 全量为 `253 passed, 6 skipped, 205 subtests passed`。P0 schema/tool 仍为 `2.5/0.4.0`，resource lifecycle 为 `1.1/resource-lifecycle-v1.1`。
 - Task 3 follow-up 已从真实 `SourcePairs.java` 取得 caller allocation -> wrapper1 -> wrapper2 -> lambda capture -> `finally { resource.close(); }` 的 callback release relation：Task QL 仅对 depth<=2 exact parameter、static-final AbortPolicy executor、单语句 finally 的 captured `AutoCloseable.close()` 输出 complete `release`；release 的 program point 与 `finally block -> close statement` 的 task CFG target 对齐。adapter 只在同 instance、同 lambda target、同 CFG target 的 raw release 上附着 `task_cfg_edge` release effect，不能由 executor completion/termination 推导。RED 为 release row 缺失的 `StopIteration`；GREEN 为定向真实源码 `1 passed, 60 deselected in 263.75s`，最终 lifecycle 为 `264 passed, 10 skipped, 210 subtests passed`、完整真实 CodeQL fixture 为 `61 passed, 26 subtests passed in 1611.28s`。direct Base/Task query run 分别为 2m20.92s / 1m58.66s，均成功。
 
+## Task 4 完成证据（G3 主求解范围）
+
+- 最终验收：`DOSWEB_TASK4_CACHED_FACTS=/tmp/task4-sourcepairs-full-facts.json python3 -m pytest -q tests/test_resource_lifecycle_async_solver.py tests/test_resource_lifecycle_solver.py tests/test_resource_lifecycle_cli.py tests/test_resource_lifecycle_replay.py --junitxml=/tmp/task4-final-focused.xml` 为 `138 passed, 156 subtests passed in 0.90s`；相同 env 下 `python3 -m pytest -q tests/test_resource_lifecycle_*.py --junitxml=/tmp/task4-final-all.xml` 为 `306 passed, 13 skipped, 235 subtests passed in 5.17s`。13 skips 为未再次运行的 opt-in real CodeQL fixture，其单项最终真实运行与最终代码 facts 回放版本范围见下文；没有静默 mock。`python3 -m compileall -q dosweb/resource_lifecycle tests/test_resource_lifecycle_async_solver.py` 与 `git diff --check` exit 0。
+- 起点 `b8cdb0ef88eeb821c07520ea079d0b825b535f10`。主状态 RED 为 `6 failed`（`/tmp/task4-red.xml`）：任务队列缺 capture、正常/异常出口不在主状态结果、close/field/reject/repeated context 无对应切面。新工作列表保留 caller 与逐步 task CFG 的交错，使用 exact state disjuncts；只在报告投影时 join。同步和任务共用 `apply_effect`，不把 callback 当原子块。
+- connector review 的五项反例有效 RED 为 `5 failed`（`/tmp/task4-connectors-red.xml`），当前要求同一 TaskBinding 恰好一条 internal / source_submit_binding / 无 population / 同 caller 的绑定边。缺失、重复、错误 guard/exit/callable 均 scoped unknown；报告从 solver 保存的 origin 读取来源。当前包含缓存源码回放的 Task4 定向为 `21 passed`（`/tmp/task4-connectors-green.xml`）。
+- 真正源码验收：`DOSWEB_RUN_CODEQL_FIXTURES=1 DOSWEB_TASK4_FACTS_OUT=/tmp/task4-sourcepairs-facts.json python3 -m pytest -q tests/test_resource_lifecycle_codeql.py::ResourceLifecycleCodeqlFixtureTests::test_v1_1_source_relations_are_extracted_from_java --junitxml=/tmp/task4-sourcepairs-real.xml` 为 `1 passed in 267.53s`。使用 Task3 原 SourcePairs.java，无源码/QL/adapter 改动；默认 1024 步预算下 caller 实际 327 steps，normal/exception 两个真实出口义务均为 0，删除真实 CFG release 后均为 1。当前最终 solver 对该原始批次的 facts 已完成 CLI/replay 回放，不把此前 query 时的 solver 版本冒充最终版本。
+- 导出测试的首次进程加载旧代码，只保存 caller unit 而 raw facts/coverage 有 4 units，因此完整 validate 正确拒绝；这是测试导出缺陷，不是生产 parser 放宽。修复保存完整 extracted；原始导出保留。`/tmp/task4-rebuild-sourcepairs.py` 从同批 raw facts 经当前 Task3 `_unit_from_rows` 重建完整 4 units，保持 raw/snapshot/coverage 不变，核本地源码 snapshot 并通过 `validate_extracted`。正确副本 `/tmp/task4-sourcepairs-full-facts.json` 的 `resource-analyze` → `resource-replay` 已通过（`/tmp/task4-sourcepairs-replay.xml`，1 passed）。
+- SourcePairs 自身仍含 `task_callback_effect_unmodeled` / `task_terminal_coverage_incomplete` / `async_consumer_contract_unmodeled`，切面状态变化不消除源码 gap，对应 DimensionResult 保持 unknown。人工完整 Program 的 normal/exception close 维度 bounded→obligation_gap、field holder 差异和拒绝/取消/预算反例单独计数，不冒充 G4 源码成对收益。
+- 早期真实 RepeatedSubmit 两 context 缓存完成 7366 steps（显式 max_steps=50000 / max_updates=64 / timeout=15000），独立 2 task 终止、2拒绝与1全部已提交任务终止后 request 切面；默认1024准确 analysis_budget_exhausted。原 pytest-24 临时缓存随后由 pytest 保留策略清理，此条仅为先前观察，不作为持久交付验收。当前持久源码证据为上面的 SourcePairs 原始批次与完整 facts 回放。
+- `_async_stages` 仅序列化主求解的状态/trace；legacy 无 TaskBinding 的旧五阶段 CLI/replay 预期改为“submitted capture + task_binding_unavailable，completed/start/reject/cancel 为 null”，保留正向防伪完成断言。`termination_guaranteed=false` 与条件 scope 分开；仅 task capture 所属 family 接收 temporal unknown，独立同步 family 不退化。显式 phase-matched cancellation 不关闭 resource；无 holder 不声称 GC 已发生。
+- G3 pass 只覆盖上述主状态闭环；G4–G8 fail。没有实现 q/a 初态/转移归纳、重复接纳上界、六组十二源码变体或固定输入传播消融。P0 2.5/0.4.0、formal CodeQL fatal/provenance、旧 P0 async Release 限制未改。
+
 ## G1–G8 当前状态
 
 | Gate | 状态 | 当前证据/缺口 |
 | --- | --- | --- |
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
 | G2 源码关系 | `pass` | I1–I4 与 Minor 完成有效 RED→GREEN；任务与完整调用前缀隔离、depth/budget fail-closed、post-adapter snapshot 复核、related provenance 全字段绑定。最终非 fixture 285 passed；既有四项真实通过，四形态新 fixture 单项真实补验通过；fresh quality Ready Yes、fresh spec compliant。 |
-| G3 主求解异步 | `fail` | `commands._analyze_payload` 先 `solve`，后 `_async_stages` 展示后继 |
+| G3 主求解异步 | `pass` | Task4 main-state/connector RED→GREEN；SourcePairs 真实双 query 后默认预算327 steps；normal/exception release消融改变主切面状态；最终 facts→CLI/replay；人工完整Program维度差异。详见 Task4 证据。 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
 | G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |
 | G6 源码验收 | `fail` | 尚无六组十二变体的真实 CodeQL 验收 |

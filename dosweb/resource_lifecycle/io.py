@@ -286,6 +286,7 @@ def state_to_dict(state: ResourceState) -> dict[str, object]:
         "peak_held_counts": [list(item) for item in state.peak_held_counts],
         "repeated_instances": sorted(state.repeated_instances),
         "unknown_reasons": list(state.unknown_reasons),
+        "task_phases": [list(item) for item in sorted(state.task_phases)],
     }
 
 

@@ -2625,24 +2625,13 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         stage = lifecycle_commands._analyze_payload(validatable)["units"][0]["async_stages"][0]
         task_edge = [dispatch.instance_id, dispatch.holder_id]
         self.assertIn(task_edge, stage["submitted"]["held_edges"])
-        self.assertIn(task_edge, stage["started"]["held_edges"])
-        self.assertIn(task_edge, stage["rejected"]["held_edges"])
-        self.assertIn(task_edge, stage["completed"]["held_edges"])
-        self.assertIn(task_edge, stage["cancelled"]["held_edges"])
+        for phase in ("started", "completed", "rejected", "cancelled"):
+            self.assertIsNone(stage[phase])
         self.assertIn(
-            f"completion_contract_unknown:{dispatch.contract_id}",
-            stage["completed"]["unknown_reasons"],
+            f"task_binding_unavailable:{dispatch.effect_id}",
+            stage["submitted"]["unknown_reasons"],
         )
-        self.assertIn(
-            f"cancel_contract_unknown:{dispatch.contract_id}",
-            stage["cancelled"]["unknown_reasons"],
-        )
-        self.assertIn(
-            f"rejection_policy_conservative:{dispatch.contract_id}:unknown",
-            stage["rejected"]["unknown_reasons"],
-        )
-        for phase in ("submitted", "started", "completed", "rejected", "cancelled"):
-            self.assertIn(dispatch.instance_id, stage[phase]["open_obligations"])
+        self.assertIn(dispatch.instance_id, stage["submitted"]["open_obligations"])
         self.assertEqual(("bounded", 2), (held.lifecycle_status, held.upper_bound))
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -3578,6 +3567,30 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
                 break
             unreleased = expanded
         self.assertTrue(all(exit.event_id not in unreleased for exit in unit.program.task_exits))
+
+        # Task 4: real CFG/capture relations must affect the main solver, using
+        # the default budget. No callback edges or resource mappings are added.
+        analyzed = solve(unit.program, budget=AnalysisBudget())
+        self.assertTrue(analyzed.terminated, analyzed.unknown_reasons)
+        terminated_states = analyzed.property_states["after_task_termination"]
+        self.assertEqual({item.event_id for item in unit.program.task_exits}, set(terminated_states))
+        for state in terminated_states.values():
+            self.assertNotIn(task_binding.instance_id, state.open_obligations)
+            self.assertNotIn((task_binding.instance_id, task_binding.holder_id), state.held_edges)
+        without_release = replace(unit.program, transitions=tuple(
+            replace(edge, effects=tuple(effect for effect in edge.effects if effect.kind != "release"))
+            for edge in unit.program.transitions))
+        missing = solve(without_release, budget=AnalysisBudget())
+        self.assertTrue(missing.terminated, missing.unknown_reasons)
+        for state in missing.property_states["after_task_termination"].values():
+            self.assertIn(task_binding.instance_id, state.open_obligations)
+        output = lifecycle_commands._analyze_payload(replace(extracted, units=(unit,)))
+        self.assertEqual(1, len(output["units"][0]["async_stages"]))
+        self.assertTrue(any(item["scope"].startswith("after_task_termination:")
+                            for item in output["units"][0]["dimensions"]))
+        if os.environ.get("DOSWEB_TASK4_FACTS_OUT"):
+            lifecycle_commands.atomic_write_json(Path(os.environ["DOSWEB_TASK4_FACTS_OUT"]),
+                extracted_to_dict(extracted))
 
 
     def test_v1_1_wrapper_summary_effects_are_extracted_from_java(self) -> None:
