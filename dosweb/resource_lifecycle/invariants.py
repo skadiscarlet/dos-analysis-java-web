@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from dosweb.resource_lifecycle.contracts import ExecutorContract
-from dosweb.resource_lifecycle.models import AnalysisResult, DimensionResult, Program, SOURCE_KINDS, Trace
+from dosweb.resource_lifecycle.models import AnalysisResult, DimensionResult, Program, PropertyPathResult, SOURCE_KINDS
 from dosweb.resource_lifecycle.solver import merge_states
 
 
@@ -581,39 +581,72 @@ def check_invariants(
             groups = ([tuple(sorted(exit_states))] if slice_name == "all_tasks_terminated_after_request" and exit_states
                       else [(event_id,) for event_id in sorted(exit_states)])
             for event_ids in groups:
-                event_id = event_ids[0]
-                state = merge_states(tuple(exit_states[item] for item in event_ids))
-                task_exit = task_exit_by_event.get(event_id) if len(event_ids) == 1 else None
-                traces = [result.property_traces.get(slice_name, {}).get(item, Trace()) for item in event_ids]
-                trace_evidence = {item for trace in traces for item in trace.evidence_ids}
-                transition_ids = tuple(sorted({item for trace in traces for item in trace.transition_ids}))
-                sliced = replace(result, exit_states={event_id: state}, property_states={},
-                    unknown_reasons=tuple(reason for reason in result.unknown_reasons
-                        if not reason.startswith(("task_termination_not_guaranteed:", "task_cancellation_unmodeled:",
-                                                  "task_rejection_continuation_unknown:"))))
-                selected = check_invariants(program, sliced, (), timeout_ms=timeout_ms,
-                                            executor_contracts=executor_contracts)
+                task_exit = task_exit_by_event.get(event_ids[0]) if len(event_ids) == 1 else None
                 scope = slice_name
                 family_id = None
                 if task_exit is not None:
                     scope += f":{task_exit.task_id}:{task_exit.kind}"
                     instance_id = bindings[task_exit.task_id].instance_id
                     family_id = next(item.family_id for item in program.instances if item.instance_id == instance_id)
-                for dimension in selected:
-                    if dimension.dimension == "item_size_bytes" or family_id is not None and dimension.resource_family_id != family_id:
+                records = []
+                incomplete = False
+                for event_id in event_ids:
+                    paths = result.property_derivations.get(slice_name, {}).get(event_id, ())
+                    traces = result.property_traces.get(slice_name, {}).get(event_id, ())
+                    if (not paths or any(item.property_event_id != event_id for item in paths)
+                            or tuple(item.trace for item in paths) != traces
+                            or merge_states(tuple(item.state for item in paths)) != exit_states[event_id]):
+                        incomplete = True
+                    records.extend(enumerate(paths))
+                path_results: dict[tuple[str, str], list[PropertyPathResult]] = {}
+                for path_index, record in records:
+                    sliced = replace(result, exit_states={record.property_event_id: record.state}, property_states={},
+                        unknown_reasons=tuple(reason for reason in result.unknown_reasons
+                            if not reason.startswith(("task_termination_not_guaranteed:", "task_cancellation_unmodeled:",
+                                                      "task_rejection_continuation_unknown:"))))
+                    selected = check_invariants(program, sliced, (), timeout_ms=timeout_ms,
+                                                executor_contracts=executor_contracts)
+                    for dimension in selected:
+                        if (dimension.dimension == "item_size_bytes"
+                                or family_id is not None and dimension.resource_family_id != family_id):
+                            continue
+                        _, coverage_evidence = _coverage_details(program, dimension.dimension, dimension.resource_family_id)
+                        evidence = set(record.trace.evidence_ids) | set(coverage_evidence) | {dimension.resource_family_id}
+                        evidence.update(item.instance_id for item in program.instances
+                                        if item.family_id == dimension.resource_family_id)
+                        if task_exit is not None:
+                            evidence.update(task_exit.evidence_ids)
+                            evidence.update(bindings[task_exit.task_id].evidence_ids)
+                        path_results.setdefault((dimension.dimension, dimension.resource_family_id), []).append(
+                            PropertyPathResult(record.property_event_id, path_index, record.trace, dimension.lifecycle_status,
+                                               dimension.upper_bound, dimension.reason_codes, tuple(sorted(evidence))))
+                for resource in sorted(program.families, key=lambda item: item.family_id):
+                    if family_id is not None and resource.family_id != family_id:
                         continue
-                    _, coverage_evidence = _coverage_details(program, dimension.dimension,
-                                                            dimension.resource_family_id)
-                    evidence = trace_evidence | set(coverage_evidence) | {dimension.resource_family_id}
-                    evidence.update(item.instance_id for item in program.instances
-                                    if item.family_id == dimension.resource_family_id)
-                    if task_exit is not None:
-                        evidence.update(task_exit.evidence_ids)
-                        evidence.update(bindings[task_exit.task_id].evidence_ids)
-                    output.append(replace(dimension, scope=scope,
-                        assumptions=dimension.assumptions + ("conditional on reaching the recorded exit slice; termination is not guaranteed",),
-                        evidence_ids=tuple(sorted(evidence)), transition_ids=transition_ids,
-                        property_event_ids=event_ids))
+                    for dimension in ("held_instances", "close_obligation"):
+                        paths = tuple(path_results.get((dimension, resource.family_id), ()))
+                        statuses = {path.lifecycle_status for path in paths}
+                        reasons = {reason for path in paths for reason in path.reason_codes}
+                        evidence = {item for path in paths for item in path.evidence_ids} | {resource.family_id}
+                        if incomplete or not paths:
+                            status, upper = "unknown", None
+                            reasons.add("property_path_evidence_incomplete")
+                        elif "unknown" in statuses:
+                            status, upper = "unknown", None
+                        elif "obligation_gap" in statuses:
+                            status, upper = "obligation_gap", None
+                        elif statuses == {"not_applicable"}:
+                            status, upper = "not_applicable", 0
+                        elif statuses <= {"bounded", "not_applicable"} and all(type(path.upper_bound) is int for path in paths):
+                            status, upper = "bounded", max(path.upper_bound for path in paths)
+                        else:
+                            status, upper = "unknown", None
+                            reasons.add("property_path_bound_aggregation_unknown")
+                        output.append(DimensionResult(dimension, scope, status, upper,
+                            assumptions=("conditional on reaching the recorded exit slice; termination is not guaranteed",
+                                         "result aggregates independently checked recorded paths, not a single merged trace"),
+                            reason_codes=tuple(sorted(reasons)), evidence_ids=tuple(sorted(evidence)),
+                            resource_family_id=resource.family_id, property_event_ids=event_ids, property_paths=paths))
     identities = [(item.scope, item.dimension, item.resource_family_id) for item in output]
     if len(identities) != len(set(identities)):
         raise ValueError("duplicate resource lifecycle dimension identity")

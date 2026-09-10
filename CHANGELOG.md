@@ -1,3 +1,10 @@
+## [2026-09-10] Resource lifecycle v1.1 Task 4 fresh re-review fixes
+
+- fresh re-review 发现 A property trace 合并互斥接纳路径并支撑条件 bounded、B 纯 Abort reject 被误当 pending 而公开状态漏 obligation_gap、C dispatch matching 漏 family_id / Program 未校验 instance-family 一致性。G3 继续 fail；逐项补 RED 后修复，最终追加新提交，不 amend/push，Task5 不启动。
+- A 保存 `PropertyDerivation` 的独立 state/trace，公共 `property_traces` 改为逐路径列表；条件性质逐路径检查并生成 `PropertyPathResult`，顶层仅聚合结果、不拼接 transition_ids。每个 child proof 明确引用原 property event/index、真实 trace/state/location；路径记录缺失或与状态投影不一致则 unknown。B 按每条 caller-exit configuration 的 queued/reserved/running 判断 pending，rejected/cancelled/terminated 不冒充活跃任务。C Program/JSON 导入统一拒绝 effect instance-family 不一致，matching dispatch 额外精确校验 family_id。
+- 有效 RED 为 `6 failed`（A 三项、B 一项、C Program/JSON 两项）；最终 re-review `11 passed`，与前次 review 合计 `28 passed`；含真实 cached facts 的 focused `166 passed, 156 subtests`，全 lifecycle `334 passed, 13 skipped, 235 subtests`。compileall/diff-check 通过；serializer/all_tasks/path-evidence-missing 与 CLI/replay path tamper 已覆盖。初始 JSON 测试构造 tuple/list 错误先修正后才计入有效 RED。
+- 同批真实 SourcePairs 经当前 validation/solver 默认预算仍为 `827 steps / terminated=true`，80 条独立 task terminal 路径；normal/exception obligation `[0,0]`，移除已有 release 后 `[1,1]`。未重跑/修改 QL，本轮未修改 adapter；当前 CLI/replay 使用此前已重新适配的完整4-unit真实事实。README/limitations 同步修正为 G1–G2 pass、G3 fail/pending fresh review，整体 partial。
+
 ## [2026-09-10] Resource lifecycle v1.1 Task 4 review fixes
 
 - I1：任务 phase 移到独立控制 cursor；工作列表不再合并不同已执行边集合的 trace，保留一条真实交错 witness。输出按 task/phase/path 保存独立 `AsyncDerivation`，每条 proof 绑定真实 source/target/transition 与自身状态；便捷 submitted/completed 只聚合资源状态，不携带混合 phase 或全阶段共享证明。

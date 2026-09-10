@@ -445,6 +445,7 @@ class Program:
         if any(item[1] not in family_ids for item in self.coverage_gaps):
             raise ValueError("coverage gap references an unknown resource family")
         instance_ids = _unique_identifiers(self.instances, "instance_id", "instance")
+        instance_families = {item.instance_id: item.family_id for item in self.instances}
         holder_ids = _unique_identifiers(self.holders, "holder_id", "holder")
         event_ids = _unique_identifiers(self.events, "event_id", "event")
         point_ids = _unique_identifiers(self.program_points, "point_id", "program point")
@@ -597,6 +598,9 @@ class Program:
                     raise ValueError("effect instance reference is invalid")
                 if effect.family_id is not None and effect.family_id not in family_ids:
                     raise ValueError("effect family reference is invalid")
+                if (effect.instance_id is not None and effect.family_id is not None
+                        and instance_families[effect.instance_id] != effect.family_id):
+                    raise ValueError("effect instance and family are inconsistent")
                 if effect.holder_id is not None and effect.holder_id not in holder_ids:
                     raise ValueError("effect holder reference is invalid")
                 if effect.target_event_id is not None and effect.target_event_id not in event_ids:
@@ -763,6 +767,24 @@ class AsyncDerivation:
 
 
 @dataclass(frozen=True)
+class PropertyDerivation:
+    property_event_id: str
+    state: ResourceState
+    trace: Trace
+
+
+@dataclass(frozen=True)
+class PropertyPathResult:
+    property_event_id: str
+    property_derivation_index: int
+    trace: Trace
+    lifecycle_status: str
+    upper_bound: int | str | None
+    reason_codes: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     exit_states: dict[str, ResourceState]
     event_states: dict[str, ResourceState]
@@ -775,9 +797,10 @@ class AnalysisResult:
     async_states: dict[str, dict[str, ResourceState]] = field(default_factory=dict)
     async_traces: dict[str, dict[str, tuple[Trace, ...]]] = field(default_factory=dict)
     termination_guaranteed: bool = False
-    property_traces: dict[str, dict[str, Trace]] = field(default_factory=dict)
+    property_traces: dict[str, dict[str, tuple[Trace, ...]]] = field(default_factory=dict)
     async_origins: dict[str, str] = field(default_factory=dict)
     async_derivations: dict[str, tuple[AsyncDerivation, ...]] = field(default_factory=dict)
+    property_derivations: dict[str, dict[str, tuple[PropertyDerivation, ...]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -793,6 +816,7 @@ class DimensionResult:
     resource_family_id: str | None = None
     transition_ids: tuple[str, ...] = ()
     property_event_ids: tuple[str, ...] = ()
+    property_paths: tuple[PropertyPathResult, ...] = ()
 
     def __post_init__(self) -> None:
         if self.dimension not in RESOURCE_DIMENSIONS:

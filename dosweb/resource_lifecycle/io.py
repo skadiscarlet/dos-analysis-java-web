@@ -24,6 +24,7 @@ from dosweb.resource_lifecycle.models import (
     Event,
     Holder,
     PopulationEffect,
+    PropertyDerivation,
     Program,
     ProgramPoint,
     ResourceFamily,
@@ -301,8 +302,11 @@ def analysis_result_to_dict(result: AnalysisResult) -> dict[str, object]:
         "steps": result.steps,
         "property_states": {scope: {event: state_to_dict(state) for event, state in sorted(states.items())}
                             for scope, states in sorted(result.property_states.items())},
-        "property_traces": {scope: {event: asdict(trace) for event, trace in sorted(traces.items())}
+        "property_traces": {scope: {event: [asdict(trace) for trace in paths] for event, paths in sorted(traces.items())}
                             for scope, traces in sorted(result.property_traces.items())},
+        "property_derivations": {scope: {event: [property_derivation_to_dict(record) for record in records]
+                                         for event, records in sorted(events.items())}
+                                 for scope, events in sorted(result.property_derivations.items())},
         "async_states": {task: {phase: state_to_dict(state) for phase, state in sorted(states.items())}
                          for task, states in sorted(result.async_states.items())},
         "async_traces": {task: {phase: [asdict(trace) for trace in traces] for phase, traces in sorted(phases.items())}
@@ -320,6 +324,14 @@ def async_derivation_to_dict(derivation: AsyncDerivation) -> dict[str, object]:
         "transition_id": derivation.transition_id,
         "source_event_id": derivation.source_event_id,
         "target_event_id": derivation.target_event_id,
+        "state": state_to_dict(derivation.state),
+        "trace": asdict(derivation.trace),
+    }
+
+
+def property_derivation_to_dict(derivation: PropertyDerivation) -> dict[str, object]:
+    return {
+        "property_event_id": derivation.property_event_id,
         "state": state_to_dict(derivation.state),
         "trace": asdict(derivation.trace),
     }

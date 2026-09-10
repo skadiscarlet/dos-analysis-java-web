@@ -185,10 +185,13 @@ def test_i4_phase_proofs_and_conditional_locations_are_bound_to_executed_path():
         assert "fact:close:exceptional" not in row["evidence_ids"]
     proof = next(row for row in evidence["dimension_derivations"] if row["dimension"] == "close_obligation"
                  and row["scope"] == "after_task_termination:task:0:normal")
-    assert "task:0:terminal:normal" in proof["transition_ids"]
+    assert proof["transition_ids"] == []
     assert proof["property_event_ids"] == ["task:0:normal"]
-    assert 11 in {item["start_line"] for item in proof["code_locations"]}
-    assert 17 not in {item["start_line"] for item in proof["code_locations"]}
+    assert proof["path_derivations"]
+    for path in proof["path_derivations"]:
+        assert "task:0:terminal:normal" in path["trace"]["transition_ids"]
+        assert 11 in {item["start_line"] for item in path["code_locations"]}
+        assert 17 not in {item["start_line"] for item in path["code_locations"]}
 
 
 def test_i4_shared_source_keeps_multiple_claims_without_overwriting_them():

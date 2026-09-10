@@ -9,6 +9,7 @@ from dosweb.resource_lifecycle.models import (
     AnalysisBudget,
     AnalysisResult,
     AsyncDerivation,
+    PropertyDerivation,
     CountInterval,
     Effect,
     Program,
@@ -301,7 +302,8 @@ def merge_states(states: Sequence[ResourceState]) -> ResourceState:
     )
 
 
-def _statuses(exit_states: dict[str, ResourceState], unknown: set[str], pending_instances: frozenset[str] = frozenset()) -> tuple[str, ...]:
+def _statuses(exit_states: dict[str, ResourceState], unknown: set[str],
+              exit_cuts: Sequence[tuple[ResourceState, frozenset[str]]] = ()) -> tuple[str, ...]:
     if not exit_states:
         return ("unknown",) if unknown else ("not_applicable",)
     output: set[str] = set()
@@ -310,7 +312,7 @@ def _statuses(exit_states: dict[str, ResourceState], unknown: set[str], pending_
     if any(
         state.open_obligations - pending_instances
         or any(interval.upper is None for _family, interval in state.obligation_counts)
-        for state in exit_states.values()
+        for state, pending_instances in (exit_cuts or tuple((state, frozenset()) for state in exit_states.values()))
     ):
         output.add("obligation_gap")
     if not output:
@@ -345,10 +347,10 @@ def _trace_step(trace: Trace, transition: Transition, applied: StepResult) -> Tr
     return replace(combined, transition_ids=tuple(dict.fromkeys(trace.transition_ids + (transition.transition_id,))))
 
 
-def _binding_dispatch(effect: Effect, binding: TaskBinding) -> bool:
+def _binding_dispatch(effect: Effect, binding: TaskBinding, family_id: str) -> bool:
     return effect.kind == "dispatch" and (
-        effect.instance_id, effect.holder_id, effect.contract_id
-    ) == (binding.instance_id, binding.holder_id, binding.executor_contract_id) and (
+        effect.instance_id, effect.family_id, effect.holder_id, effect.contract_id
+    ) == (binding.instance_id, family_id, binding.holder_id, binding.executor_contract_id) and (
         effect.target_event_id in {binding.queued_event_id, binding.run_event_id}
     )
 
@@ -446,6 +448,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
         transitions.sort(key=lambda item: item.transition_id)
 
     tasks = {item.task_id: item for item in program.task_bindings}
+    instance_families = {item.instance_id: item.family_id for item in program.instances}
     submits = {item.submit_event_id: item for item in program.task_bindings}
     events = {item.event_id: item for item in program.events}
     connectors: dict[str, TaskBinding] = {}
@@ -477,7 +480,8 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
     async_states: dict[str, dict[str, ResourceState]] = defaultdict(dict)
     async_derivations: dict[str, list[AsyncDerivation]] = defaultdict(list)
     async_origins: dict[str, str] = {}
-    property_traces: dict[str, dict[str, Trace]] = {name: {} for name in property_states}
+    property_derivations: dict[str, dict[str, list[PropertyDerivation]]] = {name: {} for name in property_states}
+    exit_cuts: set[tuple[ResourceState, frozenset[str]]] = set()
 
     def snapshot(store: dict[str, ResourceState], key: str, state: ResourceState) -> None:
         prior = store.get(key)
@@ -489,7 +493,10 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
 
     def record_property(scope: str, event: str, state: ResourceState, trace: Trace) -> None:
         snapshot(property_states[scope], event, state)
-        property_traces[scope][event] = _join_trace(property_traces[scope].get(event, Trace()), trace)
+        records = property_derivations[scope].setdefault(event, [])
+        derivation = PropertyDerivation(event, state, trace)
+        if derivation not in records:
+            records.append(derivation)
 
     def record_async(identity: str, phase: str, transition: Transition, state: ResourceState, trace: Trace) -> None:
         snapshot(async_states[identity], phase, state)
@@ -539,6 +546,10 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
         source_trace = configurations[key]
         phase_map = {cursor.actor: cursor.phase for cursor in cursors if cursor.actor in tasks}
         caller = next(cursor for cursor in cursors if cursor.actor == "caller")
+        if caller.event_id in program.exit_event_ids:
+            pending = frozenset(tasks[task].instance_id for task, phase in phase_map.items()
+                                if phase in {"queued", "reserved", "running"})
+            exit_cuts.add((source_state, pending))
         if caller.event_id in program.exit_event_ids and phase_map and all(
             phase == "terminated" for phase in phase_map.values()
         ):
@@ -599,7 +610,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                 async_origins[binding.task_id] = transition.transition_id
                 next_trace = source_trace
                 for current in transition.effects:
-                    if _binding_dispatch(current, binding):
+                    if _binding_dispatch(current, binding, instance_families[binding.instance_id]):
                         next_trace = _trace_step(next_trace, transition, StepResult(next_state,
                             ("task_capture_deferred_to_accept",), current.evidence_ids))
                         continue  # The accepted branch owns this capture operation.
@@ -658,7 +669,8 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                     queue.clear()
                     break
                 if (cursor.submitted_task and cursor.submission_outcome == "accepted"
-                        and _binding_dispatch(current, tasks[cursor.submitted_task])):
+                        and _binding_dispatch(current, tasks[cursor.submitted_task],
+                                              instance_families[tasks[cursor.submitted_task].instance_id])):
                     next_trace = _trace_step(next_trace, transition, StepResult(next_state,
                         ("task_capture_already_applied_on_accept",), current.evidence_ids))
                     continue
@@ -684,14 +696,16 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
     exit_states = {event_id: states[event_id] for event_id in program.exit_event_ids if event_id in states}
     unknown.update(f"exit_state_missing:{event_id}" for event_id in program.exit_event_ids if event_id not in states)
     unknown.update(reason for state in states.values() for reason in state.unknown_reasons)
-    pending_instances = frozenset(binding.instance_id for binding in tasks.values()
-                                  if binding.task_id in async_states)
+    property_traces = {scope: {event: tuple(record.trace for record in records) for event, records in events.items()}
+                       for scope, events in property_derivations.items()}
     async_traces = {task: {phase: tuple(dict.fromkeys(item.trace for item in records if item.phase == phase))
                           for phase in sorted({item.phase for item in records})}
                     for task, records in async_derivations.items()}
     return AnalysisResult(exit_states, states, traces, terminated, tuple(sorted(unknown)),
-                          _statuses(exit_states, unknown, pending_instances), steps, property_states,
+                          _statuses(exit_states, unknown, tuple(exit_cuts)), steps, property_states,
                           dict(async_states), async_traces,
                           termination_guaranteed=not async_states and not unknown,
                           property_traces=property_traces, async_origins=async_origins,
-                          async_derivations={task: tuple(records) for task, records in async_derivations.items()})
+                          async_derivations={task: tuple(records) for task, records in async_derivations.items()},
+                          property_derivations={scope: {event: tuple(records) for event, records in events.items()}
+                                                for scope, events in property_derivations.items()})

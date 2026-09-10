@@ -44,6 +44,7 @@ from dosweb.resource_lifecycle.io import (
     load_regular_bytes_with_sha256,
     load_text_regular,
     program_from_dict,
+    property_derivation_to_dict,
     state_to_dict,
 )
 from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult, SCHEMA_VERSION
@@ -473,8 +474,13 @@ def _analyze_payload(
                     for scope, states in sorted(analysis.property_states.items())
                 },
                 "property_traces": {
-                    scope: {event_id: asdict(trace) for event_id, trace in sorted(traces.items())}
+                    scope: {event_id: [asdict(trace) for trace in paths] for event_id, paths in sorted(traces.items())}
                     for scope, traces in sorted(analysis.property_traces.items())
+                },
+                "property_derivations": {
+                    scope: {event_id: [property_derivation_to_dict(record) for record in records]
+                            for event_id, records in sorted(events.items())}
+                    for scope, events in sorted(analysis.property_derivations.items())
                 },
                 "steps": analysis.steps,
                 "unknown_reasons": list(analysis.unknown_reasons),
@@ -800,12 +806,46 @@ def _evidence_payload(
                     resource.allocation.source_sha256,
                 ): asdict(resource.allocation)
             }
+            path_derivations = []
+            for path in dimension.get("property_paths", ()):
+                slice_name = str(dimension.get("scope", "")).split(":", 1)[0]
+                event_id = path["property_event_id"]
+                path_index = path["property_derivation_index"]
+                recorded_paths = unit.get("property_derivations", {}).get(slice_name, {}).get(event_id, ())
+                if type(path_index) is not int or not 0 <= path_index < len(recorded_paths):
+                    raise ValueError("property path derivation reference is unresolved")
+                recorded = recorded_paths[path_index]
+                if canonical_json(recorded["trace"]) != canonical_json(path["trace"]):
+                    raise ValueError("property path trace does not match its solved derivation")
+                path_evidence = set(path["evidence_ids"])
+                path_locations = dict(locations)
+                for transition_id in path["trace"]["transition_ids"]:
+                    edge = transitions.get(transition_id)
+                    if edge is None:
+                        raise ValueError("property path transition is unresolved")
+                    for effect in edge.effects:
+                        if effect.family_id == family_id and set(effect.evidence_ids).intersection(path_evidence):
+                            path_locations[(effect.location.path, effect.location.start_line,
+                                            effect.location.end_line, effect.location.source_sha256)] = asdict(effect.location)
+                path_body = {
+                    "unit_id": unit_id, "scope": dimension.get("scope"), "dimension": dimension.get("dimension"),
+                    "resource_family_id": family_id, **path, "state": recorded["state"],
+                    "code_locations": [path_locations[key] for key in sorted(path_locations)],
+                }
+                path_id = hashlib.sha256(canonical_json(path_body)).hexdigest()
+                path_derivations.append({"proof_id": path_id, **path_body})
+                proof_dependency_pairs.update((path_id, evidence_id) for evidence_id in path_evidence)
+                for rule_id, evidence_id in path["trace"]["rule_dependencies"]:
+                    rules.add(rule_id)
+                    dependency_pairs.add((rule_id, evidence_id))
+            if dimension.get("property_event_ids"):
+                # This is an all-path aggregate, not a concatenated CFG path.
+                # Each source location and state belongs to its own child proof.
+                locations = {}
             for transition in source_unit.program.transitions:
-                if dimension.get("property_event_ids") and transition.transition_id not in dimension.get("transition_ids", ()):
+                if dimension.get("property_event_ids"):
                     continue
                 for effect in transition.effects:
-                    if dimension.get("property_event_ids") and not set(effect.evidence_ids).intersection(evidence_ids):
-                        continue
                     dimension_scope = str(dimension.get("scope") or "")
                     if effect.family_id == family_id and (
                         not dimension_scope.startswith("task_queue:")
@@ -835,6 +875,8 @@ def _evidence_payload(
                 "scope": dimension.get("scope"),
                 "transition_ids": list(dimension.get("transition_ids", ())),
                 "property_event_ids": list(dimension.get("property_event_ids", ())),
+                "path_derivations": path_derivations,
+                "aggregation": "all_recorded_property_paths" if dimension.get("property_event_ids") else None,
                 "lifecycle_status": dimension.get("lifecycle_status"),
                 "upper_bound": dimension.get("upper_bound"),
                 "assumptions": list(dimension.get("assumptions", [])),
