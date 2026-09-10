@@ -8,6 +8,7 @@ import time
 from dosweb.resource_lifecycle.models import (
     AnalysisBudget,
     AnalysisResult,
+    AsyncDerivation,
     CountInterval,
     Effect,
     Program,
@@ -297,7 +298,6 @@ def merge_states(states: Sequence[ResourceState]) -> ResourceState:
         peak_held_counts=tuple(sorted(peak_counts.items())),
         repeated_instances=frozenset().union(*(state.repeated_instances for state in states)),
         unknown_reasons=tuple(sorted(set().union(*(state.unknown_reasons for state in states)))),
-        task_phases=frozenset().union(*(state.task_phases for state in states)),
     )
 
 
@@ -324,6 +324,8 @@ class _Cursor:
     event_id: str
     # A caller remains at the source site until its submission branch resolves.
     submitted_task: str = ""
+    phase: str = "absent"
+    submission_outcome: str = "pending"
 
 
 def _join_trace(left: Trace, right: Trace) -> Trace:
@@ -336,20 +338,28 @@ def _join_trace(left: Trace, right: Trace) -> Trace:
 
 
 def _trace_step(trace: Trace, transition: Transition, applied: StepResult) -> Trace:
-    return _join_trace(trace, Trace(
+    combined = _join_trace(trace, Trace(
         (transition.transition_id,), applied.rule_ids, applied.evidence_ids,
         tuple((rule, evidence) for rule in applied.rule_ids for evidence in applied.evidence_ids),
     ))
+    return replace(combined, transition_ids=tuple(dict.fromkeys(trace.transition_ids + (transition.transition_id,))))
+
+
+def _binding_dispatch(effect: Effect, binding: TaskBinding) -> bool:
+    return effect.kind == "dispatch" and (
+        effect.instance_id, effect.holder_id, effect.contract_id
+    ) == (binding.instance_id, binding.holder_id, binding.executor_contract_id) and (
+        effect.target_event_id in {binding.queued_event_id, binding.run_event_id}
+    )
 
 
 def _task_step(program: Program, binding: TaskBinding, transition: Transition,
-               state: ResourceState) -> tuple[ResourceState, str, StepResult] | None:
+               state: ResourceState, phase: str) -> tuple[ResourceState, str, StepResult] | None:
     """Check the task phase, then use the same resource operations as the caller.
 
     Population deltas stay attached and audited; no q/a induction is claimed here.
     A run cursor initially means a reserved slot. Only start enters the callback.
     """
-    phase = dict(state.task_phases).get(binding.task_id, "absent")
     source, target = transition.source_event_id, transition.target_event_id
     phase_out = phase
     operation = None
@@ -421,9 +431,6 @@ def _task_step(program: Program, binding: TaskBinding, transition: Transition,
         rules.extend(step.rule_ids)
         if operation == "retain":
             rules.append("dispatch_capture_on_accept")
-    next_state = replace(next_state, task_phases=frozenset(
-        (task, value) for task, value in next_state.task_phases if task != binding.task_id
-    ) | {(binding.task_id, phase_out)})
     return next_state, phase_out, StepResult(next_state, tuple(sorted(set(rules))), tuple(sorted(evidence)))
 
 
@@ -456,7 +463,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
             connector_gaps.add("task_source_binding_unavailable:" + binding.task_id)
     # Exact disjuncts at a control configuration avoid combining incompatible
     # callback branches before their negative effects. Reports alone join states.
-    configurations: dict[tuple[tuple[_Cursor, ...], ResourceState], Trace] = {}
+    configurations: dict[tuple[tuple[_Cursor, ...], ResourceState, frozenset[str]], Trace] = {}
     queue = deque()
     queued = set()
     updates: dict[tuple[_Cursor, ...], int] = defaultdict(int)
@@ -468,7 +475,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
         "after_task_rejection": {}, "after_task_cancellation": {},
     }
     async_states: dict[str, dict[str, ResourceState]] = defaultdict(dict)
-    async_traces: dict[str, Trace] = {}
+    async_derivations: dict[str, list[AsyncDerivation]] = defaultdict(list)
     async_origins: dict[str, str] = {}
     property_traces: dict[str, dict[str, Trace]] = {name: {} for name in property_states}
 
@@ -484,13 +491,22 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
         snapshot(property_states[scope], event, state)
         property_traces[scope][event] = _join_trace(property_traces[scope].get(event, Trace()), trace)
 
+    def record_async(identity: str, phase: str, transition: Transition, state: ResourceState, trace: Trace) -> None:
+        snapshot(async_states[identity], phase, state)
+        derivation = AsyncDerivation(phase, transition.transition_id, transition.source_event_id,
+                                    transition.target_event_id, state, trace)
+        if derivation not in async_derivations[identity]:
+            async_derivations[identity].append(derivation)
+
     def enqueue(cursors: tuple[_Cursor, ...], state: ResourceState, trace: Trace) -> None:
         nonlocal terminated
         control = tuple(sorted(cursors))
-        key = (control, state)
+        # Keep alternatives with different executed edges distinct. Equivalent
+        # interleavings may share a state, but retain one real ordered witness;
+        # never manufacture a path by unioning mutually exclusive branches.
+        key = (control, state, frozenset(trace.transition_ids))
         prior = configurations.get(key)
-        combined = trace if prior is None else _join_trace(prior, trace)
-        if prior == combined:
+        if prior is not None:
             return
         if prior is None:
             updates[control] += 1
@@ -498,7 +514,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
             unknown.add("iteration_limit:" + ",".join(cursor.event_id for cursor in control))
             terminated = False
             return
-        configurations[key] = combined
+        configurations[key] = trace
         if key not in queued:
             queue.append(key)
             queued.add(key)
@@ -519,9 +535,9 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
             break
         key = queue.popleft()
         queued.discard(key)
-        cursors, source_state = key
+        cursors, source_state, _path = key
         source_trace = configurations[key]
-        phase_map = dict(source_state.task_phases)
+        phase_map = {cursor.actor: cursor.phase for cursor in cursors if cursor.actor in tasks}
         caller = next(cursor for cursor in cursors if cursor.actor == "caller")
         if caller.event_id in program.exit_event_ids and phase_map and all(
             phase == "terminated" for phase in phase_map.values()
@@ -537,11 +553,21 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                     choices.extend((cursor, edge) for edge in bound)
                     continue
                 if cursor.submitted_task:
-                    phase = phase_map.get(cursor.submitted_task, "absent")
-                    if phase in {"absent", "rejected", "cancelled"}:
-                        if phase == "rejected":
-                            unknown.add("task_rejection_continuation_unknown:" + cursor.submitted_task)
+                    if cursor.submission_outcome == "pending":
                         continue
+                    binding = tasks[cursor.submitted_task]
+                    expected_guard = ("task_submit_success" if cursor.submission_outcome == "accepted"
+                                      else "task_submit_exceptional")
+                    continuation_edges = [edge for edge in outgoing.get(cursor.event_id, ())
+                        if edge.guard == expected_guard
+                        and f"task_binding:{binding.binding_id}" in edge.assumptions
+                        and any(item.startswith("cfg_fact:") for item in edge.assumptions)]
+                    if not continuation_edges:
+                        reason = ("task_success_continuation_unknown:" if cursor.submission_outcome == "accepted"
+                                  else "task_rejection_continuation_unknown:")
+                        unknown.add(reason + cursor.submitted_task)
+                    choices.extend((cursor, edge) for edge in continuation_edges)
+                    continue
                 choices.extend((cursor, edge) for edge in outgoing.get(cursor.event_id, ())
                                if edge.target_event_id not in submits)
             else:
@@ -573,9 +599,9 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                 async_origins[binding.task_id] = transition.transition_id
                 next_trace = source_trace
                 for current in transition.effects:
-                    if current.kind == "dispatch" and (
-                        current.instance_id, current.holder_id, current.contract_id
-                    ) == (binding.instance_id, binding.holder_id, binding.executor_contract_id):
+                    if _binding_dispatch(current, binding):
+                        next_trace = _trace_step(next_trace, transition, StepResult(next_state,
+                            ("task_capture_deferred_to_accept",), current.evidence_ids))
                         continue  # The accepted branch owns this capture operation.
                     step = apply_effect(next_state, current)
                     next_state = step.state
@@ -589,18 +615,21 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                 continue
             if cursor.actor in tasks:
                 binding = tasks[cursor.actor]
-                result = _task_step(program, binding, transition, source_state)
+                result = _task_step(program, binding, transition, source_state, cursor.phase)
                 if result is None:
                     continue
                 next_state, phase, applied = result
                 next_trace = _trace_step(source_trace, transition, applied)
-                next_cursors[index] = replace(cursor, event_id=transition.target_event_id)
+                next_cursors[index] = replace(cursor, event_id=transition.target_event_id, phase=phase)
+                if cursor.phase == "absent":
+                    outcome = "rejected" if phase == "rejected" else "accepted"
+                    next_cursors = [replace(item, submission_outcome=outcome)
+                        if item.submitted_task == binding.task_id else item for item in next_cursors]
                 record(transition.target_event_id, next_state, next_trace)
-                stage = {"queued": "submitted", "reserved": "submitted", "running": "started",
+                stage = {"queued": "queued", "reserved": "reserved", "running": "running",
                          "terminated": transition.exit_kind, "rejected": "rejected", "cancelled": "cancelled"}[phase]
                 if phase != phase_map.get(binding.task_id, "absent"):
-                    snapshot(async_states[binding.task_id], stage, next_state)
-                async_traces[binding.task_id] = _join_trace(async_traces.get(binding.task_id, Trace()), next_trace)
+                    record_async(binding.task_id, stage, transition, next_state, next_trace)
                 if phase in {"queued", "reserved", "running"}:
                     unknown.add("task_termination_not_guaranteed:" + binding.task_id)
                     if not any(population.task_id == binding.task_id
@@ -617,12 +646,22 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                 enqueue(tuple(next_cursors), next_state, next_trace)
                 continue
             next_trace = source_trace
+            if cursor.submitted_task:
+                cfg_evidence = tuple(item.removeprefix("cfg_fact:") for item in transition.assumptions
+                                     if item.startswith("cfg_fact:"))
+                next_trace = _trace_step(next_trace, transition, StepResult(next_state,
+                    ("task_caller_continuation:" + cursor.submission_outcome,), cfg_evidence))
             for current in transition.effects:
                 if (time.monotonic() - started) * 1000 >= budget.timeout_ms:
                     unknown.add("solver_timeout")
                     terminated = False
                     queue.clear()
                     break
+                if (cursor.submitted_task and cursor.submission_outcome == "accepted"
+                        and _binding_dispatch(current, tasks[cursor.submitted_task])):
+                    next_trace = _trace_step(next_trace, transition, StepResult(next_state,
+                        ("task_capture_already_applied_on_accept",), current.evidence_ids))
+                    continue
                 applied = apply_effect(next_state, current)
                 next_state = applied.state
                 next_trace = _trace_step(next_trace, transition, applied)
@@ -630,8 +669,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                     reason = "task_binding_unavailable:" + current.effect_id
                     unknown.add(reason)
                     next_state = replace(next_state, unknown_reasons=tuple(sorted(set(next_state.unknown_reasons) | {reason})))
-                    snapshot(async_states[current.effect_id], "submitted", next_state)
-                    async_traces[current.effect_id] = _join_trace(async_traces.get(current.effect_id, Trace()), next_trace)
+                    record_async(current.effect_id, "submitted", transition, next_state, next_trace)
             if not terminated:
                 break
             next_trace = _trace_step(next_trace, transition, StepResult(next_state, (), ()))
@@ -648,8 +686,12 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
     unknown.update(reason for state in states.values() for reason in state.unknown_reasons)
     pending_instances = frozenset(binding.instance_id for binding in tasks.values()
                                   if binding.task_id in async_states)
+    async_traces = {task: {phase: tuple(dict.fromkeys(item.trace for item in records if item.phase == phase))
+                          for phase in sorted({item.phase for item in records})}
+                    for task, records in async_derivations.items()}
     return AnalysisResult(exit_states, states, traces, terminated, tuple(sorted(unknown)),
                           _statuses(exit_states, unknown, pending_instances), steps, property_states,
                           dict(async_states), async_traces,
                           termination_guaranteed=not async_states and not unknown,
-                          property_traces=property_traces, async_origins=async_origins)
+                          property_traces=property_traces, async_origins=async_origins,
+                          async_derivations={task: tuple(records) for task, records in async_derivations.items()})

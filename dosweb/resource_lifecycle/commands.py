@@ -36,6 +36,7 @@ from dosweb.resource_lifecycle.invariants import (
 from dosweb.resource_lifecycle.io import (
     atomic_write_json,
     atomic_write_text,
+    async_derivation_to_dict,
     budget_from_dict,
     ensure_output_directory,
     load_json_regular,
@@ -398,15 +399,22 @@ def _async_stages(unit: AnalysisUnit, analysis: AnalysisResult) -> list[dict[str
             transition = transitions[analysis.async_origins[identity]]
             index, effect = None, None
             contract_id = binding.executor_contract_id
-            target = binding.run_event_id
+            target = transition.target_event_id
         elif dispatch is not None:
             transition, index, effect = dispatch
-            contract_id, target = effect.contract_id, effect.target_event_id
+            contract_id, target = effect.contract_id, transition.target_event_id
         else:
             continue
         contract = contracts.get(contract_id or "")
-        trace = analysis.async_traces[identity]
+        records = analysis.async_derivations[identity]
+        phase_derivations = {phase: [async_derivation_to_dict(item) for item in records if item.phase == phase]
+                             for phase in sorted({item.phase for item in records})}
+        # Task stages have no shared proof trace: every phase uses its own
+        # disjunctive transition/path witness. Keep legacy prefix fields only
+        # for one unresolved dispatch snapshot, which has no callback stages.
+        trace = records[0].trace if binding is None and len(records) == 1 else None
         states = {phase: state_to_dict(state) for phase, state in sorted(snapshots.items())}
+        submitted = [snapshots[phase] for phase in ("submitted", "queued", "reserved") if phase in snapshots]
         completed = [snapshots[phase] for phase in ("normal", "exceptional") if phase in snapshots]
         stages.append({
             "stage_id": stable_identifier("async-stage", {"unit_id": unit.unit_id, "identity": identity}),
@@ -416,20 +424,24 @@ def _async_stages(unit: AnalysisUnit, analysis: AnalysisResult) -> list[dict[str
             "dispatch_effect_id": effect.effect_id if effect is not None else None,
             "source_event_id": transition.source_event_id,
             "target_event_id": target,
+            "dispatch_target_event_id": effect.target_event_id if effect is not None else binding.run_event_id,
             "contract_id": contract_id,
             "contract_source_kind": contract.source_kind if contract is not None else None,
             "contract_status": "missing" if contract is None else (
                 "untrusted" if contract.source_kind == "llm_proposed" else "trusted"),
             "prefix_effect_ids": [item.effect_id for item in transition.effects[:index]] if index is not None else [],
             **{phase: states.get(phase) for phase in ("submitted", "started", "normal", "exceptional", "rejected", "cancelled")},
+            "submitted": state_to_dict(merge_states(submitted)) if submitted else None,
+            "started": states.get("running"),
+            "phase_derivations": phase_derivations,
             "completed": state_to_dict(merge_states(completed)) if completed else None,
             "property_slice": "after_task_termination",
             "termination_guaranteed": False,
-            "unresolved_phases": [phase for phase in ("started", "normal", "exceptional", "rejected", "cancelled") if phase not in states],
-            "rule_ids": list(trace.rule_ids),
+            "unresolved_phases": [phase for phase in ("running", "normal", "exceptional", "rejected", "cancelled") if phase not in states],
+            "rule_ids": list(trace.rule_ids) if trace is not None else [],
             "prefix_rule_ids": [],
-            "rule_dependencies": [list(item) for item in trace.rule_dependencies],
-            "evidence_ids": list(trace.evidence_ids),
+            "rule_dependencies": [list(item) for item in trace.rule_dependencies] if trace is not None else [],
+            "evidence_ids": list(trace.evidence_ids) if trace is not None else [],
         })
     return stages
 
@@ -491,7 +503,6 @@ def _analyze_payload(
                         ],
                         "peak_held_counts": [list(item) for item in state.peak_held_counts],
                         "unknown_reasons": list(state.unknown_reasons),
-                        "task_phases": [list(item) for item in sorted(state.task_phases)],
                     }
                     for event_id, state in sorted(analysis.exit_states.items())
                 },
@@ -513,7 +524,42 @@ def _evidence_payload(
     *,
     summary_artifact: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    facts = {item.fact_id: asdict(item) for item in extracted.facts}
+    facts: dict[str, dict[str, object]] = {}
+
+    def register(evidence_id: str, evidence_kind: str, claim: dict[str, object]) -> None:
+        """One source may support multiple contextual claims, never conflicting origins."""
+        entry = facts.get(evidence_id)
+        if entry is None:
+            entry = {"evidence_kind": evidence_kind, "claims": []}
+            facts[evidence_id] = entry
+        claims = entry["claims"]
+        for prior in claims:
+            old = prior["claim"]
+            if evidence_kind == prior["evidence_kind"] and any(
+                key in old and key in claim and old[key] == claim[key]
+                for key in ("effect_id", "binding_id", "exit_id", "transition_id")
+            ) and ({key: value for key, value in old.items() if key != "evidence_ids"}
+                   != {key: value for key, value in claim.items() if key != "evidence_ids"}):
+                raise ValueError(f"evidence claim identity conflict: {evidence_id}")
+            if evidence_kind == prior["evidence_kind"] == "raw_lifecycle_fact" and old != claim:
+                raise ValueError(f"evidence identity conflict: {evidence_id}")
+            if "location" in old and "location" in claim and old["location"] != claim["location"]:
+                raise ValueError(f"evidence location conflict: {evidence_id}")
+            if evidence_kind == prior["evidence_kind"] == "effect_evidence":
+                kinds = {old["kind"], claim["kind"]}
+                if len(kinds) > 1 and not kinds <= {"create", "retain", "drop"}:
+                    raise ValueError(f"evidence primitive conflict: {evidence_id}")
+            if evidence_kind == prior["evidence_kind"] == "task_relation_evidence":
+                if old.get("kind") != claim.get("kind"):
+                    raise ValueError(f"evidence task exit conflict: {evidence_id}")
+            if evidence_kind == prior["evidence_kind"] in {"resource_family", "abstract_instance"} and old != claim:
+                raise ValueError(f"evidence resource identity conflict: {evidence_id}")
+        record = {"evidence_kind": evidence_kind, "claim": claim}
+        if record not in claims:
+            claims.append(record)
+
+    for fact in extracted.facts:
+        register(fact.fact_id, "raw_lifecycle_fact", asdict(fact))
     rules: set[str] = set()
     dependency_pairs: set[tuple[str, str]] = set()
     proof_dependency_pairs: set[tuple[str, str]] = set()
@@ -525,49 +571,37 @@ def _evidence_payload(
     units_by_id = {unit.unit_id: unit for unit in extracted.units}
     for source_unit in extracted.units:
         for resource in source_unit.program.families:
-            facts.setdefault(
-                resource.family_id,
-                {
-                    "kind": "resource_family",
-                    "resource_type": resource.resource_type,
-                    "location": asdict(resource.allocation),
-                },
-            )
+            register(resource.family_id, "resource_family", {
+                "resource_type": resource.resource_type, "location": asdict(resource.allocation)})
         for instance in source_unit.program.instances:
-            facts.setdefault(
-                instance.instance_id,
-                {"kind": "abstract_instance", **asdict(instance)},
-            )
+            register(instance.instance_id, "abstract_instance", asdict(instance))
         for relation in (*source_unit.program.task_bindings, *source_unit.program.task_exits):
             for evidence_id in relation.evidence_ids:
-                facts.setdefault(evidence_id, {"kind": "task_relation_evidence", **asdict(relation)})
+                register(evidence_id, "task_relation_evidence", asdict(relation))
         for transition in source_unit.program.transitions:
             for population in transition.population_effects:
                 for evidence_id in population.evidence_ids:
-                    facts.setdefault(evidence_id, {"kind": "population_effect_evidence", **asdict(population)})
+                    register(evidence_id, "population_effect_evidence", asdict(population))
+            for assumption in transition.assumptions:
+                if assumption.startswith("cfg_fact:"):
+                    evidence_id = assumption.removeprefix("cfg_fact:")
+                    if evidence_id not in facts and extracted.source_kind != "manual_fixture":
+                        raise ValueError("caller continuation evidence is unresolved")
+                    register(evidence_id, "caller_cfg_evidence", {
+                        "transition_id": transition.transition_id, "source_event_id": transition.source_event_id,
+                        "target_event_id": transition.target_event_id, "guard": transition.guard,
+                        "assumptions": list(transition.assumptions)})
         for candidate in source_unit.invariants:
             for evidence_id in candidate.evidence_ids:
-                facts.setdefault(
-                    evidence_id,
-                    {
-                        "kind": "invariant_evidence",
+                register(evidence_id, "invariant_evidence", {
                         "candidate_id": candidate.candidate_id,
                         "source_kind": candidate.source_kind,
                         "assumptions": list(candidate.assumptions),
-                    },
-                )
+                    })
         for transition in source_unit.program.transitions:
             for effect in transition.effects:
                 for evidence_id in effect.evidence_ids:
-                    facts.setdefault(
-                        evidence_id,
-                        {
-                            "kind": "effect_evidence",
-                            "effect_id": effect.effect_id,
-                            "effect_kind": effect.kind,
-                            "location": asdict(effect.location),
-                        },
-                    )
+                    register(evidence_id, "effect_evidence", asdict(effect))
     for unit in results.get("units", []):
         if not isinstance(unit, Mapping):
             continue
@@ -585,7 +619,22 @@ def _evidence_payload(
         }
         stages = unit.get("async_stages")
         if isinstance(stages, list):
+            phase_stages = []
             for stage in stages:
+                if not isinstance(stage, Mapping):
+                    continue
+                for phase, records in stage.get("phase_derivations", {}).items():
+                    for record in records:
+                        edge = transitions.get(record.get("transition_id"))
+                        trace = record.get("trace", {})
+                        if (edge is None or record.get("source_event_id") != edge.source_event_id
+                                or record.get("target_event_id") != edge.target_event_id
+                                or edge.transition_id not in trace.get("transition_ids", ())
+                                or record.get("phase") != phase):
+                            raise ValueError("async derivation transition evidence is invalid")
+                        phase_stages.append({**stage, **record, **trace, "prefix_rule_ids": [],
+                                             "conclusions": {phase: record["state"]}})
+            for stage in phase_stages:
                 if not isinstance(stage, Mapping):
                     continue
                 dispatch_effect = effects_by_id.get(str(stage.get("dispatch_effect_id") or ""))
@@ -625,15 +674,24 @@ def _evidence_payload(
                     raise ValueError("async stage rule dependencies are incomplete")
                 if {item[1] for item in rule_dependencies} != set(evidence_ids):
                     raise ValueError("async stage evidence dependencies are incomplete")
-                conclusions = {
-                    phase: dict(stage[phase])
-                    for phase in ("submitted", "started", "normal", "exceptional", "completed", "rejected", "cancelled")
-                    if isinstance(stage.get(phase), Mapping)
-                }
+                conclusions = stage["conclusions"]
+                selected_edges = [transitions[item] for item in stage.get("transition_ids", ()) if item in transitions]
+                locations = [asdict(effect.location) for edge in selected_edges for effect in edge.effects
+                             if set(effect.evidence_ids).intersection(evidence_ids)]
+                locations.extend(asdict(population.location) for edge in selected_edges
+                                 for population in edge.population_effects)
+                reached = {edge.target_event_id for edge in selected_edges}
+                locations.extend(asdict(point.location) for point in source_unit.program.program_points
+                                 if any(item.event_id in reached and item.point_id == point.point_id
+                                        for item in source_unit.program.task_exits))
+                locations_by_key = {canonical_json(item): item for item in locations}
                 derivation_body = {
                     "unit_id": unit_id,
                     "stage_id": stage.get("stage_id"),
                     "transition_id": stage.get("transition_id"),
+                    "source_event_id": stage.get("source_event_id"),
+                    "phase": stage.get("phase"),
+                    "transition_ids": list(stage.get("transition_ids", ())),
                     "dispatch_effect_id": dispatch_effect.effect_id if dispatch_effect is not None else None,
                     "task_id": binding.task_id if binding is not None else None,
                     "contract_id": stage.get("contract_id"),
@@ -642,10 +700,7 @@ def _evidence_payload(
                     "rule_ids": list(rule_ids),
                     "evidence_ids": list(evidence_ids),
                     "conclusions": conclusions,
-                    "code_locations": ([asdict(dispatch_effect.location)] if dispatch_effect is not None else
-                        [asdict(point.location) for point in source_unit.program.program_points
-                         if any(item.task_id == binding.task_id and item.point_id == point.point_id
-                                for item in source_unit.program.task_exits)]),
+                    "code_locations": [locations_by_key[key] for key in sorted(locations_by_key)],
                 }
                 derivation_id = hashlib.sha256(canonical_json(derivation_body)).hexdigest()
                 async_derivations.append(
@@ -746,7 +801,11 @@ def _evidence_payload(
                 ): asdict(resource.allocation)
             }
             for transition in source_unit.program.transitions:
+                if dimension.get("property_event_ids") and transition.transition_id not in dimension.get("transition_ids", ()):
+                    continue
                 for effect in transition.effects:
+                    if dimension.get("property_event_ids") and not set(effect.evidence_ids).intersection(evidence_ids):
+                        continue
                     dimension_scope = str(dimension.get("scope") or "")
                     if effect.family_id == family_id and (
                         not dimension_scope.startswith("task_queue:")
@@ -774,6 +833,8 @@ def _evidence_payload(
                 "resource_family_id": family_id,
                 "dimension": dimension.get("dimension"),
                 "scope": dimension.get("scope"),
+                "transition_ids": list(dimension.get("transition_ids", ())),
+                "property_event_ids": list(dimension.get("property_event_ids", ())),
                 "lifecycle_status": dimension.get("lifecycle_status"),
                 "upper_bound": dimension.get("upper_bound"),
                 "assumptions": list(dimension.get("assumptions", [])),

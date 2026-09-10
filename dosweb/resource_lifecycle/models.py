@@ -724,7 +724,6 @@ class ResourceState:
     peak_held_counts: tuple[tuple[str, int | None], ...] = ()
     repeated_instances: frozenset[str] = frozenset()
     unknown_reasons: tuple[str, ...] = ()
-    task_phases: frozenset[tuple[str, str]] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -754,6 +753,16 @@ class Trace:
 
 
 @dataclass(frozen=True)
+class AsyncDerivation:
+    phase: str
+    transition_id: str
+    source_event_id: str
+    target_event_id: str
+    state: ResourceState
+    trace: Trace
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     exit_states: dict[str, ResourceState]
     event_states: dict[str, ResourceState]
@@ -764,10 +773,11 @@ class AnalysisResult:
     steps: int
     property_states: dict[str, dict[str, ResourceState]] = field(default_factory=dict)
     async_states: dict[str, dict[str, ResourceState]] = field(default_factory=dict)
-    async_traces: dict[str, Trace] = field(default_factory=dict)
+    async_traces: dict[str, dict[str, tuple[Trace, ...]]] = field(default_factory=dict)
     termination_guaranteed: bool = False
     property_traces: dict[str, dict[str, Trace]] = field(default_factory=dict)
     async_origins: dict[str, str] = field(default_factory=dict)
+    async_derivations: dict[str, tuple[AsyncDerivation, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -781,6 +791,8 @@ class DimensionResult:
     evidence_ids: tuple[str, ...] = ()
     impact_status: Literal["not_evaluated", "externally_documented"] = "not_evaluated"
     resource_family_id: str | None = None
+    transition_ids: tuple[str, ...] = ()
+    property_event_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.dimension not in RESOURCE_DIMENSIONS:

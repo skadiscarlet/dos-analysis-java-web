@@ -1400,6 +1400,12 @@ def _unit_from_rows(
                 "cfg_fact_id": fact.fact_id, "effect_id": effect.effect_id, "context": context,
             })) for effect in effects)
 
+        submit_bindings_by_source = {
+            source_cfg_event(task_dispatch_by_id[binding.task_id].program_point,
+                             task_context_by_id[binding.task_id]): binding
+            for binding in task_bindings
+        }
+
         for fact in rows:
             if fact.query_name != "resource_lifecycle" or fact.fact_kind != "cfg_edge" or not (
                 fact.source_evidence.startswith("codeql_callable_cfg_")
@@ -1426,14 +1432,33 @@ def _unit_from_rows(
                         if binding.callee_callable + suffix in base_point_event_ids
                     })
                 for source in sources:
+                    guard = "verified CFG return" if bound_calls else "verified CFG edge"
+                    assumptions: tuple[str, ...] = ()
+                    submit_binding = submit_bindings_by_source.get(source)
+                    if submit_binding is not None:
+                        # Classify the submit operation's first outcome, not a
+                        # later caller exit (finally may restore an exception).
+                        if fact.source_evidence == "codeql_callable_cfg_exit_after_success" or (
+                            fact.source_evidence == "codeql_callable_cfg_edge"
+                            and fact.normal_path and not fact.exceptional_path
+                        ):
+                            guard = "task_submit_success"
+                        elif fact.source_evidence == "codeql_callable_cfg_exit_after_exception" or (
+                            fact.source_evidence == "codeql_callable_cfg_edge"
+                            and fact.exceptional_path and not fact.normal_path
+                        ):
+                            guard = "task_submit_exceptional"
+                        else:
+                            guard = "task_submit_outcome_unknown"
+                        assumptions = (f"task_binding:{submit_binding.binding_id}", f"cfg_fact:{fact.fact_id}")
                     cfg_transitions.append(Transition(
                         stable_identifier("transition", {"cfg_fact_id": fact.fact_id, "source": source, "context": context}),
                         source, source_cfg_event(fact.related_point, context),
-                        "verified CFG return" if bound_calls else "verified CFG edge",
+                        guard,
                         cfg_effects(fact, context),
                         "exceptional" if fact.related_point == unit_id + "#cfg_exceptional_exit"
                         else "normal" if fact.related_point == unit_id + "#cfg_normal_exit"
-                        else "internal", (),
+                        else "internal", assumptions,
                     ))
         transitions = tuple(sorted(cfg_transitions, key=lambda item: item.transition_id))
         events += tuple(scoped_events.values())

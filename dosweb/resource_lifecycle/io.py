@@ -17,6 +17,7 @@ from dosweb.resource_lifecycle.models import (
     AbstractInstance,
     AnalysisBudget,
     AnalysisResult,
+    AsyncDerivation,
     CountInterval,
     CallBinding,
     Effect,
@@ -286,7 +287,6 @@ def state_to_dict(state: ResourceState) -> dict[str, object]:
         "peak_held_counts": [list(item) for item in state.peak_held_counts],
         "repeated_instances": sorted(state.repeated_instances),
         "unknown_reasons": list(state.unknown_reasons),
-        "task_phases": [list(item) for item in sorted(state.task_phases)],
     }
 
 
@@ -299,6 +299,29 @@ def analysis_result_to_dict(result: AnalysisResult) -> dict[str, object]:
         "unknown_reasons": list(result.unknown_reasons),
         "lifecycle_statuses": list(result.lifecycle_statuses),
         "steps": result.steps,
+        "property_states": {scope: {event: state_to_dict(state) for event, state in sorted(states.items())}
+                            for scope, states in sorted(result.property_states.items())},
+        "property_traces": {scope: {event: asdict(trace) for event, trace in sorted(traces.items())}
+                            for scope, traces in sorted(result.property_traces.items())},
+        "async_states": {task: {phase: state_to_dict(state) for phase, state in sorted(states.items())}
+                         for task, states in sorted(result.async_states.items())},
+        "async_traces": {task: {phase: [asdict(trace) for trace in traces] for phase, traces in sorted(phases.items())}
+                         for task, phases in sorted(result.async_traces.items())},
+        "async_origins": dict(sorted(result.async_origins.items())),
+        "async_derivations": {task: [async_derivation_to_dict(item) for item in records]
+                              for task, records in sorted(result.async_derivations.items())},
+        "termination_guaranteed": result.termination_guaranteed,
+    }
+
+
+def async_derivation_to_dict(derivation: AsyncDerivation) -> dict[str, object]:
+    return {
+        "phase": derivation.phase,
+        "transition_id": derivation.transition_id,
+        "source_event_id": derivation.source_event_id,
+        "target_event_id": derivation.target_event_id,
+        "state": state_to_dict(derivation.state),
+        "trace": asdict(derivation.trace),
     }
 
 

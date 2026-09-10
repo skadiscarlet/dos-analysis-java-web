@@ -1,5 +1,14 @@
-## [2026-09-10] Resource lifecycle v1.1 Task 4 main solver
+## [2026-09-10] Resource lifecycle v1.1 Task 4 review fixes
 
+- I1：任务 phase 移到独立控制 cursor；工作列表不再合并不同已执行边集合的 trace，保留一条真实交错 witness。输出按 task/phase/path 保存独立 `AsyncDerivation`，每条 proof 绑定真实 source/target/transition 与自身状态；便捷 submitted/completed 只聚合资源状态，不携带混合 phase 或全阶段共享证明。
+- I2：adapter 按同批 base CFG 的 submit operation outcome 标记 success/exceptional continuation，solver 要求匹配 TaskBinding 与 `cfg_fact`。缺证据 scoped unknown，成功接纳后取消不阻塞 caller；匹配 instance/holder/contract/queued-or-run target 的 caller dispatch 只保留 evidence，不重复 capture，任何 identity mismatch 仍 unknown。QL 未修改。
+- I3/I4：全部 caller exit 合并后仅生成一次 all-tasks 条件维度，并拒绝重复 DimensionResult identity；条件 evidence/transition/location 来自对应 property trace。evidence registry 使用独立 `evidence_kind` 与完整 claims，保留同源多 context / create-retain-drop claims，拒绝来源位置、primitive、同 claim identity 或 exit kind 冲突。公共 serializer 完整保存 solver cuts、阶段 trace/origin/derivation 与终止保证字段。
+- 验证：初始有效 RED 为 8 failed，matching dispatch 单项另为 1 failed；扩展 claim identity 反例亦取得有效 RED。最终 review `17 passed`，含真实缓存回放 focused `155 passed, 156 subtests`，全 lifecycle `323 passed, 13 skipped, 235 subtests`；compileall 与 diff-check 通过。一次扩展测试误要求清除业务 field，修正为检查 task holder，不算生产缺陷。
+- 同批真实 SourcePairs raw facts 经当前 adapter 重新构造完整 4 units 并 validate，原 raw/snapshot/coverage 保持不变；当前默认预算 caller 为 827 steps、terminated=true，真实 facts→CLI→replay 通过。未重跑 QL，不将首轮 query 时的 solver/adapter 版本冒充最终实现；原有 source coverage gaps 和缺失 reject continuation 仍显式 unknown。G3 保持 pending fresh review / fail，整体 partial；Task 5 未启动、不 push，P0 2.5/0.4.0 与三态限制不变。
+
+## [2026-09-10] Resource lifecycle v1.1 Task 4 main solver（首轮历史）
+
+- fresh review 重新打开 G3：I1 phase/trace 投影、I2 caller accept/reject CFG 对应、I3 条件维度 identity 重复、I4 evidence 类型/冲突/出口依赖与公共 serializer 不完整。当前回退 fail/in_progress；先保存逐项有效 RED，再修复，不以既有 GREEN 覆盖 review 反例。
 - G3 主求解异步接通：唯一、同 callable 的 `source_submit_binding` 接入 caller/task 控制位置乘积工作列表；排队/直接接纳才 capture，reserved→running 不重复 capture，真实 callback CFG effect 与 TaskExit 之后的 task holder drop 使用共享状态操作。request return 不结束 task，close 不删除 field 引用；重复 task context 保持独立。
 - `exit_states` 保留 request 出口语义；新增 `property_states/property_traces` 明确记录 task normal/exception、拒绝/取消及 request 返回后已提交任务均终止的条件切面。对应 DimensionResult 使用 `after_task_termination:<task_id>:<kind>` 等 scope；缺调度/终止、取消或拒绝回接证据时整体维度按捕获资源族输出 unknown。`_async_stages` 只序列化主求解保存状态，不再执行完成/取消语义；legacy 无 TaskBinding 只保留 conservative capture，后继为 null，不能由 executor termination 标志推导 callback close。
 - 有效 RED：主状态 6 failed、connector 结构 5 failed。源码 SourcePairs 真实双 query→adapter→默认预算 solver 为 1 passed（267.53s），caller 327 steps；normal/exception 两出口关闭义务归零，删除已有 release 后重新为 1。该 fixture 自有 coverage gap，因此条件维度仍 unknown，不算 G4 通过。人工完整 Program 验证关闭维度 bounded→obligation_gap、额外 field holder 和拒绝分支差异；已完成真实缓存 facts→CLI→replay。

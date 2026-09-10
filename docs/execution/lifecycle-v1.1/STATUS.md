@@ -5,8 +5,8 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task4_main_solver_complete_pending_review`
-- next_action: `Task 4 fresh spec-quality review；最终测试通过，Task 5 未启动，不 push`
+- current_stage: `task4_review_fixes_ready_for_review`
+- next_action: `I1–I4 / serializer 已完成修复和回归，等待 fresh review；G3 pending review，Task 5 未启动，不 push`
 
 ## 适用标准
 
@@ -68,7 +68,17 @@
 - 双查询/provenance RED 为 `8 failed, 37 deselected`，GREEN 为 `8 passed, 37 deselected, 9 subtests passed`；非真实 fixture contract 为 `39 passed, 6 deselected, 20 subtests passed`；最终源码组合为 `1 passed, 45 deselected in 436.13s`；最终 lifecycle 全量为 `253 passed, 6 skipped, 205 subtests passed`。P0 schema/tool 仍为 `2.5/0.4.0`，resource lifecycle 为 `1.1/resource-lifecycle-v1.1`。
 - Task 3 follow-up 已从真实 `SourcePairs.java` 取得 caller allocation -> wrapper1 -> wrapper2 -> lambda capture -> `finally { resource.close(); }` 的 callback release relation：Task QL 仅对 depth<=2 exact parameter、static-final AbortPolicy executor、单语句 finally 的 captured `AutoCloseable.close()` 输出 complete `release`；release 的 program point 与 `finally block -> close statement` 的 task CFG target 对齐。adapter 只在同 instance、同 lambda target、同 CFG target 的 raw release 上附着 `task_cfg_edge` release effect，不能由 executor completion/termination 推导。RED 为 release row 缺失的 `StopIteration`；GREEN 为定向真实源码 `1 passed, 60 deselected in 263.75s`，最终 lifecycle 为 `264 passed, 10 skipped, 210 subtests passed`、完整真实 CodeQL fixture 为 `61 passed, 26 subtests passed in 1611.28s`。direct Base/Task query run 分别为 2m20.92s / 1m58.66s，均成功。
 
-## Task 4 完成证据（G3 主求解范围）
+## Task 4 review fixes 验证（G3 pending fresh review）
+
+- 首轮提交为 `0b7ae7d68675f29fc724d370cc133df7f2f68270`，本轮追加新提交，不 amend。I1/I2/I3/I4 与 serializer 初始 RED 为 `8 failed`（`/tmp/task4-review-red.xml`），matching-dispatch 独立 RED 为 `1 failed, 8 deselected`（`/tmp/task4-review-dispatch-red.xml`）。扩展同 effect identity 错误 holder 的反例另取得有效 RED；扩展测试曾错误要求清除 accepted 业务 field，已改为只查 task holder，此测试问题单独记录、不充作生产缺陷。
+- I1 使用 caller/task phase cursor 与路径边集合 disjunct，禁止同 task queued/reserved 同时成为一个 control state；每条 async proof 对应一个真实 source/target/transition/path 和单一 phase/state。投影 aggregate 只含资源状态，不能借 task 全局混合 trace 支撑各阶段。I2 根据 base raw CFG 的首个 submit outcome 绑定 success/exceptional continuation，缺事实保留 unknown；matching dispatch 按 instance/holder/contract/target 精确匹配，capture 已执行时仅保留证据。取消后 caller 继续、四类 mismatch 保守 unknown 已补测。
+- I3 合并全部 caller-exit states 后仅检查一次 all-tasks 条件性质，结果 identity 重复直接拒绝。I4 条件维度记录 property event IDs 与真实 trace transition/evidence，并据此筛选 location；evidence_kind 不再被 TaskExit.kind 覆盖，registry 保留全部同源 claims、拒绝 conflicting origin/primitive/identity/exit kind；逐 phase proof 不混入同 task reject 或另一种 terminal 分支。公共 serializer 完整序列化新增 solver 字段。
+- 最终 review：`python3 -m pytest -q tests/test_resource_lifecycle_task4_review.py --junitxml=/tmp/task4-review-final.xml` → `17 passed in 0.19s`。其中原 9 项 review 全部通过，8 项扩展包含四维 dispatch mismatch、接纳后取消、phase proof/conditional location、同源 claims 和同 effect identity 冲突。
+- 最终 focused：设置 `DOSWEB_TASK4_CACHED_FACTS=/tmp/task4-sourcepairs-full-facts.json`，运行 async_solver/solver/cli/replay/task4_review 五个测试文件，`/tmp/task4-review-final-focused.xml` → `155 passed, 156 subtests passed in 1.17s`。相同 env 下全 lifecycle，`/tmp/task4-review-final-all.xml` → `323 passed, 13 skipped, 235 subtests passed in 5.51s`；13 项为未再次运行的 opt-in real CodeQL tests。`compileall` 与 `git diff --check` exit 0。
+- 真实源码版本边界：本轮没有修改/重跑 QL；从首轮保留的 `/tmp/task4-sourcepairs-facts.json` raw facts 经当前 `_unit_from_rows` 重建完整 4 units，核本地 Java source snapshot 后 `validate_extracted` 通过，raw facts / snapshot / coverage 逐项保持不变。当前默认 1024 步预算 caller 实际 `827 steps / terminated=true`；CLI/replay 额外使用显式记录预算，单项 `/tmp/task4-review-real-cached.xml` 为 `1 passed`，最终 focused/full 再次覆盖该真实批次。此证据是当前 adapter/solver 对同批真实 raw facts 的重放，不是假称重新执行 query。
+- SourcePairs 原 `task_callback_effect_unmodeled` / `task_terminal_coverage_incomplete` / `async_consumer_contract_unmodeled` 未消除，缺 reject continuation 仍 scoped unknown；G4–G8 未通过。G3 在 fresh review 前继续 `fail / pending review`，整体 `partial`，Task 5、不相关修改和 push 均未启动。
+
+## Task 4 首轮完成证据（历史；不覆盖 review 反例）
 
 - 最终验收：`DOSWEB_TASK4_CACHED_FACTS=/tmp/task4-sourcepairs-full-facts.json python3 -m pytest -q tests/test_resource_lifecycle_async_solver.py tests/test_resource_lifecycle_solver.py tests/test_resource_lifecycle_cli.py tests/test_resource_lifecycle_replay.py --junitxml=/tmp/task4-final-focused.xml` 为 `138 passed, 156 subtests passed in 0.90s`；相同 env 下 `python3 -m pytest -q tests/test_resource_lifecycle_*.py --junitxml=/tmp/task4-final-all.xml` 为 `306 passed, 13 skipped, 235 subtests passed in 5.17s`。13 skips 为未再次运行的 opt-in real CodeQL fixture，其单项最终真实运行与最终代码 facts 回放版本范围见下文；没有静默 mock。`python3 -m compileall -q dosweb/resource_lifecycle tests/test_resource_lifecycle_async_solver.py` 与 `git diff --check` exit 0。
 - 起点 `b8cdb0ef88eeb821c07520ea079d0b825b535f10`。主状态 RED 为 `6 failed`（`/tmp/task4-red.xml`）：任务队列缺 capture、正常/异常出口不在主状态结果、close/field/reject/repeated context 无对应切面。新工作列表保留 caller 与逐步 task CFG 的交错，使用 exact state disjuncts；只在报告投影时 join。同步和任务共用 `apply_effect`，不把 callback 当原子块。
@@ -86,7 +96,7 @@
 | --- | --- | --- |
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
 | G2 源码关系 | `pass` | I1–I4 与 Minor 完成有效 RED→GREEN；任务与完整调用前缀隔离、depth/budget fail-closed、post-adapter snapshot 复核、related provenance 全字段绑定。最终非 fixture 285 passed；既有四项真实通过，四形态新 fixture 单项真实补验通过；fresh quality Ready Yes、fresh spec compliant。 |
-| G3 主求解异步 | `pass` | Task4 main-state/connector RED→GREEN；SourcePairs 真实双 query 后默认预算327 steps；normal/exception release消融改变主切面状态；最终 facts→CLI/replay；人工完整Program维度差异。详见 Task4 证据。 |
+| G3 主求解异步 | `fail` | I1–I4 与 serializer 修复已完成，review 17 passed，含真实 raw facts 回放的 focused 155 passed / full 323 passed；pending fresh review，首轮 GREEN 仅作历史证据。 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
 | G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |
 | G6 源码验收 | `fail` | 尚无六组十二变体的真实 CodeQL 验收 |

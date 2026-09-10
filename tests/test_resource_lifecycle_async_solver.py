@@ -40,12 +40,13 @@ def task_program(*, close_normal=True, close_exceptional=True, field=False,
         events.append(Event(prefix + ":body", "method", "Fixture.task", "true"))
         holders.append(Holder(prefix + ":holder", "task", "task", "exact"))
         binding = TaskBinding(prefix + ":binding", prefix, "instance:stream", prefix + ":holder",
-            "executor", *ids, "Fixture.task", ("fact:binding",))
+            "executor", *ids, "Fixture.task", (prefix + ":fact:binding",))
         bindings.append(binding)
         transitions.append(Transition(prefix + ":bind", caller, ids[0], "source_submit_binding", (), "internal", ()))
-        transitions.append(Transition(prefix + ":return", caller, continuation, "true",
+        transitions.append(Transition(prefix + ":return", caller, continuation, "task_submit_success",
             (effect("drop", holder_id="holder:request"),) if continuation == "event:normal" else (),
-            "normal" if continuation == "event:normal" else "internal", ()))
+            "normal" if continuation == "event:normal" else "internal",
+            (f"task_binding:{binding.binding_id}", f"cfg_fact:{prefix}:caller-success")))
         for name, source, target, phase_source, phase_target, q, a, exit_kind in (
             ("direct_accept", ids[0], ids[2], "absent", "reserved", 0, 1, "internal"),
             ("enqueue", ids[0], ids[1], "absent", "queued", 1, 0, "internal"),
@@ -54,14 +55,15 @@ def task_program(*, close_normal=True, close_exceptional=True, field=False,
             *(([("reject", ids[0], ids[5], "absent", "rejected", 0, 0, "rejected")]) if reject else []),
         ):
             pop = PopulationEffect(prefix + ":" + name, name, "executor", prefix, "contract guard", q, a,
-                phase_source, phase_target, location(), ("fact:population",))
+                phase_source, phase_target, location(), (prefix + ":fact:population:" + name,))
             transitions.append(Transition(prefix + ":edge:" + name, source, target, name, (), exit_kind, (), (pop,)))
         transitions.append(Transition(prefix + ":body-edge", ids[2], prefix + ":body", "true", (), "internal", ()))
         for kind, closed in (("normal", close_normal), ("exceptional", close_exceptional)):
             point = prefix + ":point:" + kind
             target = ids[3 if kind == "normal" else 4]
             points.append(ProgramPoint(point, "Fixture.task", "task_exit", location()))
-            exits.append(TaskExit(prefix + ":exit:" + kind, prefix, point, target, "Fixture.task", kind, ("fact:exit",)))
+            exits.append(TaskExit(prefix + ":exit:" + kind, prefix, point, target, "Fixture.task", kind,
+                                  (prefix + ":fact:exit:" + kind,)))
             if terminal:
                 transitions.append(Transition(prefix + ":terminal:" + kind, prefix + ":body", target, kind,
                     (replace(effect("release"), effect_id=prefix + ":close:" + kind),) if closed else (), kind, ()))
@@ -184,10 +186,11 @@ def test_connector_effects_are_applied_and_start_snapshot_precedes_callback_clos
         if edge.transition_id == "task:0:bind" else edge for edge in program.transitions))
     result = solve(program, budget=AnalysisBudget())
     assert ("instance:stream", "holder:field") in result.async_states["task:0"]["normal"].held_edges
-    assert result.async_states["task:0"]["started"].open_obligations
+    assert result.async_states["task:0"]["running"].open_obligations
     assert not result.async_states["task:0"]["normal"].open_obligations
-    assert ("task:0", "running") in result.async_states["task:0"]["started"].task_phases
-    assert "task_population_transition:start" in result.async_traces["task:0"].rule_ids
+    assert not hasattr(result.async_states["task:0"]["running"], "task_phases")
+    assert all("task_population_transition:start" in trace.rule_ids
+               for trace in result.async_traces["task:0"]["running"])
 
 
 def test_explicit_queued_cancellation_is_solved_without_closing_resource():
@@ -220,7 +223,8 @@ def test_async_report_uses_solved_states_without_executing_effects(monkeypatch):
     executor = replace(contract(), contract_id="executor")
     stage = _async_stages(AnalysisUnit("manual:task4", program, (), (executor,)), solved)[0]
     assert stage["completed"]["open_obligations"] == []
-    assert stage["normal"]["task_phases"] == [["task:0", "terminated"]]
+    assert "task_phases" not in stage["normal"]
+    assert all(record["phase"] == "normal" for record in stage["phase_derivations"]["normal"])
     assert stage["property_slice"] == "after_task_termination"
     assert stage["termination_guaranteed"] is False
 

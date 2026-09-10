@@ -1373,7 +1373,8 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         self.assertEqual("transition:dispatch", stage["transition_id"])
         self.assertEqual("effect:dispatch:task", stage["dispatch_effect_id"])
         self.assertEqual("contract:manual-executor", stage["contract_id"])
-        self.assertEqual("event:task", stage["target_event_id"])
+        self.assertEqual("event:normal", stage["target_event_id"])
+        self.assertEqual("event:task", stage["dispatch_target_event_id"])
         expected_state_fields = {
             "instance_families",
             "instance_abstractions",
@@ -1394,7 +1395,6 @@ class ResourceLifecycleCliTests(unittest.TestCase):
             "peak_held_counts",
             "repeated_instances",
             "unknown_reasons",
-            "task_phases",
         }
         for phase in ("submitted",):
             self.assertEqual(expected_state_fields, set(stage[phase]))

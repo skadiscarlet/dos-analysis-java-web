@@ -4,7 +4,8 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from dosweb.resource_lifecycle.contracts import ExecutorContract
-from dosweb.resource_lifecycle.models import AnalysisResult, DimensionResult, Program, SOURCE_KINDS
+from dosweb.resource_lifecycle.models import AnalysisResult, DimensionResult, Program, SOURCE_KINDS, Trace
+from dosweb.resource_lifecycle.solver import merge_states
 
 
 @dataclass(frozen=True)
@@ -577,8 +578,15 @@ def check_invariants(
         for slice_name, exit_states in result.property_states.items():
             if slice_name not in {"after_task_termination", "all_tasks_terminated_after_request"}:
                 continue
-            for event_id, state in sorted(exit_states.items()):
-                task_exit = task_exit_by_event.get(event_id)
+            groups = ([tuple(sorted(exit_states))] if slice_name == "all_tasks_terminated_after_request" and exit_states
+                      else [(event_id,) for event_id in sorted(exit_states)])
+            for event_ids in groups:
+                event_id = event_ids[0]
+                state = merge_states(tuple(exit_states[item] for item in event_ids))
+                task_exit = task_exit_by_event.get(event_id) if len(event_ids) == 1 else None
+                traces = [result.property_traces.get(slice_name, {}).get(item, Trace()) for item in event_ids]
+                trace_evidence = {item for trace in traces for item in trace.evidence_ids}
+                transition_ids = tuple(sorted({item for trace in traces for item in trace.transition_ids}))
                 sliced = replace(result, exit_states={event_id: state}, property_states={},
                     unknown_reasons=tuple(reason for reason in result.unknown_reasons
                         if not reason.startswith(("task_termination_not_guaranteed:", "task_cancellation_unmodeled:",
@@ -594,9 +602,19 @@ def check_invariants(
                 for dimension in selected:
                     if dimension.dimension == "item_size_bytes" or family_id is not None and dimension.resource_family_id != family_id:
                         continue
+                    _, coverage_evidence = _coverage_details(program, dimension.dimension,
+                                                            dimension.resource_family_id)
+                    evidence = trace_evidence | set(coverage_evidence) | {dimension.resource_family_id}
+                    evidence.update(item.instance_id for item in program.instances
+                                    if item.family_id == dimension.resource_family_id)
+                    if task_exit is not None:
+                        evidence.update(task_exit.evidence_ids)
+                        evidence.update(bindings[task_exit.task_id].evidence_ids)
                     output.append(replace(dimension, scope=scope,
                         assumptions=dimension.assumptions + ("conditional on reaching the recorded exit slice; termination is not guaranteed",),
-                        evidence_ids=tuple(sorted(set(dimension.evidence_ids) | (
-                            set(task_exit.evidence_ids) | set(bindings[task_exit.task_id].evidence_ids) if task_exit else set()
-                        )))))
+                        evidence_ids=tuple(sorted(evidence)), transition_ids=transition_ids,
+                        property_event_ids=event_ids))
+    identities = [(item.scope, item.dimension, item.resource_family_id) for item in output]
+    if len(identities) != len(set(identities)):
+        raise ValueError("duplicate resource lifecycle dimension identity")
     return tuple(output)
