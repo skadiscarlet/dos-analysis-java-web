@@ -697,6 +697,24 @@ class Program:
         _identifier(self.contracts_version, "contracts_version")
 
 
+def resolve_task_exit(program: Program, transition: Transition) -> TaskExit | None:
+    """Resolve one terminal edge, never broadcast a shared exit event's relations."""
+    target = next(event for event in program.events if event.event_id == transition.target_event_id)
+    if target.kind != "task_exit":
+        return None
+    exits = [item for item in program.task_exits
+             if item.event_id == transition.target_event_id and item.kind == transition.exit_kind]
+    if not exits:
+        raise ValueError("task exit relation is missing")
+    if len(exits) > 1:
+        source_point = next(event.activation_condition for event in program.events
+                            if event.event_id == transition.source_event_id)
+        exits = [item for item in exits if item.point_id == source_point]
+    if len(exits) != 1:
+        raise ValueError("task exit relation is ambiguous")
+    return exits[0]
+
+
 @dataclass(frozen=True)
 class CountInterval:
     lower: int = 0

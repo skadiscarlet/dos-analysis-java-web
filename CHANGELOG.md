@@ -1,3 +1,10 @@
+## [2026-09-11] Resource lifecycle v1.1 Task 4 async terminal location fixes
+
+- fresh双审确认async phase proof仍按共享exit event广播TaskExit位置，互斥路径各混入line99/119；先补normal/exceptional同kind反例，再与solver/child proof共用精确出口解析，缺失或多义fail closed。G3保持fail/pending fresh review，本轮新commit、不amend/push，Task5未启动。
+- 新增共享 `resolve_task_exit`，按terminal edge的event/kind、同kind多出口时的source ProgramPoint选唯一关系；solver保留scoped unknown，async/child evidence缺失或多义直接拒绝。async不再按reached event广播位置，只引入该trace实际选中TaskExit的位置及registry relation IDs，并检查出口事实确在trace evidence中。async/child共用point relation registry入口，避免两套解析再次漂移。
+- 有效RED为 `2 failed, 2 passed`：normal路径误含119、exceptional路径误含129；缺失/多义既有fail-closed正控不充作RED。最终新测试 `6 passed`，连同前轮位置回归 `15 passed`；含真实cached的focused `181 passed, 156 subtests`，全lifecycle `349 passed, 13 skipped, 235 subtests`。normal/exceptional互斥path、dimension child不回退、registry point错绑及async location污染的replay检测均通过；compileall/diff-check通过。
+- 本轮未改/重跑QL或adapter；同批真实SourcePairs缓存CLI/replay和16MiB体积断言通过。未启动Task5，G3继续pending fresh review；新commit、不amend/push。
+
 ## [2026-09-10] Resource lifecycle v1.1 Task 4 terminal evidence fixes
 
 - fresh quality final 发现 conditional child proof 只采集 effect location，漏实际 TaskExit/CFG ProgramPoint；按已执行 transition endpoints 补关系证据与位置，不混入互斥路径。另修 pure Abort reject-only 的 termination_guaranteed 被历史 async_states 误压为 false。先保存有效 RED，G3 继续 pending fresh review，Task5 / push 不启动。

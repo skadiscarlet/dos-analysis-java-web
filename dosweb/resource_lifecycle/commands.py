@@ -47,7 +47,7 @@ from dosweb.resource_lifecycle.io import (
     property_derivation_to_dict,
     state_to_dict,
 )
-from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult, SCHEMA_VERSION
+from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult, SCHEMA_VERSION, resolve_task_exit
 from dosweb.resource_lifecycle.solver import merge_states, solve
 from dosweb.resource_lifecycle.summaries import (
     AppliedSummaries,
@@ -621,6 +621,28 @@ def _evidence_payload(
         transitions = {item.transition_id: item for item in source_unit.program.transitions}
         events_by_id = {event.event_id: event for event in source_unit.program.events}
         points_by_id = {point.point_id: point for point in source_unit.program.program_points}
+
+        def point_relation(edge, endpoint, point, task_exit=None):
+            event_id = edge.source_event_id if endpoint == "source" else edge.target_event_id
+            evidence = {stable_identifier("program-point-evidence", {"unit_id": unit_id, "point_id": point.point_id})}
+            if task_exit is not None:
+                evidence.update(task_exit.evidence_ids)
+            relation = {
+                "kind": "task_exit" if task_exit is not None else "cfg_program_point", "unit_id": unit_id,
+                "transition_id": edge.transition_id, "source_event_id": edge.source_event_id,
+                "target_event_id": edge.target_event_id, "endpoint": endpoint, "event_id": event_id,
+                "point_id": point.point_id, "task_exit_id": task_exit.exit_id if task_exit else None,
+                "evidence_ids": sorted(evidence), "location": asdict(point.location),
+            }
+            relation_id = stable_identifier("point-relation-evidence", {
+                "unit_id": unit_id, "transition_id": edge.transition_id, "endpoint": endpoint,
+                "point_id": point.point_id, "task_exit_id": task_exit.exit_id if task_exit else None,
+            })
+            # Intern shared endpoint metadata once; each proof references only
+            # its executed edge/endpoint relations and stays within replay limits.
+            register(relation_id, "program_point_relation", relation)
+            return relation_id, evidence | {relation_id}
+
         traces = unit.get("traces")
         exit_states = unit.get("exit_states")
         effects_by_id = {
@@ -686,15 +708,26 @@ def _evidence_payload(
                 if {item[1] for item in rule_dependencies} != set(evidence_ids):
                     raise ValueError("async stage evidence dependencies are incomplete")
                 conclusions = stage["conclusions"]
-                selected_edges = [transitions[item] for item in stage.get("transition_ids", ()) if item in transitions]
+                if any(item not in transitions for item in stage.get("transition_ids", ())):
+                    raise ValueError("async path transition is unresolved")
+                selected_edges = [transitions[item] for item in stage.get("transition_ids", ())]
                 locations = [asdict(effect.location) for edge in selected_edges for effect in edge.effects
                              if set(effect.evidence_ids).intersection(evidence_ids)]
                 locations.extend(asdict(population.location) for edge in selected_edges
                                  for population in edge.population_effects)
-                reached = {edge.target_event_id for edge in selected_edges}
-                locations.extend(asdict(point.location) for point in source_unit.program.program_points
-                                 if any(item.event_id in reached and item.point_id == point.point_id
-                                        for item in source_unit.program.task_exits))
+                proof_evidence = set(evidence_ids)
+                relation_evidence = []
+                for edge in selected_edges:
+                    task_exit = resolve_task_exit(source_unit.program, edge)
+                    if task_exit is None:
+                        continue
+                    if not set(task_exit.evidence_ids) <= set(evidence_ids):
+                        raise ValueError("async task exit evidence does not match its path")
+                    point = points_by_id[task_exit.point_id]
+                    relation_id, relation_ids = point_relation(edge, "target", point, task_exit)
+                    relation_evidence.append(relation_id)
+                    proof_evidence.update(relation_ids)
+                    locations.append(asdict(point.location))
                 locations_by_key = {canonical_json(item): item for item in locations}
                 derivation_body = {
                     "unit_id": unit_id,
@@ -709,7 +742,8 @@ def _evidence_payload(
                     "contract_status": stage.get("contract_status"),
                     "target_event_id": stage.get("target_event_id"),
                     "rule_ids": list(rule_ids),
-                    "evidence_ids": list(evidence_ids),
+                    "evidence_ids": sorted(proof_evidence),
+                    "relation_evidence": relation_evidence,
                     "conclusions": conclusions,
                     "code_locations": [locations_by_key[key] for key in sorted(locations_by_key)],
                 }
@@ -721,7 +755,7 @@ def _evidence_payload(
                 rules.update(rule_ids)
                 dependency_pairs.update(rule_dependencies)
                 proof_dependency_pairs.update(
-                    (derivation_id, evidence_id) for evidence_id in evidence_ids
+                    (derivation_id, evidence_id) for evidence_id in proof_evidence
                 )
         if not isinstance(traces, Mapping):
             continue
@@ -827,32 +861,10 @@ def _evidence_payload(
                 relation_evidence = []
 
                 def add_point_relation(edge, endpoint, point, task_exit=None):
-                    event_id = edge.source_event_id if endpoint == "source" else edge.target_event_id
-                    point_evidence_id = stable_identifier("program-point-evidence", {
-                        "unit_id": unit_id, "point_id": point.point_id})
-                    evidence = {point_evidence_id}
-                    if task_exit is not None:
-                        evidence.update(task_exit.evidence_ids)
+                    relation_id, evidence = point_relation(edge, endpoint, point, task_exit)
                     path_evidence.update(evidence)
                     path_locations[(point.location.path, point.location.start_line,
                                     point.location.end_line, point.location.source_sha256)] = asdict(point.location)
-                    relation = {
-                        "kind": "task_exit" if task_exit is not None else "cfg_program_point",
-                        "unit_id": unit_id,
-                        "transition_id": edge.transition_id, "source_event_id": edge.source_event_id,
-                        "target_event_id": edge.target_event_id, "endpoint": endpoint, "event_id": event_id,
-                        "point_id": point.point_id, "task_exit_id": task_exit.exit_id if task_exit else None,
-                        "evidence_ids": sorted(evidence), "location": asdict(point.location),
-                    }
-                    relation_id = stable_identifier("point-relation-evidence", {
-                        "unit_id": unit_id, "transition_id": edge.transition_id, "endpoint": endpoint,
-                        "point_id": point.point_id, "task_exit_id": task_exit.exit_id if task_exit else None,
-                    })
-                    # A CFG endpoint is shared by many path/dimension proofs.
-                    # Intern its full relation once; each child keeps the exact
-                    # IDs without multiplying source metadata past replay limits.
-                    register(relation_id, "program_point_relation", relation)
-                    path_evidence.add(relation_id)
                     relation_evidence.append(relation_id)
 
                 for transition_id in path["trace"]["transition_ids"]:
@@ -869,14 +881,10 @@ def _evidence_payload(
                             if point.callable != event.callable:
                                 raise ValueError("property path event/program point callable mismatch")
                             add_point_relation(edge, endpoint, point)
-                    exits = [item for item in source_unit.program.task_exits
-                             if item.event_id == edge.target_event_id and item.kind == edge.exit_kind]
-                    if len(exits) > 1:
-                        source_point = events_by_id[edge.source_event_id].activation_condition
-                        exits = [item for item in exits if item.point_id == source_point]
-                        if len(exits) != 1:
-                            raise ValueError("property path task exit location is ambiguous")
-                    for task_exit in exits:
+                    task_exit = resolve_task_exit(source_unit.program, edge)
+                    if task_exit is not None:
+                        if not set(task_exit.evidence_ids) <= set(path["trace"]["evidence_ids"]):
+                            raise ValueError("property task exit evidence does not match its path")
                         add_point_relation(edge, "target", points_by_id[task_exit.point_id], task_exit)
                     for effect in edge.effects:
                         if effect.family_id == family_id and set(effect.evidence_ids).intersection(path_evidence):

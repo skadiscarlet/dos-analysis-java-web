@@ -10,6 +10,7 @@ from dosweb.resource_lifecycle.models import (
     AnalysisResult,
     AsyncDerivation,
     PropertyDerivation,
+    resolve_task_exit,
     CountInterval,
     Effect,
     Program,
@@ -390,15 +391,14 @@ def _task_step(program: Program, binding: TaskBinding, transition: Transition,
         phase_out = "running"
         rules.append("task_start_preserves_capture")
     elif target in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}:
-        exits = [item for item in program.task_exits if item.task_id == binding.task_id
-                 and item.event_id == target and item.kind == transition.exit_kind]
-        if len(exits) > 1:
-            source_point = next(event.activation_condition for event in program.events if event.event_id == source)
-            exits = [item for item in exits if item.point_id == source_point]
-        if phase != "running" or len(exits) != 1:
+        try:
+            task_exit = resolve_task_exit(program, transition)
+        except ValueError:
+            return None
+        if phase != "running" or task_exit is None or task_exit.task_id != binding.task_id:
             return None
         phase_out, operation = "terminated", "drop"
-        evidence.update(item for task_exit in exits for item in task_exit.evidence_ids)
+        evidence.update(task_exit.evidence_ids)
         rules.append("task_exit_drops_own_capture")
     elif target == binding.cancelled_event_id:
         # Only an explicit, phase-matched removal relation proves cancellation.
