@@ -1,3 +1,9 @@
+## [2026-09-11] Resource lifecycle v1.1 Task 4 review closure
+
+- fresh spec review 对 `b8cdb0e..f405c10` 给出 `Spec compliant: yes`，fresh quality review 对同一范围给出 `Ready: Yes`；两者 Critical/Important/Minor 均无。quality 额外核验跨 task/wrong binding、可达与不可达同 callable CFG、terminal source/target、registry/replay 篡改、A/B/C 旧反例及预算 fail-closed。
+- review 验证为 Task 4 定向 `96 passed, 1 skipped`、cached focused `235 passed, 156 subtests`、全 lifecycle `403 passed, 13 skipped, 235 subtests`；cached evidence `9,036,068 / 16,777,216` bytes，caller `827 steps / terminated=true / termination_guaranteed=false`，`compileall`、`git diff --check` 与 clean worktree 均通过。未运行 fresh CodeQL query，证据继续明确为既有真实 raw facts 的当前实现回放。
+- G3 改为 `pass`、Task 4 complete；整体仍 `partial`，G4–G8 fail。Task 5 开始实现从真实 `PopulationEffect`/`ExecutorContract` 推导的 q/a 群体归纳与重复事件检查；P0 schema/tool `2.5/0.4.0`、三态结论和 async Release 限制不变，本提交不 push。
+
 ## [2026-09-11] Resource lifecycle v1.1 Task 4 exact terminal source contract
 
 - fresh review 的 singleton activation 与 source kind/callable 两项 Important 已修复实现，G3 仍 fail/pending fresh review。`resolve_task_exit` 无论候选数量均精确匹配 source activation 的真实 ProgramPoint，核对 source/target/point/TaskExit/TaskBinding kind、callable 与出口归属；active source 只允许 binding.run 或从该 run 经 internal、同 callable method CFG 可达的 method。合法 `task_run → task_exit` 保留；缺失、过滤后零个或多个、错误 source/target/task 均 fail closed。task normal/exceptional 边即使误指普通 request exit，也不再按普通 task 内部边执行，而保留 `task_exit_relation_unresolved:<task>`；真正的 caller request exit 不受影响。

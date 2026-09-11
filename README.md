@@ -31,7 +31,7 @@ python -m pip install -e .
 
 Resource Lifecycle v1 是并行的离线状态分析链，不修改现有 P0 schema/tool `2.5/0.4.0`，也不把 lifecycle property 映射为 vulnerability 布尔量。干净 checkout 不需要 API key 或网络即可运行仓库内人工 IR、重放证据并重新生成固定评价：
 
-v1.1 Task4 将真实 TaskBinding、逐步 callback CFG 与 caller continuation 放入同一主求解工作列表。`lifecycle-results.json` 的 `property_states` 区分 request 返回、task 正常/异常终止、拒绝/取消和 request 返回后已提交任务均终止的状态；该字段只是资源状态聚合，`property_derivations` 保存逐路径 state/trace，`property_traces` 为独立 trace 列表。条件维度使用 `after_task_termination:<task_id>:<kind>` 等 scope，逐路径检查后聚合，不能把互斥接纳边拼成一条 bounded 证明；证据缺失则 unknown。`termination_guaranteed=false` 表示未证明任务最终一定结束。缺 TaskBinding 的旧 dispatch 只保存 capture 和 unknown，不能由 executor 的 termination 字段生成已完成状态。当前 G1–G2 pass、G3 fail（pending fresh review）、G4–G8 fail；不具备 q/a 重复接纳归纳证明。
+v1.1 Task4 将真实 TaskBinding、逐步 callback CFG 与 caller continuation 放入同一主求解工作列表。`lifecycle-results.json` 的 `property_states` 区分 request 返回、task 正常/异常终止、拒绝/取消和 request 返回后已提交任务均终止的状态；该字段只是资源状态聚合，`property_derivations` 保存逐路径 state/trace，`property_traces` 为独立 trace 列表。条件维度使用 `after_task_termination:<task_id>:<kind>` 等 scope，逐路径检查后聚合，不能把互斥接纳边拼成一条 bounded 证明；证据缺失则 unknown。`termination_guaranteed=false` 表示未证明任务最终一定结束。缺 TaskBinding 的旧 dispatch 只保存 capture 和 unknown，不能由 executor 的 termination 字段生成已完成状态。当前 G1–G3 pass、G4–G8 fail；q/a 重复接纳归纳证明仍在 Task 5 实施中。
 
 ```bash
 dos-web-analyzer resource-extract \
