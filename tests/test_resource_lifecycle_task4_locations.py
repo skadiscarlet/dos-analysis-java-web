@@ -24,10 +24,10 @@ def located_program(closed=True):
     events = list(program.events)
     transitions = []
     for edge in program.transitions:
-        if not edge.transition_id.startswith("task:0:terminal:"):
+        if not edge.transition_id.startswith("task:0:terminal-enter:"):
             transitions.append(edge)
             continue
-        kind = edge.exit_kind
+        kind = edge.transition_id.rsplit(":", 1)[-1]
         point_id = "point:cfg:" + kind
         event_id = "event:cfg:" + kind
         line = 77 if kind == "normal" else 88

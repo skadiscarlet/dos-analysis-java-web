@@ -698,21 +698,66 @@ class Program:
 
 
 def resolve_task_exit(program: Program, transition: Transition) -> TaskExit | None:
-    """Resolve one terminal edge, never broadcast a shared exit event's relations."""
-    target = next(event for event in program.events if event.event_id == transition.target_event_id)
+    """Resolve an exact active-task terminal relation, including singleton exits."""
+    events = {event.event_id: event for event in program.events}
+    target = events.get(transition.target_event_id)
+    source = events.get(transition.source_event_id)
+    if target is None or source is None:
+        raise ValueError("task exit transition event is missing")
     if target.kind != "task_exit":
+        if (any(item.event_id == target.event_id for item in program.task_exits)
+                or any(target.event_id in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}
+                       for binding in program.task_bindings)
+                or (transition.exit_kind in {"normal", "exceptional"}
+                    and any(point.point_id == source.activation_condition and point.kind == "task_exit"
+                            for point in program.program_points))):
+            raise ValueError("task exit target kind is unresolved")
         return None
+    if source.kind not in {"method", "task_run"}:
+        raise ValueError("task exit source kind is unresolved")
+    points = {point.point_id: point for point in program.program_points}
+    point = points.get(source.activation_condition)
+    if point is None:
+        raise ValueError("task exit source point is missing")
     exits = [item for item in program.task_exits
-             if item.event_id == transition.target_event_id and item.kind == transition.exit_kind]
+             if item.event_id == target.event_id and item.kind == transition.exit_kind
+             and item.point_id == point.point_id]
     if not exits:
         raise ValueError("task exit relation is missing")
-    if len(exits) > 1:
-        source_point = next(event.activation_condition for event in program.events
-                            if event.event_id == transition.source_event_id)
-        exits = [item for item in exits if item.point_id == source_point]
     if len(exits) != 1:
         raise ValueError("task exit relation is ambiguous")
-    return exits[0]
+    selected = exits[0]
+    bindings = [binding for binding in program.task_bindings if binding.task_id == selected.task_id]
+    if len(bindings) != 1:
+        raise ValueError("task exit binding is missing or ambiguous")
+    binding = bindings[0]
+    expected_target = {"normal": binding.normal_exit_event_id,
+                       "exceptional": binding.exceptional_exit_event_id}.get(transition.exit_kind)
+    if (target.event_id != expected_target or point.kind != "task_exit"
+            or any(callable_name != selected.task_callable for callable_name in
+                   (source.callable, target.callable, point.callable, binding.task_callable))):
+        raise ValueError("task exit relation kind or callable is unresolved")
+    run = events.get(binding.run_event_id)
+    if run is None or run.kind != "task_run" or run.callable != binding.task_callable:
+        raise ValueError("task exit active source is unresolved")
+    # A task_run must be this binding's run; a method must be reached through
+    # this task's internal, same-callable method CFG (the population contract).
+    successors: dict[str, set[str]] = {}
+    for edge in program.transitions:
+        candidate = events.get(edge.target_event_id)
+        if (edge.exit_kind == "internal" and candidate is not None
+                and candidate.kind == "method" and candidate.callable == binding.task_callable):
+            successors.setdefault(edge.source_event_id, set()).add(edge.target_event_id)
+    reachable = {run.event_id}
+    pending = [run.event_id]
+    while pending:
+        for event_id in successors.get(pending.pop(), ()):
+            if event_id not in reachable:
+                reachable.add(event_id)
+                pending.append(event_id)
+    if source.event_id not in reachable:
+        raise ValueError("task exit active source is unresolved")
+    return selected
 
 
 @dataclass(frozen=True)

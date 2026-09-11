@@ -65,7 +65,11 @@ def task_program(*, close_normal=True, close_exceptional=True, field=False,
             exits.append(TaskExit(prefix + ":exit:" + kind, prefix, point, target, "Fixture.task", kind,
                                   (prefix + ":fact:exit:" + kind,)))
             if terminal:
-                transitions.append(Transition(prefix + ":terminal:" + kind, prefix + ":body", target, kind,
+                source = prefix + ":terminal-source:" + kind
+                events.append(Event(source, "method", "Fixture.task", point))
+                transitions.append(Transition(prefix + ":terminal-enter:" + kind, prefix + ":body", source,
+                                              "true", (), "internal", ()))
+                transitions.append(Transition(prefix + ":terminal:" + kind, source, target, kind,
                     (replace(effect("release"), effect_id=prefix + ":close:" + kind),) if closed else (), kind, ()))
     return replace(base, events=base.events + tuple(events), holders=base.holders + tuple(holders),
         transitions=tuple(transitions), exit_event_ids=("event:normal",),

@@ -390,7 +390,8 @@ def _task_step(program: Program, binding: TaskBinding, transition: Transition,
             return None
         phase_out = "running"
         rules.append("task_start_preserves_capture")
-    elif target in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}:
+    elif (target in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}
+          or transition.exit_kind in {"normal", "exceptional"}):
         try:
             task_exit = resolve_task_exit(program, transition)
         except ValueError:
@@ -631,8 +632,9 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                 binding = tasks[cursor.actor]
                 result = _task_step(program, binding, transition, source_state, cursor.phase)
                 if result is None:
-                    if (cursor.phase == "running" and transition.target_event_id
-                            in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}):
+                    if (cursor.phase == "running" and (transition.target_event_id
+                            in {binding.normal_exit_event_id, binding.exceptional_exit_event_id}
+                            or transition.exit_kind in {"normal", "exceptional"})):
                         unknown.add("task_exit_relation_unresolved:" + binding.task_id)
                     continue
                 next_state, phase, applied = result

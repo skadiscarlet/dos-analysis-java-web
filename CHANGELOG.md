@@ -1,3 +1,10 @@
+## [2026-09-11] Resource lifecycle v1.1 Task 4 exact terminal source contract
+
+- fresh review 的 singleton activation 与 source kind/callable 两项 Important 已修复实现，G3 仍 fail/pending fresh review。`resolve_task_exit` 无论候选数量均精确匹配 source activation 的真实 ProgramPoint，核对 source/target/point/TaskExit/TaskBinding kind、callable 与出口归属；active source 只允许 binding.run 或从该 run 经 internal、同 callable method CFG 可达的 method。合法 `task_run → task_exit` 保留；缺失、过滤后零个或多个、错误 source/target/task 均 fail closed。task normal/exceptional 边即使误指普通 request exit，也不再按普通 task 内部边执行，而保留 `task_exit_relation_unresolved:<task>`；真正的 caller request exit 不受影响。
+- 先迁移人工 fixture 为独立 normal/exceptional terminal source，保留 body 节点及 CFG 77/88、terminal 99/109 精确位置。新 source 矩阵首轮 RED `38 failed, 12 passed`：其中公开 Program 边界的 source/solver 反例 20 项，另 18 项仅为绕过已有效构造校验后的 resolver 防御性检查，不冒充公开导入缺陷。补充 ordinary-target 反例 RED `2 failed, 2 passed`；已有 constructor/method/task_run/replay 正控不计 RED。wrong-target 早期 evidence 校验的错误消息断言曾需修正，仅属测试预期，不计新生产缺陷。
+- 最终 focused `289 passed, 173 subtests`，完整 lifecycle `403 passed, 13 skipped, 235 subtests`；新 source/target 矩阵 54 项全部通过。async 与 dimension consumer 独立拒绝错绑，singleton source relation replay 篡改检测、既有同 kind 互斥出口位置隔离均通过。独立 cached analyze/replay 与 16 MiB gate `2 passed`；4-unit SourcePairs evidence 为 `9,036,068` bytes，低于 `16,777,216`，caller 保持 827 steps、termination_guaranteed=false。compileall/diff-check 通过。
+- 本轮未改或重跑 QL、未改 adapter；验证继续使用同批完整真实缓存，不冒充新 query 执行，既有 source coverage gaps 不消除。P0 `2.5/0.4.0`、三态及 async Release 限制不变；Task 5 未启动，新 commit、不 amend/push。
+
 ## [2026-09-11] Resource lifecycle v1.1 Task 4 async terminal location fixes
 
 - fresh双审确认async phase proof仍按共享exit event广播TaskExit位置，互斥路径各混入line99/119；先补normal/exceptional同kind反例，再与solver/child proof共用精确出口解析，缺失或多义fail closed。G3保持fail/pending fresh review，本轮新commit、不amend/push，Task5未启动。

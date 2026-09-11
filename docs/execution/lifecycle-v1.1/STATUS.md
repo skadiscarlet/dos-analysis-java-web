@@ -5,8 +5,8 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task4_async_terminal_locations_ready_for_review`
-- next_action: `async phase proof出口位置已精确绑定并完成回归，等待fresh review；G3 fail，Task 5 未启动，不 push`
+- current_stage: `task4_terminal_source_contract_ready_for_review`
+- next_action: `共享 resolver 的 singleton/source kind/callable/target 修复与完整回归已完成，等待 fresh review；G3 fail，Task 5 未启动，不 push`
 
 ## 适用标准
 
@@ -68,7 +68,15 @@
 - 双查询/provenance RED 为 `8 failed, 37 deselected`，GREEN 为 `8 passed, 37 deselected, 9 subtests passed`；非真实 fixture contract 为 `39 passed, 6 deselected, 20 subtests passed`；最终源码组合为 `1 passed, 45 deselected in 436.13s`；最终 lifecycle 全量为 `253 passed, 6 skipped, 205 subtests passed`。P0 schema/tool 仍为 `2.5/0.4.0`，resource lifecycle 为 `1.1/resource-lifecycle-v1.1`。
 - Task 3 follow-up 已从真实 `SourcePairs.java` 取得 caller allocation -> wrapper1 -> wrapper2 -> lambda capture -> `finally { resource.close(); }` 的 callback release relation：Task QL 仅对 depth<=2 exact parameter、static-final AbortPolicy executor、单语句 finally 的 captured `AutoCloseable.close()` 输出 complete `release`；release 的 program point 与 `finally block -> close statement` 的 task CFG target 对齐。adapter 只在同 instance、同 lambda target、同 CFG target 的 raw release 上附着 `task_cfg_edge` release effect，不能由 executor completion/termination 推导。RED 为 release row 缺失的 `StopIteration`；GREEN 为定向真实源码 `1 passed, 60 deselected in 263.75s`，最终 lifecycle 为 `264 passed, 10 skipped, 210 subtests passed`、完整真实 CodeQL fixture 为 `61 passed, 26 subtests passed in 1611.28s`。direct Base/Task query run 分别为 2m20.92s / 1m58.66s，均成功。
 
-## Task 4 async terminal location fixes 验证（2026-09-11；G3 pending fresh review）
+## Task 4 exact terminal source contract 验证（2026-09-11；G3 pending fresh review）
+
+- fresh 双审的 singleton source point 与 source kind/callable Important 已修复实现：共享 resolver 始终用 source activation 精确匹配真实 ProgramPoint，再验证唯一 TaskExit、binding task/event/kind、全部 callable 一致；active method 必须从本 task run 经 internal、同 callable method CFG 可达，合法 binding.run 直接终止保留。缺失或多义、错误 source/target/kind/callable/task 均拒绝；普通 request exit 保持非 task 返回 None，错绑到 request exit 的 task terminal 仍 scoped unknown。
+- 先迁移人工 fixture，保留 body 节点、独立 normal/exception source、CFG 77/88 与 terminal 99/109 位置。有效 RED `/tmp/task4-terminal-source-red.xml`：`38 failed, 12 passed`，20 项是可经公开 Program 构造的 source/solver 反例，18 项是绕过已有效 Program 构造校验后的 resolver 防御性检查，不能混作导入缺陷。补充 wrong ordinary target RED `/tmp/task4-terminal-target-red.xml`：`2 failed, 2 passed`；constructor、合法 method/task_run 与 replay 既有正控不充作 RED。wrong-target evidence 已在更早的 transition identity 校验拒绝，对错误消息断言的修正仅为测试调整。
+- 最终 source/target 矩阵 54 项通过；focused `/tmp/task4-terminal-source-focused-green.xml` 为 `289 passed, 173 subtests`；全 lifecycle `/tmp/task4-terminal-source-all-green.xml` 为 `403 passed, 13 skipped, 235 subtests`。两者均显式使用同批真实 cached facts。async/dimension 消费端各自拒绝非法 source，normal/exceptional、singleton point 错绑、不合法 task_run、wrong active CFG/target、同 kind 互斥路径与 replay 污染检测均通过。
+- 独立 cached `/tmp/task4-terminal-source-cached-green.xml` 为 `2 passed, 28 deselected`，含真实 CLI/replay 与 16 MiB 断言；4-unit evidence 实测 `9,036,068` bytes（上限 `16,777,216`），caller 827 steps，termination_guaranteed=false。compileall 与 diff-check 通过。未改/重跑 QL、未改 adapter，仍为同批 SourcePairs 缓存回放；原 source coverage gaps 保留，不作为 G4 证明。
+- P0 schema/tool `2.5/0.4.0`、三态与 async Release 限制不变。G3 继续 fail/pending fresh review，整体 partial；Task 5 未启动，新 commit、不 amend/push。
+
+## Task 4 async terminal location fixes 验证（前轮历史）
 
 - 父提交 `ac52fd89ff29eb5e6ba17bfa2fdc1de29030fae5`。fresh双审确认同一Important：async phase proof的code_locations按reached target枚举全部TaskExit，同kind共享出口事件时混入互斥位置。有效RED `2 failed, 2 passed`（`/tmp/task4-async-locations-red.xml`），分别为normal路径混入119、exceptional路径混入129；缺失/多义整体fail-closed正控既已通过，不将错误消息差异计为语义RED。
 - 共享 `resolve_task_exit` 统一solver、async phase evidence与dimension child的出口选择：terminal edge event/kind匹配，多个同kind时再按source ProgramPoint选唯一关系，缺失或多义拒绝；solver映射为scoped unknown。async仅收集该trace实际选中的TaskExit location，并核验该出口evidence出现在trace中。async/child共用point relation registry入口，每条proof引用自己的relation IDs，不再广播event对应的全部位置。
@@ -122,7 +130,7 @@
 | --- | --- | --- |
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
 | G2 源码关系 | `pass` | I1–I4 与 Minor 完成有效 RED→GREEN；任务与完整调用前缀隔离、depth/budget fail-closed、post-adapter snapshot 复核、related provenance 全字段绑定。最终非 fixture 285 passed；既有四项真实通过，四形态新 fixture 单项真实补验通过；fresh quality Ready Yes、fresh spec compliant。 |
-| G3 主求解异步 | `fail` | 最新async位置修复：有效RED2 failed → 新测试6 passed；solver/async/child共用精确出口解析，含真实cached的focused181 passed / full349 passed。pending fresh review；前轮GREEN仅作历史。 |
+| G3 主求解异步 | `fail` | 最新 singleton/source/target contract 修复：首轮 RED 38 failed（20 公开边界 / 18 防御性检查），补充 target RED 2 failed；新矩阵 54 passed，含真实 cached focused 289 passed / full 403 passed，cached 与 16 MiB 通过。pending fresh review；前轮 GREEN 仅作历史。 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
 | G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |
 | G6 源码验收 | `fail` | 尚无六组十二变体的真实 CodeQL 验收 |
