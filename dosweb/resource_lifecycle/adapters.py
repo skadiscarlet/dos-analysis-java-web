@@ -1506,8 +1506,10 @@ def _unit_from_rows(
         exit_kind: str,
         fact: RawLifecycleFact,
         population_kind: str | None = None,
+        population_config_fact: RawLifecycleFact | None = None,
         effects: tuple[Effect, ...] = (),
     ) -> Transition:
+        config_fact = population_config_fact or fact
         population = (
             (
                 population_effect(
@@ -1522,10 +1524,12 @@ def _unit_from_rows(
                 ),
             )
             if population_kind is not None
-            and fact.capacity.isdecimal() and int(fact.capacity) > 0
-            and fact.core_workers.isdecimal()
-            and fact.max_workers.isdecimal() and int(fact.max_workers) > 0
-            and int(fact.core_workers) <= int(fact.max_workers)
+            and config_fact.capacity.isdecimal()
+            and int(config_fact.capacity) > 0
+            and config_fact.core_workers.isdecimal()
+            and config_fact.max_workers.isdecimal()
+            and int(config_fact.max_workers) > 0
+            and int(config_fact.core_workers) <= int(config_fact.max_workers)
             else ()
         )
         return Transition(
@@ -1730,6 +1734,8 @@ def _unit_from_rows(
                     task_exit.event_id,
                     task_exit.kind,
                     exit_fact,
+                    "terminate",
+                    dispatch,
                 )
             )
     transitions += tuple(

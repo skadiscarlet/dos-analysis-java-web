@@ -59,6 +59,10 @@ def executor_contract(
         cancellation="unknown",
         source_kind=source_kind,  # type: ignore[arg-type]
         version="executor-contract-v1",
+        core_workers=1,
+        max_workers=2,
+        rejection_policy="abort",
+        termination="unknown",
     )
 
 
@@ -176,15 +180,16 @@ def two_instance_queue_program(*, bound: int | str) -> tuple[Program, object]:
 
 
 class ResourceLifecycleInvariantTests(unittest.TestCase):
-    def test_verified_atomic_capacity_proves_only_declared_scope(self) -> None:
+    def test_legacy_candidate_without_population_model_cannot_prove_scope(self) -> None:
         program, result = solved()
 
         dimensions = check_with_contract(program, result, (candidate(),))
         queue = next(item for item in dimensions if item.dimension == "held_instances")
 
-        self.assertEqual("bounded", queue.lifecycle_status)
+        self.assertEqual("unknown", queue.lifecycle_status)
         self.assertTrue(queue.scope.startswith("task_queue:"))
-        self.assertEqual(4, queue.upper_bound)
+        self.assertIsNone(queue.upper_bound)
+        self.assertIn("executor_population_binding_unavailable", queue.reason_codes)
         self.assertNotEqual("global", queue.scope)
 
     def test_non_atomic_check_then_add_cannot_prove_concurrent_bound(self) -> None:
@@ -194,7 +199,7 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
         held = next(item for item in dimensions if item.dimension == "held_instances")
 
         self.assertEqual("unknown", held.lifecycle_status)
-        self.assertIn("capacity_not_atomic", held.reason_codes)
+        self.assertIn("executor_population_binding_unavailable", held.reason_codes)
 
     def test_candidate_atomic_flag_cannot_override_non_atomic_executor_contract(self) -> None:
         program, result = solved()
@@ -287,23 +292,31 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
         held = [item for item in dimensions if item.dimension == "held_instances"]
 
         self.assertEqual(2, len(held))
-        uncovered = next(item for item in held if item.lifecycle_status == "unknown")
+        uncovered = next(item for item in held if "contract:queue:second" in item.scope)
         self.assertIn("queue_writer_not_covered", uncovered.reason_codes)
         self.assertIn("contract:queue:second", uncovered.scope)
 
-    def test_incomplete_writer_coverage_blocks_bound(self) -> None:
+    def test_candidate_writer_flag_does_not_replace_population_model(self) -> None:
         program, result = solved()
         dimensions = check_with_contract(program, result, (candidate(covers_writers=False),))
 
         self.assertEqual("unknown", dimensions[0].lifecycle_status)
-        self.assertIn("writer_coverage_incomplete", dimensions[0].reason_codes)
+        self.assertIn(
+            "executor_population_binding_unavailable",
+            dimensions[0].reason_codes,
+        )
+        self.assertNotIn("writer_coverage_incomplete", dimensions[0].reason_codes)
 
-    def test_failed_induction_is_unknown_not_unbounded(self) -> None:
+    def test_candidate_induction_flag_does_not_replace_population_model(self) -> None:
         program, result = solved()
         dimensions = check_with_contract(program, result, (candidate(transitions_preserve=False),))
 
         self.assertEqual("unknown", dimensions[0].lifecycle_status)
-        self.assertIn("candidate_not_inductive", dimensions[0].reason_codes)
+        self.assertIn(
+            "executor_population_binding_unavailable",
+            dimensions[0].reason_codes,
+        )
+        self.assertNotIn("candidate_not_inductive", dimensions[0].reason_codes)
         self.assertNotIn("unbounded", dimensions[0].lifecycle_status)
 
     def test_known_item_size_and_count_remain_separate_results(self) -> None:
@@ -313,7 +326,8 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
         size = next(item for item in dimensions if item.dimension == "item_size_bytes")
         count = next(item for item in dimensions if item.dimension == "held_instances")
         self.assertEqual(("bounded", 1024), (size.lifecycle_status, size.upper_bound))
-        self.assertEqual(("bounded", 4), (count.lifecycle_status, count.upper_bound))
+        self.assertEqual(("unknown", None), (count.lifecycle_status, count.upper_bound))
+        self.assertIn("executor_population_binding_unavailable", count.reason_codes)
 
     def test_unknown_item_size_is_not_hidden_by_count_bound(self) -> None:
         program, result = solved(known_size=False)
@@ -351,15 +365,15 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "contract, holder, and target identity"):
             candidate(writer_holder_id=None)
 
-    def test_claimed_zero_bound_is_checked_against_observed_state(self) -> None:
+    def test_claimed_zero_bound_cannot_replace_population_model(self) -> None:
         program, result = solved()
 
         dimensions = check_with_contract(program, result, (candidate(upper_bound=0),))
 
         self.assertEqual("unknown", dimensions[0].lifecycle_status)
-        self.assertIn("observed_upper_exceeds_candidate", dimensions[0].reason_codes)
+        self.assertIn("population_model_unavailable", dimensions[0].reason_codes)
 
-    def test_symbolic_queue_bound_records_observed_peak_relation(self) -> None:
+    def test_symbolic_queue_bound_is_unknown_without_numeric_configuration(self) -> None:
         program, result = two_instance_queue_program(bound="K")
 
         dimensions = check_with_contract(
@@ -370,9 +384,9 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
         )
         held = next(item for item in dimensions if item.dimension == "held_instances")
 
-        self.assertEqual("bounded", held.lifecycle_status)
-        self.assertEqual("K", held.upper_bound)
-        self.assertIn("K >= observed peak 2", held.assumptions)
+        self.assertEqual("unknown", held.lifecycle_status)
+        self.assertIsNone(held.upper_bound)
+        self.assertIn("executor_queue_capacity_unknown", held.reason_codes)
 
     def test_task_queue_candidate_requires_matching_dispatch_contract(self) -> None:
         program, result = solved(contract_bound=4)
@@ -381,7 +395,7 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
         held = next(item for item in dimensions if item.dimension == "held_instances")
 
         self.assertEqual("unknown", held.lifecycle_status)
-        self.assertIn("queue_writer_contract_mismatch", held.reason_codes)
+        self.assertIn("population_model_unavailable", held.reason_codes)
 
     def test_self_reported_queue_flags_do_not_replace_program_structure(self) -> None:
         effects = (effect("create"), effect("retain", holder_id="holder:field"), effect("release"))
@@ -406,6 +420,29 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
 
         self.assertEqual("unknown", held.lifecycle_status)
         self.assertIn("queue_writer_structure_unverified", held.reason_codes)
+
+    def test_self_reported_nonqueue_flags_do_not_prove_a_bound(self) -> None:
+        program, result = solved()
+        field_candidate = InvariantCandidate(
+            "candidate:field",
+            "family:stream",
+            "held_instances",
+            "field",
+            1,
+            True,
+            True,
+            True,
+            True,
+            "trusted_contract",
+            ("fixed field slot",),
+            ("fact:field-candidate",),
+        )
+
+        dimensions = check_with_contract(program, result, (field_candidate,))
+        held = next(item for item in dimensions if item.dimension == "held_instances")
+
+        self.assertEqual("unknown", held.lifecycle_status)
+        self.assertIn("derived_invariant_model_unavailable", held.reason_codes)
 
     def test_llm_proposed_resource_family_cannot_prove_dimensions(self) -> None:
         program, _ = solved(known_size=True)
@@ -443,7 +480,15 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
             for item in check_with_contract(program, result, (candidate(),))
         }
 
-        self.assertEqual("bounded", dimensions["held_instances"].lifecycle_status)
+        self.assertEqual("unknown", dimensions["held_instances"].lifecycle_status)
+        self.assertIn(
+            "executor_population_binding_unavailable",
+            dimensions["held_instances"].reason_codes,
+        )
+        self.assertNotIn(
+            "population_coverage_incomplete",
+            dimensions["held_instances"].reason_codes,
+        )
         self.assertEqual("bounded", dimensions["item_size_bytes"].lifecycle_status)
         self.assertEqual("unknown", dimensions["close_obligation"].lifecycle_status)
         self.assertIn("conditional_release_not_must", dimensions["close_obligation"].reason_codes)

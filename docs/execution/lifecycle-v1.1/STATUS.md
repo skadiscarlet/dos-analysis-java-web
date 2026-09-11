@@ -5,8 +5,8 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task5_population_induction_in_progress`
-- next_action: `Task 4 fresh spec/quality 双审已通过，G3 pass；实现从真实 PopulationEffect/ExecutorContract 推导的 q/a 群体归纳与重复事件检查，G4–G8 仍 fail，不 push`
+- current_stage: `task5_population_induction_complete`
+- next_action: `进入 Task 6，新增六组十二个真实 Java/CodeQL 成对变体；继续 network-free、不 push`
 
 ## 适用标准
 
@@ -23,6 +23,22 @@
 | 全仓 network-free baseline | `101 failed, 797 passed, 26 skipped, 389 subtests passed` | `python3 -m pytest -q --junitxml=/tmp/resource-lifecycle-v1_1-baseline.xml`；失败来自 ignored 大型资产未挂载及沙箱 socket `EPERM`，最终按 test ID 比较 |
 | lifecycle baseline | `179 passed, 4 skipped, 34 subtests passed` | `python3 -m pytest -q tests/test_resource_lifecycle_*.py` |
 | real CodeQL lifecycle baseline | `27 passed, 10 subtests passed` | `DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_resource_lifecycle_codeql.py`；CodeQL 2.23.8 / javac 21.0.12.1 |
+
+## Task 5 population induction 实施与 review closure
+
+- 新 `check_population_properties()` 不消费 `InvariantCandidate.initial_holds/transitions_preserve/covers_writers/atomic` 作为 task queue 证明。它按 executor 聚合全部 TaskBinding 和 population writers，以 `(q,a)=(0,0)` 检查 direct accept、enqueue、assign slot、start、normal/exceptional terminate、reject 和显式 phase-matched cancellation；重复假设为 `arbitrary_finite_repetitions_of_external_accept`，派生 `0<=q<=K`、`0<=a<=W`、`q+a<=K+W`。候选 upper_bound 只核对 queue K，跨 queued/reserved/running 的 task holder 最终发布 total K+W，不能以 task-holder 边数的一次 worklist peak 冒充 q。
+- 首轮 fresh quality/spec 分别给出 `Ready: No` / `Spec compliant: no`，均无 Critical。四类 Important 为：terminal/cancellation/额外 dispatch writer 与逐 equation 覆盖；coverage gap queue scope 隔离；非 queue flags 自证；atomic raw dependency、contract ID/body 冲突及三类 model-only 未进入正式 artifact/replay。逐项补审查反例后得到 `6 failed`（`/tmp/task5-review-red.xml`）。
+- 当前反例覆盖：同 executor 第二个 TaskBinding 缺 effects、缺 normal/exceptional 任一 TaskExit/terminate、cancellation 无 count effect、未绑定 dispatch writer、未知或符号 K/C/W、`capacity_atomic=false`、CallerRuns、DiscardOldest、伪造 guard、reserved/running cancellation phase 错配、同 transition 多 population effects、相关 coverage gap、兼容 flags 自报真假。所有缺口返回 unknown；coverage gap 仅匹配 `*` 或当前 binding 的 queue scope，close-only 及同 family 其他 queue scope 不污染当前 population 维度；每条 equation 独立计算 `preserves_bounds`。
+- 非 task queue candidate 固定带 `derived_invariant_model_unavailable`，不再使用 `initial_holds/transitions_preserve/covers_writers/atomic` 得出 bounded；`g09-fixed-replacement` 与 `g10-atomic-capacity` 均改为 unknown。报告与回放同时覆盖 `lifecycle-results.json.units[].population_properties`、顶层 `model_count_properties`、`evidence.json.population_derivations` 与 `model_count_derivations`；四类 result/evidence 篡改均由 replay 重算检出。model-only 对照明确标记 `manual_fixture/model_only=true`，fresh insert、fixed replacement、same-object retain 分别派生 `N'=N+1/N/N`，identity unknown 不猜关系。
+- atomic invariant raw fact 进入 population property 与 proof dependency；同一 evidence ID 若对应不同 executor contract body，artifact 构建直接拒绝。修复后审查定向 `6 passed`（`/tmp/task5-review-fixes-focused.xml`），model replay/contract conflict `3 passed`（`/tmp/task5-model-replay.xml`），人工 IR regression `6 passed`（`/tmp/task5-regression-after-review.xml`）。
+- 首轮修复后的 fresh spec 复审仍为 `Spec compliant: no`，无 Critical、1 个 Important：同 family/task holder 的普通 `retain` 可写入额外 distinct instances，而 population-to-held 映射未覆盖。反例先得到 `1 failed`（`/tmp/task5-retain-writer-red.xml`）；现核对每个 binding holder 允许的实例，未建模 retain 令 population `covers_writers=false` 且消费端 unknown，并以 K+W 复核 task-queue observed peak，定向为 `1 passed`（`/tmp/task5-retain-writer-green.xml`）。
+- 同轮 quality 继续扩展 writer identity 反例：错误/空 contract dispatch 与 `family_id=None` retain 为 `3 failed`（`/tmp/task5-writer-normalization-red.xml`），instance/family 均空但 holder+queue target 命中的 dispatch 为 `1 failed`（`/tmp/task5-dispatch-identity-red.xml`）；task terminal 后 retain、同 Effect ID 的好坏 writer 分别为 `/tmp/task5-bound-retain-red.xml`、`/tmp/task5-writer-id-red.xml` 各 `1 failed`。最终相关 writer 集为 current contract，或 same bound holder + relevant/unknown family，或 same queued/run target；之后要求 exact contract/binding。同 holder/错误 target、错误 holder/同 target、identity-less partial match 均降 unknown；全部相关 writer（含成功映射者）的 evidence 进入 population property 与 proof dependencies。fixed replacement 也从错误的 `distinct_instances` 改为 `occupied_positions`，RED `/tmp/task5-model-dimension-red.xml` 为 `1 failed`，artifact/replay GREEN `/tmp/task5-model-dimension-green.xml` 为 `4 passed`。manual fixture 即使 effects 缺失且 contract 为 trusted，也从绑定资源族 allocation provenance 保持 `model_only=true`；unknown-contract 分支同样覆盖。
+- 同 kind 多个精确 TaskExit 逐 relation 要求唯一 terminate，合法互斥出口不再误报 ambiguous；对应 RED `/tmp/task5-multi-exit-red.xml` 为 `1 failed`。population timeout 从 `AnalysisBudget.timeout_ms` 贯穿，起始、writer scan 与 equation 构造后均以独立 `population_solver_timeout` fail closed；RED `/tmp/task5-population-timeout-red.xml` 为 `1 failed`。conditional property path 复用顶层一次派生的内部 population tuple，公开 API 不允许 caller 注入旧 proof，analyze 的 recording test 确认只调用一次；evidence 不再以新 wall-clock deadline 二次派生，replay 仍重新生成并比较完整 result/evidence，临界 timeout 可发布 unknown 而非在 artifact 构建中抛错。
+- 原 population checker 的 TaskExit/terminal/cancellation/writer 关系存在近似 O(n²) 重扫；改为预索引后，100/200/300 tasks 各五次运行中位数为 `0.0032/0.0065/0.0100s`，旧实现为约 `0.129/0.526/1.227s`，且三组 proof 均为 bounded。
+- 真实版本边界：未运行 fresh CodeQL。`/tmp/task5-sourcepairs-readapted-facts.json` 仅从 `/tmp/task4-sourcepairs-full-facts.json` 读取原有 102 raw facts，用当前 `_unit_from_rows` 重建 4 units，保持 raw facts/snapshot/coverage 不变并重新 validate；不能称为 fresh query。单项源码 population evidence 为 `1 passed`（`/tmp/task5-cached-population.xml`），当前实现 facts→CLI→replay 为 `1 passed`（`/tmp/task5-cached-readaptation.xml`）。真实 caller 导出 K=3、W=2、K+W=5 及六类方程，`initial_holds/transitions_preserve=true`；原 raw `task_callback_effect_unmodeled` / `task_terminal_coverage_incomplete` 仍令 `covers_writers=false`、最终 population status=unknown。
+- 最新含上述 cached raw re-adaptation 的全 lifecycle 为 `442 passed, 13 skipped, 235 subtests passed in 9.79s`（`/tmp/task5-artifact-blockers-all.xml`）；focused population/invariants/replay/CodeQL synthetic 为 `160 passed, 13 skipped, 122 subtests passed`（`/tmp/task5-focused-postfix.xml`）。13 skips 是未运行的 opt-in fresh CodeQL fixtures；人工回归 24/24 固定期望仍通过，不是降低生产门槛。`compileall` 与 `git diff --check` 已通过，fresh 双审待最新 delta 封板。
+- 最终 fresh spec/semantics review：`Spec compliant: yes`，Critical/Important/Minor 均无；delta focused 为 `110 passed, 1 skipped, 76 subtests`，cached raw 为 `1 passed`。最终 fresh quality/artifact review：`Ready: Yes`，Critical/Important/Minor 均无；定向 population/invariants/replay/CLI 为 `150 passed, 152 subtests`，全 lifecycle 为 `442 passed, 13 skipped, 235 subtests`，`git diff --check` 通过。两轮都锁定源码/测试 hash 并确认只读复核。
+- Task 5 实现与 review closure 已完成。G5 在无缺口真实源码 proof 前继续 fail；G4/G6–G8 仍 fail，整体 partial。P0 schema/tool `2.5/0.4.0`、三态与 async Release 限制不变。下一步 Task 6 十二个真实 Java/CodeQL 变体，不 push。
 
 ## Task 2 完成证据
 
@@ -133,7 +149,7 @@
 | G2 源码关系 | `pass` | I1–I4 与 Minor 完成有效 RED→GREEN；任务与完整调用前缀隔离、depth/budget fail-closed、post-adapter snapshot 复核、related provenance 全字段绑定。最终非 fixture 285 passed；既有四项真实通过，四形态新 fixture 单项真实补验通过；fresh quality Ready Yes、fresh spec compliant。 |
 | G3 主求解异步 | `pass` | 最新 singleton/source/target contract 修复：首轮 RED 38 failed（20 公开边界 / 18 防御性检查），补充 target RED 2 failed；新矩阵 54 passed，含真实 cached focused 289 passed / full 403 passed，cached 与 16 MiB 通过。fresh spec `Spec compliant: yes`、fresh quality `Ready: Yes`，两者均无 Critical/Important/Minor。 |
 | G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
-| G5 群体检查 | `fail` | `InvariantCandidate` 仍接受 `initial_holds/transitions_preserve/covers_writers` 输入布尔值，未从 q/a 转移检查归纳性 |
+| G5 群体检查 | `fail` | 派生 q/a/K/W/K+W 归纳、重复事件、model-only 对照及 artifact/replay 已实现；cached raw SourcePairs 可导出方程但原 terminal/callback coverage gaps 令 proof 仍 unknown，待 Task 6 无缺口真实 Java/CodeQL 正控关闭 gate |
 | G6 源码验收 | `fail` | 尚无六组十二变体的真实 CodeQL 验收 |
 | G7 固定输入增益 | `fail` | 当前 local/full 对照来自人工 IR，未对相同源码事实删除跨事件传播能力 |
 | G8 可审阅交付 | `fail` | v1.1 报告、门槛证据、失败集合差分和 HANDOFF 尚未生成 |

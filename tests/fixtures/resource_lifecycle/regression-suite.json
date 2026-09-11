@@ -104,7 +104,7 @@
       "case_id": "g09-fixed-replacement", "group": 9, "pair": "fixed-replacement", "property": "固定槽位替换由容量一契约限制",
       "resource": {"requires_close": false, "item_size_upper": 80}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
       "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "retain", "holder": "field"}]}],
-      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "field", "upper_bound": 1, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": null, "writer_holder_id": null, "writer_target_event_id": null}], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 1, "reason_contains": null}
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "field", "upper_bound": 1, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": null, "writer_holder_id": null, "writer_target_event_id": null}], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "derived_invariant_model_unavailable"}
     },
     {
       "case_id": "g09-retain-new-item", "group": 9, "pair": "retain-new-item", "property": "保留新项且无容量契约不能证明上界",
@@ -116,7 +116,7 @@
       "case_id": "g10-atomic-capacity", "group": 10, "pair": "atomic-capacity", "property": "已验证原子容量支持局部上界",
       "resource": {"requires_close": false, "item_size_upper": 72}, "instance": {"abstraction": "recent", "identity_confidence": "exact"}, "coverage_complete": true,
       "transitions": [{"id": "normal", "source": "entry", "target": "normal", "exit_kind": "normal", "cross_event": false, "effects": [{"kind": "create"}, {"kind": "dispatch", "holder": "task", "target_event": "task_queue", "contract_id": "bounded-queue-capacity:4"}]}],
-      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "task_queue", "upper_bound": 4, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": "bounded-queue-capacity:4", "writer_holder_id": "holder:task", "writer_target_event_id": "event:task_queue"}], "expected": {"dimension": "held_instances", "lifecycle_status": "bounded", "upper_bound": 4, "reason_contains": null}
+      "exit_events": ["normal"], "invariants": [{"dimension": "held_instances", "scope": "task_queue", "upper_bound": 4, "initial_holds": true, "transitions_preserve": true, "covers_writers": true, "atomic": true, "source_kind": "trusted_contract", "executor_contract_id": "bounded-queue-capacity:4", "writer_holder_id": "holder:task", "writer_target_event_id": "event:task_queue"}], "expected": {"dimension": "held_instances", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "executor_population_binding_unavailable"}
     },
     {
       "case_id": "g10-non-atomic-check", "group": 10, "pair": "non-atomic-check", "property": "普通 check-then-add 不证明并发容量",

@@ -1418,9 +1418,10 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             <= caller_runs_kinds
         )
         self.assertFalse(
-            {"reject", "cancel_queued", "cancel_active", "terminate"}
+            {"reject", "cancel_queued", "cancel_active"}
             & caller_runs_kinds
         )
+        self.assertIn("terminate", caller_runs_kinds)
         caller_runs_contract = caller_runs.units[0].executor_contracts[0]
         self.assertEqual((1, 2, 3), (
             caller_runs_contract.core_workers,
@@ -1439,9 +1440,9 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         }, {key: guards[key] for key in ("direct_accept", "enqueue", "assign_slot")})
 
         abort_kinds = population_kinds(abort)
-        self.assertIn("reject", abort_kinds)
+        self.assertTrue({"reject", "terminate"} <= abort_kinds)
         self.assertFalse(
-            {"cancel_queued", "cancel_active", "terminate"} & abort_kinds
+            {"cancel_queued", "cancel_active"} & abort_kinds
         )
 
     def test_static_field_holder_identity_is_shared_across_callables(self) -> None:
@@ -2632,7 +2633,11 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
             stage["submitted"]["unknown_reasons"],
         )
         self.assertIn(dispatch.instance_id, stage["submitted"]["open_obligations"])
-        self.assertEqual(("bounded", 2), (held.lifecycle_status, held.upper_bound))
+        self.assertEqual(("unknown", None), (held.lifecycle_status, held.upper_bound))
+        self.assertIn(
+            "executor_population_binding_unavailable",
+            held.reason_codes,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             secondary_source_root = Path(tmp)
@@ -2804,9 +2809,15 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         ]
 
         self.assertEqual(2, len(held))
-        self.assertEqual({("bounded", 2)}, {
+        self.assertEqual({("unknown", None)}, {
             (item["lifecycle_status"], item["upper_bound"]) for item in held
         })
+        self.assertTrue(
+            all(
+                "executor_population_binding_unavailable" in item["reason_codes"]
+                for item in held
+            )
+        )
         self.assertEqual(2, len({item["scope"] for item in held}))
         self.assertTrue(all(item["scope"].startswith("task_queue:") for item in held))
         evidence = lifecycle_commands._evidence_payload(extracted, payload)
@@ -2905,16 +2916,20 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         }
 
         self.assertEqual(2, len(held))
-        bounded_a = next(item for item in held if candidate_a.executor_contract_id in item["scope"])
-        unknown_b = next(item for item in held if item is not bounded_a)
-        self.assertEqual(("bounded", 2), (bounded_a["lifecycle_status"], bounded_a["upper_bound"]))
+        modeled_a = next(item for item in held if candidate_a.executor_contract_id in item["scope"])
+        unknown_b = next(item for item in held if item is not modeled_a)
+        self.assertEqual(("unknown", None), (modeled_a["lifecycle_status"], modeled_a["upper_bound"]))
+        self.assertIn(
+            "executor_population_binding_unavailable",
+            modeled_a["reason_codes"],
+        )
         self.assertEqual("unknown", unknown_b["lifecycle_status"])
         self.assertIn("queue_capacity_unknown", unknown_b["reason_codes"])
-        self.assertNotIn(dispatch_b.fact_id, bounded_a["evidence_ids"])
+        self.assertNotIn(dispatch_b.fact_id, modeled_a["evidence_ids"])
         self.assertNotIn(dispatch_a.fact_id, unknown_b["evidence_ids"])
         self.assertNotIn(invariant_a.fact_id, unknown_b["evidence_ids"])
 
-        proof_a = proof_by_scope[bounded_a["scope"]]
+        proof_a = proof_by_scope[modeled_a["scope"]]
         proof_b = proof_by_scope[unknown_b["scope"]]
         self.assertNotIn(dispatch_b.fact_id, proof_a["evidence_ids"])
         self.assertNotIn(dispatch_a.fact_id, proof_b["evidence_ids"])

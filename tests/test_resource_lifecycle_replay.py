@@ -205,6 +205,66 @@ class ResourceLifecycleReplayTests(unittest.TestCase):
         self.assertFalse(result["consistent"])
         self.assertFalse(result["evidence_consistent"])
 
+    def test_replay_population_result_tampering_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._async_run(Path(tmp))
+            path = run / "lifecycle-results.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            population = value["units"][0]["population_properties"]
+            self.assertEqual(1, len(population))
+            population[0]["queue_upper_bound"] = 999
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+
+            result = resource_replay({"run": run})
+
+        self.assertFalse(result["consistent"])
+        self.assertFalse(result["evidence_consistent"])
+
+    def test_replay_population_evidence_tampering_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._async_run(Path(tmp))
+            path = run / "evidence.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            population = value["population_derivations"]
+            self.assertEqual(1, len(population))
+            population[0]["guards"] = ["fabricated guard"]
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+
+            result = resource_replay({"run": run})
+
+        self.assertFalse(result["consistent"])
+        self.assertFalse(result["evidence_consistent"])
+
+    def test_replay_model_count_result_tampering_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(Path(tmp))
+            path = run / "lifecycle-results.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            model_count = value["model_count_properties"]
+            self.assertEqual(3, len(model_count))
+            model_count[0]["relation"] = "N'=N"
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+
+            result = resource_replay({"run": run})
+
+        self.assertFalse(result["consistent"])
+        self.assertFalse(result["evidence_consistent"])
+
+    def test_replay_model_count_evidence_tampering_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(Path(tmp))
+            path = run / "evidence.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            derivations = value["model_count_derivations"]
+            self.assertEqual(3, len(derivations))
+            derivations[0]["relation"] = "N'=N+999"
+            path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+
+            result = resource_replay({"run": run})
+
+        self.assertFalse(result["consistent"])
+        self.assertFalse(result["evidence_consistent"])
+
     def test_replay_rejects_implementation_identity_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = self._run(Path(tmp))

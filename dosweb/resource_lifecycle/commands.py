@@ -29,8 +29,11 @@ from dosweb.resource_lifecycle.adapters import (
     validate_extracted,
 )
 from dosweb.resource_lifecycle.invariants import (
+    canonical_model_count_effects,
     candidate_result_scope,
     check_invariants,
+    check_invariants_with_population,
+    check_model_count_effects,
     queue_result_scope,
 )
 from dosweb.resource_lifecycle.io import (
@@ -455,7 +458,7 @@ def _analyze_payload(
     units: list[dict[str, object]] = []
     for unit in extracted.units:
         analysis = solve(unit.program, budget=extracted.budget)
-        dimensions = check_invariants(
+        dimensions, population_properties = check_invariants_with_population(
             unit.program,
             analysis,
             unit.invariants,
@@ -486,6 +489,9 @@ def _analyze_payload(
                 "unknown_reasons": list(analysis.unknown_reasons),
                 "lifecycle_statuses": dimension_statuses,
                 "dimensions": [asdict(item) for item in dimensions],
+                "population_properties": [
+                    asdict(item) for item in population_properties
+                ],
                 "async_stages": _async_stages(unit, analysis),
                 "exit_states": {
                     event_id: {
@@ -518,6 +524,10 @@ def _analyze_payload(
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "summary_effect_ids": list(summary_effect_ids),
+        "model_count_properties": [
+            asdict(item)
+            for item in check_model_count_effects(canonical_model_count_effects())
+        ],
         "units": units,
     }
     payload["result_sha256"] = hashlib.sha256(canonical_json(payload)).hexdigest()
@@ -558,6 +568,13 @@ def _evidence_payload(
             if evidence_kind == prior["evidence_kind"] == "task_relation_evidence":
                 if old.get("kind") != claim.get("kind"):
                     raise ValueError(f"evidence task exit conflict: {evidence_id}")
+            if (
+                evidence_kind
+                == prior["evidence_kind"]
+                == "executor_contract_evidence"
+                and old != claim
+            ):
+                raise ValueError(f"executor contract evidence conflict: {evidence_id}")
             if evidence_kind == prior["evidence_kind"] in {"resource_family", "abstract_instance"} and old != claim:
                 raise ValueError(f"evidence resource identity conflict: {evidence_id}")
         record = {"evidence_kind": evidence_kind, "claim": claim}
@@ -566,16 +583,28 @@ def _evidence_payload(
 
     for fact in extracted.facts:
         register(fact.fact_id, "raw_lifecycle_fact", asdict(fact))
+    model_count_effects = canonical_model_count_effects()
+    for effect in model_count_effects:
+        for evidence_id in effect.evidence_ids:
+            register(evidence_id, "model_count_effect_evidence", asdict(effect))
     rules: set[str] = set()
     dependency_pairs: set[tuple[str, str]] = set()
     proof_dependency_pairs: set[tuple[str, str]] = set()
     derivations: list[dict[str, object]] = []
     dimension_derivations: list[dict[str, object]] = []
+    population_derivations: list[dict[str, object]] = []
+    model_count_derivations: list[dict[str, object]] = []
     async_derivations: list[dict[str, object]] = []
     summary_derivations: list[dict[str, object]] = []
     async_rules: set[str] = set()
     units_by_id = {unit.unit_id: unit for unit in extracted.units}
     for source_unit in extracted.units:
+        for contract in source_unit.executor_contracts:
+            register(
+                contract.contract_id,
+                "executor_contract_evidence",
+                asdict(contract),
+            )
         for point in source_unit.program.program_points:
             register(stable_identifier("program-point-evidence", {"unit_id": source_unit.unit_id, "point_id": point.point_id}),
                      "program_point_evidence", {"unit_id": source_unit.unit_id, **asdict(point)})
@@ -954,6 +983,53 @@ def _evidence_payload(
             proof_id = hashlib.sha256(canonical_json(proof_body)).hexdigest()
             dimension_derivations.append({"proof_id": proof_id, **proof_body})
             proof_dependency_pairs.update((proof_id, evidence_id) for evidence_id in evidence_ids)
+        population = unit.get("population_properties")
+        if not isinstance(population, list) or any(
+            not isinstance(item, Mapping) for item in population
+        ):
+            raise ValueError("population properties are missing")
+        for property_record in population:
+            evidence_ids = tuple(
+                str(item)
+                for item in property_record.get("evidence_ids", ())
+                if isinstance(item, str)
+            )
+            if len(evidence_ids) != len(property_record.get("evidence_ids", ())):
+                raise ValueError("population property evidence is malformed")
+            locations = {
+                canonical_json(item["location"]): item["location"]
+                for item in property_record.get("transition_equations", ())
+                if isinstance(item, Mapping) and isinstance(item.get("location"), Mapping)
+            }
+            proof_body = {
+                "unit_id": unit_id,
+                **property_record,
+                "evidence_ids": list(evidence_ids),
+                "code_locations": [locations[key] for key in sorted(locations)],
+            }
+            proof_id = hashlib.sha256(canonical_json(proof_body)).hexdigest()
+            population_derivations.append({"proof_id": proof_id, **proof_body})
+            proof_dependency_pairs.update(
+                (proof_id, evidence_id) for evidence_id in evidence_ids
+            )
+    model_count = results.get("model_count_properties")
+    expected_model_count = [
+        asdict(item) for item in check_model_count_effects(model_count_effects)
+    ]
+    if model_count != expected_model_count:
+        raise ValueError("model count properties do not match derived facts")
+    for property_record in expected_model_count:
+        evidence_ids = tuple(property_record["evidence_ids"])
+        proof_body = {
+            **property_record,
+            "evidence_ids": list(evidence_ids),
+            "code_locations": [],
+        }
+        proof_id = hashlib.sha256(canonical_json(proof_body)).hexdigest()
+        model_count_derivations.append({"proof_id": proof_id, **proof_body})
+        proof_dependency_pairs.update(
+            (proof_id, evidence_id) for evidence_id in evidence_ids
+        )
     if summary_artifact is not None:
         records = summary_artifact.get("records")
         if not isinstance(records, list):
@@ -1058,6 +1134,14 @@ def _evidence_payload(
                 str(item["scope"]),
             ),
         ),
+        "population_derivations": sorted(
+            population_derivations,
+            key=lambda item: (str(item["unit_id"]), str(item["scope"])),
+        ),
+        "model_count_derivations": sorted(
+            model_count_derivations,
+            key=lambda item: (str(item["scope"]), str(item["effect_id"])),
+        ),
         "async_derivations": sorted(
             async_derivations,
             key=lambda item: (str(item["unit_id"]), str(item["stage_id"])),
@@ -1116,6 +1200,7 @@ def _summary(
 ) -> str:
     units = results.get("units") if isinstance(results.get("units"), list) else []
     counts: dict[str, int] = {}
+    population_counts: dict[str, int] = {}
     for unit in units:
         if not isinstance(unit, Mapping) or not isinstance(unit.get("dimensions"), list):
             continue
@@ -1123,6 +1208,12 @@ def _summary(
             if isinstance(item, Mapping):
                 status = str(item.get("lifecycle_status"))
                 counts[status] = counts.get(status, 0) + 1
+        population = unit.get("population_properties")
+        if isinstance(population, list):
+            for item in population:
+                if isinstance(item, Mapping):
+                    status = str(item.get("lifecycle_status"))
+                    population_counts[status] = population_counts.get(status, 0) + 1
     lines = [
         "# Resource Lifecycle Analysis",
         "",
@@ -1130,6 +1221,8 @@ def _summary(
         f"- source_kind：`{extracted.source_kind}`",
         f"- 分析单元：{len(units)}",
         f"- 维度状态：{json.dumps(counts, ensure_ascii=False, sort_keys=True)}",
+        f"- 群体性质：{json.dumps(population_counts, ensure_ascii=False, sort_keys=True)}",
+        f"- 模型计数对照：{len(results.get('model_count_properties', [])) if isinstance(results.get('model_count_properties'), list) else 0}",
         f"- LLM：`{llm_identity.get('mode', 'off')}`，calls={llm_identity.get('calls', 0)}",
         "- impact_status：`not_evaluated`",
         "",
