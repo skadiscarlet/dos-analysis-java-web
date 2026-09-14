@@ -10,7 +10,13 @@ from typing import Any
 from dosweb.errors import AnalyzerError
 
 _P0_COMMANDS = ("analyze", "entries", "growth", "flows", "lifecycle", "conclude", "report")
-_RESOURCE_COMMANDS = ("resource-extract", "resource-analyze", "resource-replay", "resource-evaluate")
+_RESOURCE_COMMANDS = (
+    "resource-extract",
+    "resource-analyze",
+    "resource-replay",
+    "resource-evaluate",
+    "resource-source-evaluate",
+)
 _COMMANDS = _P0_COMMANDS + _RESOURCE_COMMANDS
 
 
@@ -43,6 +49,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-commit-sha")
     parser.add_argument("--source-checkout", type=Path)
     parser.add_argument("--analysis-source-root", type=Path)
+    parser.add_argument("--source-root", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--timeout-seconds", type=int)

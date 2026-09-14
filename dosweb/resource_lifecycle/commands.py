@@ -1655,4 +1655,8 @@ def dispatch_resource_command(values: Mapping[str, object]) -> dict[str, object]
         from dosweb.resource_lifecycle.evaluation import evaluate_command
 
         return evaluate_command(values)
+    if command == "resource-source-evaluate":
+        from dosweb.resource_lifecycle.source_evaluation import evaluate_source_command
+
+        return evaluate_source_command(values)
     raise AnalyzerError("CONFIG_INVALID_COMMAND", "A valid resource lifecycle command is required.")

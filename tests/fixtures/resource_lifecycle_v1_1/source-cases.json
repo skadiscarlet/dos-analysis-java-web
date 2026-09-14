@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.1",
+  "suite_id": "resource-lifecycle-v1.1-source-pairs",
+  "source_root": "src/main/java",
+  "budget": {
+    "max_steps": 50000,
+    "max_updates_per_event": 64,
+    "timeout_ms": 15000
+  },
+  "cases": [
+    {
+      "case_id": "s1-sync",
+      "group": "S1",
+      "pair": "synchronous",
+      "property": "exact close is applied on all modeled synchronous exits",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1Sync(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+      ]
+    },
+    {
+      "case_id": "s1-task-wrapped",
+      "group": "S1",
+      "pair": "wrapped_task_handoff",
+      "property": "the same exact close rule is applied after a depth-2 task handoff terminates normally",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1TaskWrapped(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "close_obligation", "scope": "resource_family", "cut": "after_task_termination:normal", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "close_obligation", "scope": "resource_family", "cut": "after_task_termination:normal", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "cross_event_propagation_disabled"}
+      ]
+    },
+    {
+      "case_id": "s2-task-only",
+      "group": "S2",
+      "pair": "no_extra_holder",
+      "property": "no holder remains after the request and its accepted task have both terminated",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2TaskOnly(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "held_instances", "scope": "resource_family", "cut": "all_tasks_terminated_after_request", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "held_instances", "scope": "resource_family", "cut": "all_tasks_terminated_after_request", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "cross_event_propagation_disabled"}
+      ]
+    },
+    {
+      "case_id": "s2-field-holder",
+      "group": "S2",
+      "pair": "static_field_holder",
+      "property": "task termination drops only the task holder and preserves the distinct static field holder",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2FieldHolder(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "held_instances", "scope": "resource_family", "cut": "all_tasks_terminated_after_request", "lifecycle_status": "bounded", "upper_bound": 1, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "held_instances", "scope": "resource_family", "cut": "all_tasks_terminated_after_request", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "cross_event_propagation_disabled"}
+      ]
+    },
+    {
+      "case_id": "s3-all-exits-close",
+      "group": "S3",
+      "pair": "all_exits",
+      "property": "a singleton finally close covers normal and exceptional exits",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3AllExitsClose(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+      ]
+    },
+    {
+      "case_id": "s3-missing-exceptional-close",
+      "group": "S3",
+      "pair": "missing_exceptional_exit",
+      "property": "a normal-only close cannot discharge the exceptional-exit obligation",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3MissingExceptionalClose(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "release_missing_exceptional_path"},
+        {"mode": "disable_cross_event_propagation", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "release_missing_exceptional_path"}
+      ]
+    },
+    {
+      "case_id": "s4-direct",
+      "group": "S4",
+      "pair": "direct",
+      "property": "direct control flow preserves exact resource identity through finally close",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4Direct(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null}
+      ]
+    },
+    {
+      "case_id": "s4-depth-two",
+      "group": "S4",
+      "pair": "depth_2_wrapper",
+      "property": "two exact wrapper summaries preserve identity and return to the caller finally block",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4DepthTwo(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "bounded", "upper_bound": 0, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "close_obligation", "scope": "all_exits", "cut": "all_modeled_exits", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "cross_event_propagation_disabled"}
+      ]
+    },
+    {
+      "case_id": "s5-verified-capacity",
+      "group": "S5",
+      "pair": "verified_capacity",
+      "property": "verified K=3 and W=2 executor transitions prove q+a<=5 under arbitrary finite accepts",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5VerifiedCapacity(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "bounded", "upper_bound": 5, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "executor_population_binding_unavailable"}
+      ]
+    },
+    {
+      "case_id": "s5-unknown-capacity",
+      "group": "S5",
+      "pair": "unknown_capacity",
+      "property": "non-constant queue capacity does not manufacture an executor population bound",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5UnknownCapacity(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "executor_contract_unresolved"},
+        {"mode": "disable_cross_event_propagation", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "cross_event_propagation_disabled"}
+      ]
+    },
+    {
+      "case_id": "s6-supported-executor",
+      "group": "S6",
+      "pair": "supported_thread_pool_executor",
+      "property": "the supported ThreadPoolExecutor branch emits and solves task population transitions",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6SupportedExecutor(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "bounded", "upper_bound": 5, "reason_contains": null},
+        {"mode": "disable_cross_event_propagation", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "executor_population_binding_unavailable"}
+      ]
+    },
+    {
+      "case_id": "s6-unresolved-executor",
+      "group": "S6",
+      "pair": "unresolved_executor_receiver",
+      "property": "an aliased executor receiver is reported as unresolved instead of receiving supported semantics",
+      "entry_callable": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6UnresolvedExecutor(I)V",
+      "expectations": [
+        {"mode": "full", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "executor_receiver_identity_unresolved"},
+        {"mode": "disable_cross_event_propagation", "dimension": "accepted_task_population", "scope": "executor", "cut": "arbitrary_finite_repetitions", "lifecycle_status": "unknown", "upper_bound": null, "reason_contains": "cross_event_propagation_disabled"}
+      ]
+    }
+  ]
+}

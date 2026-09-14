@@ -1,3 +1,20 @@
+## [2026-09-14] Resource lifecycle v1.1 Task 6 fresh CodeQL closure
+
+- 首轮 fresh 十二例 CodeQL 验收真实执行完成，612 条 raw facts 均保存在独立 diagnostic 目录；full 6/12、关闭跨事件传播 8/12 匹配冻结期望。差异定位为：内部 dataclass `asdict()` 保留 tuple reason 时 evaluator 只接受 list；unknown population 仍展示局部 K+W；共享 callback 的 exact empty source close 缺 typed exception successor 而触发 terminal gap。
+- evaluator 现同时接受内部 list/tuple reason，并且只有 `bounded` population 才发布 total upper bound。task terminal 对缺 exception successor 继续默认 fail-closed，仅对 exact captured allocation、exact source dispatch、空方法体的 singleton-finally close 建立窄 no-throw proof；非空、非精确或无 source body 的 close 不获豁免。新增相应 Python/QL contract 回归，冻结期望未放宽。
+- fresh 两文件全 CodeQL 首轮 `75 passed, 3 failed, 65 subtests passed` 暴露两个与 task query 无关的遗留 base-path 断言：多 allocation 方法把同一 unit-level CFG row 按 instance 复制为平行 transition，路径证据组合触发 `iteration_limit`；旧 queue fixture 仍期待 Task 5 已禁止的 capacity-only `bounded`。adapter 现只合并 source/target/guard/effects/assumptions 全部等价、仅稳定 ID 不同的 CFG transition，保留不同效果与路径；queue 回归改为要求缺 TaskBinding/executor K/W/terminal population proof 时输出 `unknown` 及明确原因，不恢复 legacy bound。
+- 最终持久化 fresh 结果 `/tmp/task6-fresh-fix2-20260914/` 含 606 条 raw facts：full 与 `disable_cross_event_propagation` 均 12/12 匹配冻结期望，unknown 分别为 3/9；相同 raw-fact snapshot 上获得 6 个 determinacy gains，五个正控 terminal gap 已消失，LLM calls 为 0。S2/S3 关闭释放与持有收益门槛，S5/S6 关闭 K/W/K+W 群体归纳门槛；未知容量、未解析 executor 与异常出口缺口继续 fail closed。
+- 最终 Java→CodeQL→adapter→solver 两文件全套为 `77 passed, 67 subtests passed in 2622.68s`；全 lifecycle 为 `449 passed, 17 skipped, 235 subtests passed`，config/CLI/production/recovery 为 `135 passed, 4 skipped, 119 subtests passed`。`compileall`、fixture `javac`/`javap`、manifest JSON、direct/embedded task QL 字节一致性与 `git diff --check` 均通过；task query SHA-256 为 `facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd`。Task 6 与 G4–G7 完成；G8 尚未生成可审阅交付，整体状态继续为 `partial`。
+
+## [2026-09-11] Resource lifecycle v1.1 Task 6 source-pair evaluator（待 fresh CodeQL 验收）
+
+- 冻结 `source-cases.json` 的 S1–S6 六组十二个真实 Java 变体及 full/`disable_cross_event_propagation` 两模式期望：同步/精确包装任务、task-only/static-field holder、全出口/遗漏异常出口 close、direct/depth-2 wrapper、已验证/未知容量、支持 TPE/无法解析 executor receiver。既有 Task 2–5 `caller` 源码位置保持不动，新变体可由同一 fixture 编译。
+- 新增纯本地 `resource-source-evaluate` 路径：显式接收 source suite、live source root 与匹配的 CodeQL database，拒绝远程 provider、LLM 和导入 facts 覆盖，执行双查询→adapter→主 solver→report；输出 raw facts/coverage、full 与消融结果、逐例 CSV/JSON、metrics、run manifest 和 summary。消融复用完全相同的 entry/candidate/raw-fact snapshot，仅删除跨 callable/task relation 驱动的 transitions 与关系集合、添加明确 coverage gap 后重算，不补写 edge、容量或最终标签。
+- 审阅加固 source evaluator：suite payload 与 SHA-256 改为同一次受限读取，且外层 database fingerprint 必须与双 query 抽取 provenance 一致，以消除冻结期望/数据库身份 TOCTOU；条件 state 只有在 solver 完整终止、目标 state 无 unknown reason 且相关 coverage gap 已清除时才可记为 `bounded`；内部求解/消融失败统一包装为稳定错误码；CSV 保留冻结的 `property`，run manifest 记录 implementation、provenance 与双模式 result digest，并用精确字段不变/transition 差集、完整成功产物集回归约束纯删除消融和交付面。
+- 非 CodeQL 复核结果：source evaluator `8 passed, 1 skipped`，全 lifecycle `447 passed, 17 skipped, 235 subtests passed`，config/CLI/production/recovery `135 passed, 119 subtests passed`；fixture `javac`/`javap`、完整 `compileall`、manifest JSON 与 diff 检查通过。fresh CodeQL 仍未获准、未执行，G4–G7 保持 `fail`。
+- 新增 manifest/CLI/纯删除消融回归及 opt-in 真实 CodeQL 十二例验收。当前按约束只运行 javac 与非 CodeQL 测试；修改后的 source snapshot 已使 `/tmp/task5-sourcepairs-readapted-facts.json` 不再适用，fresh CodeQL 未执行前 G4–G7 与 Task 6 必须保持未完成，不把 skip/mock 或旧缓存算作 G6。
+- fresh 验收失败时现在直接打印全部逐例 expected/observed 差异，避免只暴露一个无诊断布尔断言；该改动不放宽任何冻结期望。
+
 ## [2026-09-11] Resource lifecycle v1.1 Task 5 review closure
 
 - 新增从 `PopulationEffect`、`TaskBinding`、`TaskExit` 与 `ExecutorContract` 派生的 `PopulationProperty`：以 `(q,a)=(0,0)` 为初态，对 direct accept、enqueue、assign slot、start、normal/exceptional terminate、reject 及显式 phase-matched cancellation 建立转移方程，检查 `0<=q<=K`、`0<=a<=W`、`q+a<=K+W` 在任意有限次外部接纳重复下保持。task queue 的兼容 `InvariantCandidate` 布尔证明位不再提供结论；候选容量只核对 K，task holder 的 `held_instances` 上界发布为 K+W。

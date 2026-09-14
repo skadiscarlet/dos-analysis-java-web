@@ -20,6 +20,7 @@ from dosweb.errors import AnalyzerError
 from dosweb.resource_lifecycle.adapters import (
     ExtractedFacts,
     _executor_contract_from_dict,
+    _deduplicate_transitions,
     _unit_from_rows,
     adapt_codeql_rows,
     extracted_from_dict,
@@ -28,7 +29,7 @@ from dosweb.resource_lifecycle.adapters import (
 )
 from dosweb.resource_lifecycle import commands as lifecycle_commands
 from dosweb.resource_lifecycle.invariants import check_invariants
-from dosweb.resource_lifecycle.models import AnalysisBudget
+from dosweb.resource_lifecycle.models import AnalysisBudget, Transition
 from dosweb.resource_lifecycle.solver import solve
 from tests.support.fixture_database import fixture_database
 
@@ -338,6 +339,28 @@ def _legacy_facts_payload(current, *, legacy_executor_identity: bool = False):
 
 
 class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
+    def test_proof_identical_cfg_transitions_are_deduplicated(self) -> None:
+        first = Transition(
+            "transition:a",
+            "event:source",
+            "event:target",
+            "verified CFG edge",
+            (),
+            "internal",
+            (),
+        )
+        duplicate = replace(first, transition_id="transition:b")
+        distinct = replace(
+            first,
+            transition_id="transition:c",
+            target_event_id="event:other",
+        )
+
+        self.assertEqual(
+            (first, distinct),
+            _deduplicate_transitions((distinct, duplicate, first)),
+        )
+
     def test_schema_1_0_facts_loader_defaults_missing_relation_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source_root = Path(tmp)
@@ -2469,6 +2492,13 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertNotIn('factKind = "retain"', task_content)
         self.assertIn('factKind = "release"', task_content)
         self.assertIn("predicate exactCapturedFinallyClose", task_content)
+        self.assertIn(
+            "predicate sourceProvenNoThrowCapturedFinallyClose", task_content
+        )
+        self.assertIn(
+            "not sourceProvenNoThrowCapturedFinallyClose(lambda, captured, call)",
+            task_content,
+        )
         self.assertIn("codeql_task_callback_close_finally", task_content)
 
     def test_program_point_identity_is_site_based_and_uses_the_full_span(self) -> None:
@@ -4344,7 +4374,9 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
         )
         held = next(item for item in bounded_dimensions if item.dimension == "held_instances")
         size = next(item for item in bounded_dimensions if item.dimension == "item_size_bytes")
-        self.assertEqual(("bounded", 2), (held.lifecycle_status, held.upper_bound))
+        self.assertEqual(("unknown", None), (held.lifecycle_status, held.upper_bound))
+        self.assertIn("executor_population_binding_unavailable", held.reason_codes)
+        self.assertIn("population_induction_unproven", held.reason_codes)
         self.assertEqual("unknown", size.lifecycle_status)
         bounded_close = next(item for item in bounded_dimensions if item.dimension == "close_obligation")
         self.assertEqual("unknown", bounded_close.lifecycle_status)
@@ -4375,9 +4407,14 @@ class ResourceLifecycleCodeqlFixtureTests(unittest.TestCase):
             item for item in concrete_dimensions if item.dimension == "held_instances"
         )
         self.assertEqual(
-            ("bounded", 3),
+            ("unknown", None),
             (concrete_held.lifecycle_status, concrete_held.upper_bound),
         )
+        self.assertIn(
+            "executor_population_binding_unavailable",
+            concrete_held.reason_codes,
+        )
+        self.assertIn("population_induction_unproven", concrete_held.reason_codes)
 
         custom_subtype = by_unit[fixture_callable("customSubtypeQueued", "(I)Z")]
         custom_facts = [

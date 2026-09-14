@@ -497,7 +497,7 @@ predicate taskExitSource(
  * models selected unchecked call exceptions; absence of a typed exception
  * successor is not proof that a callback call cannot exit exceptionally.
  */
-predicate taskExitCoverageGap(LambdaExpr lambda) {
+predicate taskExitCoverageGap(LambdaExpr lambda, Parameter captured) {
   exists(ControlFlow::AnnotatedExitNode exit |
     exit.getEnclosingCallable() = lambda.asMethod() and
     not exists(ExprParent source | taskAnnotatedExitSource(lambda, source, exit))
@@ -506,7 +506,8 @@ predicate taskExitCoverageGap(LambdaExpr lambda) {
   exists(MethodCall call |
     call.getEnclosingCallable() = lambda.asMethod() and
     exists(call.getControlFlowNode()) and
-    not exists(call.getControlFlowNode().getAnExceptionSuccessor())
+    not exists(call.getControlFlowNode().getAnExceptionSuccessor()) and
+    not sourceProvenNoThrowCapturedFinallyClose(lambda, captured, call)
   )
 }
 
@@ -532,6 +533,22 @@ predicate exactCapturedFinallyClose(
     cleanup = attempt.getFinally() and cleanup.getNumStmt() = 1 and
     cleanup.getStmt(0) = release.getEnclosingStmt() and
     attempt.getEnclosingCallable() = lambda.asMethod()
+  )
+}
+
+/**
+ * Narrow source proof for a non-throwing close: the receiver is the exact
+ * captured allocation, dispatch is exact, and the source implementation has
+ * an empty body. Any statement, unresolved dispatch, or absent source body
+ * remains covered by task_terminal_coverage_incomplete.
+ */
+predicate sourceProvenNoThrowCapturedFinallyClose(
+  LambdaExpr lambda, Parameter captured, MethodCall release
+) {
+  exactCapturedFinallyClose(lambda, captured, release) and
+  exactSourceCallee(release.getMethod()) and
+  exists(BlockStmt body |
+    body = release.getMethod().getBody() and body.getNumStmt() = 0
   )
 }
 
@@ -912,7 +929,7 @@ predicate lifecycleTaskRelationFact(
       MethodCall submit, Field executor, LambdaExpr lambda, Parameter captured, int depth
     |
       exactCapturedTask(allocation, submit, executor, lambda, captured, depth) and
-      taskExitCoverageGap(lambda) and
+      taskExitCoverageGap(lambda, captured) and
       site = submit and factKind = "unknown_call" and holderKind = "none" and
       holderScope = "none" and holderKey = "none" and
       targetEvent = canonicalCallableIdentity(lambda.asMethod()) and

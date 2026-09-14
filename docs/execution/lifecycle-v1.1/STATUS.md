@@ -5,8 +5,8 @@
 - delivery_state_at_commit: `partial`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task5_population_induction_complete`
-- next_action: `进入 Task 6，新增六组十二个真实 Java/CodeQL 成对变体；继续 network-free、不 push`
+- current_stage: `task6_source_pairs_complete`
+- next_action: `准备 G8 可审阅交付：汇总 v1.1 报告、门槛证据、失败集合差分与 HANDOFF；G8 完成前整体保持 partial`
 
 ## 适用标准
 
@@ -24,6 +24,17 @@
 | lifecycle baseline | `179 passed, 4 skipped, 34 subtests passed` | `python3 -m pytest -q tests/test_resource_lifecycle_*.py` |
 | real CodeQL lifecycle baseline | `27 passed, 10 subtests passed` | `DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q tests/test_resource_lifecycle_codeql.py`；CodeQL 2.23.8 / javac 21.0.12.1 |
 
+## Task 6 source pairs 完成证据
+
+- `SourcePairs.java` 保留 Task 2–5 原 `caller` 的源码位置，并新增 S1–S6 六组十二个真实变体：sync/depth-2 task handoff、task-only/static-field holder、全出口/遗漏异常出口 close、direct/depth-2 wrapper、K/W 已验证/容量未知、支持 TPE/local-alias executor。`source-cases.json` 在运行前固定每例 entry callable、group/pair、dimension/scope/cut 以及 full/关闭跨事件传播两模式的 status/upper/reason 期望。
+- 新 `resource-source-evaluate` 仅接受本地 suite、live source root 和匹配的 CodeQL database，拒绝 remote provider、LLM 与导入 facts 覆盖；执行双 query→adapter→主 solver→report，保存 raw facts/coverage、full/消融结果、逐例 CSV/JSON、metrics、manifest 和 summary。消融对同一 `ExtractedFacts` 仅删除跨 callable/task relation 与对应 transitions，保留 invariants/contracts/candidates 和 raw fact snapshot，添加 `cross_event_propagation_disabled` gap 后重新求解；不补边、不改最终标签。
+- 审阅加固后，suite payload/digest 与 database/query provenance 均做一致性约束；条件 state 只有在 solver 完整终止、目标 state 无 unknown reason 且相关 coverage gap 已清除时才可记为 `bounded`；内部求解/消融异常统一映射稳定错误码。逐例 CSV 已补回冻结的 `property`，run manifest 锚定 implementation、provenance 与双模式 result digest；消融回归逐字段证明非 relation 输入不变，并核对删除 transition ID 与实际差集完全一致。
+- fresh CodeQL 首轮得到 612 条 raw facts，但仅 full 6/12、消融 8/12 匹配冻结期望；差异暴露 tuple reason 读取、unknown population 上界泄漏以及 singleton-finally close 缺 typed exception successor 三个问题。修复后 evaluator 接受内部 list/tuple reason、只为 `bounded` population 发布上界；task terminal 对缺 exception successor 仍默认 fail-closed，仅为 exact captured allocation、exact source dispatch、空方法体 singleton-finally close 建立窄 no-throw proof，未放宽冻结期望。
+- fresh 全套随后暴露多 allocation 方法重复复制等价 unit-level CFG transition 而触发 `iteration_limit`，以及旧 queue fixture 仍期待 Task 5 已禁止的 capacity-only bound。adapter 现只合并除稳定 ID 外完全等价的 transition；不同 effect/evidence/guard/path 均保留。queue 回归改为在缺 TaskBinding、executor K/W 或 terminal population proof 时保持 `unknown`，并断言 `executor_population_binding_unavailable` / `population_induction_unproven`。
+- 最终持久化结果位于 `/tmp/task6-fresh-fix2-20260914/`：606 条 raw facts；full 12/12 匹配冻结期望且 3 例 unknown；`disable_cross_event_propagation` 12/12 匹配且 9 例 unknown；同一 raw-fact snapshot 上有 6 个 determinacy gains；五个正控 terminal gap 已消失；LLM calls 为 0。S2 的 task-only/static-field holder 分别得到 held upper 0/1，S3 的 all-exits/missing-exceptional-close 分别得到 bounded 0/unknown；S5/S6 的已验证或受支持 executor 得到 K=3、W=2、K+W=5，容量或 receiver 未解析的对照保持 unknown。
+- 最终 fresh Java→CodeQL→adapter→solver 验收为 `77 passed, 67 subtests passed in 2622.68s`；全 lifecycle 为 `449 passed, 17 skipped, 235 subtests passed`；config/CLI/production/recovery 为 `135 passed, 4 skipped, 119 subtests passed`。`compileall`、fixture `javac`/`javap`、manifest JSON、direct/embedded task QL 字节一致性与 `git diff --check` 均通过；task query SHA-256 为 `facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd`。
+- Task 6 完成，G4–G7 通过。结论仍只表示受 cut 与 modeled assumptions 限定的静态 lifecycle 性质，不是动态 confirmed；P0 schema/tool `2.5/0.4.0` 与 async Release 限制不变。G8 尚未生成可审阅交付，故整体 `implementation_status` / `delivery_state_at_commit` 继续为 `partial`。
+
 ## Task 5 population induction 实施与 review closure
 
 - 新 `check_population_properties()` 不消费 `InvariantCandidate.initial_holds/transitions_preserve/covers_writers/atomic` 作为 task queue 证明。它按 executor 聚合全部 TaskBinding 和 population writers，以 `(q,a)=(0,0)` 检查 direct accept、enqueue、assign slot、start、normal/exceptional terminate、reject 和显式 phase-matched cancellation；重复假设为 `arbitrary_finite_repetitions_of_external_accept`，派生 `0<=q<=K`、`0<=a<=W`、`q+a<=K+W`。候选 upper_bound 只核对 queue K，跨 queued/reserved/running 的 task holder 最终发布 total K+W，不能以 task-holder 边数的一次 worklist peak 冒充 q。
@@ -35,10 +46,10 @@
 - 同轮 quality 继续扩展 writer identity 反例：错误/空 contract dispatch 与 `family_id=None` retain 为 `3 failed`（`/tmp/task5-writer-normalization-red.xml`），instance/family 均空但 holder+queue target 命中的 dispatch 为 `1 failed`（`/tmp/task5-dispatch-identity-red.xml`）；task terminal 后 retain、同 Effect ID 的好坏 writer 分别为 `/tmp/task5-bound-retain-red.xml`、`/tmp/task5-writer-id-red.xml` 各 `1 failed`。最终相关 writer 集为 current contract，或 same bound holder + relevant/unknown family，或 same queued/run target；之后要求 exact contract/binding。同 holder/错误 target、错误 holder/同 target、identity-less partial match 均降 unknown；全部相关 writer（含成功映射者）的 evidence 进入 population property 与 proof dependencies。fixed replacement 也从错误的 `distinct_instances` 改为 `occupied_positions`，RED `/tmp/task5-model-dimension-red.xml` 为 `1 failed`，artifact/replay GREEN `/tmp/task5-model-dimension-green.xml` 为 `4 passed`。manual fixture 即使 effects 缺失且 contract 为 trusted，也从绑定资源族 allocation provenance 保持 `model_only=true`；unknown-contract 分支同样覆盖。
 - 同 kind 多个精确 TaskExit 逐 relation 要求唯一 terminate，合法互斥出口不再误报 ambiguous；对应 RED `/tmp/task5-multi-exit-red.xml` 为 `1 failed`。population timeout 从 `AnalysisBudget.timeout_ms` 贯穿，起始、writer scan 与 equation 构造后均以独立 `population_solver_timeout` fail closed；RED `/tmp/task5-population-timeout-red.xml` 为 `1 failed`。conditional property path 复用顶层一次派生的内部 population tuple，公开 API 不允许 caller 注入旧 proof，analyze 的 recording test 确认只调用一次；evidence 不再以新 wall-clock deadline 二次派生，replay 仍重新生成并比较完整 result/evidence，临界 timeout 可发布 unknown 而非在 artifact 构建中抛错。
 - 原 population checker 的 TaskExit/terminal/cancellation/writer 关系存在近似 O(n²) 重扫；改为预索引后，100/200/300 tasks 各五次运行中位数为 `0.0032/0.0065/0.0100s`，旧实现为约 `0.129/0.526/1.227s`，且三组 proof 均为 bounded。
-- 真实版本边界：未运行 fresh CodeQL。`/tmp/task5-sourcepairs-readapted-facts.json` 仅从 `/tmp/task4-sourcepairs-full-facts.json` 读取原有 102 raw facts，用当前 `_unit_from_rows` 重建 4 units，保持 raw facts/snapshot/coverage 不变并重新 validate；不能称为 fresh query。单项源码 population evidence 为 `1 passed`（`/tmp/task5-cached-population.xml`），当前实现 facts→CLI→replay 为 `1 passed`（`/tmp/task5-cached-readaptation.xml`）。真实 caller 导出 K=3、W=2、K+W=5 及六类方程，`initial_holds/transitions_preserve=true`；原 raw `task_callback_effect_unmodeled` / `task_terminal_coverage_incomplete` 仍令 `covers_writers=false`、最终 population status=unknown。
+- Task 5 时点的版本边界：当时仅有 cached raw re-adaptation。`/tmp/task5-sourcepairs-readapted-facts.json` 从 `/tmp/task4-sourcepairs-full-facts.json` 读取原有 102 raw facts，用当时的 `_unit_from_rows` 重建 4 units，保持 raw facts/snapshot/coverage 不变并重新 validate；这不是 fresh query。单项源码 population evidence 为 `1 passed`（`/tmp/task5-cached-population.xml`），facts→CLI→replay 为 `1 passed`（`/tmp/task5-cached-readaptation.xml`）。真实 caller 导出 K=3、W=2、K+W=5 及六类方程，`initial_holds/transitions_preserve=true`；原 raw `task_callback_effect_unmodeled` / `task_terminal_coverage_incomplete` 仍令 `covers_writers=false`、最终 population status=unknown。该限制已由上文 Task 6 fresh 验收取代。
 - 最新含上述 cached raw re-adaptation 的全 lifecycle 为 `442 passed, 13 skipped, 235 subtests passed in 9.79s`（`/tmp/task5-artifact-blockers-all.xml`）；focused population/invariants/replay/CodeQL synthetic 为 `160 passed, 13 skipped, 122 subtests passed`（`/tmp/task5-focused-postfix.xml`）。13 skips 是未运行的 opt-in fresh CodeQL fixtures；人工回归 24/24 固定期望仍通过，不是降低生产门槛。`compileall` 与 `git diff --check` 已通过，fresh 双审待最新 delta 封板。
 - 最终 fresh spec/semantics review：`Spec compliant: yes`，Critical/Important/Minor 均无；delta focused 为 `110 passed, 1 skipped, 76 subtests`，cached raw 为 `1 passed`。最终 fresh quality/artifact review：`Ready: Yes`，Critical/Important/Minor 均无；定向 population/invariants/replay/CLI 为 `150 passed, 152 subtests`，全 lifecycle 为 `442 passed, 13 skipped, 235 subtests`，`git diff --check` 通过。两轮都锁定源码/测试 hash 并确认只读复核。
-- Task 5 实现与 review closure 已完成。G5 在无缺口真实源码 proof 前继续 fail；G4/G6–G8 仍 fail，整体 partial。P0 schema/tool `2.5/0.4.0`、三态与 async Release 限制不变。下一步 Task 6 十二个真实 Java/CodeQL 变体，不 push。
+- Task 5 实现与 review closure 已完成；该阶段当时保持 G4–G8 fail，随后由上文 Task 6 fresh 验收关闭 G4–G7。P0 schema/tool `2.5/0.4.0`、三态与 async Release 限制不变。
 
 ## Task 2 完成证据
 
@@ -148,10 +159,10 @@
 | G1 实例一致性 | `pass` | `tests/test_resource_lifecycle_solver.py`：旧实现定向 `3 failed, 2 passed`，扩展 per-instance 断言为 `5 failed`；修复后 solver+CLI `42 passed, 6 subtests`，全 lifecycle `183 passed, 4 skipped, 34 subtests` |
 | G2 源码关系 | `pass` | I1–I4 与 Minor 完成有效 RED→GREEN；任务与完整调用前缀隔离、depth/budget fail-closed、post-adapter snapshot 复核、related provenance 全字段绑定。最终非 fixture 285 passed；既有四项真实通过，四形态新 fixture 单项真实补验通过；fresh quality Ready Yes、fresh spec compliant。 |
 | G3 主求解异步 | `pass` | 最新 singleton/source/target contract 修复：首轮 RED 38 failed（20 公开边界 / 18 防御性检查），补充 target RED 2 failed；新矩阵 54 passed，含真实 cached focused 289 passed / full 403 passed，cached 与 16 MiB 通过。fresh spec `Spec compliant: yes`、fresh quality `Ready: Yes`，两者均无 Critical/Important/Minor。 |
-| G4 释放与持有收益 | `fail` | 尚无 S2/S3 源码成对主求解差异 |
-| G5 群体检查 | `fail` | 派生 q/a/K/W/K+W 归纳、重复事件、model-only 对照及 artifact/replay 已实现；cached raw SourcePairs 可导出方程但原 terminal/callback coverage gaps 令 proof 仍 unknown，待 Task 6 无缺口真实 Java/CodeQL 正控关闭 gate |
-| G6 源码验收 | `fail` | 尚无六组十二变体的真实 CodeQL 验收 |
-| G7 固定输入增益 | `fail` | 当前 local/full 对照来自人工 IR，未对相同源码事实删除跨事件传播能力 |
+| G4 释放与持有收益 | `pass` | fresh S2 task-only/static-field holder 的 held upper 分别为 0/1；S3 all-exits close 为 bounded 0，遗漏异常出口保持 unknown；两组均匹配冻结期望 |
+| G5 群体检查 | `pass` | fresh S5/S6 正控从真实 TaskBinding/PopulationEffect/TaskExit/ExecutorContract 派生 K=3、W=2、K+W=5；未知容量与未解析 receiver 对照保持 unknown，不恢复 capacity-only legacy bound |
+| G6 源码验收 | `pass` | fresh Java→两条 CodeQL query→adapter→solver 全套 `77 passed, 67 subtests`；十二例 full 与消融各 12/12 匹配冻结期望，606 条 raw facts，LLM calls 0 |
+| G7 固定输入增益 | `pass` | 对同一 raw-fact snapshot 仅删除跨事件 relation/transition 后重算，12 例中 6 例产生 determinacy gain；full/消融 unknown 分别为 3/9 |
 | G8 可审阅交付 | `fail` | v1.1 报告、门槛证据、失败集合差分和 HANDOFF 尚未生成 |
 
 ## 失败与环境记录

@@ -556,6 +556,22 @@ def _effect(
     )
 
 
+def _deduplicate_transitions(
+    transitions: Sequence[Transition],
+) -> tuple[Transition, ...]:
+    """Collapse proof-identical graph edges without conflating distinct effects."""
+    unique: dict[bytes, Transition] = {}
+    for transition in sorted(transitions, key=lambda item: item.transition_id):
+        semantic = asdict(transition)
+        semantic.pop("transition_id")
+        for effect in semantic["effects"]:
+            effect.pop("effect_id")
+        for effect in semantic["population_effects"]:
+            effect.pop("effect_id")
+        unique.setdefault(canonical_json(semantic), transition)
+    return tuple(unique.values())
+
+
 def _unit_from_rows(
     unit_id: str,
     rows: Sequence[RawLifecycleFact],
@@ -1460,7 +1476,11 @@ def _unit_from_rows(
                         else "normal" if fact.related_point == unit_id + "#cfg_normal_exit"
                         else "internal", assumptions,
                     ))
-        transitions = tuple(sorted(cfg_transitions, key=lambda item: item.transition_id))
+        # The base query emits unit-level CFG rows once per allocation so every
+        # fact remains instance-bound. Those rows are proof-identical after
+        # effects have been attached across the unit; retaining each parallel
+        # copy creates exponential path histories for multi-allocation methods.
+        transitions = _deduplicate_transitions(cfg_transitions)
         events += tuple(scoped_events.values())
     task_transitions: list[Transition] = []
 
