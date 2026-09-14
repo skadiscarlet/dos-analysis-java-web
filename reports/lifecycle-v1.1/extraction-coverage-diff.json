@@ -1,0 +1,71 @@
+{
+  "baseline_commit": "f62d6f2343d160a320dbb7aaec6d22c307d892f0",
+  "baseline": {
+    "raw_facts": 54,
+    "fact_kinds": {
+      "create": 21,
+      "release": 5,
+      "retain": 15,
+      "unknown_call": 13
+    },
+    "units": 19,
+    "relations": {
+      "call_bindings": 0,
+      "task_bindings": 0,
+      "task_exits": 0,
+      "program_points": 0
+    },
+    "source_snapshot_sha256": "01c8355dee57228fcaf4ffef4dbd01d3ffde991506db6b4cae5486b6730a134f",
+    "matched_entries": [
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1Sync(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1TaskWrapped(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2FieldHolder(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2TaskOnly(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3AllExitsClose(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3MissingExceptionalClose(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4DepthTwo(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4Direct(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5UnknownCapacity(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5VerifiedCapacity(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6SupportedExecutor(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6UnresolvedExecutor(I)V"
+    ]
+  },
+  "current": {
+    "raw_facts": 606,
+    "fact_kinds": {
+      "call_binding": 12,
+      "cfg_edge": 514,
+      "create": 21,
+      "dispatch": 6,
+      "invariant": 6,
+      "release": 12,
+      "retain": 15,
+      "task_exit": 12,
+      "unknown_call": 8
+    },
+    "units": 19,
+    "relations": {
+      "call_bindings": 12,
+      "task_bindings": 6,
+      "task_exits": 12,
+      "program_points": 446
+    },
+    "source_snapshot_sha256": "01c8355dee57228fcaf4ffef4dbd01d3ffde991506db6b4cae5486b6730a134f",
+    "matched_entries": [
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1Sync(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1TaskWrapped(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2FieldHolder(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2TaskOnly(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3AllExitsClose(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3MissingExceptionalClose(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4DepthTwo(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4Direct(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5UnknownCapacity(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5VerifiedCapacity(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6SupportedExecutor(I)V",
+      "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6UnresolvedExecutor(I)V"
+    ]
+  },
+  "comparison": "Same Java database and twelve entries; old versus current extractor. Separate from fixed-facts propagation ablation; fact counts are not detection rates."
+}

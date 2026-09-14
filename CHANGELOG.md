@@ -1,3 +1,13 @@
+## [2026-09-14] Resource lifecycle v1.1 G8 delivery closure
+
+- G1–G8 全部通过，implementation_status=complete、delivery_state_at_commit=ready_for_push。最终 fresh 源码双模式各 12/12、606 facts、6 gains，当前实现 hash 与报告一致；全仓最终 1146 passed、39 skipped、12 个持续失败、1 个持续收集错误、710 subtests，零新增失败/错误 ID。README 数据库编译和真实 extract/analyze/replay 已验证，报告与 HANDOFF 正式落盘；历史限制和支持范围保持明确。
+
+- 修复真实 SourcePairs evidence 体积：子证明依赖保留在自身 evidence_ids，取消顶层重复展开；路径规则通过 result_sha256 绑定的 scope/event/index 引用求解结果，保留具体 transition、state、出口位置与全局 rule dependencies。16 MiB 读取上限不变，真实 evidence 从 28,797,293 降至 16,704,007 bytes；新增精确路径可恢复及真实 facts 回放回归。
+
+- 按完整迭代合同启动最终交付审计：重建固定基线 detached worktree，在同一环境比较全仓测试 ID 集合；两版本共同的全局 skill 路径收集错误保留为显式环境缺口。
+- 重新生成当前实现的十二例源码评价，以消除旧持久化结果与后续 adapter 修复之间的实现哈希差异；G8 和整体交付仍为 partial，待正式报告、文档、HANDOFF 与推送验证完成。
+- 同环境差分已得到零新增失败/错误 ID（持续 12 failed、1 collection error）；fresh 源码双模式各 12/12、606 facts、6 gains，同源码旧/新提取覆盖和人工 IR/契约测试分类指标已落盘。README 实测发现 analyze 的 28,797,293-byte evidence 超过 replay 16 MiB 限额，G8 暂不关闭，待修复并重新验收。
+
 ## [2026-09-14] Resource lifecycle v1.1 Task 6 fresh CodeQL closure
 
 - 首轮 fresh 十二例 CodeQL 验收真实执行完成，612 条 raw facts 均保存在独立 diagnostic 目录；full 6/12、关闭跨事件传播 8/12 匹配冻结期望。差异定位为：内部 dataclass `asdict()` 保留 tuple reason 时 evaluator 只接受 list；unknown population 仍展示局部 K+W；共享 callback 的 exact empty source close 缺 typed exception successor 而触发 terminal gap。

@@ -1,0 +1,94 @@
+{
+  "determinacy_gain_cases": [
+    "s1-task-wrapped",
+    "s2-field-holder",
+    "s2-task-only",
+    "s4-depth-two",
+    "s5-verified-capacity",
+    "s6-supported-executor"
+  ],
+  "determinacy_gains": 6,
+  "llm": {
+    "calls": 0,
+    "cost": null,
+    "mode": "off"
+  },
+  "modes": {
+    "disable_cross_event_propagation": {
+      "cases": 12,
+      "expected_matches": 12,
+      "unknown": 9
+    },
+    "full": {
+      "cases": 12,
+      "expected_matches": 12,
+      "unknown": 3
+    }
+  },
+  "raw_fact_count": 606,
+  "raw_fact_snapshot_sha256": "e58ea1e79c5c24d11b9182dbf34c0f24176f414cf880120fe06ca09551ef9173",
+  "schema_version": "1.1",
+  "source_cases": 12,
+  "source_pairs": 6,
+  "manual_ir": {
+    "cases": 24,
+    "full": {
+      "analyzed": 24,
+      "build_failures": 0,
+      "expected_matches": 24,
+      "extractable": 24,
+      "input_total": 24,
+      "property_status_confusion": {
+        "bounded": {
+          "bounded": 11
+        },
+        "obligation_gap": {
+          "obligation_gap": 2
+        },
+        "unknown": {
+          "unknown": 11
+        }
+      },
+      "runtime_ms": 69.806,
+      "status_counts": {
+        "bounded": 11,
+        "obligation_gap": 2,
+        "unknown": 11
+      },
+      "unknown": 11,
+      "unknown_rate": 0.4583333333333333,
+      "unknown_reason_distribution": {
+        "capacity_not_atomic": 1,
+        "derived_invariant_model_unavailable": 1,
+        "executor_core_workers_unknown": 2,
+        "executor_max_workers_unknown": 2,
+        "executor_population_binding_unavailable": 2,
+        "executor_rejection_policy_unmodeled": 2,
+        "item_size_unknown": 1,
+        "no_verified_count_invariant": 5,
+        "population_dispatch_binding_unavailable:effect:g10-atomic-capacity:normal:1": 1,
+        "population_induction_unproven": 2,
+        "queue_writer_structure_unverified": 2,
+        "unknown_call:effect:g12-unknown-call:normal:2": 1,
+        "weak_update:instance:g03-summary-instance": 1
+      }
+    },
+    "suite_sha256": "7cb85cf02f2825e14dba036f2d250bd9284a04f5c0a8f48c3bf96aa68326968b",
+    "source_kind": "manual_fixture"
+  },
+  "contract_tests": {
+    "counts": {
+      "passed": 64
+    },
+    "scope": "ResourceLifecycleCodeqlContractTests and ResourceLifecycleSourceEvaluationContractTests; separate from Java/CodeQL cases."
+  },
+  "source_rates": {
+    "disable_cross_event_propagation": 0.75,
+    "full": 0.25
+  },
+  "entry_extraction": {
+    "matched": 12,
+    "requested": 12
+  },
+  "external_project_count": 0
+}

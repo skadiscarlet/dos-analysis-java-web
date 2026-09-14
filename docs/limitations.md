@@ -1,10 +1,12 @@
 # Resource Lifecycle v1.1 实际限制
 
-2026-09-11 Task4 增量：caller 与真实 task CFG 已进入同一主状态工作列表，normal/exception/reject/cancel 切面和条件维度可从保存的状态导出；精确 terminal source/target 合同经 fresh spec/quality 双审通过。G1–G3 pass、G4–G8 fail。`property_states` 仅为状态聚合；条件性质从 `property_derivations` 的独立 state/trace 逐路径检查，aggregate proof 不声明一条由互斥边合成的路径，缺失路径证据时 unknown。纯拒绝任务不算 pending，open obligation 不可被抹成 bounded；Program 与 dispatch matching 均校验 instance-family 一致性。任务终止后 close/drop 的性质不代表最终一定终止；缺调度/取消/拒绝回接证据仍为 unknown。任务出队不结束 holder，close 不清空其他 field/heap holder，无 holder 不代表 GC 已执行。完整 Program 的人工状态回归与含 coverage gap 的真实 SourcePairs 验收分别计数；后者正常/异常终止状态义务归零仍不能消除 gap 或作为 G4 精确源码收益。Task 5 尚未完成 q/a 重复接纳群体归纳证明。
+2026-09-14 v1.1 限定验收完成：真实 caller/task CFG 进入同一主工作列表，十二个源码变体在 full 与固定输入消融中均匹配冻结期望，G1–G8 已通过。`property_states` 仅为状态聚合，条件性质从独立 state/trace 检查；证据缺失时 unknown。任务终止后的 close/drop 性质不保证最终一定终止；出队不结束 holder，close 不清空其他字段持有，无 holder 不代表 GC 已执行。
 
-群体 `PopulationEffect` 在主转移中校验 task identity/阶段并保留原始计数语义和证据，但 Task5 的 q/a 归纳证明与重复接纳上界尚未实现。重复 task context 再入、nested task、无法证明的 callback effect、复杂调度和未知 executor 均不扩展支持范围。乘积状态可能增加预算开销；超限准确返回 iteration_limit / analysis_budget_exhausted / solver_timeout。当前无 TaskBinding 的旧 dispatch 不再生成 contract-only 完成快照，未求解阶段为 null。
+群体检查已从真实任务关系、转移和执行器契约导出 q/a 初态与保持性，支持已解析有限队列及固定最大线程数的 ThreadPoolExecutor；a 包括已预留执行槽。重复接纳下 `q+a<=K+W` 只覆盖已接纳任务，不包括阻塞提交者、其他 executor、字段或结果缓存，也不证明总内存。符号/未知容量、CallerRuns、DiscardOldest、额外 writer、缺正常/异常终止关系均 unknown。非 task queue 的兼容布尔 candidate 不再提供 bounded 结论。
 
-下表保留 2026-09-07 v1 基线边界；异步主求解的增量和仍未完成的门槛以上述 Task4 说明为准。
+两层精确包装调用已支持；nested task、递归、native、反射、未知虚分派、任意 alias 和未知 executor 仍保守处理。有限乘积状态可能触发 iteration_limit / analysis_budget_exhausted / solver_timeout；这些结果不证明无界。无 TaskBinding 的旧 dispatch 只有 capture 与 unknown。
+
+下表为 2026-09-07 v1 历史能力清单，用于基线追溯；其中旧容量候选与评价数字不代表 v1.1 当前结果，当前语义以上文及 `analysis-semantics.md` 为准。当前十二例来自一个自包含源码 fixture，不能用于跨项目泛化结论。
 
 | 领域 | 已支持 | 未支持或保守处理 |
 | --- | --- | --- |
@@ -23,4 +25,4 @@
 
 Resource Lifecycle v1 与 v2 P0 formal pipeline 并行存在。它没有修改旧 schema/tool `2.5/0.4.0`，也没有把新 lifecycle status 映射为 P0 的 `static_vulnerable`、`bounded_under_modeled_assumptions` 或 `static_unknown`。
 
-端到端能力必须分开解读：真实源码模式执行 javac/CodeQL query/strict decoder/adapter/solver；导入事实模式信任调用方提供但仍按 schema 与 source snapshot 绑定的静态 rows；人工 IR 只验证状态语义，不证明提取覆盖。per-queue capacity 只证明该 canonical queue scope 的 item count，不是同 family 的 aggregate total-held 上界。所有普通输出都是静态性质，不是动态 confirmed、服务可用性或实际资源耗尽证明。
+端到端能力必须分开解读：真实源码模式执行 javac/CodeQL query/strict decoder/adapter/solver；导入事实模式信任调用方提供但仍按 schema 与 source snapshot 绑定的静态 rows；人工 IR 只验证状态语义，不证明提取覆盖。任务群体 K+W 依赖精确 scope 与全部 writer 覆盖，不能直接扩展为 family 总持有上界。所有普通输出都是静态性质。

@@ -1,0 +1,203 @@
+{
+  "baseline": {
+    "xml_sha256": "2ba95e665db03a52be10930bf8f3d274fc856f843c233b5bb35a03c7f72e3c9e",
+    "counts": {
+      "failed": 12,
+      "errors": 1,
+      "skipped": 26,
+      "passed_xml_records": 874
+    },
+    "failed": {
+      "tests.test_batch_cli.BatchCliTests::test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested": "failure",
+      "tests.test_benchmark_entries.BenchmarkEntryDiagnosticsTests::test_real_entries_archive_reads_completed_stage_without_p0_artifacts": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_complete_database_manifest_builds_batch_corpus": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_corpus_revalidates_database_source_and_fingerprint": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_database_override_requires_safe_relative_path_and_is_recorded": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_entries_plan_uses_all_ready_targets_and_ready_only_is_diagnostic": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_full_plan_succeeds_with_strict_source_overrides": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_full_plan_succeeds_without_commit_provenance": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_generated_inventory_builds_runnable_18_target_plan": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_real_truth_is_29_cases_and_18_repositories_with_assets": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_source_override_manifest_loads_strict_provider_bindings": "failure",
+      "tests.test_java_web_205_inventory.JavaWeb205InventoryTests::test_default_loader_accepts_tracked_ready_manifest": "failure"
+    },
+    "errors": {
+      "::tests.test_dynamic_validator_skill_contract": "error"
+    },
+    "skipped": {
+      "tests.integration.test_deepseek_online.DeepSeekOnlineTests::test_public_fixture_returns_growth_contract": "Set the explicit integration guard, API key, and pinned fixed-fixture checkout guards.",
+      "tests.test_codeql_adapter.CodeqlAdapterTests::test_real_codeql_timestamp_metadata_is_accepted": "Repository real CodeQL database fixture is unavailable.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_component_filter_with_dependency_framework_types_is_a_default_entry": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_filter_registration_interposition_is_partial_until_cfg_proven": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_registered_entries_and_dynamic_gaps_against_temporary_databases": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_spel_source_defaults_publish_modeled_entries_and_keep_runtime_gaps": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_g1_through_g4_against_temporary_databases": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_growth_queries_use_the_exact_shared_table_contract": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_http_session_attribute_write_is_partial_session_growth": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_citrus_default_routes_emit_only_partial_prehandler_and_session_associations": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_fixture_semantics": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_jmqtt_qos2_dispatch_emits_only_partial_association": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_netty_full_request_string_is_shared_by_flow_and_lifecycle_domains": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_netty_json_switch_dispatch_remains_partial_through_service_growth": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_solr_form_parser_prehandler_emits_only_partial_association": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_source_input_stream_handler_and_byte_array_output_copy": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_spring_request_body_string_is_shared_by_flow_and_lifecycle_domains": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_mqtt_registration_repeatability_and_static_unknown_are_audited": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_netty_registration_finite_bound_and_uninstalled_negative": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_real_database_real_queries_real_client_cover_p0_scenarios_and_resume": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_servlet_allocation_and_release_paths_produce_certificates": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_callable_and_allocation_identities_are_precise": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_java_source_to_resource_state_results": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_real_codeql_database_runs_through_all_three_cli_commands": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_retained_values_and_holder_scopes_are_precise": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_webxml_entries.WebXmlServletEntryTests::test_real_solr_source_descriptor_integration": "Solr source checkout unavailable"
+    }
+  },
+  "final": {
+    "xml_sha256": "0941698330f4657da446b7c6fa7b577f1b53d6d9689253d7d61840f3c751d0a7",
+    "counts": {
+      "failed": 12,
+      "errors": 1,
+      "skipped": 39,
+      "passed_xml_records": 1146
+    },
+    "failed": {
+      "tests.test_batch_cli.BatchCliTests::test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested": "failure",
+      "tests.test_benchmark_entries.BenchmarkEntryDiagnosticsTests::test_real_entries_archive_reads_completed_stage_without_p0_artifacts": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_complete_database_manifest_builds_batch_corpus": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_corpus_revalidates_database_source_and_fingerprint": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_database_override_requires_safe_relative_path_and_is_recorded": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_entries_plan_uses_all_ready_targets_and_ready_only_is_diagnostic": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_full_plan_succeeds_with_strict_source_overrides": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_full_plan_succeeds_without_commit_provenance": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_generated_inventory_builds_runnable_18_target_plan": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_real_truth_is_29_cases_and_18_repositories_with_assets": "failure",
+      "tests.test_benchmark_truth.BenchmarkTruthTests::test_source_override_manifest_loads_strict_provider_bindings": "failure",
+      "tests.test_java_web_205_inventory.JavaWeb205InventoryTests::test_default_loader_accepts_tracked_ready_manifest": "failure"
+    },
+    "errors": {
+      "::tests.test_dynamic_validator_skill_contract": "error"
+    },
+    "skipped": {
+      "tests.integration.test_deepseek_online.DeepSeekOnlineTests::test_public_fixture_returns_growth_contract": "Set the explicit integration guard, API key, and pinned fixed-fixture checkout guards.",
+      "tests.test_codeql_adapter.CodeqlAdapterTests::test_real_codeql_timestamp_metadata_is_accepted": "Repository real CodeQL database fixture is unavailable.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_component_filter_with_dependency_framework_types_is_a_default_entry": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_filter_registration_interposition_is_partial_until_cfg_proven": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_registered_entries_and_dynamic_gaps_against_temporary_databases": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_spel_source_defaults_publish_modeled_entries_and_keep_runtime_gaps": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_g1_through_g4_against_temporary_databases": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_growth_queries_use_the_exact_shared_table_contract": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_http_session_attribute_write_is_partial_session_growth": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_citrus_default_routes_emit_only_partial_prehandler_and_session_associations": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_fixture_semantics": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_jmqtt_qos2_dispatch_emits_only_partial_association": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_netty_full_request_string_is_shared_by_flow_and_lifecycle_domains": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_netty_json_switch_dispatch_remains_partial_through_service_growth": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_solr_form_parser_prehandler_emits_only_partial_association": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_source_input_stream_handler_and_byte_array_output_copy": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_spring_request_body_string_is_shared_by_flow_and_lifecycle_domains": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_mqtt_registration_repeatability_and_static_unknown_are_audited": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_netty_registration_finite_bound_and_uninstalled_negative": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_real_database_real_queries_real_client_cover_p0_scenarios_and_resume": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_production_e2e.ProductionFixtureE2ETests::test_servlet_allocation_and_release_paths_produce_certificates": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available.",
+      "tests.test_resource_lifecycle_async_solver::test_cached_source_facts_analyze_and_replay": "requires a recorded real Task 3 CodeQL facts path",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_callable_and_allocation_identities_are_precise": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_java_source_to_resource_state_results": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_real_codeql_database_runs_through_all_three_cli_commands": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_retained_values_and_holder_scopes_are_precise": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_same_site_dispatch_and_invariant_share_program_point_identity": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_fresh_review_gaps_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_source_relations_are_extracted_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_task_cfg_success_exception_and_executor_gaps_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_task_terminals_are_conservative_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_unsupported_executor_policies_emit_bound_coverage_gaps_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_unsupported_task_forms_emit_bound_coverage_gaps_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_wrapper_summary_effects_are_extracted_from_java": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_population::test_cached_raw_source_relations_publish_reviewable_population_equations": "requires cached raw CodeQL facts re-adapted by the current adapter",
+      "tests.test_resource_lifecycle_review_safety::test_repeated_submission_from_java_through_both_queries": "opt-in CodeQL fixture",
+      "tests.test_resource_lifecycle_source_evaluation.ResourceLifecycleSourceEvaluationCodeqlTests::test_twelve_source_variants_run_codeql_and_match_frozen_expectations": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
+      "tests.test_resource_lifecycle_task4_locations::test_cached_source_child_proof_includes_actual_terminal_program_point": "requires recorded real SourcePairs facts",
+      "tests.test_webxml_entries.WebXmlServletEntryTests::test_real_solr_source_descriptor_integration": "Solr source checkout unavailable"
+    }
+  },
+  "differences": {
+    "failed": {
+      "added": [],
+      "resolved": [],
+      "persistent": [
+        "tests.test_batch_cli.BatchCliTests::test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested",
+        "tests.test_benchmark_entries.BenchmarkEntryDiagnosticsTests::test_real_entries_archive_reads_completed_stage_without_p0_artifacts",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_complete_database_manifest_builds_batch_corpus",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_corpus_revalidates_database_source_and_fingerprint",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_database_override_requires_safe_relative_path_and_is_recorded",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_entries_plan_uses_all_ready_targets_and_ready_only_is_diagnostic",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_full_plan_succeeds_with_strict_source_overrides",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_full_plan_succeeds_without_commit_provenance",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_generated_inventory_builds_runnable_18_target_plan",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_real_truth_is_29_cases_and_18_repositories_with_assets",
+        "tests.test_benchmark_truth.BenchmarkTruthTests::test_source_override_manifest_loads_strict_provider_bindings",
+        "tests.test_java_web_205_inventory.JavaWeb205InventoryTests::test_default_loader_accepts_tracked_ready_manifest"
+      ]
+    },
+    "errors": {
+      "added": [],
+      "resolved": [],
+      "persistent": [
+        "::tests.test_dynamic_validator_skill_contract"
+      ]
+    },
+    "skipped": {
+      "added": [
+        "tests.test_resource_lifecycle_async_solver::test_cached_source_facts_analyze_and_replay",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_same_site_dispatch_and_invariant_share_program_point_identity",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_fresh_review_gaps_from_java",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_source_relations_are_extracted_from_java",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_task_cfg_success_exception_and_executor_gaps_from_java",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_task_terminals_are_conservative_from_java",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_unsupported_executor_policies_emit_bound_coverage_gaps_from_java",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_unsupported_task_forms_emit_bound_coverage_gaps_from_java",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_v1_1_wrapper_summary_effects_are_extracted_from_java",
+        "tests.test_resource_lifecycle_population::test_cached_raw_source_relations_publish_reviewable_population_equations",
+        "tests.test_resource_lifecycle_review_safety::test_repeated_submission_from_java_through_both_queries",
+        "tests.test_resource_lifecycle_source_evaluation.ResourceLifecycleSourceEvaluationCodeqlTests::test_twelve_source_variants_run_codeql_and_match_frozen_expectations",
+        "tests.test_resource_lifecycle_task4_locations::test_cached_source_child_proof_includes_actual_terminal_program_point"
+      ],
+      "resolved": [],
+      "persistent": [
+        "tests.integration.test_deepseek_online.DeepSeekOnlineTests::test_public_fixture_returns_growth_contract",
+        "tests.test_codeql_adapter.CodeqlAdapterTests::test_real_codeql_timestamp_metadata_is_accepted",
+        "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_component_filter_with_dependency_framework_types_is_a_default_entry",
+        "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_filter_registration_interposition_is_partial_until_cfg_proven",
+        "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_registered_entries_and_dynamic_gaps_against_temporary_databases",
+        "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests::test_spel_source_defaults_publish_modeled_entries_and_keep_runtime_gaps",
+        "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_g1_through_g4_against_temporary_databases",
+        "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_growth_queries_use_the_exact_shared_table_contract",
+        "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests::test_http_session_attribute_write_is_partial_session_growth",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_citrus_default_routes_emit_only_partial_prehandler_and_session_associations",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_fixture_semantics",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_jmqtt_qos2_dispatch_emits_only_partial_association",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_netty_full_request_string_is_shared_by_flow_and_lifecycle_domains",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_netty_json_switch_dispatch_remains_partial_through_service_growth",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_solr_form_parser_prehandler_emits_only_partial_association",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_source_input_stream_handler_and_byte_array_output_copy",
+        "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests::test_spring_request_body_string_is_shared_by_flow_and_lifecycle_domains",
+        "tests.test_production_e2e.ProductionFixtureE2ETests::test_mqtt_registration_repeatability_and_static_unknown_are_audited",
+        "tests.test_production_e2e.ProductionFixtureE2ETests::test_netty_registration_finite_bound_and_uninstalled_negative",
+        "tests.test_production_e2e.ProductionFixtureE2ETests::test_real_database_real_queries_real_client_cover_p0_scenarios_and_resume",
+        "tests.test_production_e2e.ProductionFixtureE2ETests::test_servlet_allocation_and_release_paths_produce_certificates",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_callable_and_allocation_identities_are_precise",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_java_source_to_resource_state_results",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_real_codeql_database_runs_through_all_three_cli_commands",
+        "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests::test_retained_values_and_holder_scopes_are_precise",
+        "tests.test_webxml_entries.WebXmlServletEntryTests::test_real_solr_source_descriptor_integration"
+      ]
+    }
+  },
+  "scope": "Same host and pytest command with --continue-on-collection-errors; ignored assets absent in both worktrees. JUnit records may include subtests.",
+  "limitations": [
+    "Collection error prevents coverage of the legacy global-skill test module.",
+    "Missing ignored assets remain failed; no complete-suite green claim."
+  ],
+  "new_failure_ids": [],
+  "new_error_ids": []
+}

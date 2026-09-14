@@ -31,7 +31,43 @@ python -m pip install -e .
 
 Resource Lifecycle v1 是并行的离线状态分析链，不修改现有 P0 schema/tool `2.5/0.4.0`，也不把 lifecycle property 映射为 vulnerability 布尔量。干净 checkout 不需要 API key 或网络即可运行仓库内人工 IR、重放证据并重新生成固定评价：
 
-v1.1 Task4 将真实 TaskBinding、逐步 callback CFG 与 caller continuation 放入同一主求解工作列表。`lifecycle-results.json` 的 `property_states` 区分 request 返回、task 正常/异常终止、拒绝/取消和 request 返回后已提交任务均终止的状态；该字段只是资源状态聚合，`property_derivations` 保存逐路径 state/trace，`property_traces` 为独立 trace 列表。条件维度使用 `after_task_termination:<task_id>:<kind>` 等 scope，逐路径检查后聚合，不能把互斥接纳边拼成一条 bounded 证明；证据缺失则 unknown。`termination_guaranteed=false` 表示未证明任务最终一定结束。缺 TaskBinding 的旧 dispatch 只保存 capture 和 unknown，不能由 executor 的 termination 字段生成已完成状态。当前 G1–G3 pass、G4–G8 fail；q/a 重复接纳归纳证明仍在 Task 5 实施中。
+v1.1 将真实 TaskBinding、逐步 callback CFG 与 caller continuation 放入同一主求解工作列表。`property_states` 是资源状态聚合，`property_derivations` 保存逐路径 state/trace；条件维度使用 `after_task_termination:<task_id>:<kind>` 等 scope。`termination_guaranteed=false` 表示未证明任务最终一定结束。已解析 ThreadPoolExecutor 的群体检查从转移推导 `q<=K`、`a<=W` 与 `q+a<=K+W`，覆盖任意有限次接纳；未知容量、未覆盖 writer 或出口缺口保持 unknown。G1–G8 已通过，限定 v1.1 迭代实现完成；报告见 `reports/lifecycle-v1.1/summary.md`，交接见 `docs/execution/lifecycle-v1.1/HANDOFF.md`。
+
+从仓库根目录编译自包含 Java fixture 并运行真实源码固定输入对照（需要本地 CodeQL CLI、Java 与 jq）：
+
+```bash
+lifecycle_source="$PWD/tests/fixtures/resource_lifecycle_v1_1/src/main/java"
+lifecycle_work=$(mktemp -d /tmp/lifecycle-v11-demo.XXXXXX)
+mkdir "$lifecycle_work/classes"
+codeql database create "$lifecycle_work/database" --language=java \
+  --source-root="$lifecycle_source" \
+  --command="javac -d '$lifecycle_work/classes' '$lifecycle_source/fixture/lifecyclev11/SourcePairs.java'"
+python3 -m dosweb.cli resource-source-evaluate \
+  --suite tests/fixtures/resource_lifecycle_v1_1/source-cases.json \
+  --source-root "$lifecycle_source" --database "$lifecycle_work/database" \
+  --out "$lifecycle_work/source-evaluation"
+jq '.metrics' "$lifecycle_work/source-evaluation/source-evaluation.json"
+jq '.units[].population_properties' "$lifecycle_work/source-evaluation/full-results.json"
+
+# Extract one supported entry for a standalone analyze/replay run.
+jq -n --arg database "$lifecycle_work/database" \
+  '{schema_version:"1.1",mode:"codeql_database",database:$database,
+    entry_methods:["java-callable-v1:fixture.lifecyclev11.SourcePairs.s5VerifiedCapacity(I)V"],
+    budget:{max_steps:50000,max_updates_per_event:64,timeout_ms:15000}}' \
+  > "$lifecycle_work/extraction.json"
+python3 -m dosweb.cli resource-extract --manifest "$lifecycle_work/extraction.json" \
+  --out "$lifecycle_work/extracted"
+python3 -m dosweb.cli resource-analyze --facts "$lifecycle_work/extracted/facts.json" \
+  --out "$lifecycle_work/analyzed" --llm off
+python3 -m dosweb.cli resource-replay --run "$lifecycle_work/analyzed"
+jq '.units[].population_properties' "$lifecycle_work/analyzed/lifecycle-results.json"
+
+# Opt-in real Java/CodeQL acceptance, separate from contract-only tests.
+DOSWEB_RUN_CODEQL_FIXTURES=1 python3 -m pytest -q \
+  tests/test_resource_lifecycle_source_evaluation.py
+```
+
+该命令内部执行两条真实 CodeQL 查询与严格适配，保存 `facts.json`、full/关闭跨事件传播两模式结果及逐例 CSV。十二个变体来自同一个自包含 fixture，不代表十二个独立项目。声明切面上的静态性质不等于动态确认。
 
 ```bash
 dos-web-analyzer resource-extract \
@@ -55,7 +91,7 @@ dos-web-analyzer resource-evaluate \
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "mode": "codeql_database",
   "database": "/absolute/path/to/offline-java-codeql-db",
   "entry_methods": [

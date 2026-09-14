@@ -922,12 +922,20 @@ def _evidence_payload(
                 path_body = {
                     "unit_id": unit_id, "scope": dimension.get("scope"), "dimension": dimension.get("dimension"),
                     "resource_family_id": family_id, **path, "state": recorded["state"],
+                    # Rule lists already live in the hash-bound solved record
+                    # selected by scope/event/index. Keep the path witness here
+                    # without copying those lists into every dimension proof.
+                    "trace": {key: value for key, value in path["trace"].items()
+                              if key not in {"rule_ids", "rule_dependencies"}},
                     "evidence_ids": sorted(path_evidence), "relation_evidence": relation_evidence,
                     "code_locations": [path_locations[key] for key in sorted(path_locations)],
                 }
                 path_id = hashlib.sha256(canonical_json(path_body)).hexdigest()
                 path_derivations.append({"proof_id": path_id, **path_body})
-                proof_dependency_pairs.update((path_id, evidence_id) for evidence_id in path_evidence)
+                # Child dependencies are stored losslessly on this child as
+                # evidence_ids. Do not materialize the same Cartesian index.
+                if not path_evidence <= set(facts):
+                    raise ValueError("property path evidence dependency is unresolved")
                 for rule_id, evidence_id in path["trace"]["rule_dependencies"]:
                     rules.add(rule_id)
                     dependency_pairs.add((rule_id, evidence_id))
@@ -1110,6 +1118,11 @@ def _evidence_payload(
         raise ValueError("resource lifecycle evidence dependency is unresolved")
     return {
         "schema_version": SCHEMA_VERSION,
+        "path_dependency_encoding": {
+            "child_dependencies": "dimension_derivations[].path_derivations[].evidence_ids",
+            "trace_rules": "lifecycle-results.json:units[unit_id].property_derivations[scope_prefix][property_event_id][property_derivation_index].trace",
+            "result_binding": "result_sha256",
+        },
         "facts": facts,
         "rules": [
             {

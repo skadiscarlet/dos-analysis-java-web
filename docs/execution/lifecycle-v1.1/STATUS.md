@@ -1,12 +1,28 @@
 # Resource Lifecycle v1.1 执行状态
 
 - task: `resource-lifecycle-v1.1`
-- implementation_status: `partial`
-- delivery_state_at_commit: `partial`
+- implementation_status: `complete`
+- delivery_state_at_commit: `ready_for_push`
 - actual_base_commit: `f62d6f2343d160a320dbb7aaec6d22c307d892f0`
 - branch: `codex/resource-lifecycle-v1_1-20260908`
-- current_stage: `task6_source_pairs_complete`
-- next_action: `准备 G8 可审阅交付：汇总 v1.1 报告、门槛证据、失败集合差分与 HANDOFF；G8 完成前整体保持 partial`
+- current_stage: `g8_delivery_complete`
+- next_action: `提交并推送已验收交付；远程 SHA 验证由结束回复给出`
+
+## 最终交付审计
+
+- G1–G8 均 pass，详见 `reports/lifecycle-v1.1/gates.json` 和本目录 HANDOFF；以下阶段记录为历史过程，不覆盖本节最终状态。
+- evidence 去重后真实产物 16,704,007 bytes，低于 16 MiB 原限额，replay consistent=true；子证明规则按 hash-bound result 的 unit/scope/event/index 恢复，错绑索引的回放检测通过。最终全仓 1146 passed、39 skipped、12 failed、1 collection error、710 subtests passed；与同环境固定基线相比零新增失败/错误 ID，保留资产及旧全局 skill 路径限制。
+- 最终 fresh 源码产物 `/tmp/lifecycle-v11-g8-source-fixed`：606 facts，双模式各 12/12，unknown 3/9，6 gains，LLM 0；实现哈希 `5b2cfcb3f616288a0244386cd4ab475c5310ec246e42a926ae0cdc58eef4b28d`。正式报告位于 `reports/lifecycle-v1.1/`，README 编译数据库及 extract/analyze/replay 均实际验证。
+
+## G8 交付验收进行中（2026-09-14）
+
+- 从 `f62d6f2343d160a320dbb7aaec6d22c307d892f0` 创建独立 detached worktree `/tmp/lifecycle-v11-baseline-20260914`，与当前分支在同一环境运行全仓测试；旧 `/tmp/resource-lifecycle-v1_1-baseline.xml` 已不存在，旧汇总数字不充作失败集合证据。
+- 两版本原样运行均在 `tests/test_dynamic_validator_skill_contract.py` 收集时报同一错误：仍引用已迁移的全局 skill 路径。保留 `/tmp/lifecycle-v11-baseline-20260914.xml` 与 `/tmp/lifecycle-v11-final-20260914.xml`，随后均使用 `--continue-on-collection-errors` 收集其余测试结果，收集错误不被隐藏或计作通过。
+- 当前实现的十二例源码评价已完成，输出 `/tmp/lifecycle-v11-g8-source-20260914`：606 facts，full/消融各 12/12 匹配，unknown 3/9，6 determinacy gains。公开 CSV、metrics、manifest、逐例与消融 metadata 已复制到 `reports/lifecycle-v1.1/`；旧 Task 6 报告早于 adapter transition 去重修复，其实现哈希不用于声明当前提交的报告身份。
+- 同环境最终测试比较完成：基线 `12 failed, 874 passed, 26 skipped, 1 error, 509 subtests passed`，最终 `12 failed, 1144 passed, 39 skipped, 1 error, 710 subtests passed`；12 个失败 ID 和 1 个收集错误 ID 完全相同，新增失败/错误均为 0。`scripts/compare_lifecycle_test_runs.py` 从 JUnit 生成 `reports/lifecycle-v1.1/baseline-test-diff.json`，保留 XML hash、skip 原因与完整差集；不发布原始 failure body。收集模块和缺失资产仍限制完整测试覆盖。
+- 当前人工 IR 评价已运行到 `/tmp/lifecycle-v11-g8-manual-20260914`。剩余：与旧提交的源码提取覆盖比较、分类指标及 manifest 环境/命令、limitations 更新、summary/gates/HANDOFF、README 命令验证和最终提交推送。
+- 同源码旧提取对照已完成：54→606 facts，call bindings 0→12、task bindings 0→6、TaskExit 0→12；源码 snapshot 与十二个入口完全相同，见 `extraction-coverage-diff.json`。人工 IR full 24/24，11 bounded/11 unknown/2 obligation_gap；两个契约测试类 64 passed。summary、gates 和 HANDOFF 草稿已生成。
+- README 实测新增 blocker：`/tmp/lifecycle-v11-g8-single.json` 选择 s5VerifiedCapacity 作为入口，但提取仍保留其他 local units；extract 与 analyze 成功，`/tmp/lifecycle-v11-g8-single-run/evidence.json` 为 28,797,293 bytes，超 `io.py` 的 16 MiB 读取限额，`resource-replay` 退出 5/ARTIFACT_INPUT_INVALID。尚未修改生产代码或放宽限额。G8 fail，需定位重复证据、补针对性回归并修复；当前报告实现哈希在生产修复后必须重新绑定。
 
 ## 适用标准
 
@@ -163,7 +179,7 @@
 | G5 群体检查 | `pass` | fresh S5/S6 正控从真实 TaskBinding/PopulationEffect/TaskExit/ExecutorContract 派生 K=3、W=2、K+W=5；未知容量与未解析 receiver 对照保持 unknown，不恢复 capacity-only legacy bound |
 | G6 源码验收 | `pass` | fresh Java→两条 CodeQL query→adapter→solver 全套 `77 passed, 67 subtests`；十二例 full 与消融各 12/12 匹配冻结期望，606 条 raw facts，LLM calls 0 |
 | G7 固定输入增益 | `pass` | 对同一 raw-fact snapshot 仅删除跨事件 relation/transition 后重算，12 例中 6 例产生 determinacy gain；full/消融 unknown 分别为 3/9 |
-| G8 可审阅交付 | `fail` | v1.1 报告、门槛证据、失败集合差分和 HANDOFF 尚未生成 |
+| G8 可审阅交付 | `pass` | reports/lifecycle-v1.1 的报告、逐例 CSV、分类指标、manifest、提取覆盖对照、逐 ID 测试差分及 HANDOFF 已生成；真实 replay 体积缺陷已修复，版本哈希一致，README 命令已验证 |
 
 ## 失败与环境记录
 

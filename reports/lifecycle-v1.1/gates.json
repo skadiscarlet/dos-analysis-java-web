@@ -1,0 +1,14 @@
+{
+  "implementation_status": "complete",
+  "delivery_state_at_commit": "ready_for_push",
+  "gates": {
+    "G1": {"status": "pass", "evidence": ["tests/test_resource_lifecycle_solver.py", "docs/execution/lifecycle-v1.1/STATUS.md", "reports/lifecycle-v1.1/baseline-test-diff.json"]},
+    "G2": {"status": "pass", "evidence": ["reports/lifecycle-v1.1/extraction-coverage-diff.json", "tests/test_resource_lifecycle_codeql.py"]},
+    "G3": {"status": "pass", "evidence": ["tests/test_resource_lifecycle_async_solver.py", "tests/test_resource_lifecycle_task4_review.py", "reports/lifecycle-v1.1/summary.md"]},
+    "G4": {"status": "pass", "evidence": ["reports/lifecycle-v1.1/source-cases.csv", "reports/lifecycle-v1.1/source-evaluation.json"]},
+    "G5": {"status": "pass", "evidence": ["tests/test_resource_lifecycle_population.py", "reports/lifecycle-v1.1/source-cases.csv", "reports/lifecycle-v1.1/metrics.json"]},
+    "G6": {"status": "pass", "evidence": ["reports/lifecycle-v1.1/run-manifest.json", "reports/lifecycle-v1.1/source-evaluation.json"]},
+    "G7": {"status": "pass", "evidence": ["reports/lifecycle-v1.1/source-evaluation.json", "reports/lifecycle-v1.1/summary.md"]},
+    "G8": {"status": "pass", "evidence": ["reports/lifecycle-v1.1/baseline-test-diff.json", "docs/execution/lifecycle-v1.1/HANDOFF.md", "tests/test_resource_lifecycle_evidence_compaction.py", "reports/lifecycle-v1.1/run-manifest.json", "README.md"]}
+  }
+}

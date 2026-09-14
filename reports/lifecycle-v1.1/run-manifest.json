@@ -1,0 +1,87 @@
+{
+  "budget": {
+    "max_steps": 50000,
+    "max_updates_per_event": 64,
+    "timeout_ms": 15000
+  },
+  "database": "/tmp/dosweb-fixture-codeql-2/fcdd115f927f99bf.db",
+  "database_fingerprint": "6a5774a96d67afdd81e7c2a2ab14fb646a52c0895a385d8ffa8ddc12dc725965",
+  "entry_methods": [
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1Sync(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1TaskWrapped(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2TaskOnly(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2FieldHolder(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3AllExitsClose(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3MissingExceptionalClose(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4Direct(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4DepthTwo(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5VerifiedCapacity(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5UnknownCapacity(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6SupportedExecutor(I)V",
+    "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6UnresolvedExecutor(I)V"
+  ],
+  "implementation_sha256": "5b2cfcb3f616288a0244386cd4ab475c5310ec246e42a926ae0cdc58eef4b28d",
+  "llm": {
+    "calls": 0,
+    "mode": "off",
+    "model": null,
+    "provider": null
+  },
+  "modes": [
+    "full",
+    "disable_cross_event_propagation"
+  ],
+  "provenance_sha256": "e320ee17aa00c1c601fa06690f807003b838437275a13463a06bf6946a2e8e24",
+  "query_provenance": [
+    {
+      "bqrs_sha256": "ebf9e4a1191d311cf58216816135dc198ad17b9b264e36ea5742319e2dc7dafa",
+      "query_name": "resource_lifecycle",
+      "query_sha256": "9c9fd764eae06c3af88cbb5df2e8518a4c6bc03455cd066ba00b696761b51ee6"
+    },
+    {
+      "bqrs_sha256": "6b455fbbec4aac47789db04e89828e9c3fd67014fa444bf5bffb0d681b14e692",
+      "query_name": "resource_lifecycle_task_relations",
+      "query_sha256": "facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd"
+    }
+  ],
+  "query_suite_sha256": "db024d5650b66519dc2e2040a0b0aa9dea09894898ff121e628cdcaa6543de18",
+  "raw_fact_snapshot_sha256": "e58ea1e79c5c24d11b9182dbf34c0f24176f414cf880120fe06ca09551ef9173",
+  "result_sha256": {
+    "disable_cross_event_propagation": "6fa94311df51e44229ec74e2f32eccee8cc1889950bd8cf680fefdd151ca38af",
+    "full": "69fcb9085166b47148846da55c686b9d3c2224e379be9785ecc960a09b2137fa"
+  },
+  "same_entries_candidates_and_raw_facts": true,
+  "schema_version": "1.1",
+  "source_root": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_1-20260908/tests/fixtures/resource_lifecycle_v1_1/src/main/java",
+  "source_snapshot_sha256": "01c8355dee57228fcaf4ffef4dbd01d3ffde991506db6b4cae5486b6730a134f",
+  "suite_id": "resource-lifecycle-v1.1-source-pairs",
+  "suite_sha256": "67fd397d9e4ab43c0a3cc9559563ddea71012621b08bda96f9d9e03236060cbe",
+  "tool_version": "resource-lifecycle-v1.1",
+  "contracts_versions": [
+    "resource-lifecycle-contracts-v1"
+  ],
+  "analyzed_code_parent_commit": "f59fc6e9d2eb624afc2252330eac5aab1e246d63",
+  "analyzed_worktree_modified_paths": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/analysis-semantics.md",
+    "docs/execution/lifecycle-v1.1/STATUS.md",
+    "docs/limitations.md",
+    "dosweb/resource_lifecycle/commands.py"
+  ],
+  "code_identity_note": "implementation_sha256 binds actual analyzed files, including uncommitted changes; parent commit alone is not the analyzed implementation.",
+  "environment": {
+    "python": "3.12.9",
+    "platform": "Linux",
+    "codeql": "{\n  \"productName\" : \"CodeQL\",\n  \"vendor\" : \"GitHub\",\n  \"version\" : \"2.23.8\",\n  \"sha\" : \"d1011989dbb0da337606a511d9a16ba52ef49122\",\n  \"branches\" : [\n    \"codeql-cli-2.23.8\"\n  ],\n  \"copyright\" : \"Copyright (C) 2019-2025 GitHub, Inc.\",\n  \"unpackedLocation\" : \"/opt/codeql\",\n  \"configFileLocation\" : \"/home/furina/.config/codeql/config\",\n  \"configFileFound\" : false,\n  \"overlayVersion\" : 4,\n  \"features\" : {\n    \"analysisSummaryV2Default\" : true,\n    \"buildModeOption\" : true,\n    \"bundleSupportsIncludeDiagnostics\" : true,\n    \"bundleSupportsIncludeLogs\" : true,\n    \"databaseInterpretResultsSupportsSarifRunProperty\" : true,\n    \"featuresInVersionResult\" : true,\n    \"indirectTracingSupportsStaticBinaries\" : false,\n    \"informsAboutUnsupportedPathFilters\" : true,\n    \"supportsPython312\" : true,\n    \"mrvaPackCreate\" : true,\n    \"threatModelOption\" : true,\n    \"traceCommandUseBuildMode\" : true,\n    \"v2ramSizing\" : true,\n    \"mrvaPackCreateMultipleQueries\" : true,\n    \"setsCodeqlRunnerEnvVar\" : true,\n    \"sarifMergeRunsFromEqualCategory\" : true,\n    \"forceOverwrite\" : true,\n    \"generateSummarySymbolMap\" : true,\n    \"pythonDefaultIsToNotExtractStdlib\" : true,\n    \"queryServerRunQueries\" : true,\n    \"queryServerTrimCacheWithMode\" : true,\n    \"builtinExtractorsSpecifyDefaultQueries\" : true,\n    \"bqrsDiffResultSets\" : true\n  }\n}",
+    "javac": "javac 21.0.12.1"
+  },
+  "commands": {
+    "source": "python3 -m dosweb.cli resource-source-evaluate --suite tests/fixtures/resource_lifecycle_v1_1/source-cases.json --source-root tests/fixtures/resource_lifecycle_v1_1/src/main/java --database /tmp/dosweb-fixture-codeql-2/fcdd115f927f99bf.db --out /tmp/lifecycle-v11-g8-source-fixed",
+    "baseline_tests": "python3 -m pytest -q --continue-on-collection-errors --junitxml=/tmp/lifecycle-v11-baseline-continued-20260914.xml",
+    "final_tests": "DOSWEB_G8_CACHED_FACTS=/tmp/lifecycle-v11-g8-single-facts/facts.json python3 -m pytest -q --continue-on-collection-errors --junitxml=/tmp/lifecycle-v11-g8-final-fixed.xml",
+    "manual": "python3 -m dosweb.cli resource-evaluate --suite tests/fixtures/resource_lifecycle/regression-suite.json --out /tmp/lifecycle-v11-g8-manual-20260914"
+  },
+  "final_test_xml_sha256": "0941698330f4657da446b7c6fa7b577f1b53d6d9689253d7d61840f3c751d0a7",
+  "delivery_state_at_commit": "ready_for_push"
+}
