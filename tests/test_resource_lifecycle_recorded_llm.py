@@ -1539,7 +1539,7 @@ class ResourceLifecycleRecordedLlmTests(unittest.TestCase):
             value["records"][0]["validation"]["status"] = "rejected"
             path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
 
-            self.assertEqual(0, main(["resource-replay", "--run", str(run)]))
+            self.assertNotEqual(0, main(["resource-replay", "--run", str(run)]))
             replay = json.loads((run / "replay.json").read_text(encoding="utf-8"))
 
         self.assertFalse(replay["consistent"])
@@ -1569,7 +1569,7 @@ class ResourceLifecycleRecordedLlmTests(unittest.TestCase):
             )
             (run / "summary.md").write_text("# tampered\n", encoding="utf-8")
 
-            self.assertEqual(0, main(["resource-replay", "--run", str(run)]))
+            self.assertNotEqual(0, main(["resource-replay", "--run", str(run)]))
             replay = json.loads((run / "replay.json").read_text(encoding="utf-8"))
 
         self.assertFalse(replay["consistent"])

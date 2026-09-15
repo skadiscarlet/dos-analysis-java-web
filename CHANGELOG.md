@@ -1,3 +1,10 @@
+## [2026-09-15] Resource lifecycle v1.2 implementation in progress
+
+- 从固定 v1.1 基线建立独立工作树；新增共享正式性质发布、多资源选择、项目清单与已有候选导入、完整阶段台账、内容寻址分片与源码重绑定语义回放。P0 schema/tool 和双份 CodeQL 查询保持不变。
+- 修复 task_queue 消费进度缺口误用于已到达的精确 TaskExit；保留缺少 caller 异常 CFG 的两例 unknown。冻结旧 oracle 不变，完整模式 10/12、消融 12/12，评价器不再从状态计数生成 bound。
+- 真实 1×/2×/4× 编译规模组均完成分析和迁移目录后的复算：总字节 8,967,818 / 17,873,714 / 35,685,506，最大分片 34,408 bytes；仅作为同一 fixture 的规模副本。全仓同环境差分零新增失败/错误，原有 101 failed、1 collection error 保留。
+- 新增缺分片 CLI 非零退出、范围隔离、源码多资源、预算失败及候选分母回归。独立已有模块输入尚缺，最终报告及推送审查进行中，未宣称本轮 implementation complete。
+
 ## [2026-09-14] Resource lifecycle v1.1 G8 delivery closure
 
 - G1–G8 全部通过，implementation_status=complete、delivery_state_at_commit=ready_for_push。最终 fresh 源码双模式各 12/12、606 facts、6 gains，当前实现 hash 与报告一致；全仓最终 1146 passed、39 skipped、12 个持续失败、1 个持续收集错误、710 subtests，零新增失败/错误 ID。README 数据库编译和真实 extract/analyze/replay 已验证，报告与 HANDOFF 正式落盘；历史限制和支持范围保持明确。

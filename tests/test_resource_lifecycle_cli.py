@@ -1290,7 +1290,7 @@ class ResourceLifecycleCliTests(unittest.TestCase):
         self.assertTrue(
             all(artifact["schema_version"] == "1.1" for artifact in artifacts.values())
         )
-        self.assertEqual("resource-lifecycle-v1.1", artifacts["manifest"]["tool_version"])
+        self.assertEqual("resource-lifecycle-v1.2", artifacts["manifest"]["tool_version"])
 
     def test_parser_accepts_resource_commands_without_p0_database(self) -> None:
         values = parse_cli_values(["resource-extract", "--manifest", "fixture.json", "--out", "facts"])

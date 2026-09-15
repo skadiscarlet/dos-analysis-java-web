@@ -1,4 +1,6 @@
-# Resource Lifecycle v1.1 实际限制
+# Resource Lifecycle v1.2 实际限制
+
+v1.2 实施中：正式性质由 `properties.py` 统一发布，评价只选择并比较，不从 `property_states` 推断上界。项目接入、证据分片和源码验收进度见 `docs/execution/lifecycle-v1.2/STATUS.md`；以下 v1.1 完成数字仅作历史基线，不代表 v1.2 验收。
 
 2026-09-14 v1.1 限定验收完成：真实 caller/task CFG 进入同一主工作列表，十二个源码变体在 full 与固定输入消融中均匹配冻结期望，G1–G8 已通过。`property_states` 仅为状态聚合，条件性质从独立 state/trace 检查；证据缺失时 unknown。任务终止后的 close/drop 性质不保证最终一定终止；出队不结束 holder，close 不清空其他字段持有，无 holder 不代表 GC 已执行。
 

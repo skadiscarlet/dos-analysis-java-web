@@ -1,4 +1,6 @@
-# Resource Lifecycle v1.1 分析语义
+# Resource Lifecycle v1.2 分析语义
+
+v1.2 实施中：正式性质由 `properties.py` 统一发布，评价只选择并比较，不从 `property_states` 推断上界。项目接入、证据分片和源码验收进度见 `docs/execution/lifecycle-v1.2/STATUS.md`；以下 v1.1 完成数字仅作历史基线，不代表 v1.2 验收。
 
 ## 定位与入口
 

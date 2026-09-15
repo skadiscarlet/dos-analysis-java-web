@@ -189,7 +189,7 @@ class ResourceLifecycleSourceEvaluationContractTests(unittest.TestCase):
         )
         self.assertEqual("unknown", unknown_state["lifecycle_status"])
         self.assertEqual(
-            ["unmodeled_resource_effect"], unknown_state["reason_codes"]
+            ["expected_property_unavailable", "missing_property"], unknown_state["reason_codes"]
         )
 
     def test_internal_tuple_reasons_are_preserved_and_unknown_population_has_no_bound(self) -> None:
@@ -211,14 +211,16 @@ class ResourceLifecycleSourceEvaluationContractTests(unittest.TestCase):
         dimension = _dimension_observation(
             dimension_expected,
             {
-                "dimensions": [
+                "properties": [
                     {
+                        "property_id": "published:close",
+                        "cut": "all_modeled_exits",
                         "dimension": "close_obligation",
                         "resource_family_id": "family:stream",
                         "scope": "all_exits",
-                        "lifecycle_status": "unknown",
+                        "status": "unknown",
                         "upper_bound": None,
-                        "reason_codes": ("release_missing_exceptional_path",),
+                        "unknown_reasons": ("release_missing_exceptional_path",),
                     }
                 ]
             },
@@ -241,15 +243,18 @@ class ResourceLifecycleSourceEvaluationContractTests(unittest.TestCase):
         population = _population_observation(
             population_expected,
             {
-                "population_properties": [
+                "properties": [
                     {
+                        "property_id": "published:population",
+                        "resource_family_id": None,
+                        "cut": "arbitrary_finite_repetitions",
                         "dimension": "accepted_task_population",
                         "scope": "executor:executor",
                         "repeat_assumption": (
                             "arbitrary_finite_repetitions_of_external_accept"
                         ),
-                        "lifecycle_status": "unknown",
-                        "total_upper_bound": 5,
+                        "status": "unknown",
+                        "upper_bound": None,
                         "unknown_reasons": (
                             "executor_population_binding_unavailable",
                         ),
@@ -487,7 +492,7 @@ class ResourceLifecycleSourceEvaluationContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class ResourceLifecycleSourceEvaluationCodeqlTests(unittest.TestCase):
-    def test_twelve_source_variants_run_codeql_and_match_frozen_expectations(self) -> None:
+    def test_twelve_source_variants_preserve_oracle_and_report_backend_gaps(self) -> None:
         database = fixture_database(str(SOURCE_ROOT))
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "source-evaluation"
@@ -524,13 +529,20 @@ class ResourceLifecycleSourceEvaluationCodeqlTests(unittest.TestCase):
         mismatches = [
             row for row in artifact["cases"] if not row["matches_expected"]
         ]
-        self.assertFalse(
-            mismatches,
+        # Frozen v1.1 oracle is unchanged. Its state-count evaluator previously
+        # hid missing caller exceptional exits in these two cases. v1.2 must
+        # expose the actual backend unknown instead of manufacturing a bound.
+        self.assertEqual(
+            {("s2-task-only", "full"), ("s2-field-holder", "full")},
+            {(row["case_id"], row["mode"]) for row in mismatches},
             json.dumps(mismatches, ensure_ascii=False, indent=2),
         )
+        self.assertTrue(all(row["lifecycle_status"] == "unknown" and
+                            any(reason.startswith("exit_state_missing:") for reason in row["reason_codes"])
+                            for row in mismatches))
         self.assertEqual(12, artifact["metrics"]["modes"]["full"]["cases"])
         self.assertEqual(
-            12,
+            10,
             artifact["metrics"]["modes"]["full"]["expected_matches"],
         )
         self.assertGreaterEqual(artifact["metrics"]["determinacy_gains"], 1)
@@ -556,12 +568,8 @@ class ResourceLifecycleSourceEvaluationCodeqlTests(unittest.TestCase):
         by_case_mode = {
             (row["case_id"], row["mode"]): row for row in artifact["cases"]
         }
-        self.assertEqual(
-            0, by_case_mode[("s2-task-only", "full")]["upper_bound"]
-        )
-        self.assertEqual(
-            1, by_case_mode[("s2-field-holder", "full")]["upper_bound"]
-        )
+        self.assertIsNone(by_case_mode[("s2-task-only", "full")]["upper_bound"])
+        self.assertIsNone(by_case_mode[("s2-field-holder", "full")]["upper_bound"])
         self.assertEqual(
             "unknown",
             by_case_mode[("s3-missing-exceptional-close", "full")][

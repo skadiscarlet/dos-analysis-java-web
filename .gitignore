@@ -67,3 +67,6 @@ __pycache__/
 
 # Local provider credentials (API key). Never commit.
 config/local_secrets.json
+
+# Persistent local lifecycle evidence; compact reports are committed separately.
+.local-runs/

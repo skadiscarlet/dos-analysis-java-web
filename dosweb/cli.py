@@ -16,6 +16,7 @@ _RESOURCE_COMMANDS = (
     "resource-replay",
     "resource-evaluate",
     "resource-source-evaluate",
+    "resource-project",
 )
 _COMMANDS = _P0_COMMANDS + _RESOURCE_COMMANDS
 
@@ -37,6 +38,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--facts", type=Path)
+    parser.add_argument("--sharded", action="store_true", default=None)
+    parser.add_argument("--integrity-only", action="store_true", default=None)
     parser.add_argument("--run", type=Path)
     parser.add_argument("--suite", type=Path)
     parser.add_argument("--llm", choices=("off", "live", "replay"))

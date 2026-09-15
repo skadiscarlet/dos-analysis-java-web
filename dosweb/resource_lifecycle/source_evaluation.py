@@ -25,6 +25,7 @@ from dosweb.resource_lifecycle.io import (
     load_json_regular_with_sha256,
 )
 from dosweb.resource_lifecycle.models import AnalysisBudget, SCHEMA_VERSION, Transition
+from dosweb.resource_lifecycle.properties import select_properties
 
 
 SOURCE_EVALUATION_MODES: Final = (
@@ -76,6 +77,8 @@ class SourceCase:
     property: str
     entry_callable: str
     expectations: tuple[SourceExpectedOutcome, ...]
+    resource_family_id: str | None = None
+    executor_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +192,12 @@ def _expected(value: object) -> SourceExpectedOutcome:
 
 
 def _case(value: object) -> SourceCase:
+    if not isinstance(value, Mapping):
+        raise ValueError("source case must be an object")
+    selectors = {key: value[key] for key in ("resource_family_id", "executor_id") if key in value}
+    for key, selector in selectors.items():
+        _string(selector, key)
+    value = {key: item for key, item in value.items() if key not in selectors}
     record = _object(
         value,
         {
@@ -220,6 +229,8 @@ def _case(value: object) -> SourceCase:
         _string(record["property"], "source case property"),
         entry_callable,
         expectations,
+        selectors.get("resource_family_id"),
+        selectors.get("executor_id"),
     )
 
 
@@ -405,7 +416,7 @@ def _fallback_reasons(
     reasons = {
         gap[3]
         for gap in unit.program.coverage_gaps
-        if gap[1] == family_id
+        if not family_id or gap[1] == family_id
     }
     unknown_reasons = result.get("unknown_reasons")
     if isinstance(unknown_reasons, (list, tuple)):
@@ -414,248 +425,53 @@ def _fallback_reasons(
     return tuple(sorted(reasons))
 
 
-def _dimension_observation(
+def _published_observation(
     expected: SourceExpectedOutcome,
     result: Mapping[str, object],
     unit: AnalysisUnit,
-    family_id: str,
+    family_id: str | None = None,
+    executor_id: str | None = None,
 ) -> dict[str, object]:
-    dimensions = result.get("dimensions")
-    if not isinstance(dimensions, list):
-        dimensions = []
-    candidates = [
-        item
-        for item in dimensions
-        if isinstance(item, Mapping)
-        and item.get("dimension") == expected.dimension
-        and item.get("resource_family_id") == family_id
-        and (
-            expected.scope in {"all_exits", "per_instance"}
-            and item.get("scope") == expected.scope
-            or expected.scope == "task"
-            and isinstance(item.get("scope"), str)
-            and str(item["scope"]).startswith("after_task_termination:")
-            and str(item["scope"]).endswith(":" + expected.cut.rsplit(":", 1)[1])
-        )
-    ]
+    candidates = select_properties(
+        result, dimension=expected.dimension, scope=expected.scope,
+        cut=expected.cut, family_id=family_id, executor_id=executor_id,
+    )
     if len(candidates) != 1:
-        reasons = set(_fallback_reasons(unit, result, family_id))
-        reasons.add(
-            "expected_property_ambiguous" if candidates else "expected_property_unavailable"
-        )
+        reasons = set(_fallback_reasons(unit, result, family_id or ""))
+        reasons.add("expected_property_ambiguous" if candidates else "missing_property")
         return {
-            "observed_scope": None,
-            "lifecycle_status": "unknown",
-            "upper_bound": None,
-            "reason_codes": sorted(reasons),
+            "property_id": None, "resource_family_id": family_id,
+            "observed_scope": None, "lifecycle_status": "unknown",
+            "upper_bound": None, "reason_codes": sorted(reasons),
         }
     selected = candidates[0]
-    reason_codes = selected.get("reason_codes")
     return {
-        "observed_scope": selected.get("scope"),
-        "lifecycle_status": selected.get("lifecycle_status"),
-        "upper_bound": selected.get("upper_bound"),
-        "reason_codes": (
-            list(reason_codes)
-            if isinstance(reason_codes, (list, tuple))
-            else []
-        ),
+        "property_id": selected["property_id"],
+        "resource_family_id": selected["resource_family_id"],
+        "observed_scope": selected["scope"],
+        "lifecycle_status": selected["status"],
+        "upper_bound": selected["upper_bound"],
+        "reason_codes": list(selected["unknown_reasons"]),
     }
 
 
-def _population_observation(
-    expected: SourceExpectedOutcome,
-    result: Mapping[str, object],
-    unit: AnalysisUnit,
-    family_id: str,
-) -> dict[str, object]:
-    properties = result.get("population_properties")
-    if not isinstance(properties, list):
-        properties = []
-    candidates = [
-        item
-        for item in properties
-        if isinstance(item, Mapping)
-        and item.get("dimension") == "accepted_task_population"
-        and isinstance(item.get("scope"), str)
-        and str(item["scope"]).startswith("executor:")
-        and item.get("repeat_assumption")
-        == {
-            "arbitrary_finite_repetitions":
-                "arbitrary_finite_repetitions_of_external_accept"
-        }.get(expected.cut)
-    ]
-    if len(candidates) != 1:
-        reasons = set(_fallback_reasons(unit, result, family_id))
-        if len(candidates) > 1:
-            reasons.add("expected_property_ambiguous")
-        return {
-            "observed_scope": None,
-            "lifecycle_status": "unknown",
-            "upper_bound": None,
-            "reason_codes": sorted(reasons),
-        }
-    selected = candidates[0]
-    lifecycle_status = selected.get("lifecycle_status")
-    reasons = selected.get("unknown_reasons")
-    return {
-        "observed_scope": selected.get("scope"),
-        "lifecycle_status": lifecycle_status,
-        "upper_bound": (
-            selected.get("total_upper_bound")
-            if lifecycle_status == "bounded"
-            else None
-        ),
-        "reason_codes": (
-            list(reasons) if isinstance(reasons, (list, tuple)) else []
-        ),
-    }
+# Compatibility names for callers; every path selects published properties.
+_dimension_observation = _published_observation
+_state_observation = _published_observation
 
 
-def _state_observation(
-    expected: SourceExpectedOutcome,
-    result: Mapping[str, object],
-    unit: AnalysisUnit,
-    family_id: str,
-) -> dict[str, object]:
-    ignored_cut_reasons = (
-        {"async_consumer_contract_unmodeled"}
-        if expected.cut.startswith("after_task_termination:")
-        else set()
-    )
-    incomplete_reasons = (
-        {
-            item
-            for item in result.get("unknown_reasons", ())
-            if isinstance(item, str)
-        }
-        if result.get("terminated") is not True
-        else set()
-    )
-    if result.get("terminated") is not True:
-        incomplete_reasons.add("source_case_analysis_incomplete")
-    coverage_reasons = {
-        gap[3]
-        for gap in unit.program.coverage_gaps
-        if gap[0] == expected.dimension
-        and gap[1] == family_id
-        and gap[3] not in ignored_cut_reasons
-    }
-    blocking_reasons = sorted(incomplete_reasons | coverage_reasons)
-    if blocking_reasons:
-        return {
-            "observed_scope": expected.cut,
-            "lifecycle_status": "unknown",
-            "upper_bound": None,
-            "reason_codes": blocking_reasons,
-        }
-    properties = result.get("property_states")
-    property_name = expected.cut.split(":", 1)[0]
-    states = properties.get(property_name) if isinstance(properties, Mapping) else None
-    if (
-        isinstance(states, Mapping)
-        and expected.cut.startswith("after_task_termination:")
-    ):
-        kind = expected.cut.rsplit(":", 1)[1]
-        selected_event_ids = {
-            task_exit.event_id
-            for task_exit in unit.program.task_exits
-            if task_exit.kind == kind
-        }
-        states = {
-            event_id: state
-            for event_id, state in states.items()
-            if event_id in selected_event_ids
-        }
-    if not isinstance(states, Mapping) or not states:
-        return {
-            "observed_scope": None,
-            "lifecycle_status": "unknown",
-            "upper_bound": None,
-            "reason_codes": list(_fallback_reasons(unit, result, family_id)),
-        }
-    upper_bounds: list[int] = []
-    state_reasons: set[str] = set()
-    for state in states.values():
-        if not isinstance(state, Mapping):
-            return {
-                "observed_scope": expected.cut,
-                "lifecycle_status": "unknown",
-                "upper_bound": None,
-                "reason_codes": ["property_state_invalid"],
-            }
-        unknown_reasons = state.get("unknown_reasons")
-        if not isinstance(unknown_reasons, list) or any(
-            not isinstance(item, str) for item in unknown_reasons
-        ):
-            return {
-                "observed_scope": expected.cut,
-                "lifecycle_status": "unknown",
-                "upper_bound": None,
-                "reason_codes": ["property_state_unknown_reasons_invalid"],
-            }
-        state_reasons.update(unknown_reasons)
-        count_field = (
-            "held_counts"
-            if expected.dimension == "held_instances"
-            else "obligation_counts"
-        )
-        held_counts = state.get(count_field)
-        if not isinstance(held_counts, list):
-            held_counts = []
-        intervals = [
-            item[1]
-            for item in held_counts
-            if isinstance(item, list)
-            and len(item) == 2
-            and item[0] == family_id
-            and isinstance(item[1], Mapping)
-        ]
-        upper = 0 if not intervals else intervals[0].get("upper")
-        if len(intervals) > 1 or isinstance(upper, bool) or not isinstance(upper, int):
-            return {
-                "observed_scope": expected.cut,
-                "lifecycle_status": "unknown",
-                "upper_bound": None,
-                "reason_codes": ["property_state_count_unknown"],
-            }
-        upper_bounds.append(upper)
-    if state_reasons:
-        return {
-            "observed_scope": expected.cut,
-            "lifecycle_status": "unknown",
-            "upper_bound": None,
-            "reason_codes": sorted(state_reasons),
-        }
-    return {
-        "observed_scope": expected.cut,
-        "lifecycle_status": "bounded",
-        "upper_bound": max(upper_bounds, default=0),
-        "reason_codes": [],
-        "property_event_ids": sorted(states),
-    }
+def _population_observation(expected, result, unit, family_id=None):
+    return _published_observation(expected, result, unit)
 
 
 def _observation(
     expected: SourceExpectedOutcome,
     result: Mapping[str, object],
     unit: AnalysisUnit,
+    family_id: str | None = None,
+    executor_id: str | None = None,
 ) -> dict[str, object]:
-    if len(unit.program.families) != 1:
-        return {
-            "observed_scope": None,
-            "lifecycle_status": "unknown",
-            "upper_bound": None,
-            "reason_codes": ["source_case_resource_family_ambiguous"],
-        }
-    family_id = unit.program.families[0].family_id
-    if expected.scope == "executor":
-        observed = _population_observation(expected, result, unit, family_id)
-    elif expected.scope == "resource_family":
-        observed = _state_observation(expected, result, unit, family_id)
-    else:
-        observed = _dimension_observation(expected, result, unit, family_id)
-    return {"resource_family_id": family_id, **observed}
+    return _published_observation(expected, result, unit, family_id, executor_id)
 
 
 def _matches(expected: SourceExpectedOutcome, observed: Mapping[str, object]) -> bool:
@@ -686,6 +502,8 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         "dimension",
         "scope",
         "cut",
+        "property_id",
+        "resource_family_id",
         "observed_scope",
         "lifecycle_status",
         "upper_bound",
@@ -845,7 +663,7 @@ def evaluate_source_suite(
                     "A source case entry is missing from the adapted analysis units.",
                     {"case_id": current.case_id},
                 )
-            observed = _observation(expected, result, unit)
+            observed = _observation(expected, result, unit, current.resource_family_id, current.executor_id)
             identity = (
                 observed["lifecycle_status"],
                 observed["upper_bound"],

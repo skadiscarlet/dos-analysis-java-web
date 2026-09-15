@@ -51,6 +51,7 @@ from dosweb.resource_lifecycle.io import (
     state_to_dict,
 )
 from dosweb.resource_lifecycle.models import AnalysisBudget, AnalysisResult, SCHEMA_VERSION, resolve_task_exit
+from dosweb.resource_lifecycle.properties import publish_properties
 from dosweb.resource_lifecycle.solver import merge_states, solve
 from dosweb.resource_lifecycle.summaries import (
     AppliedSummaries,
@@ -61,7 +62,7 @@ from dosweb.resource_lifecycle.summaries import (
 )
 
 
-TOOL_VERSION: Final = "resource-lifecycle-v1.1"
+TOOL_VERSION: Final = "resource-lifecycle-v1.2"
 _SUPPORTED_INPUT_SCHEMA_VERSIONS: Final = frozenset({"1.0", SCHEMA_VERSION})
 _QUERY: Final = (
     Path(__file__).resolve().parents[1]
@@ -488,6 +489,8 @@ def _analyze_payload(
                 "steps": analysis.steps,
                 "unknown_reasons": list(analysis.unknown_reasons),
                 "lifecycle_statuses": dimension_statuses,
+                "properties": publish_properties(unit.unit_id, dimensions, population_properties,
+                    input_identity=str(extracted.coverage.get("source_snapshot_sha256") or extracted.snapshot_sha256)),
                 "dimensions": [asdict(item) for item in dimensions],
                 "population_properties": [
                     asdict(item) for item in population_properties
@@ -1436,6 +1439,11 @@ def resource_analyze(values: Mapping[str, object]) -> dict[str, object]:
         raise
     except (ValueError, TypeError, KeyError) as exc:
         raise AnalyzerError("ARTIFACT_INPUT_INVALID", "Resource lifecycle facts artifact is invalid.") from exc
+    if values.get("sharded"):
+        if llm_mode != "off":
+            raise AnalyzerError("CONFIG_INVALID_VALUE", "Sharded analysis requires --llm off.")
+        from dosweb.resource_lifecycle.sharded_run import analyze_sharded
+        return analyze_sharded(extracted, output, source_root=values.get("source_root"))
     facts_artifact = extracted_to_dict(extracted)
     facts_hash = _artifact_file_sha256(facts_artifact)
     recording_artifact: Mapping[str, object] | None = None
@@ -1491,6 +1499,12 @@ def resource_analyze(values: Mapping[str, object]) -> dict[str, object]:
 
 def resource_replay(values: Mapping[str, object]) -> dict[str, object]:
     run_dir = _required_path(values, "run").absolute()
+    if (run_dir / "run-index.json").exists():
+        from dosweb.resource_lifecycle.sharded_run import replay_sharded
+        return replay_sharded(run_dir, source_root=values.get("source_root"),
+                              integrity_only=bool(values.get("integrity_only")))
+    if values.get("integrity_only"):
+        raise AnalyzerError("CONFIG_INVALID_VALUE", "Integrity-only mode requires a sharded run.")
     with _run_directory_lock(run_dir):
         return _resource_replay_locked(run_dir)
 
@@ -1501,6 +1515,8 @@ def _resource_replay_locked(run_dir: Path) -> dict[str, object]:
     stored_evidence = load_json_regular(run_dir / "evidence.json")
     if not isinstance(manifest, Mapping) or not isinstance(stored, Mapping) or not isinstance(stored_evidence, Mapping):
         raise AnalyzerError("ARTIFACT_INPUT_INVALID", "Resource lifecycle run is invalid.")
+    if manifest.get("tool_version") != TOOL_VERSION:
+        raise AnalyzerError("ARTIFACT_INPUT_INVALID", "Unsupported lifecycle run tool version; replay legacy artifacts with their original tool checkout.")
     facts_artifact, facts_hash = load_json_regular_with_sha256(
         run_dir / "facts.snapshot.json"
     )
@@ -1658,12 +1674,18 @@ def _resource_replay_locked(run_dir: Path) -> dict[str, object]:
 
 def dispatch_resource_command(values: Mapping[str, object]) -> dict[str, object]:
     command = values.get("command")
+    if command == "resource-project":
+        from dosweb.resource_lifecycle.project import resource_project
+        return resource_project(values)
     if command == "resource-extract":
         return resource_extract(values)
     if command == "resource-analyze":
         return resource_analyze(values)
     if command == "resource-replay":
-        return resource_replay(values)
+        result = resource_replay(values)
+        if not result["consistent"]:
+            raise AnalyzerError("ARTIFACT_INPUT_INVALID", "Resource lifecycle semantic replay is inconsistent.")
+        return result
     if command == "resource-evaluate":
         from dosweb.resource_lifecycle.evaluation import evaluate_command
 

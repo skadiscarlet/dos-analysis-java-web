@@ -71,7 +71,7 @@ class ResourceLifecycleRegressionSuiteTests(unittest.TestCase):
         self.assertEqual(evaluation["suite_sha256"], manifest["suite_sha256"])
         self.assertEqual("1.1", metrics["schema_version"])
         self.assertEqual("1.1", manifest["schema_version"])
-        self.assertEqual("resource-lifecycle-v1.1", manifest["tool_version"])
+        self.assertEqual("resource-lifecycle-v1.2", manifest["tool_version"])
         self.assertEqual(len(evaluation["cases"]), len(rows))
         self.assertEqual(24 * len(EVALUATION_MODES), len(rows))
         self.assertEqual("off", manifest["llm"]["mode"])

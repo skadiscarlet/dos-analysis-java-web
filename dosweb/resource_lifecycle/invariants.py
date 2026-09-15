@@ -1475,6 +1475,22 @@ def _check_invariants_from_population(
                             or merge_states(tuple(item.state for item in paths)) != exit_states[event_id]):
                         incomplete = True
                     records.extend(enumerate(paths))
+                # A recorded exit of this exact task does not require a future
+                # queue-consumer progress guarantee. Exclude only that scoped
+                # liveness gap; wildcard, other-task and precision gaps remain.
+                conditional_program = program
+                if task_exit is not None:
+                    binding = bindings[task_exit.task_id]
+                    consumed_scope = queue_result_scope(
+                        binding.executor_contract_id, binding.holder_id, binding.queued_event_id
+                    )
+                    remaining_gaps = tuple(gap for gap in program.coverage_gaps if not (
+                        gap[0] == "close_obligation" and gap[1] == family_id
+                        and gap[2] == consumed_scope and gap[3] == "async_consumer_contract_unmodeled"
+                    ))
+                    if remaining_gaps != program.coverage_gaps:
+                        conditional_program = replace(program, coverage_gaps=remaining_gaps,
+                                                      coverage_complete=not remaining_gaps)
                 path_results: dict[tuple[str, str], list[PropertyPathResult]] = {}
                 for path_index, record in records:
                     sliced = replace(result, exit_states={record.property_event_id: record.state}, property_states={},
@@ -1482,7 +1498,7 @@ def _check_invariants_from_population(
                             if not reason.startswith(("task_termination_not_guaranteed:", "task_cancellation_unmodeled:",
                                                       "task_rejection_continuation_unknown:"))))
                     selected = _check_invariants_from_population(
-                        program,
+                        conditional_program,
                         sliced,
                         (),
                         timeout_ms=timeout_ms,
