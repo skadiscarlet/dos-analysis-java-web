@@ -861,7 +861,7 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
     return AnalysisResult(exit_states, states, traces, terminated, tuple(sorted(unknown)),
                           _statuses(exit_states, unknown, tuple(exit_cuts)), steps, property_states,
                           dict(async_states), async_traces,
-                          termination_guaranteed=(terminated and bool(exit_cuts) and not unknown
+                          termination_guaranteed=(terminated and bool(exit_cuts) and not unknown and not loop_states
                                                   and not any(pending for _state, pending in exit_cuts)),
                           property_traces=property_traces, async_origins=async_origins,
                           async_derivations={task: tuple(records) for task, records in async_derivations.items()},

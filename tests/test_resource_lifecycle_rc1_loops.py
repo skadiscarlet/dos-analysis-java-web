@@ -13,10 +13,11 @@ from dosweb.resource_lifecycle.commands import resource_analyze, resource_replay
 from dosweb.resource_lifecycle.io import analysis_result_to_dict
 from dosweb.resource_lifecycle.invariants import check_invariants
 from dosweb.resource_lifecycle.properties import publish_properties
-from dosweb.resource_lifecycle.models import AnalysisBudget, CountInterval, Event, Transition
+from dosweb.resource_lifecycle.models import AbstractInstance, AnalysisBudget, CountInterval, Event, Transition
 from dosweb.resource_lifecycle.solver import apply_effect, initial_state, solve, state_subsumes, widen_state
 from tests.support.fixture_database import fixture_database
 from tests.test_resource_lifecycle_solver import effect, instance_effect, program_for, two_instance_program
+from tests.test_resource_lifecycle_async_solver import task_program
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,6 +36,8 @@ class FiniteLoopAbstractionTests(unittest.TestCase):
     def test_retired_objects_preserve_peak_without_bounding_allocation_history(self):
         result = solve(loop_program(clean=True), budget=AnalysisBudget())
         self.assertTrue(result.terminated)
+        # Worklist convergence is not a proof that the concrete loop exits.
+        self.assertFalse(result.termination_guaranteed)
         self.assertLess(result.steps, 32)
         state = result.exit_states['event:normal']
         self.assertEqual(0, dict(state.obligation_counts)['family:stream'].upper)
@@ -49,6 +52,8 @@ class FiniteLoopAbstractionTests(unittest.TestCase):
     def test_retained_loop_converges_without_claiming_finite_or_structural_growth(self):
         result = solve(loop_program(clean=False), budget=AnalysisBudget())
         self.assertTrue(result.terminated)
+        # Worklist convergence is not a proof that the concrete loop exits.
+        self.assertFalse(result.termination_guaranteed)
         self.assertLess(result.steps, 32)
         state = result.exit_states['event:normal']
         self.assertIsNone(dict(state.held_counts)['family:stream'].upper)
@@ -94,26 +99,45 @@ class FiniteLoopAbstractionTests(unittest.TestCase):
         self.assertTrue(state.open_obligations)
 
     def test_finite_cut_bound_counts_identities_and_unknown_effects_block_it(self):
-        base = two_instance_program()
         for count in (1, 2):
             for unknown in (False, True):
                 with self.subTest(count=count, unknown=unknown):
-                    effects = tuple(item for identity in ('instance:a', 'instance:b')[:count]
-                                    for item in (instance_effect(identity, 'create'),
-                                                 instance_effect(identity, 'retain', holder_id='holder:field')))
+                    program = task_program(field=True)
+                    extra = ()
+                    if count == 2:
+                        program = replace(program, instances=program.instances + (
+                            AbstractInstance('instance:extra', 'family:stream', 'recent', 'exact'),))
+                        extra = (instance_effect('instance:extra', 'create'),
+                                 instance_effect('instance:extra', 'retain', holder_id='holder:field'))
                     if unknown:
-                        effects += (instance_effect('instance:a', 'unknown_call'),)
-                    program = replace(base, transitions=(Transition(
-                        'finite-cut', 'event:entry', 'event:normal', 'true', effects, 'normal', ()),),
-                        exit_event_ids=('event:normal',))
+                        extra += (effect('unknown_call'),)
+                    program = replace(program, transitions=tuple(
+                        replace(edge, effects=edge.effects + extra) if edge.transition_id == 'allocate' else edge
+                        for edge in program.transitions))
                     result = solve(program, budget=AnalysisBudget())
                     dimensions = check_invariants(program, result, (), timeout_ms=1000)
                     properties = publish_properties('Finite.cut', dimensions, (), input_identity='fixed-cut')
-                    held = next(item for item in properties if item['dimension'] == 'held_instances')
+                    held = next(item for item in properties if item['dimension'] == 'held_instances'
+                                and item['scope'] == 'all_tasks_terminated_after_request')
                     self.assertEqual('unknown' if unknown else 'bounded', held['status'])
                     self.assertEqual(None if unknown else count, held['upper_bound'])
                     if not unknown:
                         self.assertIn('per_invocation_exact_allocation_population', held['assumptions'])
+
+    def test_finite_single_invocation_does_not_prove_unsliced_holder_capacity(self):
+        program = replace(program_for((Transition(
+            'finite-retain', 'event:entry', 'event:normal', 'true',
+            (effect('create'), effect('retain', holder_id='holder:field')), 'normal', ()),)),
+            exit_event_ids=('event:normal',))
+        result = solve(program, budget=AnalysisBudget())
+        self.assertEqual(1, dict(result.exit_states['event:normal'].held_counts)['family:stream'].upper)
+        properties = publish_properties('Finite.unsliced',
+            check_invariants(program, result, (), timeout_ms=1000), (), input_identity='fixed-cut')
+        held = next(item for item in properties if item['dimension'] == 'held_instances')
+        self.assertEqual('all_exits', held['scope'])
+        self.assertEqual('unknown', held['status'])
+        self.assertIsNone(held['upper_bound'])
+        self.assertIn('no_verified_count_invariant', held['unknown_reasons'])
 
     def test_interval_inclusion_never_merges_incompatible_release_relationships(self):
         base = initial_state(two_instance_program())

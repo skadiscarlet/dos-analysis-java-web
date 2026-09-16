@@ -1234,6 +1234,7 @@ def _check_invariants_from_population(
     *,
     timeout_ms: int,
     population_properties: tuple[PopulationProperty, ...],
+    allow_exact_population_cut: bool = False,
 ) -> tuple[DimensionResult, ...]:
     """Check dimensions while reusing internally derived population proofs."""
     if timeout_ms == 0:
@@ -1356,7 +1357,8 @@ def _check_invariants_from_population(
             )
             if not held and not count_reasons:
                 output.append(DimensionResult("held_instances", "all_exits", "bounded", 0, evidence_ids=(), resource_family_id=resource.family_id))
-            elif (held and not count_reasons and result.terminated and result.exit_states
+            elif (allow_exact_population_cut and held and not count_reasons
+                  and result.terminated and result.exit_states
                   and all(item.abstraction == "recent" and item.identity_confidence == "exact"
                           for item in program.instances if item.family_id == resource.family_id)
                   and all(not (state.repeated_instances & family_instances)
@@ -1524,6 +1526,9 @@ def _check_invariants_from_population(
                         (),
                         timeout_ms=timeout_ms,
                         population_properties=population_properties,
+                        allow_exact_population_cut=slice_name in {
+                            "after_task_termination", "all_tasks_terminated_after_request"
+                        },
                     )
                     for dimension in selected:
                         if (dimension.dimension == "item_size_bytes"

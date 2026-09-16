@@ -46,3 +46,5 @@ Resource Lifecycle v1 与 v2 P0 formal pipeline 并行存在。它没有修改�
 - 精确已建模 wrapper 的 executor rejection 返回 caller 的异常 continuation；已有 catch/finally 必须经实际 CFG。新增循环 close/drop 提取限于无别名/无逃逸且显式置空的局部形式，未扩为一般 points-to、动态分派或任意深度调用。
 - 旧事实可重新分析；旧运行语义回放仍检查实现/query 身份，不假称跨版本结果相同。正式性质 schema 和 lifecycle-run-2 分片格式继续复用，新增诊断只记录抽象推导和计数。
 - 固定九方法是开发/回归集；是否稳定运行、模型内是否算对、独立输入是否有增益是不同问题。最终门槛与剩余缺口以 RC1 报告为准。
+
+RC1 非零精确实例上界只用于显式任务完成条件切面，顶层 `all_exits` 仍要求原有效容量 invariant。可达循环的 worklist 求解完成不推出程序/任务保证终止；`terminated` 与 `termination_guaranteed` 分开。

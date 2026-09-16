@@ -4,7 +4,8 @@
 - 将源码全树/DB 归档分开记录，逐文件核对已归档字节；仅完整注释/空白缺失可接受，声明缺失或词法不确定保留可审阅 scope 并 fail closed。
 - 生命周期查询使用 65,536 行专用传输额度，保留 JSON/字符串/单片限制；独立 callable inventory 区分方法定位、零资源规则覆盖与求解执行，零资源不计非空求解、不发布上界零。
 - 循环 SCC 使用关系分区、抽象包含与有限延迟 widening；历史分配与持有/义务/峰值分开，retired recent 可复用，重复实例释放/丢弃弱更新；证据明确记录抽象推导，新增求解诊断计数。
-- 修复支持深度内精确 wrapper 的 executor rejection 异常出口/返回，保留 caller catch/finally；拒绝不虚构 task capture。只对完整且精确非重复分配的已求解切面检查有限持有上界，不用评价 oracle 补 bound。
+- 修复支持深度内精确 wrapper 的 executor rejection 异常出口/返回，保留 caller catch/finally；拒绝不虚构 task capture。只对完整且精确非重复分配的显式任务完成条件切面检查有限持有上界，不用评价 oracle 补 bound。
+- 最终全仓暴露的五个旧 all_exits 语义回归已通过收紧条件切面修复，保留原人工 IR oracle；可达循环下 worklist 收敛不再被误记为 termination_guaranteed。
 - 增加三种循环真实源码回归、包装异常/额外 holder 反例、接入与完整分母测试；新增固定九输入复跑入口和沿用既有格式的紧凑报告，成本未测量为 null，工程门槛与研究有效性分开。
 
 ## [2026-09-16] Resource lifecycle v1.2 independent input intake
