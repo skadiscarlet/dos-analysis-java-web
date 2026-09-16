@@ -70,3 +70,8 @@ config/local_secrets.json
 
 # Persistent local lifecycle evidence; compact reports are committed separately.
 .local-runs/
+
+# Required compact v1.2 review tables.
+!reports/lifecycle-v1.2/input-ledger.csv
+!reports/lifecycle-v1.2/properties.csv
+!reports/lifecycle-v1.2/comparison.csv

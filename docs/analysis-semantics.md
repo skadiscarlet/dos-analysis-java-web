@@ -1,10 +1,10 @@
 # Resource Lifecycle v1.2 分析语义
 
-v1.2 实施中：正式性质由 `properties.py` 统一发布，评价只选择并比较，不从 `property_states` 推断上界。项目接入、证据分片和源码验收进度见 `docs/execution/lifecycle-v1.2/STATUS.md`；以下 v1.1 完成数字仅作历史基线，不代表 v1.2 验收。
+v1.2 当前工程交付为 partial（独立源码 H4 blocked）：正式性质由 `properties.py` 统一发布，评价只选择并比较，不从 `property_states` 推断上界。项目接入、证据分片和源码验收进度见 `docs/execution/lifecycle-v1.2/STATUS.md`；当前验收见 `reports/lifecycle-v1.2/summary.md`；以下 v1.1 完成数字仅作历史基线，不代表 v1.2 验收。
 
 ## 定位与入口
 
-Resource Lifecycle v1.1 是独立于现有 v2 P0 formal pipeline 的离线状态分析链。它不读取旧 lifecycle candidate 中的 `actual_reduction`、`effective_bound` 等预计算结论，也不改变 schema/tool `2.5/0.4.0` 和三值静态结论。入口是同一 `dos-web-analyzer` 中的五个 `resource-*` 命令，包含真实源码成对评价 `resource-source-evaluate`。
+Resource Lifecycle v1.2 是独立于现有 v2 P0 formal pipeline 的离线状态分析链。它不读取旧 lifecycle candidate 中的 `actual_reduction`、`effective_bound` 等预计算结论，也不改变 schema/tool `2.5/0.4.0` 和三值静态结论。入口是同一 `dos-web-analyzer` 中的`resource-*` 命令，包含真实源码成对评价 `resource-source-evaluate`。
 
 输入来源分为：真实 CodeQL 源码事实 `static_verified`、可信契约 `trusted_contract`、仅供局部候选验证的 `llm_proposed` 和显式标记的 `manual_fixture`。报告必须区分真实源码、导入静态事实和人工 IR；人工 IR 中正确填写的 holder/transition 不算作 CodeQL 提取能力。
 
@@ -90,3 +90,11 @@ v1.1 的 task population 从 `(q,a)=(0,0)` 开始，按实际 TaskBinding、Task
 LLM 只能提出局部方法摘要。当前实现只支持 `--llm replay` 的离线接口与证据闭环，`--llm live` 明确拒绝；recording 不是一次真实 provider 调用通过的证据。验证依次检查 schema、call-site 路径/行/列、caller 文件与完整 Java source-tree SHA、canonical exact source callee、参数映射、操作/数据流、资源身份和正常/异常出口覆盖。普通 interface/base virtual dispatch、external callee、return escape、源码快照变化或同行其他 AST 的事实都不能借证。
 
 正向 proposal 只可能消费目标 call-local slice 中由 `static_verified` 事实支持的 may-effect。当前 CodeQL query 没有独立的、非 executable callee-summary witness：若 proposal 复述 caller program 已存在的 `create`、`retain` 或 `dispatch` operation，validation 可保持 `verified` 且保留 `display_effect_ids`/provenance，但 apply 层会记录 `llm_proposed_effect_already_static`、清空对应 `usable_effect_ids`，避免 create 重复计数或 dispatch 重复展开。因此当前生产路径的 recorded summary 是 audit/display-only，不增强 solver；未来只有在新增独立静态 witness 且 operation 尚未执行时，正向 may-effect 才具备进入状态的语义接口。LLM 提议的 `drop`/`release` 即使结构完整也只展示，不能删除 may-hold、证明 must-release 或 bounded；exceptional callee effect 也没有 CFG 证明。原 `unknown_call`、出口缺口和 coverage gap 始终保留，缓存命中不提升 source trust。
+
+## v1.2 项目与持久化契约
+
+`resource-project` 接受精确方法或已有 GrowthCandidate/EntryFact 观测记录。旧 verdict 不进入前提；源码/程序点不能唯一绑定时按 mapping_missing、mapping_ambiguous、stale_source 留在台账。重复引用复用单元计算，性质仍按 input/unit/family/executor/dimension/scope/cut 身份发布。
+
+`lifecycle-run-2` 在分页、有界内容寻址分片中保存完整选中单元 facts 目录。目录绑定单元身份、facts hash、snapshot/scope，回放重新验证和求解并比较结果与证据；原全量 raw snapshot 仅作 provenance，不声称重算未选择的原始输入。每片上限 16 MiB，同时约束索引、总字节与解码预算。单元预算失败不会发布 complete，其他独立单元可以保留结果。
+
+`semantic_replay` 与 `integrity_only` 分开，selected 与 full_run 分开；必要分片缺失、篡改或语义不一致返回非零。结果搬迁后必须显式绑定相同源码树。旧格式明确版本错误，不用新语义重新解释。

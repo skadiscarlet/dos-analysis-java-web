@@ -27,7 +27,7 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-## Resource Lifecycle v1.2（实施中）
+## Resource Lifecycle v1.2（partial 交付）
 
 当前接口新增统一 `properties`：普通分析、源码评价与分片复算使用同一组性质，包含稳定 ID、资源/执行器身份、维度、scope/cut、上界、假设及证据引用。评价器不再从状态计数重建结论。源码树相同的重绑定不改变性质身份；缺失或歧义选择保留 unknown。
 
@@ -46,7 +46,7 @@ python3 -m dosweb.cli resource-replay --run /path/to/copied/sharded-run \
 python3 -m dosweb.cli resource-replay --run /path/to/copied/sharded-run --integrity-only
 ```
 
-项目清单版本为 `resource-project-v1.2`，字段为 `project_id/source_root/tree_hash/database/selection/dependency_scope/budgets/output`。`selection` 每条含 `input_id/kind/entry_callable`；method 保留全部资源，candidate 通过精确 `resource_family_id` 或 `allocation.program_point/instance_key` 绑定。已有 JSONL 候选可提供 `candidate_file/record_id`，缺少分配与源码身份时明确 mapping_missing。完整格式和验收报告仍在补齐。
+项目清单版本为 `resource-project-v1.2`，字段为 `project_id/source_root/tree_hash/database/selection/dependency_scope/budgets/output`。`selection` 每条含 `input_id/kind/entry_callable`；method 保留全部资源，candidate 通过精确 `resource_family_id` 或 `allocation.program_point/instance_key` 绑定。已有 JSONL 候选可提供 `candidate_file/record_id`，缺少分配与源码身份时明确 mapping_missing。可运行清单见 `tests/fixtures/resource_lifecycle_v1_2/project.json`，验收见 [汇总](reports/lifecycle-v1.2/summary.md)。
 
 仓库自包含多资源示例（6 个输入：方法、重复引用、导入候选、缺失方法、歧义及过期资源；不是独立项目）：
 
@@ -66,7 +66,7 @@ python3 -m dosweb.cli resource-replay --run "$lifecycle_output/project/analysis"
 
 源码和清单固定 hash 已包含在示例中；候选只提供已有 schema 的观测字段，不提供结论。清单中的路径按清单目录解析，CLI 相对路径按当前工作目录解析。混合输入项目预期为 partial，已映射的独立单元仍可复算，回放明确标为 selected。
 
-状态与实际限制见 [v1.2 STATUS](docs/execution/lifecycle-v1.2/STATUS.md)。H1–H6 尚未完成；分片存储单测不能代替编译源码的规模与语义重放验收，独立模块输入尚待明确。`resource-project` 默认将完整证据写入 `out/analysis/`，可用 `resource-replay --run out/analysis --source-root ...` 复算，`project-results.json` 保留全部输入账本。
+状态与实际限制见 [v1.2 STATUS](docs/execution/lifecycle-v1.2/STATUS.md)。H1/H2/H3/H5 已有验收证据，独立已有模块为 0，H4 blocked；最终门槛与重跑命令见 [HANDOFF](docs/execution/lifecycle-v1.2/HANDOFF.md)。完整传播在冻结十二例中为 10/12 匹配、5 unknown；消融 12/12、9 unknown。两项异常 CFG 缺口保留 unknown，未改 oracle。`resource-project` 默认将完整证据写入 `out/analysis/`，可用 `resource-replay --run out/analysis --source-root ...` 复算，`project-results.json` 保留全部输入账本。
 
 ## Resource Lifecycle v1.1 历史工作流
 

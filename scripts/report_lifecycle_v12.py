@@ -80,7 +80,7 @@ def passed_test(xml, method):
 
 def csv_file(path, rows, fields):
     with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({key: json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else value
@@ -222,6 +222,17 @@ def build(root_run, output, *, delivery_reviewed=False):
             "entry_callable": case["entry_callable"].replace(".SourcePairs.", ".SourcePairsScale001."),
             "mapping": "mapped", "extraction": "extracted", "analysis": "analyzed",
             "reason": "full_and_ablated_comparison_reuses_scaling_1x"})
+    manual_cases = root_run / "manual-ir/cases.csv"
+    if manual_cases.exists():
+        with manual_cases.open(newline="", encoding="utf-8") as stream:
+            manual_rows = [row for row in csv.DictReader(stream) if row["mode"] == "full"]
+        if len({row["case_id"] for row in manual_rows}) != len(manual_rows):
+            raise ValueError("duplicate manual IR request identity")
+        ledger.extend({"data_source": "manual_ir_regression", "input_id": row["case_id"],
+            "mapping": "not_applicable", "extraction": "manual_ir", "analysis": "analyzed",
+            "reason": "separate_manual_model_regression; not_source_extraction"} for row in manual_rows)
+        inputs["manual_cases"] = manual_cases
+        inputs["manual_metrics"] = root_run / "manual-ir/metrics.json"
     current_impl = _implementation_sha256()
     impl_matches = current_impl == reader.index["identity"].get("implementation_sha256") == execution_context.get("implementation_sha256")
     report_head = git("rev-parse", "HEAD")
@@ -304,6 +315,8 @@ def build(root_run, output, *, delivery_reviewed=False):
         "frozen_implementation_matches_current": impl_matches, "query_provenance": provenance,
         "inputs": {name: {"path": relative(path), "sha256": digest(path)} for name, path in inputs.items()},
         "raw_fact_snapshots": fact_hashes, "report_script_sha256": digest(Path(__file__)),
+        "orchestration_script_sha256": {name: digest(ROOT / name) for name in
+            ("scripts/evaluate_lifecycle_v12_scaling.py", "scripts/report_lifecycle_v12.py")},
         "source_selection": "twelve frozen v1.1 cases mapped to SourcePairsScale001; expectations never passed to analysis",
         "rerun_commands": ["python scripts/evaluate_lifecycle_v12_scaling.py --out <new-persistent-scaling-directory>",
             f"python scripts/report_lifecycle_v12.py --root-run {relative(root_run)} --out {relative(output)}"],
@@ -331,12 +344,14 @@ def build(root_run, output, *, delivery_reviewed=False):
 - 项目混合输入：{project['requested']} 条，状态 `{project['status']}`；逐阶段去向见 input-ledger.csv。
 - 冻结源码：同一 fixture 的 12 个检查案例，直接复用规模 1× 的同一事实，不增加独立实验。
 - 规模组：1×/2×/4× 共分别 12/24/48 个方法；仅为固定结构重命名副本，不计独立项目。
+- 人工 IR 回归：24 个独立模型输入，单独列入台账与 metrics；不计源码提取或独立模块。
 - 项目重复引用按原始输入保留台账，资源/性质仅按唯一身份计数；公开 properties.csv 包含其全部引用对象。
 
 ## 同事实评价
 
 完整传播匹配 {full['matches']}/12，unknown {full['unknown']}；消融匹配 {ablated['matches']}/12，unknown {ablated['unknown']}。
 完整模式不匹配案例：{', '.join(full['mismatch_case_ids']) or '无'}。原 oracle 未修改；backend unknown 如实保留。
+确定性质增益为 {metrics["source_fixture"]["determinacy_gains"]} 个；两项不匹配源于缺少 callee execute rejection 到 caller/wrapper 的异常 CFG 事实。
 期望 unknown 的匹配不是漏洞检出。评价仅选择正式发布性质；缺失或歧义不会生成上界零。
 
 ## 验收

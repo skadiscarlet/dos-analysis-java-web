@@ -1,6 +1,6 @@
 # Resource Lifecycle v1.2 实际限制
 
-v1.2 实施中：正式性质由 `properties.py` 统一发布，评价只选择并比较，不从 `property_states` 推断上界。项目接入、证据分片和源码验收进度见 `docs/execution/lifecycle-v1.2/STATUS.md`；以下 v1.1 完成数字仅作历史基线，不代表 v1.2 验收。
+v1.2 当前工程交付为 partial（独立源码 H4 blocked）：正式性质由 `properties.py` 统一发布，评价只选择并比较，不从 `property_states` 推断上界。项目接入、证据分片和源码验收进度见 `docs/execution/lifecycle-v1.2/STATUS.md`；当前验收见 `reports/lifecycle-v1.2/summary.md`；以下 v1.1 完成数字仅作历史基线，不代表 v1.2 验收。
 
 2026-09-14 v1.1 限定验收完成：真实 caller/task CFG 进入同一主工作列表，十二个源码变体在 full 与固定输入消融中均匹配冻结期望，G1–G8 已通过。`property_states` 仅为状态聚合，条件性质从独立 state/trace 检查；证据缺失时 unknown。任务终止后的 close/drop 性质不保证最终一定终止；出队不结束 holder，close 不清空其他字段持有，无 holder 不代表 GC 已执行。
 
@@ -28,3 +28,10 @@ v1.2 实施中：正式性质由 `properties.py` 统一发布，评价只选择�
 Resource Lifecycle v1 与 v2 P0 formal pipeline 并行存在。它没有修改旧 schema/tool `2.5/0.4.0`，也没有把新 lifecycle status 映射为 P0 的 `static_vulnerable`、`bounded_under_modeled_assumptions` 或 `static_unknown`。
 
 端到端能力必须分开解读：真实源码模式执行 javac/CodeQL query/strict decoder/adapter/solver；导入事实模式信任调用方提供但仍按 schema 与 source snapshot 绑定的静态 rows；人工 IR 只验证状态语义，不证明提取覆盖。任务群体 K+W 依赖精确 scope 与全部 writer 覆盖，不能直接扩展为 family 总持有上界。所有普通输出都是静态性质。
+
+## v1.2 未完成项与评价边界
+
+- 没有用户提供的两个独立已有模块；新建多资源 fixture 和 1×/2×/4× 副本只提供工程验收。
+- `s2-task-only`、`s2-field-holder` 缺 callee execute rejection 到 wrapper/caller 的异常 CFG 事实；正式后端保持 unknown。删除旧评价器的状态计数推断后，原 oracle 不匹配被显式暴露，full 为 10/12、5 unknown；消融为 12/12、9 unknown，确定性增益 4。
+- 规模最终运行复用已真实编译提取的事实；本次重新验证、求解、分片、迁移回放。编译/提取时间为 null，历史成本单列。没有把副本当独立样本，也不承诺一般线性复杂度。
+- 分片不解决单元内部状态爆炸；哈希绑定不提供签名认证。GitHub 只含紧凑报告，本地完整证据和复现路径见 HANDOFF。

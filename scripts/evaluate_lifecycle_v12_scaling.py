@@ -53,7 +53,8 @@ def run_command(argv: list[str], cwd: Path, log: Path, timeout: int) -> float:
 
 def select_requested(extracted, requested):
     """Filter unrelated methods while retaining independently checked coverage."""
-    selected = [_single(extracted, unit) for unit in extracted.units if unit.unit_id in requested]
+    selected = sorted((_single(extracted, unit) for unit in extracted.units if unit.unit_id in requested),
+                      key=lambda single: single.units[0].unit_id)
     matched = {single.units[0].unit_id for single in selected}
     if matched != set(requested):
         raise ValueError(f"requested methods missing from real extraction: {sorted(set(requested) - matched)}")
