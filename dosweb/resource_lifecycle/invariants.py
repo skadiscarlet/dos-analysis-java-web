@@ -7,6 +7,7 @@ from typing import Literal
 from dosweb.resource_lifecycle.contracts import ExecutorContract
 from dosweb.resource_lifecycle.models import (
     AnalysisResult,
+    CountInterval,
     DimensionResult,
     Effect,
     PopulationEffect,
@@ -1355,6 +1356,25 @@ def _check_invariants_from_population(
             )
             if not held and not count_reasons:
                 output.append(DimensionResult("held_instances", "all_exits", "bounded", 0, evidence_ids=(), resource_family_id=resource.family_id))
+            elif (held and not count_reasons and result.terminated and result.exit_states
+                  and all(item.abstraction == "recent" and item.identity_confidence == "exact"
+                          for item in program.instances if item.family_id == resource.family_id)
+                  and all(not (state.repeated_instances & family_instances)
+                          and dict(state.allocation_counts).get(resource.family_id, CountInterval()).upper is not None
+                          and dict(state.held_counts).get(resource.family_id, CountInterval()).upper is not None
+                          and dict(state.held_counts).get(resource.family_id, CountInterval()).upper
+                              <= dict(state.allocation_counts).get(resource.family_id, CountInterval()).upper
+                          for state in result.exit_states.values())):
+                # An exhausted abstract worklist with exact, non-repeated
+                # allocation identities proves a finite per-invocation cut.
+                # It is not an executor population/repeated-request bound.
+                upper = max(dict(state.held_counts)[resource.family_id].upper
+                            for state in result.exit_states.values())
+                evidence = _family_effect_evidence(program, resource.family_id,
+                    frozenset({"create", "retain", "drop", "dispatch"}))
+                output.append(DimensionResult("held_instances", "all_exits", "bounded", upper,
+                    assumptions=("per_invocation_exact_allocation_population",),
+                    evidence_ids=evidence, resource_family_id=resource.family_id))
             else:
                 reasons = count_reasons or (("no_verified_count_invariant",) if held else ("coverage_incomplete",))
                 held_evidence = set(count_evidence).union(precision_evidence, temporal_evidence)
@@ -1492,6 +1512,7 @@ def _check_invariants_from_population(
                         conditional_program = replace(program, coverage_gaps=remaining_gaps,
                                                       coverage_complete=not remaining_gaps)
                 path_results: dict[tuple[str, str], list[PropertyPathResult]] = {}
+                path_assumptions: dict[tuple[str, str], set[str]] = {}
                 for path_index, record in records:
                     sliced = replace(result, exit_states={record.property_event_id: record.state}, property_states={},
                         unknown_reasons=tuple(reason for reason in result.unknown_reasons
@@ -1517,6 +1538,7 @@ def _check_invariants_from_population(
                             # An event may represent several same-kind returns;
                             # choosing one from the event lookup would mix them.
                             evidence.update(bindings[task_exit.task_id].evidence_ids)
+                        path_assumptions.setdefault((dimension.dimension, dimension.resource_family_id), set()).update(dimension.assumptions)
                         path_results.setdefault((dimension.dimension, dimension.resource_family_id), []).append(
                             PropertyPathResult(record.property_event_id, path_index, record.trace, dimension.lifecycle_status,
                                                dimension.upper_bound, dimension.reason_codes, tuple(sorted(evidence))))
@@ -1544,7 +1566,8 @@ def _check_invariants_from_population(
                             reasons.add("property_path_bound_aggregation_unknown")
                         output.append(DimensionResult(dimension, scope, status, upper,
                             assumptions=("conditional on reaching the recorded exit slice; termination is not guaranteed",
-                                         "result aggregates independently checked recorded paths, not a single merged trace"),
+                                         "result aggregates independently checked recorded derivations, not a concrete merged trace")
+                                        + tuple(sorted(path_assumptions.get((dimension, resource.family_id), ()))),
                             reason_codes=tuple(sorted(reasons)), evidence_ids=tuple(sorted(evidence)),
                             resource_family_id=resource.family_id, property_event_ids=event_ids, property_paths=paths))
     identities = [(item.scope, item.dimension, item.resource_family_id) for item in output]

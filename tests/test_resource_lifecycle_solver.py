@@ -561,8 +561,8 @@ class ResourceLifecycleStateTests(unittest.TestCase):
         self.assertIn("instance:stream", released.state.open_obligations)
         obligations = dict(released.state.obligation_counts)["family:stream"]
         per_instance = dict(released.state.instance_obligation_counts)["instance:stream"]
-        self.assertEqual((1, 1), (obligations.lower, obligations.upper))
-        self.assertEqual((1, 1), (per_instance.lower, per_instance.upper))
+        self.assertEqual((0, 1), (obligations.lower, obligations.upper))
+        self.assertEqual((0, 1), (per_instance.lower, per_instance.upper))
         self.assertIn("weak_release_summary", released.rule_ids)
         self.assertIn("weak_update:instance:stream", released.state.unknown_reasons)
 
@@ -618,7 +618,9 @@ class ResourceLifecycleStateTests(unittest.TestCase):
             state = apply_effect(state, current).state
 
         obligations = dict(state.obligation_counts)["family:stream"]
-        self.assertEqual((1, 1), (obligations.lower, obligations.upper))
+        # A repeated allocation site summarizes distinct objects: one close
+        # may address an already-closed representative, so retain the upper.
+        self.assertEqual((1, 2), (obligations.lower, obligations.upper))
         self.assertIn("instance:stream", state.open_obligations)
         self.assertNotIn("instance:stream", state.must_released)
 
@@ -644,7 +646,9 @@ class ResourceLifecycleStateTests(unittest.TestCase):
             state = apply_effect(state, current).state
 
         held = dict(state.held_counts)["family:stream"]
-        self.assertEqual(2, held.lower)
+        # Capture can repeat without another create; do not raise the lower
+        # solely because this allocation site has previously repeated.
+        self.assertEqual(1, held.lower)
         self.assertIsNone(held.upper)
         self.assertIn("repeated_abstract_instance:instance:stream", state.unknown_reasons)
 

@@ -492,7 +492,7 @@ class ResourceLifecycleSourceEvaluationContractTests(unittest.TestCase):
     "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available.",
 )
 class ResourceLifecycleSourceEvaluationCodeqlTests(unittest.TestCase):
-    def test_twelve_source_variants_preserve_oracle_and_report_backend_gaps(self) -> None:
+    def test_twelve_source_variants_preserve_oracle_and_wrapper_exceptions(self) -> None:
         database = fixture_database(str(SOURCE_ROOT))
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "source-evaluation"
@@ -529,20 +529,12 @@ class ResourceLifecycleSourceEvaluationCodeqlTests(unittest.TestCase):
         mismatches = [
             row for row in artifact["cases"] if not row["matches_expected"]
         ]
-        # Frozen v1.1 oracle is unchanged. Its state-count evaluator previously
-        # hid missing caller exceptional exits in these two cases. v1.2 must
-        # expose the actual backend unknown instead of manufacturing a bound.
-        self.assertEqual(
-            {("s2-task-only", "full"), ("s2-field-holder", "full")},
-            {(row["case_id"], row["mode"]) for row in mismatches},
-            json.dumps(mismatches, ensure_ascii=False, indent=2),
-        )
-        self.assertTrue(all(row["lifecycle_status"] == "unknown" and
-                            any(reason.startswith("exit_state_missing:") for reason in row["reason_codes"])
-                            for row in mismatches))
+        # RC1 restores exact wrapper rejection returns without modifying the
+        # frozen source or oracle. All bounds come from ordinary properties.
+        self.assertEqual([], mismatches, json.dumps(mismatches, ensure_ascii=False, indent=2))
         self.assertEqual(12, artifact["metrics"]["modes"]["full"]["cases"])
         self.assertEqual(
-            10,
+            12,
             artifact["metrics"]["modes"]["full"]["expected_matches"],
         )
         self.assertGreaterEqual(artifact["metrics"]["determinacy_gains"], 1)
@@ -568,8 +560,8 @@ class ResourceLifecycleSourceEvaluationCodeqlTests(unittest.TestCase):
         by_case_mode = {
             (row["case_id"], row["mode"]): row for row in artifact["cases"]
         }
-        self.assertIsNone(by_case_mode[("s2-task-only", "full")]["upper_bound"])
-        self.assertIsNone(by_case_mode[("s2-field-holder", "full")]["upper_bound"])
+        self.assertEqual(0, by_case_mode[("s2-task-only", "full")]["upper_bound"])
+        self.assertEqual(1, by_case_mode[("s2-field-holder", "full")]["upper_bound"])
         self.assertEqual(
             "unknown",
             by_case_mode[("s3-missing-exceptional-close", "full")][

@@ -73,6 +73,7 @@ _QUERY: Final = (
 _MAX_SOURCE_FILES: Final = 200_000
 _MAX_SOURCE_BYTES: Final = 2 * 1024 * 1024 * 1024
 _MAX_SUMMARY_BYTES: Final = 1024 * 1024
+_MAX_TRIVIA_SOURCE_BYTES: Final = 16 * 1024 * 1024
 _ANALYZE_COMMON_ARTIFACTS: Final = (
     "facts.snapshot.json",
     "run-manifest.json",
@@ -134,7 +135,39 @@ def _java_source_snapshot(source_root: Path) -> tuple[dict[str, str], str]:
     return current, hashlib.sha256(canonical_json(current)).hexdigest()
 
 
-def _verify_database_source_snapshot(database: DatabaseInfo) -> str:
+def _comment_only_java(raw: bytes) -> bool:
+    """Recognize only the Java lexical trivia grammar; never infer from a name.
+
+    Unicode escapes are translated before Java comments. Rather than risk
+    interpreting an escaped newline/comment delimiter incorrectly, any such
+    escape is conservatively unclassified. Invalid/unterminated text also fails.
+    """
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return False
+    if "\\u" in text:
+        return False
+    offset = 0
+    while offset < len(text):
+        if text[offset] in " \t\r\n\f":
+            offset += 1
+        elif text.startswith("//", offset):
+            end = offset + 2
+            while end < len(text) and text[end] not in "\r\n":
+                end += 1
+            offset = end
+        elif text.startswith("/*", offset):
+            end = text.find("*/", offset + 2)
+            if end < 0:
+                return False
+            offset = end + 2
+        else:
+            return False
+    return True
+
+
+def _database_source_scope(database: DatabaseInfo) -> dict[str, object]:
     source_root = database.source_root.resolve(strict=True)
     current, source_snapshot_sha256 = _java_source_snapshot(source_root)
 
@@ -168,9 +201,35 @@ def _verify_database_source_snapshot(database: DatabaseInfo) -> str:
             if read_bytes != item.file_size:
                 raise ValueError("CodeQL source snapshot archive entry is truncated")
             archived[relative] = digest.hexdigest()
-    if current != archived:
-        raise ValueError("CodeQL database source snapshot does not match the live source tree")
-    return source_snapshot_sha256
+    mismatched = [{"path": path, "archived_sha256": digest, "source_sha256": current.get(path)}
+                  for path, digest in sorted(archived.items()) if current.get(path) != digest]
+    unarchived = []
+    for path in sorted(current.keys() - archived.keys()):
+        source_path = source_root / path
+        # A huge unarchived file is a gap, never an unbounded lexical parse.
+        raw = source_path.read_bytes() if source_path.stat().st_size <= _MAX_TRIVIA_SOURCE_BYTES else None
+        if raw is not None and hashlib.sha256(raw).hexdigest() != current[path]:
+            raise ValueError("CodeQL source snapshot changed during scope classification")
+        trivia_only = raw is not None and _comment_only_java(raw)
+        unarchived.append({"path": path, "sha256": current[path],
+            "classification": "lexical_trivia_only" if trivia_only else "declaration_or_unclassified",
+            "reason": "java_lexical_whitespace_and_complete_comments" if trivia_only else "unarchived_program_semantics_unresolved",
+            "selected_dependency_impact": "none" if trivia_only else "unresolved"})
+    return {"version": "resource-source-scope-rc1", "source_snapshot_sha256": source_snapshot_sha256,
+        "source_files": current, "archived_files": archived,
+        "archive_sha256": file_sha256(archive_path), "unarchived_files": unarchived,
+        "archived_mismatch_files": mismatched,
+        "scope_complete": not mismatched and all(item["classification"] == "lexical_trivia_only" for item in unarchived),
+        "compilation_claim": "none_buildless_archive_binding_only"}
+
+
+def _verify_database_source_snapshot(database: DatabaseInfo) -> str:
+    scope = _database_source_scope(database)
+    if scope["archived_mismatch_files"]:
+        raise ValueError("CodeQL database source snapshot does not match archived live source bytes")
+    if not scope["scope_complete"]:
+        raise ValueError("CodeQL source snapshot has unarchived declarations or unclassified semantics; dependency coverage unresolved")
+    return str(scope["source_snapshot_sha256"])
 
 
 def _manual_facts(manifest: Mapping[str, object], manifest_path: Path) -> ExtractedFacts:
@@ -287,6 +346,10 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
     if not isinstance(entry_methods, list):
         raise ValueError("CodeQL manifest entry_methods are invalid")
     database = validate_database(Path(str(manifest["database"])))
+    if values.get("_project_intake_diagnostics"):
+        scope = _database_source_scope(database)
+        scope["requested_entry_methods"] = sorted(set(entry_methods))
+        atomic_write_json(output / "source-scope.json", scope)
     source_snapshot_sha256 = _verify_database_source_snapshot(database)
     results = tuple(
         run_query(
@@ -346,6 +409,11 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         source_snapshot_sha256=source_snapshot_sha256,
         entry_methods=entry_methods,
     )
+    if values.get("_project_intake_diagnostics"):
+        _extract_callable_inventory(database, values, output, extracted)
+        current_database = validate_database(database.path)
+        if current_database.fingerprint != database.fingerprint or current_database.source_root != database.source_root:
+            raise ValueError("CodeQL database changed during callable inventory")
     # Adaptation reads the live source tree again to bind individual locations.
     # Never publish facts stamped with the earlier database snapshot if those
     # reads raced with a source update.
@@ -360,6 +428,41 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         extracted.facts,
         extracted.coverage,
     )
+
+
+def _extract_callable_inventory(database: DatabaseInfo, values: Mapping[str, object],
+                                output: Path, extracted: ExtractedFacts) -> None:
+    """Identity diagnostics are separate from facts used to prove properties."""
+    query = _QUERY[0].with_name("ResourceLifecycleCallables.ql")
+    result = run_query(query, database, output / "codeql",
+                       codeql_binary=str(values.get("codeql_binary") or "codeql"))
+    if (result.query_name != "resource_lifecycle_callables"
+            or file_sha256(result.query_path) != result.query_sha256
+            or file_sha256(result.bqrs_path) != result.bqrs_sha256):
+        raise ValueError("CodeQL callable inventory artifact identity is invalid")
+    records = decode_bqrs_json(result.query_name,
+        load_json_regular(result.decoded_path, max_bytes=64 * 1024 * 1024),
+        DecodeSource(database.source_root, result.query_sha256))
+    scope = _database_source_scope(database)
+    inventory = []
+    for record in records:
+        source_hash = scope["archived_files"].get(record["source_file"])
+        if source_hash is None:
+            raise ValueError("selected callable inventory source is absent from database archive")
+        relevant = [fact for fact in extracted.facts if fact.unit_id == record["unit_id"]]
+        inventory.append({**record, "source_sha256": source_hash,
+            "resource_fact_count": sum(fact.fact_kind == "create" for fact in relevant),
+            "resource_coverage_notes": sorted({fact.coverage_note for fact in relevant
+                if fact.coverage_status != "complete"})})
+    atomic_write_json(output / "callable-inventory.json", {
+        "version": "resource-callable-inventory-rc1",
+        "database_fingerprint": database.fingerprint,
+        "source_snapshot_sha256": scope["source_snapshot_sha256"],
+        "query_sha256": result.query_sha256, "bqrs_sha256": result.bqrs_sha256,
+        "decoded_sha256": file_sha256(result.decoded_path),
+        "target_preview_limit_chars": 2048,
+        "rule_scope": "tracked allocations and supported one-level resource/callback relations; external call effects are not inferred",
+        "callables": sorted(inventory, key=lambda row: (row["unit_id"], row["source_file"], row["start_line"], row["start_column"]))})
 
 
 def resource_extract(values: Mapping[str, object]) -> dict[str, object]:
@@ -487,6 +590,7 @@ def _analyze_payload(
                     for scope, events in sorted(analysis.property_derivations.items())
                 },
                 "steps": analysis.steps,
+                "solver_metrics": dict(sorted(analysis.solver_metrics.items())),
                 "unknown_reasons": list(analysis.unknown_reasons),
                 "lifecycle_statuses": dimension_statuses,
                 "properties": publish_properties(unit.unit_id, dimensions, population_properties,
@@ -768,6 +872,8 @@ def _evidence_payload(
                     "source_event_id": stage.get("source_event_id"),
                     "phase": stage.get("phase"),
                     "transition_ids": list(stage.get("transition_ids", ())),
+                    "abstraction_steps": list(stage.get("abstraction_steps", ())),
+                    "derivation_kind": "abstract_fixpoint" if stage.get("abstraction_steps") else "finite_path_summary",
                     "dispatch_effect_id": dispatch_effect.effect_id if dispatch_effect is not None else None,
                     "task_id": binding.task_id if binding is not None else None,
                     "contract_id": stage.get("contract_id"),
@@ -821,6 +927,8 @@ def _evidence_payload(
                 "unit_id": unit_id,
                 "exit_event_id": exit_event_id,
                 "transition_ids": list(trace.get("transition_ids", [])),
+                "abstraction_steps": list(trace.get("abstraction_steps", [])),
+                "derivation_kind": "abstract_fixpoint" if trace.get("abstraction_steps") else "finite_path_summary",
                 "rule_ids": list(trace.get("rule_ids", [])),
                 "evidence_ids": list(trace.get("evidence_ids", [])),
                 "premises": premises,

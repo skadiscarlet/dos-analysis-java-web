@@ -80,3 +80,8 @@ config/local_secrets.json
 !reports/lifecycle-v1.2/independent/input-ledger.csv
 !reports/lifecycle-v1.2/independent/properties.csv
 !reports/lifecycle-v1.2/independent/comparison.csv
+
+# Compact RC1 review tables (raw evidence remains local).
+!reports/lifecycle-rc1/input-ledger.csv
+!reports/lifecycle-rc1/properties.csv
+!reports/lifecycle-rc1/comparison.csv

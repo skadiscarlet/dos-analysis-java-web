@@ -141,7 +141,10 @@ def test_conditional_dimensions_change_but_inflight_request_is_unknown():
     assert missing[scope, "close_obligation", "family:stream"].lifecycle_status == "obligation_gap"
     scope = "all_tasks_terminated_after_request"
     assert closed[scope, "held_instances", "family:stream"].upper_bound == 0
-    assert field[scope, "held_instances", "family:stream"].lifecycle_status == "unknown"
+    retained = field[scope, "held_instances", "family:stream"]
+    assert retained.lifecycle_status == "bounded"
+    assert retained.upper_bound == 1
+    assert "per_invocation_exact_allocation_population" in retained.assumptions
     assert closed["all_exits", "close_obligation", "family:stream"].lifecycle_status == "unknown"
     assert "task_termination_not_guaranteed:task:0" in closed["all_exits", "close_obligation", "family:stream"].reason_codes
 

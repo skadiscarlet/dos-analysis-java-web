@@ -309,7 +309,7 @@ predicate autoCloseableReleaseMethod(Method method) {
 }
 
 predicate singleExecutionAllocationContext(Expr allocation) {
-  not exists(LoopStmt loop | allocation.getParent*() = loop)
+  not exists(LoopStmt loop | allocation.getEnclosingStmt().getEnclosingStmt*() = loop)
 }
 
 predicate exactLocalReleaseBinding(MethodCall release, Expr allocation) {
@@ -329,6 +329,34 @@ predicate exactLocalReleaseBinding(MethodCall release, Expr allocation) {
         )
       )
     )
+  )
+}
+
+/** A loop-local slot whose only reads are exact close receivers. Null writes
+ * retire that slot explicitly; aliases, escapes and any other assignments are
+ * deliberately outside this small recency-preserving model. */
+predicate isolatedLoopLocal(Expr allocation, LocalVariableDecl local) {
+  local.getInitializer() = allocation and
+  exists(LoopStmt loop | allocation.getEnclosingStmt().getEnclosingStmt*() = loop) and
+  forall(Expr assigned | local.getAnAssignedValue() = assigned |
+    assigned = allocation or assigned instanceof NullLiteral
+  ) and
+  forall(VarAccess access | access.getVariable() = local |
+    access.getEnclosingCallable() = allocation.getEnclosingCallable() and (
+    exists(MethodCall release |
+      release.getQualifier() = access and release.getNumArgument() = 0 and
+      autoCloseableReleaseMethod(release.getMethod())
+    )
+    or
+    exists(AssignExpr reset | reset.getDest() = access and reset.getSource() instanceof NullLiteral)
+    )
+  )
+}
+
+predicate exactLoopLocalRelease(MethodCall release, Expr allocation) {
+  exists(LocalVariableDecl local |
+    isolatedLoopLocal(allocation, local) and
+    release.getQualifier().(VarAccess).getVariable() = local
   )
 }
 
@@ -405,6 +433,15 @@ predicate lifecycleFact(
       coverageNote = "same_callable_local_flow_to_field"
     )
     or
+    exists(AssignExpr reset, LocalVariableDecl local |
+      isolatedLoopLocal(allocation, local) and reset.getDest().(VarAccess).getVariable() = local and
+      reset.getSource() instanceof NullLiteral and reset.getEnclosingCallable() = owner and
+      site = reset and factKind = "drop" and holderKind = "none" and holderScope = "none" and
+      holderKey = "none" and targetEvent = "none" and capacityValue = "unknown" and
+      normalPath = true and exceptionalPath = false and evidence = "codeql_isolated_loop_local_null_drop" and
+      coverageStatus = "complete" and coverageNote = "isolated_loop_local_explicit_null"
+    )
+    or
     exists(MethodCall release |
       release.getEnclosingCallable() = owner and release.getNumArgument() = 0 and
       autoCloseableReleaseMethod(release.getMethod()) and
@@ -412,9 +449,9 @@ predicate lifecycleFact(
       holderKind = "none" and holderScope = "none" and holderKey = "none" and
       targetEvent = "none" and capacityValue = "unknown" and
       (
-        exactNormalRelease(release, allocation) and normalPath = true
+        (exactNormalRelease(release, allocation) or exactLoopLocalRelease(release, allocation)) and normalPath = true
         or
-        not exactNormalRelease(release, allocation) and normalPath = false
+        not exactNormalRelease(release, allocation) and not exactLoopLocalRelease(release, allocation) and normalPath = false
       ) and
       (
         mustReleaseInFinally(release, allocation) and exceptionalPath = true
@@ -423,8 +460,11 @@ predicate lifecycleFact(
       ) and
       evidence = "codeql_close_receiver_local_flow_candidate" and
       (
-        not singleExecutionAllocationContext(allocation) and coverageStatus = "partial" and
-        coverageNote = "allocation_in_loop_release_not_must"
+        exactLoopLocalRelease(release, allocation) and coverageStatus = "complete" and
+        coverageNote = "isolated_loop_local_exact_release"
+        or
+        not singleExecutionAllocationContext(allocation) and not exactLoopLocalRelease(release, allocation) and
+        coverageStatus = "partial" and coverageNote = "allocation_in_loop_release_not_must"
         or
         mustReleaseInFinally(release, allocation) and coverageStatus = "complete" and
         coverageNote = "singleton_finally_exact_local_release"
@@ -674,6 +714,39 @@ predicate resourceCallableScope(Expr allocation, Callable callable, int depth) {
   )
 }
 
+/** Executor rejection is unchecked and is omitted by the standard CFG when
+ * there is no enclosing handler. Add only its unhandled operation outcome;
+ * catch/finally/try-with-resources continuations remain standard CFG edges.
+ */
+predicate handlerFreeCall(MethodCall call) {
+  not exists(TryStmt attempt |
+    call.getEnclosingStmt().getEnclosingStmt*() = attempt or
+    call.getParent*() = attempt
+  )
+}
+
+predicate executorRejectionCall(MethodCall call) {
+  call.getMethod().getName() = ["execute", "submit"] and
+  call.getMethod().getDeclaringType().getASourceSupertype*().hasQualifiedName(
+    "java.util.concurrent", "Executor"
+  )
+}
+
+/** The same finite exact-call depth used by resource argument bindings. */
+predicate unhandledExecutorRejection(MethodCall call, int depth) {
+  handlerFreeCall(call) and
+  (
+    depth = 0 and executorRejectionCall(call)
+    or
+    depth in [1 .. 2] and exactSourceCallee(call.getMethod()) and
+    exists(MethodCall inner |
+      inner.getEnclosingCallable() = call.getMethod() and
+      inner.getMethod() != call.getMethod() and
+      unhandledExecutorRejection(inner, depth - 1)
+    )
+  )
+}
+
 /** Real CFG edges and explicit boundary nodes; source coordinates are evidence only. */
 predicate callableCfgFact(
   Expr allocation, ExprParent site, ExprParent relatedSite, Callable owner,
@@ -723,6 +796,17 @@ predicate callableCfgFact(
           exceptionalSuccessorAfterNonAstNodes(controlFlowNode(site), terminal) and
           evidence = "codeql_callable_cfg_exit_after_exception"
         )
+      )
+      or
+      exists(MethodCall rejected, int wrapperDepth |
+        rejected.getEnclosingCallable() = callable and
+        unhandledExecutorRejection(rejected, wrapperDepth) and
+        not exists(rejected.getControlFlowNode().getAnExceptionSuccessor()) and
+        site = rejected and relatedSite = callable.getBody() and
+        programPoint = programPointIdentity(rejected) and
+        relatedPoint = targetEvent + "#cfg_exceptional_exit" and
+        normalPath = false and exceptionalPath = true and
+        evidence = "codeql_callable_cfg_modeled_rejection_exit"
       )
       or
       exists(MethodCall call, Parameter parameter |

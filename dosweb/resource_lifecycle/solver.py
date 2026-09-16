@@ -97,8 +97,17 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
     if effect.kind == "create":
         assert instance_id is not None and family_id is not None
         if instance_id in created:
-            repeated_instances.add(instance_id)
-            rules.append("create_reuses_abstract_instance")
+            # Allocation-site identity is recent only after the previous object
+            # has lost every holder and every close obligation. History alone is
+            # not multiplicity. Once summarized, never regain strong updates.
+            retired = (instance_id not in repeated_instances
+                       and not any(edge[0] == instance_id for edge in held_edges)
+                       and instance_obligations.get(instance_id, CountInterval()).upper == 0)
+            if retired:
+                rules.append("create_recycles_retired_recent_instance")
+            else:
+                repeated_instances.add(instance_id)
+                rules.append("create_reuses_abstract_instance")
         created.add(instance_id)
         allocations[family_id] = _increment(allocations.get(family_id, CountInterval()))
         if requires_close.get(family_id, False):
@@ -119,7 +128,7 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
             held_counts[family_id] = _increment(held_counts.get(family_id, CountInterval()))
         elif instance_id in repeated_instances and dict(state.holder_kinds).get(effect.holder_id) != "field":
             prior = held_counts.get(family_id, CountInterval())
-            held_counts[family_id] = CountInterval(prior.lower + 1, None)
+            held_counts[family_id] = CountInterval(prior.lower, None)
             unknown.add(f"repeated_abstract_instance:{instance_id}")
             rules.append("retain_repeated_instance_multiplicity")
         current_upper = held_counts[family_id].upper
@@ -129,7 +138,9 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
     elif effect.kind == "drop":
         assert instance_id is not None and family_id is not None and effect.holder_id is not None
         trusted_negative = effect.location.source_kind in {"static_verified", "trusted_contract", "manual_fixture"}
-        exact = abstractions.get(instance_id) == "recent" and confidences.get(instance_id) == "exact"
+        exact = (abstractions.get(instance_id) == "recent"
+                 and confidences.get(instance_id) == "exact"
+                 and instance_id not in repeated_instances)
         if not trusted_negative:
             unknown.add(f"untrusted_negative_effect:{effect.effect_id}")
             rules.append("untrusted_drop_preserves_may_hold")
@@ -148,12 +159,16 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
             else:
                 rules.append("drop_missing_holder_edge_noop")
         else:
+            prior_family = held_counts.get(family_id, CountInterval())
+            held_counts[family_id] = CountInterval(max(0, prior_family.lower - 1), prior_family.upper)
             unknown.add(f"weak_update:{instance_id}")
             rules.append("weak_drop_summary")
     elif effect.kind == "release":
         assert instance_id is not None and family_id is not None
         trusted_negative = effect.location.source_kind in {"static_verified", "trusted_contract", "manual_fixture"}
-        exact = abstractions.get(instance_id) == "recent" and confidences.get(instance_id) == "exact"
+        exact = (abstractions.get(instance_id) == "recent"
+                 and confidences.get(instance_id) == "exact"
+                 and instance_id not in repeated_instances)
         if not trusted_negative:
             unknown.add(f"untrusted_negative_effect:{effect.effect_id}")
             rules.append("untrusted_release_preserves_obligation")
@@ -178,6 +193,12 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
                 open_obligations.add(instance_id)
                 must_released.discard(instance_id)
         else:
+            # At most one represented obligation is discharged by this call.
+            # Its object may already be closed, so only the lower bound falls.
+            prior_instance = instance_obligations.get(instance_id, CountInterval())
+            instance_obligations[instance_id] = CountInterval(max(0, prior_instance.lower - 1), prior_instance.upper)
+            prior_family = obligations.get(family_id, CountInterval())
+            obligations[family_id] = CountInterval(max(0, prior_family.lower - 1), prior_family.upper)
             unknown.add(f"weak_update:{instance_id}")
             rules.append("weak_release_summary")
     elif effect.kind == "dispatch":
@@ -190,7 +211,7 @@ def apply_effect(state: ResourceState, effect: Effect) -> StepResult:
                 held_counts[family_id] = _increment(held_counts.get(family_id, CountInterval()))
             elif instance_id in repeated_instances and dict(state.holder_kinds).get(effect.holder_id) != "field":
                 prior = held_counts.get(family_id, CountInterval())
-                held_counts[family_id] = CountInterval(prior.lower + 1, None)
+                held_counts[family_id] = CountInterval(prior.lower, None)
                 unknown.add(f"repeated_abstract_instance:{instance_id}")
                 rules.append("dispatch_repeated_instance_multiplicity")
             current_upper = held_counts[family_id].upper
@@ -303,6 +324,103 @@ def merge_states(states: Sequence[ResourceState]) -> ResourceState:
     )
 
 
+
+def _relational_partition(state: ResourceState) -> tuple[object, ...]:
+    """Do not join alternatives that authorize different negative effects.
+
+    Numeric intervals are joined only with identical holder/object/obligation
+    relationships. In particular, closing A on one branch and B on another
+    cannot create a state in which both objects are known closed.
+    """
+    return (state.held_edges, state.created_instances, state.open_obligations,
+            state.must_released, state.repeated_instances)
+
+
+def state_subsumes(cover: ResourceState, candidate: ResourceState) -> bool:
+    """Abstract inclusion within one resource universe and relational partition."""
+    if _relational_partition(cover) != _relational_partition(candidate):
+        return False
+    numeric = {"allocation_counts", "obligation_counts", "instance_obligation_counts",
+               "held_counts", "peak_held_counts", "unknown_reasons"}
+    if any(getattr(cover, name) != getattr(candidate, name)
+           for name in ResourceState.__dataclass_fields__ if name not in numeric):
+        return False
+    if not set(cover.unknown_reasons).issuperset(candidate.unknown_reasons):
+        return False
+    for name in ("allocation_counts", "obligation_counts", "instance_obligation_counts", "held_counts"):
+        left, right = dict(getattr(cover, name)), dict(getattr(candidate, name))
+        if left.keys() != right.keys():
+            return False
+        for identity, interval in right.items():
+            bound = left[identity]
+            if bound.lower > interval.lower or (bound.upper is not None and
+                    (interval.upper is None or interval.upper > bound.upper)):
+                return False
+    left = dict(cover.peak_held_counts)
+    return all(identity in left and (left[identity] is None or
+               (upper is not None and left[identity] >= upper))
+               for identity, upper in candidate.peak_held_counts)
+
+
+def widen_state(prior: ResourceState, incoming: ResourceState) -> ResourceState:
+    """Interval widening; infinity is loss of precision, never a growth proof."""
+    if _relational_partition(prior) != _relational_partition(incoming):
+        raise ValueError("widening requires the same resource relationships")
+    joined = merge_states((prior, incoming))
+    changes = {}
+    for name in ("allocation_counts", "obligation_counts", "instance_obligation_counts", "held_counts"):
+        old = dict(getattr(prior, name))
+        changes[name] = tuple((identity, CountInterval(
+            0 if interval.lower < old[identity].lower else interval.lower,
+            None if old[identity].upper is None or interval.upper is None
+            or interval.upper > old[identity].upper else interval.upper,
+        )) for identity, interval in getattr(joined, name))
+    old_peaks = dict(prior.peak_held_counts)
+    changes["peak_held_counts"] = tuple((identity, None if upper is None
+        or old_peaks[identity] is None or upper > old_peaks[identity] else upper)
+        for identity, upper in joined.peak_held_counts)
+    return replace(joined, **changes)
+
+
+def _cyclic_events(program: Program) -> frozenset[str]:
+    """Iterative Kosaraju; every vertex in a cyclic SCC is a widening point.
+
+    Selecting all cyclic vertices is a finite feedback set even for irreducible
+    CFGs, and avoids recursion depth depending on extracted method size.
+    """
+    edges = {event.event_id: [] for event in program.events}
+    reverse = {event: [] for event in edges}
+    for transition in program.transitions:
+        edges[transition.source_event_id].append(transition.target_event_id)
+        reverse[transition.target_event_id].append(transition.source_event_id)
+    visited, order = set(), []
+    for root in sorted(edges):
+        stack = [(root, False)]
+        while stack:
+            event, expanded = stack.pop()
+            if expanded:
+                order.append(event)
+            elif event not in visited:
+                visited.add(event)
+                stack.append((event, True))
+                stack.extend((child, False) for child in reversed(edges[event]) if child not in visited)
+    visited, cyclic = set(), set()
+    for root in reversed(order):
+        if root in visited:
+            continue
+        component, stack = set(), [root]
+        while stack:
+            event = stack.pop()
+            if event in visited:
+                continue
+            visited.add(event)
+            component.add(event)
+            stack.extend(reverse[event])
+        if len(component) > 1 or root in edges[root]:
+            cyclic.update(component)
+    return frozenset(cyclic)
+
+
 def _statuses(exit_states: dict[str, ResourceState], unknown: set[str],
               exit_cuts: Sequence[tuple[ResourceState, frozenset[str]]] = ()) -> tuple[str, ...]:
     if not exit_states:
@@ -337,6 +455,7 @@ def _join_trace(left: Trace, right: Trace) -> Trace:
         (left.rule_ids, right.rule_ids),
         (left.evidence_ids, right.evidence_ids),
         (left.rule_dependencies, right.rule_dependencies),
+        (left.abstraction_steps, right.abstraction_steps),
     )))
 
 
@@ -471,6 +590,10 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
     # Exact disjuncts at a control configuration avoid combining incompatible
     # callback branches before their negative effects. Reports alone join states.
     configurations: dict[tuple[tuple[_Cursor, ...], ResourceState, frozenset[str]], Trace] = {}
+    cyclic_events = _cyclic_events(program)
+    loop_states: dict[tuple[object, ...], ResourceState] = {}
+    loop_updates: dict[tuple[object, ...], int] = defaultdict(int)
+    widening_count = subsumption_count = 0
     queue = deque()
     queued = set()
     updates: dict[tuple[_Cursor, ...], int] = defaultdict(int)
@@ -510,14 +633,40 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
             async_derivations[identity].append(derivation)
 
     def enqueue(cursors: tuple[_Cursor, ...], state: ResourceState, trace: Trace) -> None:
-        nonlocal terminated
+        nonlocal terminated, widening_count, subsumption_count
         control = tuple(sorted(cursors))
+        if any(cursor.event_id in cyclic_events for cursor in control):
+            # Task phases, negative-effect relationships and executed branch
+            # choices remain separate. Evidence IDs never enter this key.
+            partition = (control, _relational_partition(state), frozenset(trace.transition_ids))
+            prior_loop = loop_states.get(partition)
+            if prior_loop is not None:
+                if state_subsumes(prior_loop, state):
+                    subsumption_count += 1
+                    return
+                loop_updates[partition] += 1
+                if loop_updates[partition] >= 2:
+                    state = widen_state(prior_loop, state)
+                    widening_count += 1
+                    trace = replace(trace, abstraction_steps=tuple(sorted(set(
+                        trace.abstraction_steps + ("interval_widening:" + ",".join(
+                            cursor.event_id for cursor in control),)))))
+                else:
+                    state = merge_states((prior_loop, state))
+                    trace = replace(trace, abstraction_steps=tuple(sorted(set(
+                        trace.abstraction_steps + ("interval_join:" + ",".join(
+                            cursor.event_id for cursor in control),)))))
+            loop_states[partition] = state
+            # Snapshots of the abstract transfer inputs must agree with replay.
+            for cursor in control:
+                record(cursor.event_id, state, trace)
         # Keep alternatives with different executed edges distinct. Equivalent
         # interleavings may share a state, but retain one real ordered witness;
         # never manufacture a path by unioning mutually exclusive branches.
         key = (control, state, frozenset(trace.transition_ids))
         prior = configurations.get(key)
         if prior is not None:
+            subsumption_count += 1
             return
         if prior is None:
             updates[control] += 1
@@ -717,4 +866,9 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
                           property_traces=property_traces, async_origins=async_origins,
                           async_derivations={task: tuple(records) for task, records in async_derivations.items()},
                           property_derivations={scope: {event: tuple(records) for event, records in events.items()}
-                                                for scope, events in property_derivations.items()})
+                                                for scope, events in property_derivations.items()},
+                          solver_metrics={"abstract_configurations": len(configurations),
+                                          "cyclic_event_count": len(cyclic_events),
+                                          "loop_partitions": len(loop_states),
+                                          "widening_count": widening_count,
+                                          "subsumption_count": subsumption_count})

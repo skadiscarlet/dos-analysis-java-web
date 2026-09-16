@@ -27,7 +27,22 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-## Resource Lifecycle v1.2（partial 交付）
+## Resource Lifecycle RC1
+
+RC1 增量修复离线资源性质分析的源码归档范围、查询接入、方法身份、循环收敛和受支持包装调用异常返回。工程门槛与研究有效性分开记录，最终状态见 [RC1 summary](reports/lifecycle-rc1/summary.md) 与 [HANDOFF](docs/execution/lifecycle-rc1/HANDOFF.md)。固定九请求在本轮属于开发/回归集，没有独立漏洞 oracle。
+
+```bash
+# 仅复用已有冻结源码与 DB；输出必须为新目录，不下载或运行目标。
+python3 scripts/evaluate_lifecycle_rc1.py \
+  --asset-root /home/furina/new_tool/dos-analysis-web \
+  --out .local-runs/rc1/reproduction-new
+```
+
+`--prior-run` 可指定已有 v1.2 冻结资产目录；默认从 asset root 的 v1.2 worktree 定位。该入口逐文件核对原源码/冻结镜像，恢复 common-core 全模块 158 文件，重新执行当前查询、求解、同事实消融和选中范围回放。失败返回非零并保留逐模块结果；`no_modeled_resource` 不计为已求解资源，也不发布上界零。所需本地资产与完整验收命令见 HANDOFF。
+
+源码全树身份与 DB 实际归档分别保存；仅可证明完全由空白/注释组成的未归档文件可被接受，字节不一致或无法界定的声明缺失仍拒绝。生命周期查询专用传输最多 65,536 行，其他查询保持 4,096；原 JSON/字符串与单片读取限制保持有界。未知依赖、预算退出和模型缺口不转为安全结论。
+
+## Resource Lifecycle v1.2（历史 partial 交付）
 
 当前接口新增统一 `properties`：普通分析、源码评价与分片复算使用同一组性质，包含稳定 ID、资源/执行器身份、维度、scope/cut、上界、假设及证据引用。评价器不再从状态计数重建结论。源码树相同的重绑定不改变性质身份；缺失或歧义选择保留 unknown。
 

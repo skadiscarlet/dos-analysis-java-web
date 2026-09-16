@@ -2439,7 +2439,7 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
         self.assertIn("predicate exactLocalReleaseBinding", content)
         self.assertIn("predicate autoCloseableReleaseMethod", content)
         self.assertIn("predicate singleExecutionAllocationContext", content)
-        self.assertIn("allocation.getParent*() = loop", content)
+        self.assertIn("allocation.getEnclosingStmt().getEnclosingStmt*() = loop", content)
         self.assertIn("allocation_in_loop_release_not_must", content)
         self.assertIn("release.getNumArgument() = 0", content)
         self.assertIn("method.getAnOverride() = contract", content)

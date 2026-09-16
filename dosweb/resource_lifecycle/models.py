@@ -817,6 +817,8 @@ class Trace:
     rule_ids: tuple[str, ...] = ()
     evidence_ids: tuple[str, ...] = ()
     rule_dependencies: tuple[tuple[str, str], ...] = ()
+    # Nonempty means an abstract derivation, not a concrete executable path.
+    abstraction_steps: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -864,6 +866,7 @@ class AnalysisResult:
     async_origins: dict[str, str] = field(default_factory=dict)
     async_derivations: dict[str, tuple[AsyncDerivation, ...]] = field(default_factory=dict)
     property_derivations: dict[str, dict[str, tuple[PropertyDerivation, ...]]] = field(default_factory=dict)
+    solver_metrics: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

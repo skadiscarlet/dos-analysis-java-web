@@ -1,3 +1,12 @@
+## [2026-09-16] Resource lifecycle RC1
+
+- 在固定 v1.2 基线的隔离分支增量修复；保留原源码、DB、归档、十二例 oracle 和主工作区无关修改，仅执行防御性离线静态验收。
+- 将源码全树/DB 归档分开记录，逐文件核对已归档字节；仅完整注释/空白缺失可接受，声明缺失或词法不确定保留可审阅 scope 并 fail closed。
+- 生命周期查询使用 65,536 行专用传输额度，保留 JSON/字符串/单片限制；独立 callable inventory 区分方法定位、零资源规则覆盖与求解执行，零资源不计非空求解、不发布上界零。
+- 循环 SCC 使用关系分区、抽象包含与有限延迟 widening；历史分配与持有/义务/峰值分开，retired recent 可复用，重复实例释放/丢弃弱更新；证据明确记录抽象推导，新增求解诊断计数。
+- 修复支持深度内精确 wrapper 的 executor rejection 异常出口/返回，保留 caller catch/finally；拒绝不虚构 task capture。只对完整且精确非重复分配的已求解切面检查有限持有上界，不用评价 oracle 补 bound。
+- 增加三种循环真实源码回归、包装异常/额外 holder 反例、接入与完整分母测试；新增固定九输入复跑入口和沿用既有格式的紧凑报告，成本未测量为 null，工程门槛与研究有效性分开。
+
 ## [2026-09-16] Resource lifecycle v1.2 independent input intake
 
 - 用户明确允许使用 PoC 所属本地源码与 CodeQL DB；冻结 3 个已有模块、9 个方法（XXL-JOB core、HertzBeat common-core/common-spring），没有导入 PoC verdict 或执行样例。

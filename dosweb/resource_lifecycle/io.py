@@ -300,6 +300,7 @@ def analysis_result_to_dict(result: AnalysisResult) -> dict[str, object]:
         "unknown_reasons": list(result.unknown_reasons),
         "lifecycle_statuses": list(result.lifecycle_statuses),
         "steps": result.steps,
+        "solver_metrics": dict(sorted(result.solver_metrics.items())),
         "property_states": {scope: {event: state_to_dict(state) for event, state in sorted(states.items())}
                             for scope, states in sorted(result.property_states.items())},
         "property_traces": {scope: {event: [asdict(trace) for trace in paths] for event, paths in sorted(traces.items())}

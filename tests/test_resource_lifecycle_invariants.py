@@ -572,7 +572,10 @@ class ResourceLifecycleInvariantTests(unittest.TestCase):
 
         self.assertEqual("unknown", held.lifecycle_status)
         self.assertIn("repeated_abstract_instance:instance:stream", held.reason_codes)
-        self.assertGreaterEqual(interval.lower, 1)
+        # A weak drop cannot prove the represented holder set is empty. Its
+        # lower bound may fall, but the may-held edge and unknown upper remain.
+        self.assertIsNone(interval.upper)
+        self.assertTrue(result.exit_states["event:normal"].held_edges)
 
     def test_dispatch_with_unknown_identity_blocks_bounded_conclusions(self) -> None:
         base = program_for(())

@@ -66,6 +66,10 @@ LIFECYCLE_SUMMARY_COLUMNS: Final = (
     "representation", "phase", "covers_materialization", "dominates_growth",
     "reject_path_reaches_growth", "evidence", "cfg_relation", "coverage_status", "coverage_note",
 )
+RESOURCE_LIFECYCLE_CALLABLE_COLUMNS: Final = (
+    "unit_id", "source_file", "start_line", "start_column", "end_line", "end_column",
+    "callable_kind", "has_body", "call_count", "external_call_count", "call_targets",
+)
 RESOURCE_LIFECYCLE_COLUMNS: Final = (
     "unit_id", "site_callable", "site_file", "site_start_line", "site_start_column",
     "program_point", "related_point", "related_file", "related_start_line",
@@ -77,6 +81,10 @@ RESOURCE_LIFECYCLE_COLUMNS: Final = (
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_ROWS: Final = 4096
+# Transport budget for the complete module (observed: 8,885 rows), distinct
+# from the unchanged single-shard reader and solver budgets.
+RESOURCE_LIFECYCLE_MAX_ROWS: Final = 65_536
+_LIFECYCLE_QUERIES: Final = frozenset({"resource_lifecycle", "resource_lifecycle_task_relations", "resource_lifecycle_callables"})
 _MAX_STRING_BYTES: Final = 65536
 _MAX_TOTAL_STRING_BYTES: Final = 16 * 1024 * 1024
 _MAX_LINE_NUMBER: Final = 2**31 - 1
@@ -153,6 +161,13 @@ _RESOURCE_LIFECYCLE_TASK_FACT_KINDS = frozenset(
 
 QUERY_SPECS: Final[Mapping[str, QuerySpec]] = MappingProxyType(
     {
+        "resource_lifecycle_callables": _spec(
+            "resource_lifecycle_callables", RESOURCE_LIFECYCLE_CALLABLE_COLUMNS,
+            integers={"start_line", "start_column", "end_line", "end_column", "call_count", "external_call_count"},
+            booleans={"has_body"}, enums={}, paths=frozenset({"source_file"}),
+            lines=frozenset({"start_line", "end_line"}),
+            columns_positions=frozenset({"start_column", "end_column"}),
+        ),
         "resource_lifecycle": _spec(
             "resource_lifecycle", RESOURCE_LIFECYCLE_COLUMNS,
             integers={"site_start_line", "site_start_column", "related_start_line", "related_start_column", "relation_depth", "binding_index"},
@@ -353,8 +368,11 @@ def decode_rows(
         raise _invalid("UNKNOWN_QUERY", query_name)
     if not isinstance(columns, (list, tuple)) or tuple(columns) != spec.columns:
         raise _invalid("COLUMN_MISMATCH", query_name)
-    if not isinstance(rows, (list, tuple)) or len(rows) > _MAX_ROWS:
+    if not isinstance(rows, (list, tuple)):
         raise _invalid("ROWS_INVALID", query_name)
+    row_limit = RESOURCE_LIFECYCLE_MAX_ROWS if query_name in _LIFECYCLE_QUERIES else _MAX_ROWS
+    if len(rows) > row_limit:
+        raise _invalid("ROW_LIMIT", query_name, row_count=len(rows), row_limit=row_limit)
     normalized_source = _normalized_source(source, query_name)
     decoded: list[dict[str, object]] = []
     total_string_bytes = 0

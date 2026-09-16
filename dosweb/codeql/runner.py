@@ -32,6 +32,7 @@ _ALLOWED_ENVIRONMENT: Final = frozenset(
 )
 _SAFE_QUERY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _QUERY_FAMILY_PATTERNS: Final = (
+    (re.compile(r"^resourcelifecyclecallables$", re.IGNORECASE), "resource_lifecycle_callables"),
     (re.compile(r"^resourcelifecycletaskrelations$", re.IGNORECASE), "resource_lifecycle_task_relations"),
     (re.compile(r"^resourcelifecyclefacts$", re.IGNORECASE), "resource_lifecycle"),
     (re.compile(r"entrytogrowth|flow", re.IGNORECASE), "flow"),
@@ -89,9 +90,10 @@ def _decode_contract_diagnostic(reason: object, details: Mapping[str, object]) -
         value = details.get(key)
         if isinstance(value, str) and value:
             fields[key] = value[:256]
-    row = details.get("row")
-    if isinstance(row, int) and not isinstance(row, bool):
-        fields["row"] = row
+    for key in ("row", "row_count", "row_limit"):
+        value = details.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            fields[key] = value
     if not fields:
         fields["reason"] = "decoded result violates its query contract"
     return json.dumps(fields, sort_keys=True, separators=(",", ":"))

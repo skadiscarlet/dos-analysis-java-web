@@ -1354,7 +1354,7 @@ def _unit_from_rows(
             and item.site_callable == unit_id
             and item.location.source_kind == "static_verified"
             and item.source_evidence == "codeql_close_receiver_local_flow_candidate"
-            and item.coverage_note == "singleton_finally_exact_local_release"
+            and item.coverage_note in {"singleton_finally_exact_local_release", "isolated_loop_local_exact_release"}
         }
         def source_cfg_event(point_id: str, context: tuple[str, ...]) -> str:
             callable_id = point_records[point_id][0]
@@ -1395,6 +1395,14 @@ def _unit_from_rows(
                     ))
                 elif item.fact_kind == "retain" and holder_id is not None:
                     effects.append(_effect(item, "retain", family_id, instance_id, holder_id))
+                elif (item.fact_kind == "drop"
+                      and item.source_evidence == "codeql_isolated_loop_local_null_drop"
+                      and item.coverage_status == "complete"
+                      and item.coverage_note == "isolated_loop_local_explicit_null"
+                      and item.location.source_kind == "static_verified"
+                      and fact.normal_path and not fact.exceptional_path):
+                    effects.append(_effect(item, "drop", family_id, instance_id,
+                                           local_holder_by_instance[instance_id]))
                 elif item.fact_kind == "release":
                     call_succeeded = (
                         fact.source_evidence == "codeql_callable_cfg_exit_after_success"
@@ -1435,7 +1443,7 @@ def _unit_from_rows(
                 bound_calls = bindings_by_source.get((fact.program_point, context), [])
                 if bound_calls:
                     call_failed = (
-                        fact.source_evidence == "codeql_callable_cfg_exit_after_exception"
+                        fact.source_evidence in {"codeql_callable_cfg_exit_after_exception", "codeql_callable_cfg_modeled_rejection_exit"}
                         or (
                             fact.exceptional_path and not fact.normal_path
                             and fact.source_evidence != "codeql_callable_cfg_exit_after_success"
@@ -1459,7 +1467,7 @@ def _unit_from_rows(
                             and fact.normal_path and not fact.exceptional_path
                         ):
                             guard = "task_submit_success"
-                        elif fact.source_evidence == "codeql_callable_cfg_exit_after_exception" or (
+                        elif fact.source_evidence in {"codeql_callable_cfg_exit_after_exception", "codeql_callable_cfg_modeled_rejection_exit"} or (
                             fact.source_evidence == "codeql_callable_cfg_edge"
                             and fact.exceptional_path and not fact.normal_path
                         ):
@@ -1977,7 +1985,8 @@ def _unit_from_rows(
             if any(fact.query_name == "resource_lifecycle" and fact.fact_kind == "cfg_edge"
                    and fact.related_point == point_id
                    and fact.source_evidence in {
-                       "codeql_callable_cfg_exit_after_success", "codeql_callable_cfg_exit_after_exception"
+                       "codeql_callable_cfg_exit_after_success", "codeql_callable_cfg_exit_after_exception",
+                       "codeql_callable_cfg_modeled_rejection_exit"
                    }
                    for fact in rows)
         ) or (normal_id, error_id)
