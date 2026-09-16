@@ -66,7 +66,7 @@ python3 -m dosweb.cli resource-replay --run "$lifecycle_output/project/analysis"
 
 源码和清单固定 hash 已包含在示例中；候选只提供已有 schema 的观测字段，不提供结论。清单中的路径按清单目录解析，CLI 相对路径按当前工作目录解析。混合输入项目预期为 partial，已映射的独立单元仍可复算，回放明确标为 selected。
 
-状态与实际限制见 [v1.2 STATUS](docs/execution/lifecycle-v1.2/STATUS.md)。H1/H2/H3/H5 已有验收证据，独立已有模块为 0，H4 blocked；最终门槛与重跑命令见 [HANDOFF](docs/execution/lifecycle-v1.2/HANDOFF.md)。完整传播在冻结十二例中为 10/12 匹配、5 unknown；消融 12/12、9 unknown。两项异常 CFG 缺口保留 unknown，未改 oracle。`resource-project` 默认将完整证据写入 `out/analysis/`，可用 `resource-replay --run out/analysis --source-root ...` 复算，`project-results.json` 保留全部输入账本。
+状态与实际限制见 [v1.2 STATUS](docs/execution/lifecycle-v1.2/STATUS.md)。H1/H2/H3/H5 已有验收证据，已纳入 3 个已有模块的 9 条请求，只有 1 个模块完成范围内分析与回放，H4 blocked；独立结果见 [模块评价](reports/lifecycle-v1.2/independent/summary.md)，最终门槛与重跑命令见 [HANDOFF](docs/execution/lifecycle-v1.2/HANDOFF.md)。完整传播在冻结十二例中为 10/12 匹配、5 unknown；消融 12/12、9 unknown。两项异常 CFG 缺口保留 unknown，未改 oracle。`resource-project` 默认将完整证据写入 `out/analysis/`，可用 `resource-replay --run out/analysis --source-root ...` 复算，`project-results.json` 保留全部输入账本。
 
 ## Resource Lifecycle v1.1 历史工作流
 

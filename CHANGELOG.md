@@ -1,3 +1,10 @@
+## [2026-09-16] Resource lifecycle v1.2 independent input intake
+
+- 用户明确允许使用 PoC 所属本地源码与 CodeQL DB；冻结 3 个已有模块、9 个方法（XXL-JOB core、HertzBeat common-core/common-spring），没有导入 PoC verdict 或执行样例。
+- 现有 DB 归档源码与 live 字节一致，但 live 有未归档文件，严格全树检查拒绝；改为完整主源码原样镜像与 build-mode=none 新 DB，保留未解析依赖和非编译验收限制。XXL-JOB 仍未通过全树匹配，失败输入保留分母。
+- 最终 9 条输入全部留账：3 提取失败、4 未映射、1 iteration_limit 预算退出、1 完成分析与语义回放。完整/消融均 12 条 unknown 性质，独立增益为 0；H4 blocked，缺口不再是授权或源码路径缺失。
+- 新增可复核源码镜像脚本、四份范围/尝试manifest、独立分层报告及精确CSV忽略例外；核心代码/查询未变，既有A–C验收保留。
+
 ## [2026-09-16] Resource lifecycle v1.2 partial delivery
 
 - 从固定 v1.1 基线建立独立工作树；新增共享正式性质发布、多资源选择、项目清单与已有候选导入、完整阶段台账、内容寻址分片与源码重绑定语义回放。P0 schema/tool 和双份 CodeQL 查询保持不变。

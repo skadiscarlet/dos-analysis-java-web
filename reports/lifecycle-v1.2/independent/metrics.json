@@ -1,0 +1,347 @@
+{
+  "attempt_history": {
+    "hertzbeat-common-core": {
+      "initial_full_module_attempt": {
+        "analysis": {
+          "skipped": 3
+        },
+        "extraction": {
+          "failed": 3
+        },
+        "mapping": {
+          "unavailable": 3
+        }
+      },
+      "diagnostic": {
+        "code": "CODEQL_QUERY_FAILED",
+        "details": {
+          "stage": "bqrs_decode",
+          "diagnostic": "{\"query_name\":\"resource_lifecycle\",\"reason\":\"ROWS_INVALID\"}"
+        }
+      },
+      "reason": "8885 raw rows exceed 4096 decoder cap; original failure retained",
+      "revised_scope": "entire original util package; selected method bodies unchanged",
+      "dependency_omissions": "other common-core packages including generated CollectRep"
+    }
+  },
+  "implementation_sha256": "4c4b32cc7bbfa915b222a86b6c9621b1f4398627c55cb7a20cb5de4d4403d8b8",
+  "requested_inputs": 9,
+  "requested_modules": 3,
+  "modules_with_analysis_and_replay": 1,
+  "projects_with_analysis_and_replay": 1,
+  "H4": "blocked",
+  "oracle_available": false,
+  "interpretation": "maintenance resource-property coverage only; no vulnerability labels, exploitability or dynamic conclusions",
+  "rules_changed_for_inputs": false,
+  "determinacy_gains": 0,
+  "modules": [
+    {
+      "module": "xxl-job-core",
+      "revision": "128dd678962b8918b9abf2e82928818b0072ac50",
+      "tree_hash": "109e858cae4cd8c021a87a0259d37d9f2da3c909167fd9b4b1f41ae36f665cf2",
+      "source_repository": "xuxueli__xxl-job",
+      "original_scope": "frameworks/applications/xuxueli__xxl-job/xxl-job-core/src/main/java",
+      "java_files": 52,
+      "selected_attempt": "xxl-job-core",
+      "requested": 3,
+      "stage_counts": {
+        "analysis": {
+          "skipped": 3
+        },
+        "extraction": {
+          "failed": 3
+        },
+        "mapping": {
+          "unavailable": 3
+        }
+      },
+      "build_mode": "none",
+      "compilation_verified": false,
+      "status": "partial",
+      "dependency_limits": [
+        "external dependency bodies not included",
+        "buildless resolution does not prove successful compilation"
+      ],
+      "exclusions": [
+        "test sources",
+        "other modules",
+        "resources and build files"
+      ],
+      "analyzed_units": 0,
+      "completed_solver_units": 0,
+      "solver_budget_exits": 0,
+      "raw_fact_count": 0,
+      "solver_steps": 0,
+      "serialized_evidence_bytes": null,
+      "max_shard_bytes": null,
+      "wall_clock_seconds": null,
+      "wall_clock_measurement": "not separately instrumented; native logs retained",
+      "relations": {},
+      "modes": {
+        "full": {
+          "requested_inputs": 3,
+          "analyzed_units": 0,
+          "published_properties": 0,
+          "determinate_fraction": null,
+          "status_counts": {},
+          "unknown_reasons": {},
+          "by_dimension": {}
+        },
+        "disable_cross_event_propagation": {
+          "requested_inputs": 3,
+          "analyzed_units": 0,
+          "published_properties": 0,
+          "determinate_fraction": null,
+          "status_counts": {},
+          "unknown_reasons": {},
+          "by_dimension": {}
+        }
+      },
+      "replay": null
+    },
+    {
+      "module": "hertzbeat-common-core",
+      "revision": "93195ce8bbc4642ae103b928b51cbd984d4aef46",
+      "tree_hash": "43d60d67c9775efb95d4cea0eff46c3aacc9beb82efe4810cfaa2aeb71b19eb6",
+      "source_repository": "apache__hertzbeat",
+      "original_scope": "frameworks/applications/apache__hertzbeat/hertzbeat-common-core/src/main/java/org/apache/hertzbeat/common/util",
+      "java_files": 29,
+      "selected_attempt": "hertzbeat-common-core-util-scope",
+      "requested": 3,
+      "stage_counts": {
+        "analysis": {
+          "budget_exit": 1,
+          "skipped": 2
+        },
+        "extraction": {
+          "extracted": 3
+        },
+        "mapping": {
+          "mapped": 1,
+          "mapping_missing": 2
+        }
+      },
+      "build_mode": "none",
+      "compilation_verified": false,
+      "status": "partial",
+      "dependency_limits": [
+        "external dependency bodies not included",
+        "buildless resolution does not prove successful compilation"
+      ],
+      "exclusions": [
+        "test sources",
+        "other modules",
+        "resources and build files",
+        "other common-core packages, including generated CollectRep; external calls remain unresolved"
+      ],
+      "analyzed_units": 1,
+      "completed_solver_units": 0,
+      "solver_budget_exits": 1,
+      "raw_fact_count": 239,
+      "solver_steps": 798,
+      "serialized_evidence_bytes": 1227121,
+      "max_shard_bytes": 35821,
+      "wall_clock_seconds": null,
+      "wall_clock_measurement": "not separately instrumented; native logs retained",
+      "relations": {
+        "families": 3,
+        "call_bindings": 0,
+        "task_bindings": 0
+      },
+      "modes": {
+        "full": {
+          "requested_inputs": 3,
+          "analyzed_units": 1,
+          "published_properties": 9,
+          "determinate_fraction": 0.0,
+          "status_counts": {
+            "unknown": 9
+          },
+          "unknown_reasons": {
+            "external_callee_resource_effects_unmodeled": 9,
+            "iteration_limit:event:e21a14dfb435adc03deb42dd": 9,
+            "repeated_abstract_instance:instance:645905008958db0fe178d1d8": 9,
+            "unknown_call:effect:37648a9a36fec144f859593e": 9,
+            "unknown_call:effect:55773bf3ad815ad02d41db3c": 9,
+            "unknown_call:effect:7e5e49d27f75102bf4f4c6e0": 9,
+            "unknown_call:effect:833cb3b77913686d897ba5c4": 9,
+            "unknown_call:effect:a11784f0c148d06e3d73753d": 9,
+            "unknown_call:effect:a6456e33e1b08a46cb6e61bf": 9,
+            "unknown_call:effect:a94ed110d6de527e798fda43": 9,
+            "unknown_call:effect:c732a61924a0e9cadc5552b5": 9,
+            "unknown_call:effect:e24917c0953a06cfc3693673": 9,
+            "unknown_call:effect:e4e39e95ff092c034be5395e": 9
+          },
+          "by_dimension": {
+            "close_obligation": {
+              "unknown": 3
+            },
+            "held_instances": {
+              "unknown": 3
+            },
+            "item_size_bytes": {
+              "unknown": 3
+            }
+          }
+        },
+        "disable_cross_event_propagation": {
+          "requested_inputs": 3,
+          "analyzed_units": 1,
+          "published_properties": 9,
+          "determinate_fraction": 0.0,
+          "status_counts": {
+            "unknown": 9
+          },
+          "unknown_reasons": {
+            "external_callee_resource_effects_unmodeled": 9,
+            "iteration_limit:event:e21a14dfb435adc03deb42dd": 9,
+            "repeated_abstract_instance:instance:645905008958db0fe178d1d8": 9,
+            "unknown_call:effect:37648a9a36fec144f859593e": 9,
+            "unknown_call:effect:55773bf3ad815ad02d41db3c": 9,
+            "unknown_call:effect:7e5e49d27f75102bf4f4c6e0": 9,
+            "unknown_call:effect:833cb3b77913686d897ba5c4": 9,
+            "unknown_call:effect:a11784f0c148d06e3d73753d": 9,
+            "unknown_call:effect:a6456e33e1b08a46cb6e61bf": 9,
+            "unknown_call:effect:a94ed110d6de527e798fda43": 9,
+            "unknown_call:effect:c732a61924a0e9cadc5552b5": 9,
+            "unknown_call:effect:e24917c0953a06cfc3693673": 9,
+            "unknown_call:effect:e4e39e95ff092c034be5395e": 9
+          },
+          "by_dimension": {
+            "close_obligation": {
+              "unknown": 3
+            },
+            "held_instances": {
+              "unknown": 3
+            },
+            "item_size_bytes": {
+              "unknown": 3
+            }
+          }
+        }
+      },
+      "replay": {
+        "consistent": false,
+        "mode": "semantic_replay",
+        "scope": "selected",
+        "exit_status": 5,
+        "error": "ARTIFACT_INPUT_INVALID",
+        "details": {
+          "reason": "partial or empty run cannot complete semantic replay"
+        }
+      }
+    },
+    {
+      "module": "hertzbeat-common-spring",
+      "revision": "93195ce8bbc4642ae103b928b51cbd984d4aef46",
+      "tree_hash": "651c3d5b3a44e0927d00ab2ef7727fcee6ebd3be3f8495b99e153d9dd2cbd8e6",
+      "source_repository": "apache__hertzbeat",
+      "original_scope": "frameworks/applications/apache__hertzbeat/hertzbeat-common-spring/src/main/java",
+      "java_files": 67,
+      "selected_attempt": "hertzbeat-common-spring",
+      "requested": 3,
+      "stage_counts": {
+        "analysis": {
+          "analyzed": 1,
+          "skipped": 2
+        },
+        "extraction": {
+          "extracted": 3
+        },
+        "mapping": {
+          "mapped": 1,
+          "mapping_missing": 2
+        }
+      },
+      "build_mode": "none",
+      "compilation_verified": false,
+      "status": "partial",
+      "dependency_limits": [
+        "external dependency bodies not included",
+        "buildless resolution does not prove successful compilation"
+      ],
+      "exclusions": [
+        "test sources",
+        "other modules",
+        "resources and build files"
+      ],
+      "analyzed_units": 1,
+      "completed_solver_units": 1,
+      "solver_budget_exits": 0,
+      "raw_fact_count": 23,
+      "solver_steps": 21,
+      "serialized_evidence_bytes": 221602,
+      "max_shard_bytes": 5717,
+      "wall_clock_seconds": null,
+      "wall_clock_measurement": "not separately instrumented; native logs retained",
+      "relations": {
+        "families": 1,
+        "call_bindings": 0,
+        "task_bindings": 0
+      },
+      "modes": {
+        "full": {
+          "requested_inputs": 3,
+          "analyzed_units": 1,
+          "published_properties": 3,
+          "determinate_fraction": 0.0,
+          "status_counts": {
+            "unknown": 3
+          },
+          "unknown_reasons": {
+            "returned_resource_ownership_unmodeled": 3,
+            "unknown_call:effect:cd3c762fa7689f7478a79448": 3
+          },
+          "by_dimension": {
+            "close_obligation": {
+              "unknown": 1
+            },
+            "held_instances": {
+              "unknown": 1
+            },
+            "item_size_bytes": {
+              "unknown": 1
+            }
+          }
+        },
+        "disable_cross_event_propagation": {
+          "requested_inputs": 3,
+          "analyzed_units": 1,
+          "published_properties": 3,
+          "determinate_fraction": 0.0,
+          "status_counts": {
+            "unknown": 3
+          },
+          "unknown_reasons": {
+            "returned_resource_ownership_unmodeled": 3,
+            "unknown_call:effect:cd3c762fa7689f7478a79448": 3
+          },
+          "by_dimension": {
+            "close_obligation": {
+              "unknown": 1
+            },
+            "held_instances": {
+              "unknown": 1
+            },
+            "item_size_bytes": {
+              "unknown": 1
+            }
+          }
+        }
+      },
+      "replay": {
+        "consistent": true,
+        "mode": "semantic_replay",
+        "scope": "selected",
+        "source_kind": "static_verified",
+        "unit_count": 1,
+        "failed_units": [],
+        "analysis_status": "complete",
+        "run_format": "lifecycle-run-2",
+        "input_binding": "chosen_unit_facts_catalog; original_snapshot_is_provenance",
+        "original_input_snapshot_recomputed": false
+      }
+    }
+  ],
+  "report_script_sha256": "a4f165beb082493b71b4ba9be8c0584090152a3b3f023ae60d644ac8d232eec6"
+}

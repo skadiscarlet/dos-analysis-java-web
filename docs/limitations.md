@@ -31,7 +31,7 @@ Resource Lifecycle v1 与 v2 P0 formal pipeline 并行存在。它没有修改�
 
 ## v1.2 未完成项与评价边界
 
-- 没有用户提供的两个独立已有模块；新建多资源 fixture 和 1×/2×/4× 副本只提供工程验收。
+- 已获准并纳入 3 个已有模块、9 条请求：3 条因严格源码快照失败、4 条未映射、1 条 iteration_limit 预算退出、1 条完成分析与回放。H4 仍 blocked，原因是工具覆盖和预算限制，不是缺少授权或路径。两个 HertzBeat 模块属于同一项目。
 - `s2-task-only`、`s2-field-holder` 缺 callee execute rejection 到 wrapper/caller 的异常 CFG 事实；正式后端保持 unknown。删除旧评价器的状态计数推断后，原 oracle 不匹配被显式暴露，full 为 10/12、5 unknown；消融为 12/12、9 unknown，确定性增益 4。
 - 规模最终运行复用已真实编译提取的事实；本次重新验证、求解、分片、迁移回放。编译/提取时间为 null，历史成本单列。没有把副本当独立样本，也不承诺一般线性复杂度。
 - 分片不解决单元内部状态爆炸；哈希绑定不提供签名认证。GitHub 只含紧凑报告，本地完整证据和复现路径见 HANDOFF。

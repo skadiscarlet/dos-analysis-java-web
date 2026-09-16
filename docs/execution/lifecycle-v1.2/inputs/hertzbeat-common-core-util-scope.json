@@ -1,0 +1,47 @@
+{
+  "version": "resource-project-v1.2",
+  "project_id": "hertzbeat-common-core",
+  "source_root": null,
+  "tree_hash": "43d60d67c9775efb95d4cea0eff46c3aacc9beb82efe4810cfaa2aeb71b19eb6",
+  "database": null,
+  "output": null,
+  "selection": [
+    {
+      "input_id": "hertzbeat-common-core-1",
+      "kind": "method",
+      "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMultipleRoots(Ljava/util/List;)[B"
+    },
+    {
+      "input_id": "hertzbeat-common-core-2",
+      "kind": "method",
+      "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMetricsData(Ljava/util/List;)[B"
+    },
+    {
+      "input_id": "hertzbeat-common-core-3",
+      "kind": "method",
+      "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.deserializeMetricsData([B)Ljava/util/List;"
+    }
+  ],
+  "dependency_scope": {
+    "sources": [
+      "hertzbeat-common-core/src/main/java/org/apache/hertzbeat/common/util (whole package, original bytes)"
+    ],
+    "dependencies": [
+      "JDK; CodeQL Java buildless resolution"
+    ],
+    "unknown_dependencies": [
+      "external dependency bodies; other project modules; successful build not verified",
+      "other common-core packages excluded to remain within query row budget"
+    ]
+  },
+  "budgets": {
+    "unit": {
+      "max_steps": 50000,
+      "max_updates_per_event": 64,
+      "timeout_ms": 15000
+    },
+    "batch_timeout_ms": 900000,
+    "max_unit_result_bytes": 16777216,
+    "max_output_bytes": 268435456
+  }
+}

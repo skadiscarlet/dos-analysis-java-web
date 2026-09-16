@@ -75,3 +75,8 @@ config/local_secrets.json
 !reports/lifecycle-v1.2/input-ledger.csv
 !reports/lifecycle-v1.2/properties.csv
 !reports/lifecycle-v1.2/comparison.csv
+
+# Compact independent-module v1.2 review tables.
+!reports/lifecycle-v1.2/independent/input-ledger.csv
+!reports/lifecycle-v1.2/independent/properties.csv
+!reports/lifecycle-v1.2/independent/comparison.csv

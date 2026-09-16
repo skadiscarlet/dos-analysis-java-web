@@ -1,14 +1,13 @@
-# Resource Lifecycle v1.2 状态
+# Resource Lifecycle v1.2 当前状态
 
-- actual_base_commit: 2ee16220e78dd088ab5c67277696429e71d53c71
-- branch: codex/resource-lifecycle-v1_2-20260914
-- implementation_status: partial
-- delivery_state_at_commit: ready_for_push
-- H1/H2/H3/H5/H6: pass；H4: blocked（独立已有模块 0，尚未提供两个模块输入）。
-- A–C 实现与验收完成；多资源项目 6 条输入、唯一计算单元 1、资源族 2、性质 6；台账保留 missing/ambiguous/stale 和重复输入。
-- 最终规模 1×/2×/4× 全部完成完整语义重放，最大结果 35,703,572 bytes，最大分片 34,408 bytes；复用已真实编译提取的事实，本轮重新验证/solve/分片/replay，成本分开报告。
-- 同事实十二例 full 10/12、5 unknown，消融 12/12、9 unknown，确定增益 4。两个 caller 异常 CFG 缺口保留 unknown，oracle 不变。
-- 全仓比较零新增失败/错误 ID；当前 1102 passed、41 skipped、101 failed、1 error；补充源码一致性、CLI 损坏拒绝各 1 passed。未宣称全绿。
-- 真实命令、运行身份、持久路径、限制和交付审查见 [HANDOFF](HANDOFF.md)，九项紧凑报告见 ../../../reports/lifecycle-v1.2/。
-- 主工作区用户变更未动；本轮独立 worktree。P0 schema/tool、双份查询及保留资产未改。
-- 下一动作：正常提交并推送本分支，比较远端完整 SHA；后续取得两个独立模块后完成 H4，整轮仍为 partial。
+- implementation_status: partial；delivery_state_at_commit: ready_for_push。
+- actual_base_commit: 2ee16220e78dd088ab5c67277696429e71d53c71。
+- branch: codex/resource-lifecycle-v1_2-20260914。
+- H1/H2/H3/H5/H6: pass；H4: blocked。
+- 用户已允许使用 PoC 所属源码与 DB。冻结 3 个已有模块、9 个方法，实际执行 buildless 源码提取；没有运行 PoC、项目服务或负载。
+- 最终输入去向：3 条提取失败、4 条映射缺失、1 条 iteration_limit 预算退出、1 条完成分析和 selected 语义回放。H4 缺口不再是授权或资产缺失。
+- 原 DB 归档字节一致但 full live 树有未归档文件，严格检查拒绝。HertzBeat core 完整模块 8,885 行触发 4,096 行解码上限；完整 util 包重试产生 519 行，选中方法未改。失败与范围变化保留。
+- 两个实际范围内求解单元的 full/消融均发布 12 条 unknown 性质；确定性增益 0，没有独立 oracle。只有 common-spring 的 1 个单元终止并通过回放；core预算退出的回放明确返回错误状态5。
+- 核心源码 hash 4c4b32cc7bbfa915b222a86b6c9621b1f4398627c55cb7a20cb5de4d4403d8b8 未变；原A–C验收、同环境零新增失败/错误差分仍对应当前核心。本轮报告实际运行、源码hash复核和格式审查完成。
+- 完整交接见 [HANDOFF](HANDOFF.md)，本轮输入/失败/重跑见 [INDEPENDENT](INDEPENDENT.md)。
+- 下一动作：提交并推送准确的补充报告。后续修复显式源码scope、查询分页/选择及循环收敛后重新完成H4，不能将当前partial标为完成。

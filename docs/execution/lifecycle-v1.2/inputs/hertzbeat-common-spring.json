@@ -1,0 +1,46 @@
+{
+  "version": "resource-project-v1.2",
+  "project_id": "hertzbeat-common-spring",
+  "source_root": null,
+  "tree_hash": "651c3d5b3a44e0927d00ab2ef7727fcee6ebd3be3f8495b99e153d9dd2cbd8e6",
+  "database": null,
+  "output": null,
+  "selection": [
+    {
+      "input_id": "hertzbeat-common-spring-1",
+      "kind": "method",
+      "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.support.CommonThreadPool.createLegacyExecutor(Ljava/lang/Thread$UncaughtExceptionHandler;)Ljava/util/concurrent/ExecutorService;"
+    },
+    {
+      "input_id": "hertzbeat-common-spring-2",
+      "kind": "method",
+      "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.entity.manager.JsonStringListAttributeConverter.convertToEntityAttribute(Ljava/lang/String;)Ljava/util/List;"
+    },
+    {
+      "input_id": "hertzbeat-common-spring-3",
+      "kind": "method",
+      "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.entity.manager.JsonByteListAttributeConverter.convertToEntityAttribute(Ljava/lang/String;)Ljava/util/List;"
+    }
+  ],
+  "dependency_scope": {
+    "sources": [
+      "hertzbeat-common-spring/src/main/java (complete unmodified Java files)"
+    ],
+    "dependencies": [
+      "JDK; CodeQL Java buildless resolution"
+    ],
+    "unknown_dependencies": [
+      "external dependency bodies; other project modules; successful build not verified"
+    ]
+  },
+  "budgets": {
+    "unit": {
+      "max_steps": 50000,
+      "max_updates_per_event": 64,
+      "timeout_ms": 15000
+    },
+    "batch_timeout_ms": 900000,
+    "max_unit_result_bytes": 16777216,
+    "max_output_bytes": 268435456
+  }
+}

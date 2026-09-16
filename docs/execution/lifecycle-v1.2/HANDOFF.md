@@ -12,7 +12,7 @@ branch: codex/resource-lifecycle-v1_2-20260914
 | H1 正式性质一致 | pass | reports/lifecycle-v1.2/gates.json；本地 tests/source-frozen.xml |
 | H2 项目输入与完整分母 | pass | reports/lifecycle-v1.2/input-ledger.csv；本地 project-frozen-01/project-results.json |
 | H3 分片与完整语义重放 | pass | reports/lifecycle-v1.2/scaling.json；本地 tests/cli-sharded.xml |
-| H4 两个独立已有模块 | blocked | 未提供明确的独立源码输入，实际模块数 0 |
+| H4 两个独立已有模块 | blocked | 3 个模块/9 条请求已实际尝试，只有 1 个模块完成范围内分析与回放；independent/metrics.json |
 | H5 诚实分层评价 | pass | reports/lifecycle-v1.2/comparison.csv、metrics.json |
 | H6 可审阅交付 | pass | 已核查九项报告、126 条分层台账、性质引用、脚本 hash、失败 ID 差分及本轮文件清单；gates.json |
 
@@ -24,7 +24,7 @@ P0 schema/tool 2.5/0.4.0 与双份 CodeQL 查询未改；LLM off，无服务启�
 
 ## source_inputs 与 property_consistency
 
-- 独立已有项目/模块：0。H4 缺资产，不能用新造样例或重命名副本抵充。
+- 独立已有源码：2 个仓库中的 3 个模块、9 条请求。3 条提取失败、4 条映射缺失、1 条预算退出、1 条完成分析与语义回放。实际完成模块 1、项目 1，H4 仍 blocked；完整/消融各发布 12 条 unknown 性质，确定增益 0，无准确率 oracle。
 - 多资源自包含 Java fixture：6 条请求，3 mapped/analyzed（方法、重复方法、候选），1 ambiguous、1 missing、1 stale；唯一计算单元 1、资源族 2、正式性质 6。候选准确引用其中 3 条，重复方法复用原性质 ID。
 - 十二例源码对照：复用规模 1× 的同一 raw facts；不增加独立实验。
 - 规模副本：1×/2×/4× 分别 12/24/48 个单元，全部分析、完整语义重放。
@@ -103,6 +103,8 @@ python3 scripts/report_lifecycle_v12.py \
 
 ## remaining_gaps / next_action
 
-提供至少两个独立已有模块的明确本地路径、版本、离线构建配置和合计 6–10 个精确检查单元；冻结选择后执行真实提取与同事实对照，补齐 H4。未收到输入前整轮保持 partial，不扩大扫描范围。一般终止性、总字节上界、nested tasks、未知分派/alias/容量继续不在支持范围。
+授权和源码路径已具备。下一步处理三个具体工程缺口：显式 compiled-source scope（不放宽字节绑定）、查询结果在 4,096 行预算内的分页或精确选择、循环 repeated abstract instance 的收敛/预算退出。当前 core 798 solver steps 后触发 iteration_limit，未伪造成功回放；另外四个无可识别资源的输入留在映射失败分母。不要继续通过修改样例、筛掉失败或放宽 bound 凑 H4。
+
+本轮独立结果根目录为 `.local-runs/v1.2/independent-20260916/`；完整输入范围、首次失败、重试、排除文件、已有 DB 拒绝原因及从零重跑命令见 [INDEPENDENT.md](INDEPENDENT.md)。源码镜像逐文件hash已复核，分析核心与原 A–C 验收一致，只有接入清单、报告脚本和文档新增。一般终止性、总字节上界、nested tasks、未知分派/alias/容量仍未证明。
 
 本提交只记录 ready_for_push；推送和远端 SHA 对齐在提交后验证，最终回复给出实际结果。

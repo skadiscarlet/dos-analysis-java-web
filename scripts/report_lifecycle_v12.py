@@ -107,7 +107,7 @@ def committed_implementation_hash():
     return hashlib.sha256(canonical_json(identity)).hexdigest()
 
 
-def build(root_run, output, *, delivery_reviewed=False):
+def build(root_run, output, *, delivery_reviewed=False, independent_report=None):
     inputs = {"scaling": root_run / "scaling-frozen-01/scaling-results.json",
         "project": root_run / "project-frozen-01/project-results.json",
         "baseline": root_run / "tests/baseline.xml", "current": root_run / "tests/current.xml",
@@ -267,7 +267,25 @@ def build(root_run, output, *, delivery_reviewed=False):
                "reason": "已通过 --delivery-reviewed 记录交付审查，且实现 commit 与运行源码 hash 一致。" if delivery_reviewed and implementation_commit
                          else "等待最终文档、交付清单、失败 ID 差分和 Git 提交审查。"},
     }
-    metrics = {"implementation_status": "partial", "independent_modules": 0,
+    independent = None
+    if independent_report is not None:
+        independent = load_json_regular(independent_report / "metrics.json")
+        if independent["implementation_sha256"] != current_impl:
+            raise ValueError("independent evaluation implementation differs")
+        completed_modules = [module for module in independent["modules"]
+            if module["analyzed_units"] > 0 and (module.get("replay") or {}).get("consistent") is True]
+        gates["H4"] = {"status": "pass" if len(completed_modules) >= 2 else "blocked",
+            "independent_modules": len(completed_modules), "requested_inputs": independent["requested_inputs"],
+            "evidence": [relative(independent_report / "metrics.json"), relative(independent_report / "input-ledger.csv")],
+            "reason": "用户允许的既有模块；buildless静态源码范围检查，失败与缺口保留，不作编译或跨项目准确率结论。"}
+        inputs["independent_metrics"] = independent_report / "metrics.json"
+        inputs["independent_freeze"] = independent_report / "input-freeze.json"
+        with (independent_report / "input-ledger.csv").open(newline="", encoding="utf-8") as stream:
+            ledger.extend({"data_source": "independent_modules", **row} for row in csv.DictReader(stream))
+        with (independent_report / "properties.csv").open(newline="", encoding="utf-8") as stream:
+            properties.extend({"data_source": "independent_modules", **row} for row in csv.DictReader(stream))
+    implementation_status = "complete" if all(gate["status"] == "pass" for gate in gates.values()) else "partial"
+    metrics = {"implementation_status": implementation_status, "independent_modules": gates["H4"].get("independent_modules", 0),
         "project_mixed_inputs": {"requested": project["requested"], "stage_counts": project["stage_counts"], "status": project["status"],
             "unique_analysis_units": len(project_units), "unique_resource_families": len(project_family_ids),
             "unique_published_properties": len(project_property_ids), "repeated_input_references_are_not_independent_resources": True},
@@ -278,6 +296,8 @@ def build(root_run, output, *, delivery_reviewed=False):
                                     "independent_projects": 0},
         "tests": {"baseline": baseline["counts"], "current": current["counts"], "source_frozen": source_tests["counts"],
                   "cli_sharded_supplement": cli_tests}}
+    if independent is not None:
+        metrics["independent_source_modules"] = independent
     manual_path = root_run / "manual-ir/metrics.json"
     if manual_path.exists():
         metrics["manual_ir_regression"] = sanitized(load_json_regular(manual_path))
@@ -316,7 +336,8 @@ def build(root_run, output, *, delivery_reviewed=False):
         "inputs": {name: {"path": relative(path), "sha256": digest(path)} for name, path in inputs.items()},
         "raw_fact_snapshots": fact_hashes, "report_script_sha256": digest(Path(__file__)),
         "orchestration_script_sha256": {name: digest(ROOT / name) for name in
-            ("scripts/evaluate_lifecycle_v12_scaling.py", "scripts/report_lifecycle_v12.py")},
+            ("scripts/evaluate_lifecycle_v12_scaling.py", "scripts/report_lifecycle_v12.py",
+             "scripts/report_lifecycle_v12_independent.py", "scripts/prepare_lifecycle_v12_independent.py")},
         "source_selection": "twelve frozen v1.1 cases mapped to SourcePairsScale001; expectations never passed to analysis",
         "rerun_commands": ["python scripts/evaluate_lifecycle_v12_scaling.py --out <new-persistent-scaling-directory>",
             f"python scripts/report_lifecycle_v12.py --root-run {relative(root_run)} --out {relative(output)}"],
@@ -337,10 +358,11 @@ def build(root_run, output, *, delivery_reviewed=False):
     full, ablated = modes["full"], modes["disable_cross_event_propagation"]
     summary = f"""# 资源生命周期 v1.2 验收汇总
 
-整轮状态：**partial**。独立已有模块为 0，H4 blocked；H6 {gates['H6']['status']}。
+整轮状态：**{implementation_status}**。实际完成范围内分析与回放的独立已有模块 {metrics["independent_modules"]}，H4 {gates["H4"]["status"]}；H6 {gates["H6"]["status"]}。
 
 ## 输入分母
 
+- 独立源码补充：{independent["requested_inputs"] if independent else 0} 条请求；逐模块失败、范围与对照见 independent/summary.md。
 - 项目混合输入：{project['requested']} 条，状态 `{project['status']}`；逐阶段去向见 input-ledger.csv。
 - 冻结源码：同一 fixture 的 12 个检查案例，直接复用规模 1× 的同一事实，不增加独立实验。
 - 规模组：1×/2×/4× 共分别 12/24/48 个方法；仅为固定结构重命名副本，不计独立项目。
@@ -362,22 +384,23 @@ def build(root_run, output, *, delivery_reviewed=False):
 
 ## 限制
 
-未提供两个独立已有模块，本报告不作泛化结论。任务终止切面不证明任务最终调度或总内存上界。
+独立模块的输入、构建模式、范围缩小、失败、同事实对照和回放见 independent/summary.md（如已提供该补充）。本报告不作泛化结论；任务终止切面不证明任务最终调度或总内存上界。
 GitHub 交付仅含紧凑报告；真实源码、数据库、分片和日志仍位于本地持久运行目录。
 运行时 HEAD/dirty、报告生成时 HEAD、同内容实现 commit、查询/实现/事实 hash 和重跑命令见 run-manifest.json。
 """
     atomic_write_text(output / "summary.md", summary)
-    return {"report_status": "generated", "implementation_status": "partial", "gates": {name: gate["status"] for name, gate in gates.items()}}
+    return {"report_status": "generated", "implementation_status": implementation_status, "gates": {name: gate["status"] for name, gate in gates.items()}}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root-run", type=Path, default=ROOT / ".local-runs/v1.2")
     parser.add_argument("--out", type=Path, default=ROOT / "reports/lifecycle-v1.2")
+    parser.add_argument("--independent-report", type=Path, help="completed frozen independent module report directory")
     parser.add_argument("--delivery-reviewed", action="store_true", help="attest completed delivery/file/test-ID/baseline/command review; default H6 remains pending")
     args = parser.parse_args(argv)
     try:
-        result = build(args.root_run.resolve(), args.out.resolve(), delivery_reviewed=args.delivery_reviewed)
+        result = build(args.root_run.resolve(), args.out.resolve(), delivery_reviewed=args.delivery_reviewed, independent_report=args.independent_report)
     except Exception as exc:
         print(json.dumps({"report_status": "not_generated", "reason": type(exc).__name__, "detail": sanitized(str(exc))}, ensure_ascii=False), file=sys.stderr)
         return 1
