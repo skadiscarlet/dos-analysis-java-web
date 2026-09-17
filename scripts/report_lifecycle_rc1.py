@@ -197,6 +197,25 @@ def build(run,output,acceptance):
         '', '成本、solver steps/抽象配置/widening/subsumption、关系数量和未测量字段均列在 metrics.json。',
         '', '局限：build-mode=none 不证明编译或依赖完备；未知外部库行为保持 unknown。累计历史分配上界无穷不等于漏洞或结构性无界增长；不覆盖一般动态分派、深度>1、自定义异步或总字节预算。',
         '', '复跑入口和下一阶段实验接续见 docs/execution/lifecycle-rc1/HANDOFF.md。'])
+    synth=checks.get('synthetic',{}).get('metrics',{})
+    relations={kind:sum(u.get('relations',{}).get(kind,0) for m in modules for u in m['units']) for kind in ('call_bindings','task_bindings')}
+    lines.extend(['', '补充验收与解释：', '',
+        f"- 合成回归：{synth.get('modes','未提供')}；合成确定性增益 {synth.get('determinacy_gains','未提供')}。它们是开发回归，不是独立研究证据。",
+        f"- 固定九输入关系数量：{relations}；独立确定性增益 {metrics['determinate_gain']}。",
+        '- 原精确请求未被候选方法替换，方法身份差异的位置/hash/descriptor 见 input-ledger.csv。',
+        '- 入口对真实方法身份失败返回非零；rc_ready 表示 R1–R6 的受支持工程门槛通过，不表示九个方法均已分析成功。',
+        '', '| 模块 | 提取+适配 s | 求解+序列化 s | 回放 s | Python peak RSS MiB |',
+        '| --- | ---: | ---: | ---: | ---: |'])
+    def number(value):
+        return 'null' if value is None else f'{value:.3f}'
+    for m in modules:
+        cost=m.get('costs',{}); phases=m.get('phase_costs') or {}
+        rss=cost.get('peak_analyzer_rss_bytes')
+        lines.append(f"| {m['module']} | {number(phases.get('extraction_and_adaptation_seconds'))} | {number(phases.get('solve_and_serialization_seconds'))} | {number(cost.get('replay_seconds'))} | {number(rss/(1024*1024) if rss is not None else None)} |")
+    measured=checks.get('same_facts_loop_comparison',{})
+    if measured:
+        b,a=measured['baseline'],measured['current']
+        lines.extend(['',f"同一冻结 ArrowUtil facts：steps {b['steps']} → {a['steps']}；配置 {b.get('diagnostic_configuration_counts',{}).get('exact_configurations')} → {a['solver_metrics']['abstract_configurations']}；最终 widening {a['solver_metrics']['widening_count']}、subsumption {a['solver_metrics']['subsumption_count']}。耗时 {b['elapsed_seconds']:.6f} → {a['elapsed_seconds']:.6f} s，peak RSS {b['peak_rss_kib']} → {a['peak_rss_kib']} KiB。", '这些是同机实际测量，包含并发负载影响；完整模块的不同源码范围成本另列，不作跨范围收益比较。'])
     (output/'summary.md').write_text('\n'.join(lines)+'\n')
     return metrics
 

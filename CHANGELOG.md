@@ -1,3 +1,10 @@
+## [2026-09-17] Resource lifecycle RC1 delivery
+
+- R1–R6 验收通过，工程 rc_ready、研究 unvalidated；被测实现 1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4。九输入全部提取、8方法解析、4非空单元在3模块完成求解及回放、0预算退出。
+- 原 readLog selector 返回包过期，保留 method_missing 和入口非零退出；4项 resource_unmodeled 不当作求解或安全。full/消融均1 bounded+17 unknown，独立增益0，无相关call/task关系和独立oracle。
+- 原十二例两模式12/12，普通性质与语义回放一致，合成增益6；最终同环境全仓1212 passed，原12 failures/1 collection error持续，零新增失败/错误ID，新增默认skip均有明确独立验收。
+- 发布紧凑门槛、九请求前后账本、性质/同事实对照、成本与源码/DB/查询/预算/实现身份；报告仅记录ready_for_push，实际交付SHA在提交后远端核验。
+
 ## [2026-09-16] Resource lifecycle RC1
 
 - 在固定 v1.2 基线的隔离分支增量修复；保留原源码、DB、归档、十二例 oracle 和主工作区无关修改，仅执行防御性离线静态验收。

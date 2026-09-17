@@ -1,0 +1,1119 @@
+{
+  "engineering_status": "rc_ready",
+  "research_evidence": "unvalidated",
+  "oracle_available": false,
+  "input_role": "development_regression",
+  "requested_inputs": 9,
+  "distinct_methods": 9,
+  "projects": 2,
+  "modules": 3,
+  "gates": {
+    "R1": {
+      "status": "pass",
+      "evidence": "Three original XXL requests retried; 52/39 Java source/archive files, 13 lexical-trivia-only exclusions with hashes; all used archive bytes match. All three module source-scope.json complete. Byte mismatch/declaration-gap rejection tested."
+    },
+    "R2": {
+      "status": "pass",
+      "evidence": "Complete 158-file common-core admits 8,891 raw rows (old query: 8,885), no truncation. Nine original IDs/selectors retained. Eight exact methods resolve; the ninth has a proven stale return-package descriptor, kept method_missing. Old zero-resource inputs separately show model coverage or recovered resource facts."
+    },
+    "R3": {
+      "status": "pass",
+      "evidence": "Three real-source loops and final 11 tests pass; full common-core loop finishes in 272 steps with semantic replay. XXL synchronous history enumeration fixed: 248 steps, no budget exit. Widening infinity is not a growth or termination proof."
+    },
+    "R4": {
+      "status": "pass",
+      "evidence": "Original source/oracle unchanged. Both modes match 12/12; S2 bounds 0/1 from ordinary properties; 12-unit property fields and semantic replay agree. Four fresh caller-cleanup/extra-holder counterexamples pass; old manual suite stays 24/24."
+    },
+    "R5": {
+      "status": "pass",
+      "evidence": "Four nonempty resource units in all three original modules complete solve/selected replay; two projects, nine-request denominator; same-fact ablation, costs, unknowns and zero call/task bindings explicitly reported."
+    },
+    "R6": {
+      "status": "pass",
+      "evidence": "Final same-environment suite: 1212 passed, 12 failed, 46 skipped, 1 collection error; zero new failure/error IDs. All added default opt-in skips have separate execution evidence. Delivery artifacts reviewed; this report records ready_for_push only. Remote SHA verification is performed after the report commit."
+    }
+  },
+  "stage_counts": {
+    "mapping": {
+      "mapped": 8,
+      "mapping_missing": 1
+    },
+    "method_resolution": {
+      "method_resolved": 8,
+      "method_missing": 1
+    },
+    "extraction": {
+      "extracted": 9
+    },
+    "resource_recognition": {
+      "resource_unmodeled": 4,
+      "not_attempted": 1,
+      "modeled_resource": 4
+    },
+    "analysis": {
+      "not_applicable": 4,
+      "skipped": 1,
+      "analyzed": 4
+    }
+  },
+  "completed_nonempty_units": 4,
+  "modules_with_nonempty_analysis_and_replay": 3,
+  "resource_families": 6,
+  "property_status_counts": {
+    "full": {
+      "unknown": 17,
+      "bounded": 1
+    },
+    "ablated": {
+      "unknown": 17,
+      "bounded": 1
+    }
+  },
+  "determinate_gain": 0,
+  "properties_by_dimension_cut_status": {
+    "full": [
+      {
+        "dimension": "close_obligation",
+        "scope": "all_exits",
+        "cut": "all_modeled_exits",
+        "status": "unknown",
+        "count": 6
+      },
+      {
+        "dimension": "held_instances",
+        "scope": "all_exits",
+        "cut": "all_modeled_exits",
+        "status": "bounded",
+        "count": 1
+      },
+      {
+        "dimension": "held_instances",
+        "scope": "all_exits",
+        "cut": "all_modeled_exits",
+        "status": "unknown",
+        "count": 5
+      },
+      {
+        "dimension": "item_size_bytes",
+        "scope": "per_instance",
+        "cut": "all_modeled_exits",
+        "status": "unknown",
+        "count": 6
+      }
+    ],
+    "ablated": [
+      {
+        "dimension": "close_obligation",
+        "scope": "all_exits",
+        "cut": "all_modeled_exits",
+        "status": "unknown",
+        "count": 6
+      },
+      {
+        "dimension": "held_instances",
+        "scope": "all_exits",
+        "cut": "all_modeled_exits",
+        "status": "bounded",
+        "count": 1
+      },
+      {
+        "dimension": "held_instances",
+        "scope": "all_exits",
+        "cut": "all_modeled_exits",
+        "status": "unknown",
+        "count": 5
+      },
+      {
+        "dimension": "item_size_bytes",
+        "scope": "per_instance",
+        "cut": "all_modeled_exits",
+        "status": "unknown",
+        "count": 6
+      }
+    ]
+  },
+  "module_results": [
+    {
+      "tested_source_commit": "1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4",
+      "tested_source_dirty": false,
+      "implementation_sha256": "32d899c7383c12d8027b144de8a90b4c39fdda9609ce6ea1c98707e8c3318e3f",
+      "query_sha256": {
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql": "ab0a7a0674c2624c3729c5708cb7597f31d886b145136308efa74b99da904f37",
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql": "facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd",
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleCallables.ql": "87568c50814490cc5a003414bd4492ca1b5970ed74685970e0bec6538a4b7391"
+      },
+      "runner_sha256": "aaaedef17a47682be34f24b9d5bb294c7efe9f884c06dc293897e54e80815ee4",
+      "module": "xxl-job-core",
+      "status": "failed",
+      "costs": {
+        "database_creation_seconds": null,
+        "database_creation_note": "Existing byte-bound frozen DB reused; current queries re-executed",
+        "project_seconds": 298.45431651198305,
+        "replay_seconds": 0.5915625299094245,
+        "ablation_seconds": 0.5724026219686493,
+        "worker_seconds": 299.64274271496106,
+        "peak_analyzer_rss_bytes": 66019328,
+        "peak_rss_scope": "worker process high-water mark; excludes CodeQL subprocesses"
+      },
+      "source": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_2-20260914/.local-runs/v1.2/independent-20260916/xxl-job-core/source",
+      "database": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_2-20260914/.local-runs/v1.2/independent-20260916/xxl-job-core/database",
+      "original_tree_hash": "109e858cae4cd8c021a87a0259d37d9f2da3c909167fd9b4b1f41ae36f665cf2",
+      "selection_sha256": "0245540aba86ca88087f01d6557a6993caffe724845f8c2d633e8f44531e4598",
+      "selection": [
+        {
+          "input_id": "xxl-job-core-1",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:com.xxl.job.core.log.XxlJobFileAppender.initLogPath(Ljava/lang/String;)V"
+        },
+        {
+          "input_id": "xxl-job-core-2",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:com.xxl.job.core.log.XxlJobFileAppender.readLog(Ljava/lang/String;I)Lcom/xxl/job/core/biz/model/LogData;"
+        },
+        {
+          "input_id": "xxl-job-core-3",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:com.xxl.job.core.util.ScriptUtil.execToFile(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)I"
+        }
+      ],
+      "budgets": {
+        "unit": {
+          "max_steps": 50000,
+          "max_updates_per_event": 64,
+          "timeout_ms": 15000
+        },
+        "batch_timeout_ms": 900000,
+        "max_unit_result_bytes": 16777216,
+        "max_output_bytes": 268435456
+      },
+      "java_files": 52,
+      "source_repository": "xuxueli__xxl-job",
+      "phase_costs": {
+        "adaptation_seconds": null,
+        "extraction_and_adaptation_seconds": 294.47707972105127,
+        "extraction_seconds": null,
+        "note": "Combined extraction includes scope hashing and callable inventory; solve includes shard serialization. Separate internal timing and replay are not measured here.",
+        "replay_seconds": null,
+        "solve_and_serialization_seconds": 3.9526306570041925
+      },
+      "project_status": "partial",
+      "stage_counts": {
+        "mapping": {
+          "mapped": 2,
+          "mapping_missing": 1
+        },
+        "method_resolution": {
+          "method_missing": 1,
+          "method_resolved": 2
+        },
+        "resource_recognition": {
+          "modeled_resource": 1,
+          "not_attempted": 1,
+          "resource_unmodeled": 1
+        },
+        "extraction": {
+          "extracted": 3
+        },
+        "analysis": {
+          "analyzed": 1,
+          "not_applicable": 1,
+          "skipped": 1
+        }
+      },
+      "replay": {
+        "consistent": true,
+        "mode": "semantic_replay",
+        "scope": "selected",
+        "source_kind": "static_verified",
+        "unit_count": 1,
+        "failed_units": [],
+        "analysis_status": "complete",
+        "run_format": "lifecycle-run-2",
+        "input_binding": "chosen_unit_facts_catalog; original_snapshot_is_provenance",
+        "original_input_snapshot_recomputed": false
+      },
+      "units": [
+        {
+          "unit_id": "java-callable-v1:com.xxl.job.core.util.ScriptUtil.execToFile(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)I",
+          "status": "analyzed",
+          "terminated": true,
+          "raw_snapshot_sha256": "02ba4e1dd414ac1b4bd3eabb154689765ca323be0a65aa5b43cfe4cde7df71e3",
+          "raw_fact_count": 182,
+          "steps": 248,
+          "solver_metrics": {
+            "abstract_configurations": 207,
+            "cyclic_event_count": 6,
+            "loop_partitions": 7,
+            "subsumption_count": 42,
+            "widening_count": 0
+          },
+          "relations": {
+            "families": 1,
+            "call_bindings": 0,
+            "task_bindings": 0
+          },
+          "binding_property_refs": {
+            "call_bindings": [],
+            "task_bindings": []
+          },
+          "binding_property_ref_semantics": "direct evidence-reference overlap; does not imply causal necessity",
+          "ablated_terminated": true,
+          "ablated_steps": 248
+        }
+      ],
+      "scope_dependency_change": {
+        "restored_file_count": 0,
+        "restored_packages": [],
+        "remaining_dependency_limits": [
+          "external dependency bodies not included",
+          "buildless resolution does not prove successful compilation"
+        ],
+        "original_freeze_report_sha256": "3d6531ecd7312ecf508cdf2aea9b45a3ace274c118c3cb510279448538a5d408",
+        "new_freeze_sha256": "734b47e78e0f1dee62aaa40e327300b1be184f477cb1883209ef7376c39e2bc2"
+      },
+      "completed_nonempty_units": 1,
+      "before_solver_steps": 0,
+      "before_tree_hash": "109e858cae4cd8c021a87a0259d37d9f2da3c909167fd9b4b1f41ae36f665cf2",
+      "after_tree_hash": "109e858cae4cd8c021a87a0259d37d9f2da3c909167fd9b4b1f41ae36f665cf2",
+      "same_scope_as_v12_report": true,
+      "scope_change": null,
+      "source_scope_artifact": ".local-runs/rc1/release-nine/xxl-job-core/project/source-scope.json",
+      "source_identity": {
+        "source_tree_hash": "109e858cae4cd8c021a87a0259d37d9f2da3c909167fd9b4b1f41ae36f665cf2",
+        "source_scope_sha256": "efe30dda55edfb1be25775397e3ef5f454206b776991df9ca523b6232f8ae071",
+        "archive_sha256": "7f0a2f8930d6cbb939f937908ac764c22ac45d9896e8684d93d1b3c148f12ab0",
+        "database_fingerprint": "a467e4cd56b3831f90064b7b14d53e66efb1b7bfad1801b17651e47828bf66c3",
+        "source_files": 52,
+        "archived_files": 39,
+        "unarchived_files": [
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/handler/annotation/JobHandler.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "0003cba7656a3f3a1347b60251167637e361dbb138d44dd8f98eaaaab2dd6f1c"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/AdminBizClient.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "9735f4aafeb950ef29cea201871572bd3d28dda2da33120a44147e2267a525dc"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/DateUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "afff45b57c8447684029973b67f050b97de18973feede92964df108fcd006642"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/ExecutorBizClient.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "00f25a1e91f4e3f88dab1201d0e1cc708f3f3fad9e4b69b1d7e3f5bd785cec39"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/FileUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "94bec2234fdb40a4083db9c8523a9ed45e1f848d630dead507af32b729215d6c"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/GsonTool.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "4289170c1ed9d0d928c005e08bef3d80311f74860a6b0d0363fdd9efa386bad9"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/IpUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "e94d4ac345918cc75d3b148e8e786f1edbfee3520f8fde04e5e43fdcca65a807"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/JdkSerializeTool.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "f8bd1ed41721b24a6f363d4d6f019954a88800e44e67836480ec7fa0d0dfb62b"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/NetUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "de1dfd66a5bcdec38dc3db57197ad18b26cbf896951c7d81527cbb7786d59e1b"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/ReturnT.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "d8f17911c826848e4d105fdbc29fe992e23fe4b05cc7cae2dc77f1c4f1e91ed8"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/ShardingUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "1770c0aea6c63cdd94f36de822dff7e143f1981353ddff31e223a89852d6edf3"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/ThrowableUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "a561cf3cf13f36fc6bf61455bf29d3ea547a584d08861a5a13be00b995871d8a"
+          },
+          {
+            "classification": "lexical_trivia_only",
+            "path": "com/xxl/job/core/util/deprecated/XxlJobRemotingUtil.java",
+            "reason": "java_lexical_whitespace_and_complete_comments",
+            "selected_dependency_impact": "none",
+            "sha256": "086b92927636ee92c8b73519912f3d901e26518ab69ad4f6b88ec307e089511c"
+          }
+        ],
+        "archived_mismatch_files": [],
+        "scope_complete": true,
+        "callable_inventory_sha256": "0b5f99f9851b3f1d4d5166bac48f366f4765b0b74aa617079cd6405210855bef",
+        "query_outputs": [
+          {
+            "query": "ResourceLifecycleCallables",
+            "decoded_path": ".local-runs/rc1/release-nine/xxl-job-core/project/codeql/.generations/ResourceLifecycleCallables-560ec9e991cf45b98b199bcebcfc26ae/ResourceLifecycleCallables.json",
+            "decoded_sha256": "6f7092703914f799d7c205c9db247b84d60542e218031f6ff6d517f5a2f61716",
+            "row_count": 392,
+            "decoded_bytes": 112618
+          },
+          {
+            "query": "ResourceLifecycleFacts",
+            "decoded_path": ".local-runs/rc1/release-nine/xxl-job-core/project/codeql/.generations/ResourceLifecycleFacts-d29b89c0207843c9808fbe8d087f5869/ResourceLifecycleFacts.json",
+            "decoded_sha256": "39cebef47b3a6f1b0602b255f4978e79b209dfbd0724961ad8313940a925bd78",
+            "row_count": 2617,
+            "decoded_bytes": 2171671
+          },
+          {
+            "query": "ResourceLifecycleTaskRelations",
+            "decoded_path": ".local-runs/rc1/release-nine/xxl-job-core/project/codeql/.generations/ResourceLifecycleTaskRelations-f380ddc27bc6473b8a4887c7459481c1/ResourceLifecycleTaskRelations.json",
+            "decoded_sha256": "2b87a93e93d177887492e103d29ba42f6005f9ed3f233d7bdbb378f408e78f4b",
+            "row_count": 0,
+            "decoded_bytes": 1325
+          }
+        ]
+      }
+    },
+    {
+      "tested_source_commit": "1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4",
+      "tested_source_dirty": false,
+      "implementation_sha256": "32d899c7383c12d8027b144de8a90b4c39fdda9609ce6ea1c98707e8c3318e3f",
+      "query_sha256": {
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql": "ab0a7a0674c2624c3729c5708cb7597f31d886b145136308efa74b99da904f37",
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql": "facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd",
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleCallables.ql": "87568c50814490cc5a003414bd4492ca1b5970ed74685970e0bec6538a4b7391"
+      },
+      "runner_sha256": "aaaedef17a47682be34f24b9d5bb294c7efe9f884c06dc293897e54e80815ee4",
+      "module": "hertzbeat-common-core",
+      "status": "complete",
+      "costs": {
+        "database_creation_seconds": null,
+        "database_creation_note": "Existing byte-bound frozen DB reused; current queries re-executed",
+        "project_seconds": 341.3562771449797,
+        "replay_seconds": 0.9866924569942057,
+        "ablation_seconds": 0.9324276089901105,
+        "worker_seconds": 343.31332989095245,
+        "peak_analyzer_rss_bytes": 165425152,
+        "peak_rss_scope": "worker process high-water mark; excludes CodeQL subprocesses"
+      },
+      "source": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_2-20260914/.local-runs/v1.2/independent-20260916/hertzbeat-common-core/source",
+      "database": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_2-20260914/.local-runs/v1.2/independent-20260916/hertzbeat-common-core/database",
+      "original_tree_hash": "33adb5b24be2cf0a139779ddb27a139a8d935c9edc20aa51184f5d5e098b5c72",
+      "selection_sha256": "fd8c6d30ddd4cb9a1fe137851a82e599480ab9f8bc9aac509c56ee7c504b04a5",
+      "selection": [
+        {
+          "input_id": "hertzbeat-common-core-1",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMultipleRoots(Ljava/util/List;)[B"
+        },
+        {
+          "input_id": "hertzbeat-common-core-2",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMetricsData(Ljava/util/List;)[B"
+        },
+        {
+          "input_id": "hertzbeat-common-core-3",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.deserializeMetricsData([B)Ljava/util/List;"
+        }
+      ],
+      "budgets": {
+        "unit": {
+          "max_steps": 50000,
+          "max_updates_per_event": 64,
+          "timeout_ms": 15000
+        },
+        "batch_timeout_ms": 900000,
+        "max_unit_result_bytes": 16777216,
+        "max_output_bytes": 268435456
+      },
+      "java_files": 158,
+      "source_repository": "apache__hertzbeat",
+      "phase_costs": {
+        "adaptation_seconds": null,
+        "extraction_and_adaptation_seconds": 334.8173740359489,
+        "extraction_seconds": null,
+        "note": "Combined extraction includes scope hashing and callable inventory; solve includes shard serialization. Separate internal timing and replay are not measured here.",
+        "replay_seconds": null,
+        "solve_and_serialization_seconds": 6.487116554984823
+      },
+      "project_status": "partial",
+      "stage_counts": {
+        "mapping": {
+          "mapped": 3
+        },
+        "method_resolution": {
+          "method_resolved": 3
+        },
+        "resource_recognition": {
+          "modeled_resource": 2,
+          "resource_unmodeled": 1
+        },
+        "extraction": {
+          "extracted": 3
+        },
+        "analysis": {
+          "analyzed": 2,
+          "not_applicable": 1
+        }
+      },
+      "replay": {
+        "consistent": true,
+        "mode": "semantic_replay",
+        "scope": "selected",
+        "source_kind": "static_verified",
+        "unit_count": 2,
+        "failed_units": [],
+        "analysis_status": "complete",
+        "run_format": "lifecycle-run-2",
+        "input_binding": "chosen_unit_facts_catalog; original_snapshot_is_provenance",
+        "original_input_snapshot_recomputed": false
+      },
+      "units": [
+        {
+          "unit_id": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMultipleRoots(Ljava/util/List;)[B",
+          "status": "analyzed",
+          "terminated": true,
+          "raw_snapshot_sha256": "6ec128212569966a7449154fc6eb418322c47c0269d6c50cbaa96fa1fd70da77",
+          "raw_fact_count": 239,
+          "steps": 272,
+          "solver_metrics": {
+            "abstract_configurations": 259,
+            "cyclic_event_count": 40,
+            "loop_partitions": 85,
+            "subsumption_count": 14,
+            "widening_count": 40
+          },
+          "relations": {
+            "families": 3,
+            "call_bindings": 0,
+            "task_bindings": 0
+          },
+          "binding_property_refs": {
+            "call_bindings": [],
+            "task_bindings": []
+          },
+          "binding_property_ref_semantics": "direct evidence-reference overlap; does not imply causal necessity",
+          "ablated_terminated": true,
+          "ablated_steps": 272
+        },
+        {
+          "unit_id": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.deserializeMetricsData([B)Ljava/util/List;",
+          "status": "analyzed",
+          "terminated": true,
+          "raw_snapshot_sha256": "0afec04a82af4f591cf605cfdee883ce1b67ff72dc392d596ff17b0f1725a481",
+          "raw_fact_count": 62,
+          "steps": 204,
+          "solver_metrics": {
+            "abstract_configurations": 187,
+            "cyclic_event_count": 15,
+            "loop_partitions": 43,
+            "subsumption_count": 18,
+            "widening_count": 16
+          },
+          "relations": {
+            "families": 1,
+            "call_bindings": 0,
+            "task_bindings": 0
+          },
+          "binding_property_refs": {
+            "call_bindings": [],
+            "task_bindings": []
+          },
+          "binding_property_ref_semantics": "direct evidence-reference overlap; does not imply causal necessity",
+          "ablated_terminated": true,
+          "ablated_steps": 204
+        }
+      ],
+      "scope_dependency_change": {
+        "restored_file_count": 129,
+        "restored_packages": [
+          "org/apache/arrow/vector/table",
+          "org/apache/hertzbeat/common/cache",
+          "org/apache/hertzbeat/common/concurrent",
+          "org/apache/hertzbeat/common/config",
+          "org/apache/hertzbeat/common/constants",
+          "org/apache/hertzbeat/common/entity/arrow",
+          "org/apache/hertzbeat/common/entity/dto",
+          "org/apache/hertzbeat/common/entity/dto/query",
+          "org/apache/hertzbeat/common/entity/dto/sms",
+          "org/apache/hertzbeat/common/entity/job",
+          "org/apache/hertzbeat/common/entity/job/protocol",
+          "org/apache/hertzbeat/common/entity/log",
+          "org/apache/hertzbeat/common/entity/message",
+          "org/apache/hertzbeat/common/entity/plugin",
+          "org/apache/hertzbeat/common/entity/push",
+          "org/apache/hertzbeat/common/entity/sd",
+          "org/apache/hertzbeat/common/queue",
+          "org/apache/hertzbeat/common/serialize",
+          "org/apache/hertzbeat/common/support",
+          "org/apache/hertzbeat/common/support/exception",
+          "org/apache/hertzbeat/common/support/valid",
+          "org/apache/hertzbeat/common/timer"
+        ],
+        "remaining_dependency_limits": [
+          "external dependency bodies not included",
+          "buildless resolution does not prove successful compilation"
+        ],
+        "original_freeze_report_sha256": "3d6531ecd7312ecf508cdf2aea9b45a3ace274c118c3cb510279448538a5d408",
+        "new_freeze_sha256": "401ac17f5e7484ce7a1e5d8093913e00891b2c97500779d458c8ff28af7ee23f"
+      },
+      "completed_nonempty_units": 2,
+      "before_solver_steps": 798,
+      "before_tree_hash": "43d60d67c9775efb95d4cea0eff46c3aacc9beb82efe4810cfaa2aeb71b19eb6",
+      "after_tree_hash": "33adb5b24be2cf0a139779ddb27a139a8d935c9edc20aa51184f5d5e098b5c72",
+      "same_scope_as_v12_report": false,
+      "scope_change": "Restored entire frozen 158-file common-core; v1.2 report used 29-file util package. Before/after solver totals are not same-scope comparisons.",
+      "source_scope_artifact": ".local-runs/rc1/release-nine/hertzbeat-common-core/project/source-scope.json",
+      "source_identity": {
+        "source_tree_hash": "33adb5b24be2cf0a139779ddb27a139a8d935c9edc20aa51184f5d5e098b5c72",
+        "source_scope_sha256": "cf936a740c8b8f1cb838469821a0f137d914626814c71c2732ddbb6f0d168a32",
+        "archive_sha256": "220b43f21e483a90f28b29a9dea7c392c85bc16fa389218403b2348b8964d946",
+        "database_fingerprint": "070a41cbea7278f66b6f5e535b70f04c86354e0ad012601766306aba063455cc",
+        "source_files": 158,
+        "archived_files": 158,
+        "unarchived_files": [],
+        "archived_mismatch_files": [],
+        "scope_complete": true,
+        "callable_inventory_sha256": "29a239b3fcbee427dbab160def2e630e8b2eeee703fc16b5a1e77efa8de7357a",
+        "query_outputs": [
+          {
+            "query": "ResourceLifecycleCallables",
+            "decoded_path": ".local-runs/rc1/release-nine/hertzbeat-common-core/project/codeql/.generations/ResourceLifecycleCallables-35c00791300d433ca7c1c02532b7d3be/ResourceLifecycleCallables.json",
+            "decoded_sha256": "3f5945acb2992aa7b0cea0295bbea1367ac675e28d3267bc50eb76b811d8f277",
+            "row_count": 3012,
+            "decoded_bytes": 1076240
+          },
+          {
+            "query": "ResourceLifecycleFacts",
+            "decoded_path": ".local-runs/rc1/release-nine/hertzbeat-common-core/project/codeql/.generations/ResourceLifecycleFacts-5fb25f4c8304436bbce469824909fe1e/ResourceLifecycleFacts.json",
+            "decoded_sha256": "7495ff85406f46a869c7a76425882cb8ff4aa93c3d72656ff834eaff14b68f4d",
+            "row_count": 8891,
+            "decoded_bytes": 9594984
+          },
+          {
+            "query": "ResourceLifecycleTaskRelations",
+            "decoded_path": ".local-runs/rc1/release-nine/hertzbeat-common-core/project/codeql/.generations/ResourceLifecycleTaskRelations-d070de640f3448b0baab44da5250b754/ResourceLifecycleTaskRelations.json",
+            "decoded_sha256": "2b87a93e93d177887492e103d29ba42f6005f9ed3f233d7bdbb378f408e78f4b",
+            "row_count": 0,
+            "decoded_bytes": 1325
+          }
+        ]
+      }
+    },
+    {
+      "tested_source_commit": "1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4",
+      "tested_source_dirty": false,
+      "implementation_sha256": "32d899c7383c12d8027b144de8a90b4c39fdda9609ce6ea1c98707e8c3318e3f",
+      "query_sha256": {
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql": "ab0a7a0674c2624c3729c5708cb7597f31d886b145136308efa74b99da904f37",
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql": "facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd",
+        "dosweb/codeql/pack/dosweb/ResourceLifecycle/ResourceLifecycleCallables.ql": "87568c50814490cc5a003414bd4492ca1b5970ed74685970e0bec6538a4b7391"
+      },
+      "runner_sha256": "aaaedef17a47682be34f24b9d5bb294c7efe9f884c06dc293897e54e80815ee4",
+      "module": "hertzbeat-common-spring",
+      "status": "complete",
+      "costs": {
+        "database_creation_seconds": null,
+        "database_creation_note": "Existing byte-bound frozen DB reused; current queries re-executed",
+        "project_seconds": 307.55710243608337,
+        "replay_seconds": 0.10208860691636801,
+        "ablation_seconds": 0.0867650400614366,
+        "worker_seconds": 307.76655018900055,
+        "peak_analyzer_rss_bytes": 38522880,
+        "peak_rss_scope": "worker process high-water mark; excludes CodeQL subprocesses"
+      },
+      "source": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_2-20260914/.local-runs/v1.2/independent-20260916/hertzbeat-common-spring/source",
+      "database": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-v1_2-20260914/.local-runs/v1.2/independent-20260916/hertzbeat-common-spring/database",
+      "original_tree_hash": "651c3d5b3a44e0927d00ab2ef7727fcee6ebd3be3f8495b99e153d9dd2cbd8e6",
+      "selection_sha256": "22f1e8a4039c3782beb2270e9f2622de9b0c7349a4105b34f0c114a18e2e0851",
+      "selection": [
+        {
+          "input_id": "hertzbeat-common-spring-1",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.support.CommonThreadPool.createLegacyExecutor(Ljava/lang/Thread$UncaughtExceptionHandler;)Ljava/util/concurrent/ExecutorService;"
+        },
+        {
+          "input_id": "hertzbeat-common-spring-2",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.entity.manager.JsonStringListAttributeConverter.convertToEntityAttribute(Ljava/lang/String;)Ljava/util/List;"
+        },
+        {
+          "input_id": "hertzbeat-common-spring-3",
+          "kind": "method",
+          "entry_callable": "java-callable-v1:org.apache.hertzbeat.common.entity.manager.JsonByteListAttributeConverter.convertToEntityAttribute(Ljava/lang/String;)Ljava/util/List;"
+        }
+      ],
+      "budgets": {
+        "unit": {
+          "max_steps": 50000,
+          "max_updates_per_event": 64,
+          "timeout_ms": 15000
+        },
+        "batch_timeout_ms": 900000,
+        "max_unit_result_bytes": 16777216,
+        "max_output_bytes": 268435456
+      },
+      "java_files": 67,
+      "source_repository": "apache__hertzbeat",
+      "phase_costs": {
+        "adaptation_seconds": null,
+        "extraction_and_adaptation_seconds": 306.6727858389495,
+        "extraction_seconds": null,
+        "note": "Combined extraction includes scope hashing and callable inventory; solve includes shard serialization. Separate internal timing and replay are not measured here.",
+        "replay_seconds": null,
+        "solve_and_serialization_seconds": 0.8602868600282818
+      },
+      "project_status": "partial",
+      "stage_counts": {
+        "mapping": {
+          "mapped": 3
+        },
+        "method_resolution": {
+          "method_resolved": 3
+        },
+        "resource_recognition": {
+          "modeled_resource": 1,
+          "resource_unmodeled": 2
+        },
+        "extraction": {
+          "extracted": 3
+        },
+        "analysis": {
+          "analyzed": 1,
+          "not_applicable": 2
+        }
+      },
+      "replay": {
+        "consistent": true,
+        "mode": "semantic_replay",
+        "scope": "selected",
+        "source_kind": "static_verified",
+        "unit_count": 1,
+        "failed_units": [],
+        "analysis_status": "complete",
+        "run_format": "lifecycle-run-2",
+        "input_binding": "chosen_unit_facts_catalog; original_snapshot_is_provenance",
+        "original_input_snapshot_recomputed": false
+      },
+      "units": [
+        {
+          "unit_id": "java-callable-v1:org.apache.hertzbeat.common.support.CommonThreadPool.createLegacyExecutor(Ljava/lang/Thread$UncaughtExceptionHandler;)Ljava/util/concurrent/ExecutorService;",
+          "status": "analyzed",
+          "terminated": true,
+          "raw_snapshot_sha256": "82c1ea874e84701b220063e5117620370da9ecd7174bd3e91d021001b7ce10b1",
+          "raw_fact_count": 23,
+          "steps": 21,
+          "solver_metrics": {
+            "abstract_configurations": 22,
+            "cyclic_event_count": 0,
+            "loop_partitions": 0,
+            "subsumption_count": 0,
+            "widening_count": 0
+          },
+          "relations": {
+            "families": 1,
+            "call_bindings": 0,
+            "task_bindings": 0
+          },
+          "binding_property_refs": {
+            "call_bindings": [],
+            "task_bindings": []
+          },
+          "binding_property_ref_semantics": "direct evidence-reference overlap; does not imply causal necessity",
+          "ablated_terminated": true,
+          "ablated_steps": 21
+        }
+      ],
+      "scope_dependency_change": {
+        "restored_file_count": 0,
+        "restored_packages": [],
+        "remaining_dependency_limits": [
+          "external dependency bodies not included",
+          "buildless resolution does not prove successful compilation"
+        ],
+        "original_freeze_report_sha256": "3d6531ecd7312ecf508cdf2aea9b45a3ace274c118c3cb510279448538a5d408",
+        "new_freeze_sha256": "772293ffacd4a0d2954785c0cf9bde5db00f2cc6c6bcf46f02bd844b24b69b68"
+      },
+      "completed_nonempty_units": 1,
+      "before_solver_steps": 21,
+      "before_tree_hash": "651c3d5b3a44e0927d00ab2ef7727fcee6ebd3be3f8495b99e153d9dd2cbd8e6",
+      "after_tree_hash": "651c3d5b3a44e0927d00ab2ef7727fcee6ebd3be3f8495b99e153d9dd2cbd8e6",
+      "same_scope_as_v12_report": true,
+      "scope_change": null,
+      "source_scope_artifact": ".local-runs/rc1/release-nine/hertzbeat-common-spring/project/source-scope.json",
+      "source_identity": {
+        "source_tree_hash": "651c3d5b3a44e0927d00ab2ef7727fcee6ebd3be3f8495b99e153d9dd2cbd8e6",
+        "source_scope_sha256": "1fa5f8acf855cefb04d6fa6111e04df180045b915fd1faa9dbfa903328914c2d",
+        "archive_sha256": "7cdac2646b6d6a02654b2f87d06bff480f54557d11f4ca99a3d230373c042947",
+        "database_fingerprint": "a441f81403f7c2897810fae8613cfa594876facc29c0f8df333c513593c82b70",
+        "source_files": 67,
+        "archived_files": 67,
+        "unarchived_files": [],
+        "archived_mismatch_files": [],
+        "scope_complete": true,
+        "callable_inventory_sha256": "b34f48a77e27b2e4b652edbe1abed828c363fbfd96467a910ba5d08235cfb6ab",
+        "query_outputs": [
+          {
+            "query": "ResourceLifecycleCallables",
+            "decoded_path": ".local-runs/rc1/release-nine/hertzbeat-common-spring/project/codeql/.generations/ResourceLifecycleCallables-258b40f6a64f4a12b11389503981efc7/ResourceLifecycleCallables.json",
+            "decoded_sha256": "275b8577f07bd64450b847c759e638da22404f1aaeb7d2bf60937892fe5923c1",
+            "row_count": 1730,
+            "decoded_bytes": 596256
+          },
+          {
+            "query": "ResourceLifecycleFacts",
+            "decoded_path": ".local-runs/rc1/release-nine/hertzbeat-common-spring/project/codeql/.generations/ResourceLifecycleFacts-9a9979bff998499ba2cba65ce465df80/ResourceLifecycleFacts.json",
+            "decoded_sha256": "9f51f9972d7d564a9aa9047f73873f9b233635c0ec8b9f3c55054190f45d3104",
+            "row_count": 257,
+            "decoded_bytes": 279327
+          },
+          {
+            "query": "ResourceLifecycleTaskRelations",
+            "decoded_path": ".local-runs/rc1/release-nine/hertzbeat-common-spring/project/codeql/.generations/ResourceLifecycleTaskRelations-d60189d3f3784a228e58569b39737f6b/ResourceLifecycleTaskRelations.json",
+            "decoded_sha256": "2b87a93e93d177887492e103d29ba42f6005f9ed3f233d7bdbb378f408e78f4b",
+            "row_count": 0,
+            "decoded_bytes": 1325
+          }
+        ]
+      }
+    }
+  ],
+  "acceptance": {
+    "baseline_xml": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/tests/baseline.xml",
+    "current_xml": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/tests/release-unrestricted.xml",
+    "new_skip_explanations": {
+      "tests.test_resource_lifecycle_rc1_exceptions.WrapperExceptionSourceTests::test_rejection_returns_through_caller_cleanup_and_preserves_holders": "Opt-in CodeQL test in default suite; separately executed evidence under .local-runs/rc1/: ../rc1-c-exception-tests.xml (fresh four caller-cleanup/holder counterexamples); release-synthetic/acceptance.json (final wrapper-path recheck)",
+      "tests.test_resource_lifecycle_rc1_ingestion::test_real_callable_inventory_keeps_empty_and_external_call_methods": "Opt-in CodeQL test in default suite; separately executed evidence under .local-runs/rc1/: tests/real-loops-ingestion.xml (fresh inventory test); release-nine/*/project/callable-inventory.json (final production path)",
+      "tests.test_resource_lifecycle_rc1_loops.RealSourceLoopTests::test_complete_iteration_has_zero_exit_obligation_and_peak_one": "Opt-in CodeQL test in default suite; separately executed evidence under .local-runs/rc1/: tests/real-loops-ingestion.xml (fresh query), tests/release-loops.xml (final implementation, verified frozen facts)",
+      "tests.test_resource_lifecycle_rc1_loops.RealSourceLoopTests::test_exclusive_close_stays_open_and_semantic_replay_is_stable": "Opt-in CodeQL test in default suite; separately executed evidence under .local-runs/rc1/: tests/real-loops-ingestion.xml (fresh query), tests/release-loops.xml (final implementation, verified frozen facts)",
+      "tests.test_resource_lifecycle_rc1_loops.RealSourceLoopTests::test_retained_iteration_does_not_gain_finite_bound": "Opt-in CodeQL test in default suite; separately executed evidence under .local-runs/rc1/: tests/real-loops-ingestion.xml (fresh query), tests/release-loops.xml (final implementation, verified frozen facts)",
+      "tests.test_resource_lifecycle_source_evaluation.ResourceLifecycleSourceEvaluationCodeqlTests::test_twelve_source_variants_preserve_oracle_and_wrapper_exceptions": "Opt-in CodeQL test in default suite; separately executed evidence under .local-runs/rc1/: Renamed old backend-gap test; final-synthetic/evaluation fresh extraction + release-synthetic/acceptance.json final 12/12 ordinary-property comparison/replay"
+    },
+    "tested_source_commit": "1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4",
+    "gates": {
+      "R1": {
+        "status": "pass",
+        "evidence": "Three original XXL requests retried; 52/39 Java source/archive files, 13 lexical-trivia-only exclusions with hashes; all used archive bytes match. All three module source-scope.json complete. Byte mismatch/declaration-gap rejection tested."
+      },
+      "R2": {
+        "status": "pass",
+        "evidence": "Complete 158-file common-core admits 8,891 raw rows (old query: 8,885), no truncation. Nine original IDs/selectors retained. Eight exact methods resolve; the ninth has a proven stale return-package descriptor, kept method_missing. Old zero-resource inputs separately show model coverage or recovered resource facts."
+      },
+      "R3": {
+        "status": "pass",
+        "evidence": "Three real-source loops and final 11 tests pass; full common-core loop finishes in 272 steps with semantic replay. XXL synchronous history enumeration fixed: 248 steps, no budget exit. Widening infinity is not a growth or termination proof."
+      },
+      "R4": {
+        "status": "pass",
+        "evidence": "Original source/oracle unchanged. Both modes match 12/12; S2 bounds 0/1 from ordinary properties; 12-unit property fields and semantic replay agree. Four fresh caller-cleanup/extra-holder counterexamples pass; old manual suite stays 24/24."
+      },
+      "R5": {
+        "status": "pass",
+        "evidence": "Four nonempty resource units in all three original modules complete solve/selected replay; two projects, nine-request denominator; same-fact ablation, costs, unknowns and zero call/task bindings explicitly reported."
+      },
+      "R6": {
+        "status": "pass",
+        "evidence": "Final same-environment suite: 1212 passed, 12 failed, 46 skipped, 1 collection error; zero new failure/error IDs. All added default opt-in skips have separate execution evidence. Delivery artifacts reviewed; this report records ready_for_push only. Remote SHA verification is performed after the report commit."
+      }
+    },
+    "synthetic": {
+      "all_property_fields_equal": true,
+      "analysis": {
+        "analysis_status": "complete",
+        "format": "lifecycle-shards-1",
+        "index": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/release-synthetic/ordinary/run-index.json",
+        "input_binding": "chosen_unit_facts_catalog; original_snapshot_is_provenance",
+        "max_shard_bytes": 34408,
+        "run_format": "lifecycle-run-2",
+        "total_serialized_bytes": 9249535,
+        "units": [
+          {
+            "root_sha256": "9315f7fb41abd2c0d73877da5c36a745f791c54a40e08f84bc8d5bbb7433bdd0",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1Sync(I)V"
+          },
+          {
+            "root_sha256": "cdcea2c97c7941acbf868decef95cc3eca946c48f3f0a220ca50517316360fca",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s1TaskWrapped(I)V"
+          },
+          {
+            "root_sha256": "ecf2428b16bce70322b46cbba3261ce6930e514f56251182500b4b14e6371bc8",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2FieldHolder(I)V"
+          },
+          {
+            "root_sha256": "f5009b9fc82471fd96419be0d58e69a9cf89b0d9e618151f79461f4ce5137ced",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s2TaskOnly(I)V"
+          },
+          {
+            "root_sha256": "f5b8bc36e31f1cce91366e0d4d58320f41a9fb40eb63cfdc0dd75b1d9bb41727",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3AllExitsClose(I)V"
+          },
+          {
+            "root_sha256": "8173a624cea1666520886feb35298223661831c5885a45a7043e7e4b39cb2383",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s3MissingExceptionalClose(I)V"
+          },
+          {
+            "root_sha256": "7dd9e672aa3a08c8d2da762e370191751b75a6c6fe4d046505dbe6b0199159b9",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4DepthTwo(I)V"
+          },
+          {
+            "root_sha256": "b97307cf616ae4f12a77c206c2c07d0aa1cf1ede329e0c1e6d469be050ec4068",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s4Direct(I)V"
+          },
+          {
+            "root_sha256": "3d03ece20ed8aeb4d0048b39f2d1d30234534dbb5d8b1be8238f3febbf9fd322",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5UnknownCapacity(I)V"
+          },
+          {
+            "root_sha256": "a38d1c99e527fc7fab397aebe5e7625ae347e1f0b8e492763004fecdb01f0827",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s5VerifiedCapacity(I)V"
+          },
+          {
+            "root_sha256": "762f42e32435641832945b4bcb834687fc4a6e982584406bf27fb87889df8255",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6SupportedExecutor(I)V"
+          },
+          {
+            "root_sha256": "c4e24ded670e202a16490a74af7fe8b65dbd89ef8ee4886d011aac8b1af2d6af",
+            "status": "analyzed",
+            "unit_id": "java-callable-v1:fixture.lifecyclev11.SourcePairs.s6UnresolvedExecutor(I)V"
+          }
+        ]
+      },
+      "changes_since_fresh": "conditional property scope, termination flag and exact synchronous state subsumption; query and adapter unchanged",
+      "database_fingerprint": "24113b1e5992002637b7fb32aa935916014ddc277d0b76382fa982ec64365c29",
+      "dirty": true,
+      "dirty_status": "?? dosweb/codeql/pack/dosweb/ResourceLifecycle/.ResourceLifecycleFacts.dosweb.7lqyq0qz.ql\n",
+      "extraction_cost_reason": "reused verified extraction; no query executed",
+      "extraction_seconds": null,
+      "fact_snapshot_sha256": "c49460744e33deb409c2eab5e09bfc02a0cf4c9bfc4562a4807a2c60ae6502c6",
+      "facts_file_sha256": "a8f43f09da5f8998576fd720dc06ee997bfbc9a3356e60d91d0d1d5f215be642",
+      "implementation_sha256": "32d899c7383c12d8027b144de8a90b4c39fdda9609ce6ea1c98707e8c3318e3f",
+      "metrics": {
+        "determinacy_gain_cases": [
+          "s1-task-wrapped",
+          "s2-task-only",
+          "s2-field-holder",
+          "s4-depth-two",
+          "s5-verified-capacity",
+          "s6-supported-executor"
+        ],
+        "determinacy_gains": 6,
+        "modes": {
+          "disable_cross_event_propagation": {
+            "cases": 12,
+            "expected_matches": 12,
+            "unknown": 9
+          },
+          "full": {
+            "cases": 12,
+            "expected_matches": 12,
+            "unknown": 3
+          }
+        }
+      },
+      "ordinary_selection_count": 12,
+      "original_fresh_path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/final-synthetic",
+      "original_fresh_tested_commit": "32c4735c5585d3de291f429cd0b34c1b538c05be",
+      "peak_rss_kib": {
+        "children": null,
+        "python": 90212
+      },
+      "query_provenance": [
+        {
+          "bqrs_sha256": "49a66651ca4f87e1a88479755c5e270c3eba18b9f399e16acefec73da487bcd1",
+          "query_name": "resource_lifecycle",
+          "query_sha256": "ab0a7a0674c2624c3729c5708cb7597f31d886b145136308efa74b99da904f37"
+        },
+        {
+          "bqrs_sha256": "1bc404239b6f5aeaeb8593ee53deac2440073ce7fcd4ccff298fffc8c356f7e5",
+          "query_name": "resource_lifecycle_task_relations",
+          "query_sha256": "facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd"
+        }
+      ],
+      "replay": {
+        "analysis_status": "complete",
+        "consistent": true,
+        "failed_units": [],
+        "input_binding": "chosen_unit_facts_catalog; original_snapshot_is_provenance",
+        "mode": "semantic_replay",
+        "original_input_snapshot_recomputed": false,
+        "run_format": "lifecycle-run-2",
+        "scope": "selected",
+        "source_kind": "static_verified",
+        "unit_count": 12
+      },
+      "reused_extraction": true,
+      "source_sha256": "51b05e675a6a54d4ca1dd1284a2eda4c50b4a30232eb6b63294a0622af8044e8",
+      "source_snapshot_sha256": "01c8355dee57228fcaf4ffef4dbd01d3ffde991506db6b4cae5486b6730a134f",
+      "suite_sha256": "67fd397d9e4ab43c0a3cc9559563ddea71012621b08bda96f9d9e03236060cbe",
+      "tested_source_commit": "1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4",
+      "timings_seconds": {
+        "ablation_analysis": 0.249774815980345,
+        "extraction": null,
+        "full_analysis": 0.668169685988687,
+        "ordinary_analysis": 24.153944310033694,
+        "semantic_replay": 12.475067554041743
+      },
+      "acceptance_artifact": {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/release-synthetic/acceptance.json",
+        "sha256": "af8a6493fe7072d6426a0f9d522d28cd7003730950a3498804e265e5ccc893dd"
+      }
+    },
+    "loop_regressions": {
+      "final_test_counts": {
+        "passed": 11,
+        "failure": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "final_xml": {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/tests/release-loops.xml",
+        "sha256": "4a775b0725031e1cceed068670dc5f5cb2c2cebb38687ebbe5895636f5d61228"
+      },
+      "fresh_xml": {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/tests/real-loops-ingestion.xml",
+        "sha256": "9693b6e0965da23556655deee98f8fc9714b89f148a8bd950c33ed76445e3df7"
+      },
+      "fresh_test_counts": {
+        "passed": 20,
+        "failure": 0,
+        "error": 0,
+        "skipped": 0
+      },
+      "facts": {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/loop-evidence/facts.json",
+        "sha256": "b551dfeeca2aa2e01beac5fa5e6016e27e51ff6fbdec6fa72255ecc833292353"
+      },
+      "query_execution_reused_for_final_solver_checks": true
+    },
+    "same_facts_loop_comparison": {
+      "baseline": {
+        "unit_id": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMultipleRoots(Ljava/util/List;)[B",
+        "facts_sha256": "258a9e8c02240fd52d47d37400a5fb95019547b74f4fcf99556afec32057a103",
+        "solver_sha256": "0d0f6a2faadf81561d0a55327cf3e1c54994685007c5e0825a325101be545019",
+        "steps": 798,
+        "terminated": false,
+        "unknown_reasons": [
+          "coverage_incomplete",
+          "iteration_limit:event:e21a14dfb435adc03deb42dd",
+          "repeated_abstract_instance:instance:645905008958db0fe178d1d8",
+          "unknown_call:effect:37648a9a36fec144f859593e",
+          "unknown_call:effect:55773bf3ad815ad02d41db3c",
+          "unknown_call:effect:7e5e49d27f75102bf4f4c6e0",
+          "unknown_call:effect:833cb3b77913686d897ba5c4",
+          "unknown_call:effect:a11784f0c148d06e3d73753d",
+          "unknown_call:effect:a6456e33e1b08a46cb6e61bf",
+          "unknown_call:effect:a94ed110d6de527e798fda43",
+          "unknown_call:effect:c732a61924a0e9cadc5552b5",
+          "unknown_call:effect:e24917c0953a06cfc3693673",
+          "unknown_call:effect:e4e39e95ff092c034be5395e"
+        ],
+        "elapsed_seconds": 0.11037692497484386,
+        "peak_rss_kib": 26580,
+        "solver_metrics": null,
+        "diagnostic_configuration_counts": {
+          "exact_configurations": 798,
+          "control_configurations": 70
+        }
+      },
+      "current": {
+        "unit_id": "java-callable-v1:org.apache.hertzbeat.common.util.ArrowUtil.serializeMultipleRoots(Ljava/util/List;)[B",
+        "facts_sha256": "258a9e8c02240fd52d47d37400a5fb95019547b74f4fcf99556afec32057a103",
+        "solver_sha256": "22fb5d3b1e0e8bf5bac627e910f1b4cd9f914e10b3ed170322982fe3dfdc6f8e",
+        "steps": 272,
+        "terminated": true,
+        "unknown_reasons": [
+          "coverage_incomplete",
+          "repeated_abstract_instance:instance:645905008958db0fe178d1d8",
+          "unknown_call:effect:37648a9a36fec144f859593e",
+          "unknown_call:effect:55773bf3ad815ad02d41db3c",
+          "unknown_call:effect:7e5e49d27f75102bf4f4c6e0",
+          "unknown_call:effect:833cb3b77913686d897ba5c4",
+          "unknown_call:effect:a11784f0c148d06e3d73753d",
+          "unknown_call:effect:a6456e33e1b08a46cb6e61bf",
+          "unknown_call:effect:a94ed110d6de527e798fda43",
+          "unknown_call:effect:c732a61924a0e9cadc5552b5",
+          "unknown_call:effect:e24917c0953a06cfc3693673",
+          "unknown_call:effect:e4e39e95ff092c034be5395e",
+          "weak_update:instance:645905008958db0fe178d1d8"
+        ],
+        "elapsed_seconds": 0.05538183299358934,
+        "peak_rss_kib": 24960,
+        "solver_metrics": {
+          "abstract_configurations": 259,
+          "cyclic_event_count": 40,
+          "loop_partitions": 85,
+          "widening_count": 40,
+          "subsumption_count": 14
+        }
+      },
+      "interpretation": "Exact same frozen v1.2 util-scope facts; final full-module measurements are reported separately; per-process wall/RSS measurements include concurrent host workload."
+    },
+    "attempt_history": [
+      {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/final-nine",
+        "reason": "Stopped after confirmed all_exits scope regression; aborted.json retained."
+      },
+      {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/final-nine-fixed",
+        "reason": "Completed 047f884 run exposed exact synchronous histories exhausting XXL budget; retained and repaired."
+      },
+      {
+        "path": "/home/furina/new_tool/dos-analysis-web/.worktrees/resource-lifecycle-rc1-20260916/.local-runs/rc1/tests/release.xml",
+        "reason": "Sandbox forbids test sockets; 101 environment failures excluded from unrestricted baseline comparison, raw log retained."
+      }
+    ],
+    "remaining_gaps": [
+      "Original XXL readLog selector has stale return package; not replaced. Nine-input runner correctly returns 1 for this genuine identity failure, although all four modeled units completed.",
+      "Four resolved methods have calls outside resource model; no upper-bound zero or absence-of-resource claim.",
+      "No independent oracle; no call/task bindings in the nine inputs and no cross-event determinacy gain. Synthetic six gains do not establish independent effectiveness.",
+      "External dependency effects, arbitrary call depth/reflection/tasks and total-byte/throughput claims remain outside scope."
+    ],
+    "delivery_state_at_commit": "ready_for_push"
+  },
+  "missing_measurements": "null means not measured or stage not executed; legacy peak RSS/stage costs absent",
+  "research_limit": "No independent correctness oracle; no accuracy/recall or vulnerability claim. Synthetic regressions establish only supported-model engineering behavior."
+}
