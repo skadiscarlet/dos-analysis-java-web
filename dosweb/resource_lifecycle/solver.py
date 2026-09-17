@@ -660,10 +660,11 @@ def solve(program: Program, *, budget: AnalysisBudget) -> AnalysisResult:
             # Snapshots of the abstract transfer inputs must agree with replay.
             for cursor in control:
                 record(cursor.event_id, state, trace)
-        # Keep alternatives with different executed edges distinct. Equivalent
-        # interleavings may share a state, but retain one real ordered witness;
-        # never manufacture a path by unioning mutually exclusive branches.
-        key = (control, state, frozenset(trace.transition_ids))
+        # A synchronous transfer depends on control and the complete resource
+        # state, not how an equivalent state was reached. Keep one witness for
+        # exact duplicates; do not union incompatible states or release facts.
+        # Task derivations retain their phase/path witness partition unchanged.
+        key = (control, state, frozenset(trace.transition_ids) if tasks else frozenset())
         prior = configurations.get(key)
         if prior is not None:
             subsumption_count += 1

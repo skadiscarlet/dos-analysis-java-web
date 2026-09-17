@@ -12,12 +12,38 @@ from report_lifecycle_v12_independent import MODULES, read, write, csvwrite, key
 from report_lifecycle_v12 import digest, xml_results, diff_tests
 
 
+def source_identity(base):
+    scope_path=base/'project/source-scope.json'
+    inventory_path=base/'project/callable-inventory.json'
+    scope=read(scope_path) if scope_path.exists() else {}
+    inventory=read(inventory_path) if inventory_path.exists() else {}
+    queries=[]
+    for path in sorted((base/'project/codeql/.generations').glob('*/*.json')):
+        if path.name not in ('ResourceLifecycleFacts.json','ResourceLifecycleTaskRelations.json','ResourceLifecycleCallables.json'):
+            continue
+        decoded=read(path)
+        tables=[v for v in decoded.values() if isinstance(v,dict) and isinstance(v.get('tuples'),list)]
+        queries.append({'query':path.stem,'decoded_path':str(path),'decoded_sha256':digest(path),
+                        'row_count':sum(len(v['tuples']) for v in tables),'decoded_bytes':path.stat().st_size})
+    return {'source_tree_hash':scope.get('source_snapshot_sha256'),
+            'source_scope_sha256':digest(scope_path) if scope else None,
+            'archive_sha256':scope.get('archive_sha256'),'database_fingerprint':inventory.get('database_fingerprint'),
+            'source_files':len(scope['source_files']) if scope else None,
+            'archived_files':len(scope['archived_files']) if scope else None,
+            'unarchived_files':scope.get('unarchived_files'),
+            'archived_mismatch_files':scope.get('archived_mismatch_files'),
+            'scope_complete':scope.get('scope_complete'),
+            'callable_inventory_sha256':digest(inventory_path) if inventory else None,
+            'query_outputs':queries}
+
+
 def build(run,output,acceptance):
     execution=read(run/'execution.json')
     checks=read(acceptance)
     if execution['requested_inputs']!=9 or set(execution['modules'])!=set(MODULES):
         raise ValueError('fixed denominator differs')
     old=read(ROOT/'reports/lifecycle-v1.2/independent/metrics.json')
+    old_freezes={r['project_id']:r for r in read(ROOT/'reports/lifecycle-v1.2/independent/input-freeze.json')}
     with (ROOT/'reports/lifecycle-v1.2/independent/input-ledger.csv').open() as stream:
         before={row['input_id']:row for row in csv.DictReader(stream)}
     ledger,properties,comparison,modules=[],[],[],[]
@@ -48,7 +74,16 @@ def build(run,output,acceptance):
             raise ValueError('unfinished project ledger')
         if result['requested']!=3 or len(result['ledger'])!=3:
             raise ValueError('module denominator differs')
+        inventory_path=base/'project/callable-inventory.json'
+        inventory=read(inventory_path).get('callables',[]) if inventory_path.exists() else []
         for row in result['ledger']:
+            if row.get('method_resolution')=='method_missing':
+                prefix=row['entry_callable'].rsplit(')',1)[0]+')'
+                candidates=[{k:item[k] for k in ('unit_id','source_file','start_line','start_column','source_sha256')}
+                    for item in inventory if item['unit_id'].startswith(prefix)]
+                row={**row,'identity_diagnostic':{'requested':row['entry_callable'],
+                    'same_parameters_different_return_candidates':candidates,
+                    'resolution_policy':'exact descriptor only; candidate is not substituted or analyzed'}}
             prior=before[row['input_id']]
             ledger.append({'module':name,**row,
                 'before_mapping':prior['mapping'],'before_extraction':prior['extraction'],
@@ -74,15 +109,24 @@ def build(run,output,acceptance):
                     'determinate_gain':bool(f and f['status']!='unknown' and a and a['status']=='unknown')})
         prior_module=next(x for x in old['modules'] if x['module']==name)
         complete=[u for u in m.get('units',[]) if u.get('terminated') and u.get('relations',{}).get('families',0)>0]
+        freeze_path=base/'input-freeze.json'
+        frozen=read(freeze_path) if freeze_path.exists() else {}
+        restored=sorted(set(frozen.get('files',{}))-set(old_freezes[name]['files']))
         modules.append({k:v for k,v in m.items() if k!='units'} | {
             'units':[{k:v for k,v in u.items() if k not in ('full','ablated')} for u in m.get('units',[])],
+            'scope_dependency_change':{'restored_file_count':len(restored),
+                'restored_packages':sorted({str(Path(f).parent) for f in restored}),
+                'remaining_dependency_limits':frozen.get('dependency_limits'),
+                'original_freeze_report_sha256':digest(ROOT/'reports/lifecycle-v1.2/independent/input-freeze.json'),
+                'new_freeze_sha256':digest(freeze_path) if frozen else None},
             'completed_nonempty_units':len(complete),'before_solver_steps':prior_module['solver_steps'],
             'before_tree_hash':prior_module['tree_hash'],'after_tree_hash':m.get('original_tree_hash'),
             'same_scope_as_v12_report':prior_module['tree_hash']==m.get('original_tree_hash'),
             'scope_change':('Scope identity unavailable because intake did not complete.' if not m.get('original_tree_hash') else
                 None if prior_module['tree_hash']==m.get('original_tree_hash') else
                 'Restored entire frozen 158-file common-core; v1.2 report used 29-file util package. Before/after solver totals are not same-scope comparisons.'),
-            'source_scope_artifact':str(base/'project/source-scope.json')})
+            'source_scope_artifact':str(base/'project/source-scope.json'),
+            'source_identity':source_identity(base)})
     if len(ledger)!=9 or {r['input_id'] for r in ledger}!=set(before):
         raise ValueError('original input IDs changed')
     testdiff=diff_tests(xml_results(Path(checks['baseline_xml'])),xml_results(Path(checks['current_xml'])))
@@ -100,9 +144,10 @@ def build(run,output,acceptance):
                or not read(Path(m['source_scope_artifact'])).get('scope_complete') for m in modules):
             raise ValueError('R1 contradicted by incomplete source scope audit')
     if gates['R2']['status']=='pass':
-        if (any(r.get('method_resolution')!='method_resolved' or r['extraction']!='extracted' for r in ledger)
+        if (any(r.get('method_resolution') not in ('method_resolved','method_missing','ambiguous','source_mismatch')
+                or r['extraction']!='extracted' or (r.get('method_resolution')!='method_resolved' and not r.get('reason')) for r in ledger)
                 or next(m for m in modules if m['module']=='hertzbeat-common-core').get('java_files')!=158):
-            raise ValueError('R2 contradicted by unresolved methods or incomplete module scope')
+            raise ValueError('R2 contradicted by unexplained identity failures or incomplete module scope')
     ready_modules=[m for m in modules if m['completed_nonempty_units'] and (m.get('replay') or {}).get('consistent')]
     if gates['R5']['status']=='pass' and len(ready_modules)<2:
         raise ValueError('R5 contradicted by current runs')
@@ -128,7 +173,11 @@ def build(run,output,acceptance):
               'report_script_sha256':digest(Path(__file__)), 'delivery_state_at_commit':'ready_for_push',
               'source_db_query_identity_artifacts':{m['module']:{'input_freeze':str(run/m['module']/'input-freeze.json'),
                   'scope':m['source_scope_artifact'],'execution':str(run/m['module']/'execution.json'),
-                  'run_index':str(run/m['module']/'project/analysis/run-index.json')} for m in modules}}
+                  'run_index':str(run/m['module']/'project/analysis/run-index.json'),
+                  'identity':m['source_identity'],'selection':m.get('selection'),'budgets':m.get('budgets'),
+                  'before_tree_hash':m['before_tree_hash'],'after_tree_hash':m['after_tree_hash']} for m in modules},
+              'transport_limits':{'lifecycle_rows':65536,'other_rows':4096,'decoded_json_bytes':67108864,
+                                  'total_string_bytes':16777216,'single_shard_bytes':16777216}}
     output.mkdir(parents=True,exist_ok=True)
     write(output/'metrics.json',metrics); write(output/'run-manifest.json',manifest)
     write(output/'baseline-test-diff.json',testdiff)

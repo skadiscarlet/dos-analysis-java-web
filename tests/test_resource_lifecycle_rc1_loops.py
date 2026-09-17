@@ -98,6 +98,44 @@ class FiniteLoopAbstractionTests(unittest.TestCase):
         self.assertTrue(state.held_edges)
         self.assertTrue(state.open_obligations)
 
+    def test_equivalent_sync_diamonds_converge_without_merging_open_objects(self):
+        base = two_instance_program()
+        events = list(base.events)
+        events.append(Event('diamond:0', 'method', 'Fixture.handle', 'true'))
+        creates = tuple(instance_effect(identity, 'create') for identity in ('instance:a', 'instance:b'))
+        transitions = [
+            Transition('choose:a', 'event:entry', 'diamond:0', 'a',
+                       creates + (instance_effect('instance:a', 'release'),), 'internal', ()),
+            Transition('choose:b', 'event:entry', 'diamond:0', 'b',
+                       creates + (instance_effect('instance:b', 'release'),), 'internal', ()),
+        ]
+        # Eight independent diamonds produce 256 edge histories per initial
+        # branch, but each join has only the two distinct open-object states.
+        for index in range(8):
+            target = f'diamond:{index + 1}'
+            events.append(Event(target, 'method', 'Fixture.handle', 'true'))
+            for branch in ('left', 'right'):
+                arm = f'diamond:{index}:{branch}'
+                events.append(Event(arm, 'method', 'Fixture.handle', 'true'))
+                transitions.extend((
+                    Transition(arm + ':enter', f'diamond:{index}', arm, branch, (), 'internal', ()),
+                    Transition(arm + ':join', arm, target, 'true', (), 'internal', ()),
+                ))
+        transitions.append(Transition('diamonds:exit', 'diamond:8', 'event:normal', 'true', (), 'normal', ()))
+        program = replace(base, events=tuple(events), transitions=tuple(transitions),
+                          exit_event_ids=('event:normal',))
+        result = solve(program, budget=AnalysisBudget())
+        self.assertTrue(result.terminated, result.unknown_reasons)
+        self.assertLessEqual(result.steps, 2 * len(transitions))
+        self.assertGreater(result.solver_metrics['subsumption_count'], 0)
+        state = result.exit_states['event:normal']
+        self.assertEqual(CountInterval(1, 1), dict(state.obligation_counts)['family:stream'])
+        self.assertEqual(frozenset({'instance:a', 'instance:b'}), state.open_obligations)
+        self.assertFalse(state.must_released)
+        self.assertIn('obligation_gap', result.lifecycle_statuses)
+        self.assertEqual(analysis_result_to_dict(result),
+                         analysis_result_to_dict(solve(program, budget=AnalysisBudget())))
+
     def test_finite_cut_bound_counts_identities_and_unknown_effects_block_it(self):
         for count in (1, 2):
             for unknown in (False, True):
