@@ -32,8 +32,11 @@ _FIELDS = {"version", "project_id", "source_root", "tree_hash", "database", "sel
 _SELECTION_FIELDS = {"input_id", "kind", "entry_callable", "resource_family_id", "allocation", "source_sha256", "candidate_file", "record_id"}
 _GROWTH_FIELDS = {"growth_id", "site", "kind", "operation", "resource_point", "demand_inputs",
                   "escape_scope", "candidate_evidence", "coverage_status", "coverage_notes"}
-_ENTRY_FIELDS = {"entry_id", "framework", "protocol", "handler", "registration", "route_or_event",
-                 "auth_context", "attacker_inputs", "materialization_phase"}
+_ENTRY_FIELDS = {
+    "entry_id", "framework", "protocol", "handler", "registration",
+    "registration_pattern_id", "route_or_event", "auth_context",
+    "attacker_inputs", "materialization_phase",
+}
 _BUDGET_DEFAULTS = {"batch_timeout_ms": 300_000, "max_unit_result_bytes": 16 * 1024 * 1024,
                     "max_output_bytes": 256 * 1024 * 1024, "max_index_bytes": 256 * 1024,
                     "max_ledger_bytes": 16 * 1024 * 1024, "max_decoded_bytes": 256 * 1024 * 1024}

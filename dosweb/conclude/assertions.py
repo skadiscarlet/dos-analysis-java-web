@@ -8,6 +8,7 @@ from dosweb.errors import AnalyzerError
 from dosweb.flows import VerifiedFlow
 from dosweb.growth import VerifiedGrowthResult
 from dosweb.lifecycle import BoundDecision, GuardDecision, ReleaseDecision
+from dosweb.lifecycle.resource_properties import ResourceLifecycleDecision
 
 AssertionName = Literal["assertion_1", "assertion_2"]
 AssertionStatus = Literal["matched", "refuted", "unknown", "not_applicable"]
@@ -50,7 +51,7 @@ def _context(growth: VerifiedGrowthResult, flow: VerifiedFlow) -> None:
 def _ids(
     growth: VerifiedGrowthResult,
     flow: VerifiedFlow,
-    *decisions: GuardDecision | BoundDecision | ReleaseDecision,
+    *decisions: object,
 ) -> tuple[str, ...]:
     values: set[str] = {
         growth.verified_growth_id,
@@ -61,8 +62,11 @@ def _ids(
         *flow.evidence_ids,
     }
     for decision in decisions:
-        values.update(decision.evidence_ids)
-        values.update(decision.candidate_ids)
+        values.update(getattr(decision, "evidence_ids", ()))
+        values.update(getattr(decision, "candidate_ids", ()))
+        decision_id = getattr(decision, "decision_id", None)
+        if isinstance(decision_id, str):
+            values.add(decision_id)
     return tuple(sorted(values))
 
 
@@ -111,11 +115,19 @@ def evaluate_assertion_1(
     *,
     amplification: object | None = None,
     reachability: object | None = None,
+    resource_lifecycle: ResourceLifecycleDecision | None = None,
 ) -> AssertionEvaluation:
     """Evaluate P0 assertion 1: only externally reachable direct demand or amplification."""
     _context(growth, flow)
     if not isinstance(guard, GuardDecision) or not isinstance(bound, BoundDecision):
         raise AnalyzerError("ANALYSIS_ASSERTION_INVALID", "Assertion 1 decisions are malformed.")
+    if resource_lifecycle is not None and not isinstance(
+        resource_lifecycle, ResourceLifecycleDecision
+    ):
+        raise AnalyzerError(
+            "ANALYSIS_ASSERTION_INVALID",
+            "Assertion 1 resource lifecycle decision is malformed.",
+        )
     reach = _decision_status(reachability)
     if reach is not None and reach != "ordinary_attacker_reachable":
         if reach == "not_entry_reachable":
@@ -150,6 +162,31 @@ def evaluate_assertion_1(
         )
     if guard.status == "effective":
         return _result("assertion_1", "refuted", ("A1_EFFECTIVE_GUARD",), growth, flow, (), guard, bound)
+    if resource_lifecycle is not None:
+        if resource_lifecycle.status == "unresolved":
+            return _result(
+                "assertion_1",
+                "unknown",
+                ("A1_RESOURCE_LIFECYCLE_UNKNOWN",),
+                growth,
+                flow,
+                resource_lifecycle.unresolved_facts,
+                guard,
+                bound,
+                resource_lifecycle,
+            )
+        if resource_lifecycle.status == "refutes_relevant_growth":
+            return _result(
+                "assertion_1",
+                "refuted",
+                ("A1_BOUNDED_ACCEPTED_TASK_POPULATION",),
+                growth,
+                flow,
+                (),
+                guard,
+                bound,
+                resource_lifecycle,
+            )
     if bound.status == "unknown" or bound.unresolved_facts:
         return _result(
             "assertion_1", "unknown", ("A1_BOUND_UNKNOWN",), growth, flow,
@@ -172,11 +209,19 @@ def evaluate_assertion_2(
     *,
     reachability: object | None = None,
     repeatability: object | None = None,
+    resource_lifecycle: ResourceLifecycleDecision | None = None,
 ) -> AssertionEvaluation:
     """Evaluate P0 assertion 2: repeatable persistent accumulation."""
     _context(growth, flow)
     if not isinstance(bound, BoundDecision) or not isinstance(release, ReleaseDecision):
         raise AnalyzerError("ANALYSIS_ASSERTION_INVALID", "Assertion 2 decisions are malformed.")
+    if resource_lifecycle is not None and not isinstance(
+        resource_lifecycle, ResourceLifecycleDecision
+    ):
+        raise AnalyzerError(
+            "ANALYSIS_ASSERTION_INVALID",
+            "Assertion 2 resource lifecycle decision is malformed.",
+        )
     reach = _decision_status(reachability)
     if reach is not None and reach != "ordinary_attacker_reachable":
         if reach == "not_entry_reachable":
@@ -209,6 +254,31 @@ def evaluate_assertion_2(
         return _result("assertion_2", "not_applicable", ("A2_NONESCAPING_GROWTH",), growth, flow, (), bound, release)
     if growth.candidate.escape_scope == "unknown":
         return _result("assertion_2", "unknown", ("A2_ESCAPE_SCOPE_UNKNOWN",), growth, flow, ("escape_scope",), bound, release)
+    if resource_lifecycle is not None:
+        if resource_lifecycle.status == "unresolved":
+            return _result(
+                "assertion_2",
+                "unknown",
+                ("A2_RESOURCE_LIFECYCLE_UNKNOWN",),
+                growth,
+                flow,
+                resource_lifecycle.unresolved_facts,
+                bound,
+                release,
+                resource_lifecycle,
+            )
+        if resource_lifecycle.status == "refutes_relevant_growth":
+            return _result(
+                "assertion_2",
+                "refuted",
+                ("A2_BOUNDED_ACCEPTED_TASK_POPULATION",),
+                growth,
+                flow,
+                (),
+                bound,
+                release,
+                resource_lifecycle,
+            )
     if bound.status == "unknown" or bound.unresolved_facts:
         return _result("assertion_2", "unknown", ("A2_BOUND_UNKNOWN",), growth, flow, _unresolved(growth, flow, bound, release), bound, release)
     if bound.status == "effective":

@@ -169,6 +169,103 @@ def build_poc33_selection(
     return {**unsigned, "selection_digest": sha256_canonical_json(unsigned)}
 
 
+def build_poc33_input_manifest(
+    selection: Mapping[str, object],
+    truth_manifest: Path,
+    *,
+    repo_root: Path,
+) -> dict[str, object]:
+    """Freeze analyzer inputs while retaining only oracle-free record identity."""
+    truth_value, _truth_raw = _read_manifest(truth_manifest)
+    targets = selection.get("targets")
+    if not isinstance(truth_value, list) or len(truth_value) != 33:
+        raise ValueError("PoC truth manifest must contain 33 records")
+    if not isinstance(targets, list) or len(targets) != 21:
+        raise ValueError("PoC selection must contain 21 targets")
+    by_identity: dict[str, Mapping[str, object]] = {}
+    projects: list[dict[str, object]] = []
+    for row in targets:
+        index, name, source_path, database_path, fingerprint_type, fingerprint = (
+            _selection_identity(row)
+        )
+        by_identity[name.casefold()] = row
+        by_identity[name.replace("/", "__").casefold()] = row
+        source = repo_root / source_path
+        database = repo_root / database_path
+        projects.append(
+            {
+                "canonical_index": index,
+                "normalized_project_id": name,
+                "source_path": source_path,
+                "database_path": database_path,
+                "fingerprint_type": fingerprint_type,
+                "fingerprint": fingerprint,
+                "source_present": source.is_dir() and not source.is_symlink(),
+                "database_present": database.is_dir() and not database.is_symlink(),
+                "analysis_scope": "canonical_project_scope",
+                "modules": [],
+                "known_record_version_match": "unknown",
+                "version_match_reason": (
+                    "poc_manifest_has_no_source_version_provenance"
+                ),
+                "exclusions": [],
+            }
+        )
+    records: list[dict[str, str]] = []
+    for raw in truth_value:
+        if not isinstance(raw, Mapping):
+            raise ValueError("PoC truth record is not an object")
+        record_id = raw.get("record_id")
+        app = raw.get("app")
+        if not isinstance(record_id, str) or not isinstance(app, str):
+            raise ValueError("PoC truth identity is invalid")
+        project = by_identity.get(app.casefold())
+        if project is None:
+            raise ValueError("PoC record is absent from frozen project selection")
+        records.append(
+            {
+                "record_id": record_id,
+                "normalized_project_id": str(project["name"]),
+            }
+        )
+    try:
+        implementation_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        implementation_commit = "unavailable"
+    unsigned = {
+        "format": "dosweb-poc33-input-manifest-v1",
+        "run_id": selection["run_id"],
+        "selection_digest": selection["selection_digest"],
+        "canonical_manifest_sha256": selection["canonical_manifest_sha256"],
+        "truth_manifest_sha256": selection["truth_manifest_sha256"],
+        "schema_version": SCHEMA_VERSION,
+        "tool_version": TOOL_VERSION,
+        "implementation_commit": implementation_commit,
+        "oracle_separation": {
+            "analyzer_inputs": (
+                "repository identity, source/database paths, fingerprints, "
+                "configuration and canonical analysis scope"
+            ),
+            "evaluation_only": (
+                "truth status, expected endpoint/location, root cause and prior verdict"
+            ),
+            "record_mapping_consumed_by_analyzer": False,
+        },
+        "records": sorted(records, key=lambda item: item["record_id"]),
+        "projects": sorted(
+            projects, key=lambda item: int(item["canonical_index"])
+        ),
+    }
+    return {**unsigned, "manifest_digest": sha256_canonical_json(unsigned)}
+
+
 def _selection_identity(row: object) -> tuple[int, str, str, str, str, str]:
     if not isinstance(row, Mapping):
         raise ValueError("selection target is not an object")
@@ -906,6 +1003,12 @@ def main(
             )
             publish_batch_plan(plan, output)
             _write_new_json(output / "selection.json", selection)
+            _write_new_json(
+                output / "input-manifest.json",
+                build_poc33_input_manifest(
+                    selection, truth_manifest, repo_root=repo_root
+                ),
+            )
             batch_environment = dict(environment)
             batch_environment.pop("DEEPSEEK_API_KEY", None)
             max_workers = arguments.max_workers if arguments.max_workers is not None else 3
@@ -1116,6 +1219,12 @@ def main(
             )
             publish_batch_plan(plan, output)
             _write_new_json(output / "selection.json", selection)
+            _write_new_json(
+                output / "input-manifest.json",
+                build_poc33_input_manifest(
+                    selection, truth_manifest, repo_root=repo_root
+                ),
+            )
             max_workers = arguments.max_workers if arguments.max_workers is not None else 1
             if max_workers != 1:
                 raise ValueError("real-provider full canary requires --max-workers 1")
@@ -1196,6 +1305,7 @@ def main(
 __all__ = [
     "PAUSED_EXIT_STATUS",
     "build_poc33_selection",
+    "build_poc33_input_manifest",
     "main",
     "validate_entries_archive",
 ]

@@ -351,6 +351,13 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         scope["requested_entry_methods"] = sorted(set(entry_methods))
         atomic_write_json(output / "source-scope.json", scope)
     source_snapshot_sha256 = _verify_database_source_snapshot(database)
+    query_paths = values.get("_query_paths", _QUERY)
+    if (
+        not isinstance(query_paths, (tuple, list))
+        or len(query_paths) != 2
+        or any(not isinstance(query, Path) for query in query_paths)
+    ):
+        raise ValueError("CodeQL lifecycle query suite paths are invalid")
     results = tuple(
         run_query(
             query,
@@ -358,7 +365,7 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
             output / "codeql",
             codeql_binary=str(values.get("codeql_binary") or "codeql"),
         )
-        for query in _QUERY
+        for query in query_paths
     )
     expected_names = (
         "resource_lifecycle",
@@ -639,6 +646,50 @@ def _analyze_payload(
     }
     payload["result_sha256"] = hashlib.sha256(canonical_json(payload)).hexdigest()
     return payload
+
+
+def analyze_codeql_database_in_memory(
+    database: DatabaseInfo,
+    output: Path,
+    *,
+    codeql_binary: str = "codeql",
+    budget: AnalysisBudget | None = None,
+    query_paths: tuple[Path, Path] | None = None,
+) -> tuple[ExtractedFacts, dict[str, object], str, str]:
+    """Run the RC1 extractor and solver once for a production database.
+
+    The caller owns ``output`` and decides which compact, non-sensitive bridge
+    records enter the production pipeline.  Raw lifecycle facts and solver
+    states remain local temporary evidence.
+    """
+
+    if not isinstance(database, DatabaseInfo):
+        raise AnalyzerError(
+            "CODEQL_DATABASE_INVALID", "Resource lifecycle database is invalid."
+        )
+    selected_budget = budget or AnalysisBudget()
+    output.mkdir(mode=0o700, parents=True, exist_ok=False)
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "mode": "codeql_database",
+        "database": str(database.path),
+        # Empty means project-wide extraction. Candidate binding happens only
+        # after production Growth facts exist and never supplies oracle methods.
+        "entry_methods": [],
+        "budget": asdict(selected_budget),
+    }
+    extracted = _codeql_facts(
+        manifest,
+        {
+            "codeql_binary": codeql_binary,
+            **({"_query_paths": query_paths} if query_paths is not None else {}),
+        },
+        output,
+    )
+    facts_artifact = extracted_to_dict(extracted)
+    facts_sha256 = _artifact_file_sha256(facts_artifact)
+    results = _analyze_payload(extracted)
+    return extracted, results, _implementation_sha256(), facts_sha256
 
 
 def _evidence_payload(

@@ -238,7 +238,7 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertEqual(left_ref.sha256, right_ref.sha256)
 
     def test_schema_registry_covers_every_p0_jsonl_artifact(self):
-        self.assertEqual("2.7", SCHEMA_VERSION)
+        self.assertEqual("2.8", SCHEMA_VERSION)
         self.assertEqual(
             set(ARTIFACT_SCHEMAS),
             {
@@ -266,6 +266,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "lifecycle_evidence",
                 "lifecycle_coverage",
                 "lifecycle_results",
+                "resource_lifecycle_bindings",
                 "static_findings",
                 "finding_families",
                 "lifecycle_certificates",
@@ -1007,6 +1008,7 @@ class ArtifactContractTests(unittest.TestCase):
             "guard_decision": {},
             "bound_decision": {},
             "release_decision": {},
+            "resource_lifecycle_decisions": [],
             "assertions": [],
             "verdict": "static_unknown",
             "reason_codes": [],
@@ -1206,10 +1208,12 @@ class ArtifactContractTests(unittest.TestCase):
                     "guard_decision": "absent",
                     "bound_decision": "effective",
                     "release_decision": "unknown",
+                    "resource_decision": None,
                     "reason_codes": [],
                     "guard": {"status": "absent", "reason_codes": [], "checks": [], "evidence_ids": [], "unresolved_facts": [], "candidate_ids": []},
                     "bound": {"status": "effective", "reason_codes": [], "checks": [], "evidence_ids": [], "unresolved_facts": [], "candidate_ids": []},
                     "release": {"status": "unknown", "classification": "unknown", "reason_codes": [], "checks": [], "evidence_ids": [], "unresolved_facts": [], "candidate_ids": []},
+                    "resource": None,
                 }),
                 {
                     "entry_id": {"entry:1"},
@@ -1245,6 +1249,7 @@ class ArtifactContractTests(unittest.TestCase):
                     "guard_decision": {},
                     "bound_decision": {},
                     "release_decision": {},
+                    "resource_lifecycle_decisions": [],
                     "assertions": [],
                     "verdict": "static_unknown",
                     "reason_codes": [],
@@ -1295,6 +1300,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "guard_decision": {},
                 "bound_decision": {},
                 "release_decision": {},
+                "resource_lifecycle_decisions": [],
                 "suggested_follow_up_measurements": [],
             }
         )

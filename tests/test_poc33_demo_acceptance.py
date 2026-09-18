@@ -23,6 +23,7 @@ from dosweb.batch.plan import (
 
 from scripts.run_poc33_demo_acceptance import (
     PAUSED_EXIT_STATUS,
+    build_poc33_input_manifest,
     build_poc33_selection,
     main,
     validate_entries_archive,
@@ -34,6 +35,31 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Poc33DemoAcceptanceTests(unittest.TestCase):
+    def test_input_manifest_freezes_33_identities_without_oracle_fields(self) -> None:
+        truth = ROOT / "poc" / "manifest.json"
+        selection = build_poc33_selection(
+            ROOT / "intel/applications/java_web_205_targets.json",
+            truth,
+            run_id="fixture-input-freeze",
+        )
+
+        manifest = build_poc33_input_manifest(
+            selection, truth, repo_root=ROOT
+        )
+
+        self.assertEqual(33, len(manifest["records"]))
+        self.assertEqual(21, len(manifest["projects"]))
+        self.assertFalse(
+            manifest["oracle_separation"]["record_mapping_consumed_by_analyzer"]
+        )
+        self.assertTrue(
+            all(
+                set(record) == {"record_id", "normalized_project_id"}
+                for record in manifest["records"]
+            )
+        )
+        self.assertNotIn("status", json.dumps(manifest["records"]))
+
     def test_acceptance_script_is_directly_executable_from_repository_root(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(ROOT / "scripts/run_poc33_demo_acceptance.py"), "--help"],
@@ -58,8 +84,8 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
             audit.write_text("", encoding="utf-8")
             audit.chmod(0o600)
             (target_root / "run.json").write_text(json.dumps({
-                "schema_version": "2.7",
-                "tool_version": "0.6.0",
+                "schema_version": "2.8",
+                "tool_version": "0.7.0",
                 "status": "completed",
                 "identity": {
                     "analysis_mode": "formal",
@@ -246,8 +272,8 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
             target_root.mkdir(parents=True)
             write_target_binding(plan, target, target_root)
             (target_root / "run.json").write_text(json.dumps({
-                "schema_version": "2.7",
-                "tool_version": "0.6.0",
+                "schema_version": "2.8",
+                "tool_version": "0.7.0",
                 "status": "completed",
                 "identity": {
                     "analysis_mode": "exploratory_entries",

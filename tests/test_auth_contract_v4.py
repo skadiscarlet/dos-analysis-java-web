@@ -1358,7 +1358,7 @@ def test_auth_v4_cache_is_cold_and_auth_identities_are_rotated(tmp_path: Path) -
     assert AUTH_PROMPT_VERSION == "auth-contract-v5"
     assert AUTH_RESPONSE_SCHEMA_VERSION == "auth-contract-schema-v3"
     assert production._IMPLEMENTATION_VERSIONS["growth"] == (  # noqa: SLF001
-        "production-v2.7-open-world-maturation-growth-v32"
+        "production-v2.8-open-world-maturation-growth-v32"
     )
 
     cache_dir = tmp_path / "cache"

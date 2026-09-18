@@ -95,6 +95,9 @@ class BatchAggregationContractTests(unittest.TestCase):
                     "bound_candidates.jsonl", "guard_candidates.jsonl",
                     "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
                     "lifecycle_results.jsonl", "lifecycle_summaries.jsonl",
+                    "resource_lifecycle_bindings.jsonl",
+                    "resource_lifecycle_facts.private.json",
+                    "resource_lifecycle_results.private.json",
                     "release_candidates.jsonl",
                 },
                 "conclude": {
@@ -835,7 +838,11 @@ class BatchAggregationContractTests(unittest.TestCase):
             "reachability_decisions.jsonl", "repeatability_decisions.jsonl",
             "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
             "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
-            "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl",
+            "lifecycle_results.jsonl", "lifecycle_summaries.jsonl",
+            "resource_lifecycle_bindings.jsonl",
+            "resource_lifecycle_facts.private.json",
+            "resource_lifecycle_results.private.json",
+            "release_candidates.jsonl",
             "finding_families.jsonl", "lifecycle_certificates.jsonl",
             "static_findings.jsonl", "report.md", "summary.json",
         })
@@ -882,7 +889,7 @@ class BatchAggregationContractTests(unittest.TestCase):
             flow_id = stable_identifier("flow", {"entry_id": entry_id, "growth_id": growth_id, "attacker_control": {"target": "size", "source": "request", "sink": "allocate"}, "call_path": ["fixture.Handler"], "phase_sequence": ["handler"], "confidence": "proven"})
             flow = {"path_id": flow_id, "entry_id": entry_id, "growth_id": growth_id, "attacker_control": {"target": "size", "source": "request", "sink": "allocate"}, "call_path": ["fixture.Handler"], "phase_sequence": ["handler"], "confidence": "proven", "flow_kind": "direct", "coverage_status": "complete", "coverage_note": "fixture"}
             certificate_id = "certificate:fixture"
-            certificate = {"certificate_id": certificate_id, "entry_id": entry_id, "growth_id": growth_id, "attacker_inputs": [], "resource_point": resource, "path_ids": [flow_id], "guard_decision": {}, "bound_decision": {}, "release_decision": {}, "assertions": [], "verdict": "static_unknown", "reason_codes": [], "assumptions": [], "coverage_gaps": [], "unresolved_facts": [], "suggested_follow_up_measurements": []}
+            certificate = {"certificate_id": certificate_id, "entry_id": entry_id, "growth_id": growth_id, "attacker_inputs": [], "resource_point": resource, "path_ids": [flow_id], "guard_decision": {}, "bound_decision": {}, "release_decision": {}, "resource_lifecycle_decisions": [], "assertions": [], "verdict": "static_unknown", "reason_codes": [], "assumptions": [], "coverage_gaps": [], "unresolved_facts": [], "suggested_follow_up_measurements": []}
             family_semantic = {"verdict": "static_unknown", "priority": "P1", "primary_finding_id": "finding:fixture", "member_finding_ids": ["finding:fixture"], "member_certificate_ids": [certificate_id], "entry_ids": [entry_id], "growth_ids": [growth_id], "resource_id": resource["resource_id"], "reachability_status": "unknown", "amplification_class": "large_single_request", "reason_codes": []}
             family = {"family_id": stable_identifier("family", family_semantic), **family_semantic}
             records = {"entry_facts.jsonl": [entry], "growth_candidates.jsonl": [growth], "candidate_dispositions.jsonl": [self._unresolved_disposition(growth_id, "fact:fixture")], "flow_proofs.jsonl": [flow], "static_findings.jsonl": [{"finding_id": "finding:fixture", "certificate_id": certificate_id, "entry_id": entry_id, "growth_id": growth_id, "verdict": "static_unknown", "reason_codes": []}], "finding_families.jsonl": [family], "lifecycle_certificates.jsonl": [certificate]}
@@ -899,7 +906,7 @@ class BatchAggregationContractTests(unittest.TestCase):
                 "entries": {"configuration_coverage.json", "coverage.json", "descriptor_coverage.json", "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "entry_security_facts.jsonl", "modeled_configuration.jsonl"},
                 "growth": {"amplification_decisions.jsonl", "auth_contracts.jsonl", "candidate_dispositions.jsonl", "candidate_entry_links.jsonl", "candidate_negative_proofs.jsonl", "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl", "reachability_decisions.jsonl", "repeatability_decisions.jsonl", "verified_growth.jsonl"},
                 "flows": {"flow_proofs.jsonl"},
-                "lifecycle": {"bound_candidates.jsonl", "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl", "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl"},
+                "lifecycle": {"bound_candidates.jsonl", "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl", "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "resource_lifecycle_bindings.jsonl", "resource_lifecycle_facts.private.json", "resource_lifecycle_results.private.json", "release_candidates.jsonl"},
                 "conclude": {"finding_families.jsonl", "static_findings.jsonl", "lifecycle_certificates.jsonl"},
                 "report": {"summary.json", "report.md"},
             }

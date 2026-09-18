@@ -382,6 +382,9 @@ class CertificateReportTests(unittest.TestCase):
             "attacker_inputs": tuple(record["attacker_inputs"]),
             "path_ids": tuple(record["path_ids"]),
             "assertions": tuple(record["assertions"]),
+            "resource_lifecycle_decisions": tuple(
+                record["resource_lifecycle_decisions"]
+            ),
             "reason_codes": tuple(record["reason_codes"]),
             "assumptions": tuple(record["assumptions"]),
             "coverage_gaps": tuple(record["coverage_gaps"]),

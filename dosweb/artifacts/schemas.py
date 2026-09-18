@@ -10,7 +10,7 @@ from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.errors import AnalyzerError
 
 
-SCHEMA_VERSION: Final = "2.7"
+SCHEMA_VERSION: Final = "2.8"
 _CONCRETE_RESOURCE_DIMENSIONS: Final = frozenset(
     {"entries", "bytes", "tasks", "connections", "objects"}
 )
@@ -37,6 +37,7 @@ _ID_PREFIXES: Final = {
     "gap_id": "gap:", "interposition_id": "interposition:",
     "family_id": "family:",
     "negative_proof_id": "negative_proof:",
+    "binding_id": "resource-binding:",
 }
 _MAX_ARTIFACT_ID_BYTES: Final = 256
 
@@ -399,7 +400,8 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         required_fields=frozenset(
             {
                 "lifecycle_result_id", "entry_id", "growth_id", "path_id", "guard_decision",
-                "bound_decision", "release_decision", "reason_codes", "guard", "bound", "release",
+                "bound_decision", "release_decision", "resource_decision",
+                "reason_codes", "guard", "bound", "release", "resource",
             }
         ),
         enum_fields={
@@ -417,9 +419,61 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         field_kinds=_field_kinds(
             lifecycle_result_id="string", entry_id="string", growth_id="string", path_id="string",
             guard_decision="string", bound_decision="string", release_decision="string",
-            reason_codes="list", guard="object", bound="object", release="object",
+            resource_decision="any", reason_codes="list", guard="object",
+            bound="object", release="object", resource="object_or_none",
         ),
         record_validator=lambda record, artifact_name, line: _validate_lifecycle_result(
+            record, artifact_name, line
+        ),
+    ),
+    "resource_lifecycle_bindings": ArtifactSchema(
+        id_field="binding_id",
+        required_fields=frozenset(
+            {
+                "binding_id", "entry_id", "growth_id", "path_id",
+                "analysis_unit_id", "resource_family_id", "instance_id",
+                "task_binding_id", "executor_contract_id",
+                "submit_program_point", "submit_callable", "submit_file",
+                "submit_line", "submit_column", "submit_line_sha256",
+                "allocation_file", "allocation_line", "allocation_source_sha256",
+                "growth_dimension", "growth_scope", "property_id",
+                "property_dimension", "property_scope", "property_cut",
+                "property_status", "upper_bound", "assumptions",
+                "coverage_gaps", "evidence_refs", "binding_status",
+                "reason_code", "backend_version", "backend_implementation_sha256",
+                "facts_sha256", "result_sha256", "database_fingerprint",
+                "source_snapshot_sha256", "query_sha256",
+            }
+        ),
+        enum_fields={
+            "binding_status": frozenset(
+                {"refutes_relevant_growth", "unresolved", "not_applicable"}
+            ),
+        },
+        reference_fields={
+            "entry_id": ReferenceSpec("entry_id"),
+            "growth_id": ReferenceSpec("growth_id"),
+            "path_id": ReferenceSpec("path_id"),
+        },
+        field_kinds=_field_kinds(
+            binding_id="string", entry_id="string", growth_id="string",
+            path_id="string", analysis_unit_id="any", resource_family_id="any",
+            instance_id="any", task_binding_id="any", executor_contract_id="any",
+            submit_program_point="any", submit_callable="any", submit_file="any",
+            submit_line="any", submit_column="any", submit_line_sha256="any",
+            allocation_file="any", allocation_line="any",
+            allocation_source_sha256="any", growth_dimension="any",
+            growth_scope="any", property_id="any",
+            property_dimension="any", property_scope="any",
+            property_cut="any", property_status="any", upper_bound="any",
+            assumptions="list", coverage_gaps="list", evidence_refs="list",
+            binding_status="string",
+            reason_code="string", backend_version="string",
+            backend_implementation_sha256="string", facts_sha256="string",
+            result_sha256="string", database_fingerprint="string",
+            source_snapshot_sha256="string", query_sha256="any",
+        ),
+        record_validator=lambda record, artifact_name, line: _validate_resource_binding(
             record, artifact_name, line
         ),
     ),
@@ -493,7 +547,8 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         required_fields=frozenset(
             {
                 "certificate_id", "entry_id", "growth_id", "attacker_inputs", "resource_point",
-                "path_ids", "guard_decision", "bound_decision", "release_decision", "assertions",
+                "path_ids", "guard_decision", "bound_decision", "release_decision",
+                "resource_lifecycle_decisions", "assertions",
                 "verdict", "reason_codes", "assumptions", "coverage_gaps", "unresolved_facts",
                 "suggested_follow_up_measurements",
             }
@@ -511,9 +566,13 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         field_kinds=_field_kinds(
             certificate_id="string", entry_id="string", growth_id="string", attacker_inputs="list",
             resource_point="object", path_ids="nonempty_string_list", guard_decision="object",
-            bound_decision="object", release_decision="object", assertions="list", verdict="string",
+            bound_decision="object", release_decision="object",
+            resource_lifecycle_decisions="list", assertions="list", verdict="string",
             reason_codes="list", assumptions="list", coverage_gaps="list", unresolved_facts="list",
             suggested_follow_up_measurements="list",
+        ),
+        record_validator=lambda record, artifact_name, line: _validate_certificate_resources(
+            record, artifact_name, line
         ),
     ),
 }
@@ -649,6 +708,32 @@ def validate_references(
             cited = (*influence_ids, *record["required_static_evidence"])
             if any(item not in known_facts or item not in current_facts for item in cited):
                 raise _dangling_reference(artifact_name, index, "required_static_evidence", record["required_static_evidence"])
+        if artifact_name in {"lifecycle_results", "lifecycle_certificates"}:
+            known_bindings = known_ids.get("binding_id")
+            decisions = (
+                [record["resource"]]
+                if artifact_name == "lifecycle_results"
+                and isinstance(record["resource"], Mapping)
+                else [
+                    item["decision"]
+                    for item in record.get("resource_lifecycle_decisions", [])
+                    if isinstance(item, Mapping)
+                    and isinstance(item.get("decision"), Mapping)
+                ]
+            )
+            if decisions and (
+                not isinstance(known_bindings, (set, frozenset))
+                or any(
+                    decision.get("binding_id") not in known_bindings
+                    for decision in decisions
+                )
+            ):
+                raise _dangling_reference(
+                    artifact_name,
+                    index,
+                    "resource_lifecycle_decisions",
+                    [decision.get("binding_id") for decision in decisions],
+                )
         for field, spec in schema.reference_fields.items():
             values = _reference_values(record[field], spec, artifact_name, index, field)
             known = known_ids.get(spec.id_kind)
@@ -665,6 +750,8 @@ def _matches_kind(value: object, kind: str) -> bool:
         return isinstance(value, str)
     if kind == "object":
         return isinstance(value, Mapping)
+    if kind == "object_or_none":
+        return value is None or isinstance(value, Mapping)
     if kind == "list":
         return isinstance(value, list)
     if kind == "nonempty_string_list":
@@ -1087,26 +1174,201 @@ def _validate_lifecycle_result(
                 "ARTIFACT_INVALID_ENUM", "Release classification is invalid.",
                 artifact_name, line, name,
             )
+    resource = record["resource"]
+    resource_status = record["resource_decision"]
+    if resource is None:
+        if resource_status is not None:
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Resource lifecycle decision summary is inconsistent.",
+                artifact_name,
+                line,
+                "resource_decision",
+            )
+    else:
+        if not isinstance(resource, Mapping):
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Resource lifecycle decision is malformed.",
+                artifact_name,
+                line,
+                "resource",
+            )
+        from dosweb.lifecycle.resource_properties import ResourceLifecycleDecision
+
+        try:
+            decision = ResourceLifecycleDecision.from_dict(resource)
+        except AnalyzerError as exc:
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Resource lifecycle decision is malformed.",
+                artifact_name,
+                line,
+                "resource",
+            ) from exc
+        if decision.status != resource_status:
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Resource lifecycle decision summary is inconsistent.",
+                artifact_name,
+                line,
+                "resource_decision",
+            )
     reasons = record["reason_codes"]
     assert isinstance(reasons, list)
-    expected_reasons = sorted(
-        {
-            reason
-            for name in decision_specs
-            for reason in record[name]["reason_codes"]
-        }
-    )
-    if reasons != expected_reasons:
+    expected_reasons = {
+        reason
+        for name in decision_specs
+        for reason in record[name]["reason_codes"]
+    }
+    if isinstance(resource, Mapping):
+        expected_reasons.update(resource["reason_codes"])
+    if reasons != sorted(expected_reasons):
         raise _error(
             "ARTIFACT_INVALID_RECORD", "Lifecycle result reasons are inconsistent.",
             artifact_name, line, "reason_codes",
         )
-    semantic = {key: value for key, value in record.items() if key != "lifecycle_result_id"}
+    semantic = {
+        key: value for key, value in record.items()
+        if key != "lifecycle_result_id"
+    }
     if record["lifecycle_result_id"] != stable_identifier("lifecycle", semantic):
         raise _error(
             "ARTIFACT_INVALID_RECORD", "Lifecycle result identifier is malformed.",
             artifact_name, line, "lifecycle_result_id",
         )
+
+
+def _validate_resource_binding(
+    record: Mapping[str, object], artifact_name: str, line: int
+) -> None:
+    for field in (
+        "backend_implementation_sha256",
+        "facts_sha256",
+        "result_sha256",
+        "database_fingerprint",
+        "source_snapshot_sha256",
+    ):
+        if not isinstance(record[field], str) or not re.fullmatch(
+            r"[0-9a-f]{64}", record[field]
+        ):
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Resource lifecycle digest is malformed.",
+                artifact_name,
+                line,
+                field,
+            )
+    query_sha = record["query_sha256"]
+    if query_sha is not None and (
+        not isinstance(query_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", query_sha)
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Resource lifecycle query digest is malformed.",
+            artifact_name,
+            line,
+            "query_sha256",
+        )
+    bound = record["binding_status"] == "refutes_relevant_growth"
+    required_when_bound = (
+        "analysis_unit_id",
+        "resource_family_id",
+        "instance_id",
+        "task_binding_id",
+        "executor_contract_id",
+        "submit_program_point",
+        "submit_callable",
+        "submit_file",
+        "submit_line",
+        "submit_column",
+        "submit_line_sha256",
+        "allocation_file",
+        "allocation_line",
+        "allocation_source_sha256",
+        "property_id",
+        "property_dimension",
+        "property_scope",
+        "property_cut",
+        "property_status",
+        "upper_bound",
+        "query_sha256",
+    )
+    if bound and any(record[field] is None for field in required_when_bound):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Bounded resource lifecycle binding is incomplete.",
+            artifact_name,
+            line,
+            "binding_status",
+        )
+    if bound and (
+        record["growth_dimension"] != "tasks"
+        or record["property_dimension"] != "accepted_task_population"
+        or record["property_cut"] != "arbitrary_finite_repetitions"
+        or record["property_status"] != "bounded"
+        or not isinstance(record["upper_bound"], int)
+        or isinstance(record["upper_bound"], bool)
+        or record["upper_bound"] <= 0
+        or record["coverage_gaps"] != []
+        or record["property_scope"]
+        != f"executor:{record['executor_contract_id']}"
+    ):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Bounded resource lifecycle semantics are inconsistent.",
+            artifact_name,
+            line,
+            "binding_status",
+        )
+    semantic = dict(record)
+    semantic.pop("binding_id")
+    if record["binding_id"] != stable_identifier("resource-binding", semantic):
+        raise _error(
+            "ARTIFACT_INVALID_RECORD",
+            "Resource lifecycle binding identifier is not canonical.",
+            artifact_name,
+            line,
+            "binding_id",
+        )
+
+
+def _validate_certificate_resources(
+    record: Mapping[str, object], artifact_name: str, line: int
+) -> None:
+    path_ids = record["path_ids"]
+    values = record["resource_lifecycle_decisions"]
+    assert isinstance(path_ids, list) and isinstance(values, list)
+    seen: set[str] = set()
+    from dosweb.lifecycle.resource_properties import ResourceLifecycleDecision
+
+    for item in values:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"path_id", "decision"}
+            or not isinstance(item["path_id"], str)
+            or item["path_id"] not in path_ids
+            or item["path_id"] in seen
+            or not isinstance(item["decision"], Mapping)
+        ):
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Certificate resource lifecycle reference is malformed.",
+                artifact_name,
+                line,
+                "resource_lifecycle_decisions",
+            )
+        try:
+            ResourceLifecycleDecision.from_dict(item["decision"])
+        except AnalyzerError as exc:
+            raise _error(
+                "ARTIFACT_INVALID_RECORD",
+                "Certificate resource lifecycle decision is malformed.",
+                artifact_name,
+                line,
+                "resource_lifecycle_decisions",
+            ) from exc
+        seen.add(item["path_id"])
 
 
 def _validate_candidate_entry_link(

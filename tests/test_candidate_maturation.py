@@ -12,8 +12,8 @@ from dosweb.pipeline import TOOL_VERSION
 
 
 def test_schema_and_tool_versions_identify_maturation_artifacts() -> None:
-    assert SCHEMA_VERSION == "2.7"
-    assert TOOL_VERSION == "0.6.0"
+    assert SCHEMA_VERSION == "2.8"
+    assert TOOL_VERSION == "0.7.0"
 
 
 def test_formal_and_gap_dispositions_preserve_canonical_association_state() -> None:

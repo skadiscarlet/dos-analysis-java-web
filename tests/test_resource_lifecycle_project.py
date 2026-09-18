@@ -264,6 +264,10 @@ class ResourceLifecycleProjectTests(unittest.TestCase):
         entry = EntryFact.create(framework="spring_mvc", protocol="http",
             handler=HandlerFact(SYNTHETIC_HANDLE_ID, "Fixture.java", 1),
             registration=RegistrationFact("annotation_mapping", SYNTHETIC_HANDLE_ID, "Fixture.java", 1),
+            registration_pattern_id=(
+                "entry-registration-coverage:spring_mvc:"
+                "annotation_mapping:spring_annotation_mapping"
+            ),
             route_or_event="GET /fixture", auth_context="unauthenticated",
             attacker_inputs=(AttackerInputFact("input", "java.lang.String", "request_parameter"),),
             materialization_phase="in_handler")

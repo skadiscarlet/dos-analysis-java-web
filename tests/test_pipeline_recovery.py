@@ -315,8 +315,8 @@ class PipelineRecoveryTests(unittest.TestCase):
             self.assertEqual(set(json.loads((Path(tmp) / "run.json").read_text())["stages"]), set(STAGES))
 
     def test_schema_27_reexecutes_every_schema_26_stage(self):
-        self.assertEqual("2.7", SCHEMA_VERSION)
-        self.assertEqual("0.6.0", TOOL_VERSION)
+        self.assertEqual("2.8", SCHEMA_VERSION)
+        self.assertEqual("0.7.0", TOOL_VERSION)
         with tempfile.TemporaryDirectory() as tmp:
             initial_calls = {stage: 0 for stage in STAGES}
             Pipeline(
@@ -334,15 +334,15 @@ class PipelineRecoveryTests(unittest.TestCase):
             ).run()
 
             self.assertEqual([1] * len(STAGES), [resumed_calls[stage] for stage in STAGES])
-            self.assertEqual("2.7", result["schema_version"])
-            self.assertEqual("0.6.0", result["tool_version"])
+            self.assertEqual("2.8", result["schema_version"])
+            self.assertEqual("0.7.0", result["tool_version"])
             for stage in STAGES:
                 manifest = json.loads(
                     (Path(tmp) / ".stage-manifests" / f"{stage}.json").read_text(encoding="utf-8")
                 )
-                self.assertEqual("2.7", manifest["fingerprint"]["schema_version"])
+                self.assertEqual("2.8", manifest["fingerprint"]["schema_version"])
                 self.assertTrue(
-                    all(artifact["schema_version"] == "2.7" for artifact in manifest["artifacts"])
+                    all(artifact["schema_version"] == "2.8" for artifact in manifest["artifacts"])
                 )
 
     def test_resume_updates_root_run_identity_and_records_prior_identity_hash(self):

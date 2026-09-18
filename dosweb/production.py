@@ -88,6 +88,11 @@ from dosweb.lifecycle.framework_limits import (
 from dosweb.lifecycle.guards import DecisionCheck, GuardCandidate, GuardDecision, ModeledConfiguration, evaluate_guard
 from dosweb.lifecycle.releases import ReleaseCandidate, ReleaseDecision, evaluate_synchronous_release
 from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, LifecycleSummary
+from dosweb.lifecycle.resource_properties import (
+    ResourceLifecycleBackendRun,
+    ResourceLifecycleDecision,
+    bind_resource_lifecycle_property,
+)
 from dosweb.llm.deepseek import DeepSeekClient
 from dosweb.pipeline import Executor, Pipeline, STAGES, StageContext, StageOutput
 from dosweb.report.markdown import render_report
@@ -96,17 +101,17 @@ from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
-        "production-v2.7-open-world-maturation-growth-v32"
+        "production-v2.8-open-world-maturation-growth-v32"
         if stage == "growth"
-        else "production-v2.7-open-world-maturation-entries-v17"
+        else "production-v2.8-open-world-maturation-entries-v17"
         if stage == "entries"
-        else "production-v2.7-open-world-maturation-conclude-v5"
+        else "production-v2.8-open-world-maturation-conclude-v6"
         if stage == "conclude"
-        else "production-v2.7-open-world-maturation-flows-v21"
+        else "production-v2.8-open-world-maturation-flows-v21"
         if stage == "flows"
-        else f"production-v2.7-open-world-maturation-{stage}-v14"
+        else f"production-v2.8-open-world-maturation-{stage}-v15"
         if stage == "lifecycle"
-        else f"production-v2.7-open-world-maturation-{stage}-v1"
+        else f"production-v2.8-open-world-maturation-{stage}-v1"
     )
     for stage in STAGES
 }
@@ -3441,7 +3446,18 @@ def _evaluate_path_bounds(
     )
 
 
-def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[], DatabaseInfo], query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]], run_query_fn: Callable[..., QueryResult] | None = None) -> Executor:
+def make_lifecycle_executor(
+    config: AnalyzerConfig,
+    *,
+    database_info_fn: Callable[[], DatabaseInfo],
+    query_pack_snapshot_fn: Callable[[], Mapping[str, bytes]],
+    run_query_fn: Callable[..., QueryResult] | None = None,
+    resource_lifecycle_provider: Callable[
+        [DatabaseInfo, Path], ResourceLifecycleBackendRun
+    ]
+    | None = None,
+    resource_lifecycle_propagation_enabled: bool = True,
+) -> Executor:
     runner = run_query_fn or globals()["run_query"]
     def execute(context: StageContext) -> StageOutput:
         database = database_info_fn()
@@ -3449,6 +3465,22 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
         with tempfile.TemporaryDirectory(prefix="dosweb-pack-") as temporary:
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
             rows = _run_codeql_family(config, database, "lifecycle", pack, runner)
+        resource_run: ResourceLifecycleBackendRun | None = None
+        if resource_lifecycle_provider is not None:
+            with tempfile.TemporaryDirectory(
+                prefix="dosweb-resource-lifecycle-"
+            ) as temporary:
+                resource_run = resource_lifecycle_provider(
+                    database, Path(temporary) / "analysis"
+                )
+            if (
+                resource_run.extracted.coverage.get("database_fingerprint")
+                != database.fingerprint
+            ):
+                raise AnalyzerError(
+                    "ANALYSIS_RESOURCE_LIFECYCLE_INVALID",
+                    "Resource lifecycle evidence belongs to a different CodeQL database.",
+                )
         # Re-query family rows by decoder provenance, retaining strict normalization.
         guards_raw, bounds_raw, releases_raw, coverage_raw, summaries_raw = [], [], [], [], []
         for row in rows:
@@ -3500,6 +3532,7 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
         lifecycle_evidence: list[dict[str, object]] = []
         lifecycle_coverage: list[dict[str, object]] = []
         lifecycle_summaries: list[dict[str, object]] = []
+        resource_lifecycle_bindings: list[dict[str, object]] = []
         lifecycle_records = []
         # Strict one-wrapper Guard summaries are independent CodeQL evidence.
         # Promote only their complete, source/CFG/dimension-bearing form to a
@@ -3511,6 +3544,12 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
             if result.candidate is None:
                 raise AnalyzerError("ANALYSIS_DANGLING_FACT_REFERENCE", "Lifecycle flow has no Growth anchor.")
             anchor = result.candidate
+            resource_binding = None
+            if resource_run is not None and resource_lifecycle_propagation_enabled:
+                resource_binding = bind_resource_lifecycle_property(
+                    entry, result, flow, resource_run
+                )
+                resource_lifecycle_bindings.append(dict(resource_binding.record))
             # Summary rows are independently decoded source locations and are
             # re-bound here to the exact verified flow anchor. They are audit
             # evidence only until a family candidate with the same CodeQL
@@ -3629,10 +3668,33 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
                 "guard_decision": guard.status,
                 "bound_decision": bound.status,
                 "release_decision": release.status,
-                "reason_codes": sorted(set((*guard.reason_codes, *bound.reason_codes, *release.reason_codes))),
+                "resource_decision": (
+                    resource_binding.resource_decision.status
+                    if resource_binding is not None
+                    else None
+                ),
+                "reason_codes": sorted(
+                    set(
+                        (
+                            *guard.reason_codes,
+                            *bound.reason_codes,
+                            *release.reason_codes,
+                            *(
+                                resource_binding.resource_decision.reason_codes
+                                if resource_binding is not None
+                                else ()
+                            ),
+                        )
+                    )
+                ),
                 "guard": _decision_record(guard),
                 "bound": _decision_record(bound),
                 "release": _decision_record(release),
+                "resource": (
+                    resource_binding.resource_decision.to_dict()
+                    if resource_binding is not None
+                    else None
+                ),
             }
             lifecycle_records.append({"lifecycle_result_id": stable_identifier("lifecycle", semantic), **semantic})
         validate_records("guard_candidates", guard_records)
@@ -3640,9 +3702,41 @@ def make_lifecycle_executor(config: AnalyzerConfig, *, database_info_fn: Callabl
         validate_records("release_candidates", release_records)
         validate_records("lifecycle_evidence", lifecycle_evidence)
         validate_records("lifecycle_summaries", lifecycle_summaries)
+        validate_records(
+            "resource_lifecycle_bindings", resource_lifecycle_bindings
+        )
         validate_records("lifecycle_coverage", lifecycle_coverage)
         validate_records("lifecycle_results", lifecycle_records)
-        return StageOutput({"guard_candidates.jsonl": guard_records, "bound_candidates.jsonl": bound_records, "release_candidates.jsonl": release_records, "lifecycle_summaries.jsonl": lifecycle_summaries, "lifecycle_evidence.jsonl": lifecycle_evidence, "lifecycle_coverage.jsonl": lifecycle_coverage, "lifecycle_results.jsonl": lifecycle_records}, {"flow_count": len(flows), "coverage_partial_count": len(lifecycle_coverage), "summary_count": len(lifecycle_summaries)})
+        artifacts: dict[str, object] = {
+            "guard_candidates.jsonl": guard_records,
+            "bound_candidates.jsonl": bound_records,
+            "release_candidates.jsonl": release_records,
+            "lifecycle_summaries.jsonl": lifecycle_summaries,
+            "resource_lifecycle_bindings.jsonl": resource_lifecycle_bindings,
+            "lifecycle_evidence.jsonl": lifecycle_evidence,
+            "lifecycle_coverage.jsonl": lifecycle_coverage,
+            "lifecycle_results.jsonl": lifecycle_records,
+        }
+        if resource_run is not None:
+            from dosweb.resource_lifecycle.adapters import extracted_to_dict
+
+            artifacts["resource_lifecycle_facts.private.json"] = (
+                canonical_json(extracted_to_dict(resource_run.extracted)) + b"\n"
+            )
+            artifacts["resource_lifecycle_results.private.json"] = (
+                canonical_json(dict(resource_run.results)) + b"\n"
+            )
+        return StageOutput(
+            artifacts,  # type: ignore[arg-type]
+            {
+                "flow_count": len(flows),
+                "coverage_partial_count": len(lifecycle_coverage),
+                "summary_count": len(lifecycle_summaries),
+                "resource_lifecycle_binding_count": len(
+                    resource_lifecycle_bindings
+                ),
+            },
+        )
     return execute
 
 
@@ -3749,6 +3843,14 @@ def make_conclude_executor() -> Executor:
         growth = _load_verified_growth(context)
         flows = [verify_flow(FlowProof.from_dict(record), entries, growth) for record in _records(context, "flows", "flow_proofs.jsonl", "flow_proofs")]
         lifecycle = {record["path_id"]: record for record in _records(context, "lifecycle", "lifecycle_results.jsonl", "lifecycle_results")}
+        resource_by_path = {
+            path_id: (
+                ResourceLifecycleDecision.from_dict(record["resource"])
+                if isinstance(record.get("resource"), Mapping)
+                else None
+            )
+            for path_id, record in lifecycle.items()
+        }
         coverage_records = [LifecycleCoverage.from_dict(record) for record in _strict_records(context, "lifecycle", "lifecycle_coverage.jsonl")]
         coverage_by_key = {
             (item.entry_id, item.growth_id, item.path_id, item.family): item.status
@@ -3807,8 +3909,24 @@ def make_conclude_executor() -> Executor:
             evaluations_by_path = tuple(
                 (
                     flow,
-                    evaluate_assertion_1(result, flow, guard, bound, amplification=amplification.get((entry_id, growth_id)), reachability=reachability.get(entry_id)),
-                    evaluate_assertion_2(result, flow, bound, release, reachability=reachability.get(entry_id), repeatability=repeatability.get((entry_id, growth_id))),
+                    evaluate_assertion_1(
+                        result,
+                        flow,
+                        guard,
+                        bound,
+                        amplification=amplification.get((entry_id, growth_id)),
+                        reachability=reachability.get(entry_id),
+                        resource_lifecycle=resource_by_path[flow.path_id],
+                    ),
+                    evaluate_assertion_2(
+                        result,
+                        flow,
+                        bound,
+                        release,
+                        reachability=reachability.get(entry_id),
+                        repeatability=repeatability.get((entry_id, growth_id)),
+                        resource_lifecycle=resource_by_path[flow.path_id],
+                    ),
                 )
                 for flow in ordered
             )
@@ -3838,6 +3956,11 @@ def make_conclude_executor() -> Executor:
                 flow_proven=bool(proven) and len(proven) == len(ordered),
                 assertion_1_lifecycle_complete=all(
                     assertion_1.status == "not_applicable"
+                    or (
+                        resource_by_path[flow.path_id] is not None
+                        and resource_by_path[flow.path_id].status
+                        == "refutes_relevant_growth"
+                    )
                     or all(
                         coverage_by_key.get((entry_id, growth_id, flow.path_id, family)) == "complete"
                         for family in ("guard", "bound")
@@ -3846,6 +3969,11 @@ def make_conclude_executor() -> Executor:
                 ),
                 assertion_2_lifecycle_complete=all(
                     assertion_2.status == "not_applicable"
+                    or (
+                        resource_by_path[flow.path_id] is not None
+                        and resource_by_path[flow.path_id].status
+                        == "refutes_relevant_growth"
+                    )
                     or all(
                         coverage_by_key.get((entry_id, growth_id, flow.path_id, family)) == "complete"
                         for family in ("bound", "release")
@@ -3865,6 +3993,10 @@ def make_conclude_executor() -> Executor:
                 entry, result, ordered, guard, bound, release,
                 assertions, coverage, verdict,
                 reachability=reachability.get(entry_id), repeatability=repeatability.get((entry_id, growth_id)), amplification=amplification.get((entry_id, growth_id)),
+                resource_lifecycle={
+                    flow.path_id: resource_by_path[flow.path_id]
+                    for flow in ordered
+                },
                 proof_gate=proof_gate,
             )
             finding = StaticFinding.from_certificate(certificate)
@@ -3902,7 +4034,7 @@ def make_report_executor() -> Executor:
         cert_records = _records(context, "conclude", "lifecycle_certificates.jsonl", "lifecycle_certificates")
         finding_records = _records(context, "conclude", "static_findings.jsonl", "static_findings")
         family_records = _records(context, "conclude", "finding_families.jsonl", "finding_families")
-        certificates = [LifecycleCertificate(**{**record, "attacker_inputs": tuple(record["attacker_inputs"]), "path_ids": tuple(record["path_ids"]), "assertions": tuple(record["assertions"]), "reason_codes": tuple(record["reason_codes"]), "assumptions": tuple(record["assumptions"]), "coverage_gaps": tuple(record["coverage_gaps"]), "unresolved_facts": tuple(record["unresolved_facts"]), "suggested_follow_up_measurements": tuple(record["suggested_follow_up_measurements"])}) for record in cert_records]
+        certificates = [LifecycleCertificate(**{**record, "attacker_inputs": tuple(record["attacker_inputs"]), "path_ids": tuple(record["path_ids"]), "resource_lifecycle_decisions": tuple(record["resource_lifecycle_decisions"]), "assertions": tuple(record["assertions"]), "reason_codes": tuple(record["reason_codes"]), "assumptions": tuple(record["assumptions"]), "coverage_gaps": tuple(record["coverage_gaps"]), "unresolved_facts": tuple(record["unresolved_facts"]), "suggested_follow_up_measurements": tuple(record["suggested_follow_up_measurements"])}) for record in cert_records]
         findings = [StaticFinding.from_dict(record) for record in finding_records]
         families = [FindingFamily.from_dict(record) for record in family_records]
         summary = build_summary(families, findings, _coverage(context))
@@ -3926,7 +4058,7 @@ class ProductionPipeline:
         return self._pipeline.run(target)
 
 
-def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[str, str] | None = None, secrets_path: Path | None = None, stage_executors: Mapping[str, Executor] | None = None, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, create_execution_snapshot_fn: Callable[..., DatabaseInfo] | None = None, cleanup_execution_snapshot_fn: Callable[[DatabaseInfo], None] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] | None = None, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> ProductionPipeline:
+def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[str, str] | None = None, secrets_path: Path | None = None, stage_executors: Mapping[str, Executor] | None = None, validate_database_fn: Callable[..., DatabaseInfo] | None = None, run_query_fn: Callable[..., QueryResult] | None = None, resource_lifecycle_provider: Callable[[DatabaseInfo, Path], ResourceLifecycleBackendRun] | None = None, resource_lifecycle_provider_identity: str | None = None, resource_lifecycle_propagation_enabled: bool = True, create_execution_snapshot_fn: Callable[..., DatabaseInfo] | None = None, cleanup_execution_snapshot_fn: Callable[[DatabaseInfo], None] | None = None, deepseek_client: object | None = None, deepseek_client_factory: Callable[[object], object] | None = None, source_excerpt_fn: Callable[[Path, str, str, int], SourceExcerpt] = extract_source_excerpt) -> ProductionPipeline:
     config_path = values.get("config")
     if config_path is not None and not isinstance(config_path, Path): raise AnalyzerError("CONFIG_INVALID_VALUE", "config must be a path.")
     if secrets_path is None:
@@ -3935,6 +4067,11 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
     if values.get("command") == "entries":
         env = {key: value for key, value in env.items() if key != "DEEPSEEK_API_KEY"}; values = dict(values); values["allow_remote_llm"] = False
     config = load_config(values, config_path, env, secrets_path=secrets_path); validate = validate_database_fn or globals()["validate_database"]; runner = run_query_fn or globals()["run_query"]
+    if not isinstance(resource_lifecycle_propagation_enabled, bool):
+        raise AnalyzerError(
+            "CONFIG_INVALID_VALUE",
+            "Resource lifecycle propagation mode must be boolean.",
+        )
     snapshot_factory = create_execution_snapshot_fn or globals()["create_execution_database_snapshot"]
     snapshot_cleanup = cleanup_execution_snapshot_fn or globals()["cleanup_execution_database_snapshot"]
     owned_database: DatabaseInfo | None = None
@@ -3947,8 +4084,69 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
         return validated_pack
     if stage_executors is None:
         client_factory = deepseek_client_factory or DeepSeekClient
-        executors: dict[str, Executor] = {"entries": make_entries_executor(config, run_query_fn=runner, database_info_fn=current_database, query_pack_snapshot_fn=current_pack), "growth": make_growth_executor(config, database_info_fn=current_database, query_pack_snapshot_fn=current_pack, run_query_fn=runner, deepseek_client=deepseek_client, deepseek_client_factory=client_factory, source_excerpt_fn=source_excerpt_fn), "flows": make_flows_executor(config, database_info_fn=current_database, query_pack_snapshot_fn=current_pack, run_query_fn=runner), "lifecycle": make_lifecycle_executor(config, database_info_fn=current_database, query_pack_snapshot_fn=current_pack, run_query_fn=runner), "conclude": make_conclude_executor(), "report": make_report_executor()}
+        resource_provider = resource_lifecycle_provider
+        resource_backend_identity = (
+            resource_lifecycle_provider_identity
+            if resource_provider is not None
+            else "disabled"
+        )
+        if resource_provider is not None and (
+            not isinstance(resource_backend_identity, str)
+            or not resource_backend_identity
+        ):
+            raise AnalyzerError(
+                "CONFIG_INVALID_VALUE",
+                "Injected resource lifecycle provider requires a stable identity.",
+            )
+        # Real CLI execution selects the RC1 queries as part of the formal
+        # lifecycle stage. Tests that inject a query runner must explicitly
+        # inject a resource provider as well; an unrelated fake query family
+        # must never be mistaken for RC1 evidence.
+        if resource_provider is None and run_query_fn is None:
+            from dosweb.resource_lifecycle.commands import _implementation_sha256
+            from dosweb.resource_lifecycle.models import SCHEMA_VERSION as RESOURCE_SCHEMA_VERSION
+
+            resource_backend_identity = (
+                f"rc1:{RESOURCE_SCHEMA_VERSION}:{_implementation_sha256()}"
+            )
+            def resource_provider(
+                database: DatabaseInfo, output: Path
+            ) -> ResourceLifecycleBackendRun:
+                from dosweb.resource_lifecycle.commands import (
+                    analyze_codeql_database_in_memory,
+                )
+
+                resource_pack = _materialize_query_pack(
+                    output.parent / "frozen-resource-pack", current_pack()
+                )
+                query_paths = (
+                    resource_pack
+                    / "dosweb/ResourceLifecycle/ResourceLifecycleFacts.ql",
+                    resource_pack
+                    / "dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql",
+                )
+                extracted, results, implementation_sha256, facts_sha256 = (
+                    analyze_codeql_database_in_memory(
+                        database,
+                        output,
+                        codeql_binary=config.codeql_binary,
+                        query_paths=query_paths,
+                    )
+                )
+                return ResourceLifecycleBackendRun(
+                    extracted,
+                    results,
+                    implementation_sha256,
+                    facts_sha256,
+                )
+
+        resource_backend_identity = (
+            f"{resource_backend_identity}:propagation="
+            f"{'on' if resource_lifecycle_propagation_enabled else 'off'}"
+        )
+        executors: dict[str, Executor] = {"entries": make_entries_executor(config, run_query_fn=runner, database_info_fn=current_database, query_pack_snapshot_fn=current_pack), "growth": make_growth_executor(config, database_info_fn=current_database, query_pack_snapshot_fn=current_pack, run_query_fn=runner, deepseek_client=deepseek_client, deepseek_client_factory=client_factory, source_excerpt_fn=source_excerpt_fn), "flows": make_flows_executor(config, database_info_fn=current_database, query_pack_snapshot_fn=current_pack, run_query_fn=runner), "lifecycle": make_lifecycle_executor(config, database_info_fn=current_database, query_pack_snapshot_fn=current_pack, run_query_fn=runner, resource_lifecycle_provider=resource_provider, resource_lifecycle_propagation_enabled=resource_lifecycle_propagation_enabled), "conclude": make_conclude_executor(), "report": make_report_executor()}
     else:
+        resource_backend_identity = "stage-executors"
         executors = dict(stage_executors)
         if set(executors) != set(STAGES): raise AnalyzerError("INTERNAL_STAGE_EXECUTORS_UNAVAILABLE", "Production stage executors are unavailable.", {"missing_stages": sorted(set(STAGES) - set(executors))})
     pipeline: Pipeline
@@ -4034,7 +4232,7 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
     if config.allow_partial_codeql and values.get("command") != "entries":
         raise AnalyzerError("CONFIG_INVALID_VALUE", "Partial CodeQL execution is restricted to exploratory entries runs.")
     analysis_mode = "exploratory_entries" if config.allow_partial_codeql else "formal"
-    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed"}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary})
+    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "resource_lifecycle_backend": resource_backend_identity}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary, "resource_lifecycle_backend": resource_backend_identity})
     # DeepSeekClient is constructed lazily by the Growth executor, so exposing
     # the complete graph here does not perform provider work during factory
     # construction or pipeline preflight.

@@ -26,6 +26,7 @@ from dosweb.growth import VerifiedGrowthResult
 from .bounds import BoundDecision
 from .guards import DecisionCheck, GuardDecision
 from .releases import ReleaseDecision
+from .resource_properties import ResourceLifecycleDecision
 
 
 _DECISION_TYPES: Final = (GuardDecision, BoundDecision, ReleaseDecision)
@@ -174,6 +175,7 @@ class LifecycleCertificate:
     guard_decision: Mapping[str, object]
     bound_decision: Mapping[str, object]
     release_decision: Mapping[str, object]
+    resource_lifecycle_decisions: tuple[Mapping[str, object], ...]
     assertions: tuple[Mapping[str, object], ...]
     verdict: str
     reason_codes: tuple[str, ...]
@@ -200,6 +202,35 @@ class LifecycleCertificate:
         for field in ("resource_point", "guard_decision", "bound_decision", "release_decision"):
             if not isinstance(getattr(self, field), Mapping):
                 raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", f"Certificate {field} is malformed.")
+        if not isinstance(self.resource_lifecycle_decisions, tuple) or any(
+            not isinstance(item, Mapping)
+            for item in self.resource_lifecycle_decisions
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_CERTIFICATE_INVALID",
+                "Certificate resource lifecycle decisions are malformed.",
+            )
+        resource_paths: set[str] = set()
+        for item in self.resource_lifecycle_decisions:
+            if set(item) != {"path_id", "decision"}:
+                raise AnalyzerError(
+                    "ANALYSIS_CERTIFICATE_INVALID",
+                    "Certificate resource lifecycle decision fields are malformed.",
+                )
+            path_id = item["path_id"]
+            decision = item["decision"]
+            if (
+                not isinstance(path_id, str)
+                or path_id not in self.path_ids
+                or path_id in resource_paths
+                or not isinstance(decision, Mapping)
+            ):
+                raise AnalyzerError(
+                    "ANALYSIS_CERTIFICATE_INVALID",
+                    "Certificate resource lifecycle path is malformed.",
+                )
+            ResourceLifecycleDecision.from_dict(decision)
+            resource_paths.add(path_id)
         if not isinstance(self.assertions, tuple) or not self.assertions or any(
             not isinstance(item, Mapping) for item in self.assertions
         ):
@@ -218,6 +249,11 @@ class LifecycleCertificate:
         object.__setattr__(self, "guard_decision", _snapshot(self.guard_decision))
         object.__setattr__(self, "bound_decision", _snapshot(self.bound_decision))
         object.__setattr__(self, "release_decision", _snapshot(self.release_decision))
+        object.__setattr__(
+            self,
+            "resource_lifecycle_decisions",
+            tuple(_snapshot(item) for item in self.resource_lifecycle_decisions),
+        )
         object.__setattr__(self, "assertions", tuple(_snapshot(item) for item in self.assertions))
         semantic = self.to_dict()
         semantic.pop("certificate_id")
@@ -235,6 +271,9 @@ class LifecycleCertificate:
             "guard_decision": _plain(self.guard_decision),
             "bound_decision": _plain(self.bound_decision),
             "release_decision": _plain(self.release_decision),
+            "resource_lifecycle_decisions": [
+                _plain(item) for item in self.resource_lifecycle_decisions
+            ],
             "assertions": [_plain(item) for item in self.assertions],
             "verdict": self.verdict,
             "reason_codes": list(self.reason_codes),
@@ -259,6 +298,9 @@ def build_lifecycle_certificate(
     reachability: object | None = None,
     repeatability: object | None = None,
     amplification: object | None = None,
+    resource_lifecycle: Mapping[
+        str, ResourceLifecycleDecision | None
+    ] | None = None,
     proof_gate: VerdictProofGate | None = None,
 ) -> LifecycleCertificate:
     if not isinstance(entry, EntryFact) or not isinstance(growth, VerifiedGrowthResult):
@@ -294,8 +336,32 @@ def build_lifecycle_certificate(
         evaluation
         for flow in flows
         for evaluation in (
-            evaluate_assertion_1(growth, flow, guard, bound, amplification=amplification, reachability=reachability),
-            evaluate_assertion_2(growth, flow, bound, release, reachability=reachability, repeatability=repeatability),
+            evaluate_assertion_1(
+                growth,
+                flow,
+                guard,
+                bound,
+                amplification=amplification,
+                reachability=reachability,
+                resource_lifecycle=(
+                    resource_lifecycle.get(flow.path_id)
+                    if resource_lifecycle is not None
+                    else None
+                ),
+            ),
+            evaluate_assertion_2(
+                growth,
+                flow,
+                bound,
+                release,
+                reachability=reachability,
+                repeatability=repeatability,
+                resource_lifecycle=(
+                    resource_lifecycle.get(flow.path_id)
+                    if resource_lifecycle is not None
+                    else None
+                ),
+            ),
         )
     )
     if Counter(assertions) != Counter(expected_assertions):
@@ -332,6 +398,15 @@ def build_lifecycle_certificate(
         raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Verdict evidence does not match certificate assertions.")
 
     assertion_dicts = tuple(_assertion_to_dict(assertion) for assertion in assertions)
+    resource_dicts = tuple(
+        {
+            "path_id": flow.path_id,
+            "decision": decision.to_dict(),
+        }
+        for flow in sorted(flows, key=lambda item: item.path_id)
+        if resource_lifecycle is not None
+        and (decision := resource_lifecycle.get(flow.path_id)) is not None
+    )
     reason_codes = tuple(sorted(set((*verdict.reason_codes, *(reason for item in assertions for reason in item.reason_codes), *guard.reason_codes, *bound.reason_codes, *release.reason_codes))))
     unresolved = tuple(sorted(set((*verdict.unresolved_facts, *(fact for item in assertions for fact in item.unresolved_facts), *guard.unresolved_facts, *bound.unresolved_facts, *release.unresolved_facts))))
     assumptions = tuple(sorted(set(verdict.assumptions)))
@@ -345,6 +420,7 @@ def build_lifecycle_certificate(
         "guard_decision": _decision_to_dict(guard),
         "bound_decision": _decision_to_dict(bound),
         "release_decision": _decision_to_dict(release),
+        "resource_lifecycle_decisions": list(resource_dicts),
         "assertions": list(assertion_dicts),
         "verdict": verdict.verdict,
         "reason_codes": list(reason_codes),
@@ -363,6 +439,7 @@ def build_lifecycle_certificate(
         semantic["guard_decision"],
         semantic["bound_decision"],
         semantic["release_decision"],
+        resource_dicts,
         assertion_dicts,
         verdict.verdict,
         reason_codes,

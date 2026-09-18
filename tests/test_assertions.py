@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from types import SimpleNamespace
 
 from dosweb.conclude import (
     AssertionEvaluation,
@@ -15,6 +16,7 @@ from dosweb.conclude import (
 from dosweb.flows import AttackerControl, FlowProof, verify_flow
 from dosweb.growth import DemandInput, GrowthCandidate, VerificationCheck, VerifiedGrowthResult
 from dosweb.lifecycle import BoundDecision, DecisionCheck, GuardDecision, ReleaseDecision
+from dosweb.lifecycle.resource_properties import ResourceLifecycleDecision
 from tests.test_flow_verification import FlowVerificationTests
 
 
@@ -143,6 +145,103 @@ class AssertionTests(unittest.TestCase):
         result = evaluate_assertion_2(growth, flow, bound, release)
         self.assertEqual(result.status, "refuted")
         self.assertEqual(result.reason_codes, ("A2_EFFECTIVE_BOUND",))
+
+    def test_resource_task_population_refutes_only_a2_and_preserves_property_scope(self) -> None:
+        growth, flow = self._persistent_context("submission_count")
+        candidate = GrowthCandidate.create(
+            site=growth.candidate.site,
+            kind="async_work_growth",
+            operation="executor.execute(task)",
+            resource_dimension="tasks",
+            receiver="executor",
+            field_path="executor",
+            demand_inputs=(DemandInput("count", "submission_count"),),
+            escape_scope="instance",
+            evidence_ids=frozenset({"fact:async"}),
+        )
+        growth = VerifiedGrowthResult.create(
+            candidate=candidate,
+            slice_id="slice:async",
+            status="verified",
+            reason_codes=(),
+            checks=(VerificationCheck("resource_growth", True),),
+        )
+        proof = FlowProof.create(
+            entry_id=self.entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl(
+                "submission_count", "limit", "count"
+            ),
+            call_path=(self.entry.handler.callable,),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        flow = verify_flow(
+            proof,
+            {self.entry.entry_id: self.entry},
+            {growth.growth_id: growth},
+        )
+        bounded = ResourceLifecycleDecision.create(
+            status="refutes_relevant_growth",
+            reason_codes=(
+                "RESOURCE_PROPERTY_ACCEPTED_TASK_POPULATION_BOUNDED",
+            ),
+            evidence_ids=("resource-binding:fixture", "property:fixture"),
+            unresolved_facts=(),
+            binding_id="resource-binding:fixture",
+            property_id="property:fixture",
+            result_sha256="a" * 64,
+            dimension="accepted_task_population",
+            scope="executor:executor",
+            cut="arbitrary_finite_repetitions",
+            upper_bound=5,
+        )
+        result = evaluate_assertion_2(
+            growth,
+            flow,
+            self.no_bound,
+            self.no_release,
+            resource_lifecycle=bounded,
+        )
+        self.assertEqual("refuted", result.status)
+        self.assertEqual(("A2_BOUNDED_ACCEPTED_TASK_POPULATION",), result.reason_codes)
+        self.assertIn(bounded.decision_id, result.evidence_ids)
+        assertion_1 = evaluate_assertion_1(
+            growth,
+            flow,
+            self.no_guard,
+            self.no_bound,
+            amplification=SimpleNamespace(status="proven"),
+            resource_lifecycle=bounded,
+        )
+        self.assertEqual("refuted", assertion_1.status)
+        self.assertEqual(
+            ("A1_BOUNDED_ACCEPTED_TASK_POPULATION",),
+            assertion_1.reason_codes,
+        )
+
+        unresolved = ResourceLifecycleDecision.create(
+            status="unresolved",
+            reason_codes=("RESOURCE_PROPERTY_TASK_POPULATION_UNRESOLVED",),
+            evidence_ids=("resource-binding:unknown",),
+            unresolved_facts=("RESOURCE_PROPERTY_TASK_POPULATION_UNRESOLVED",),
+            binding_id="resource-binding:unknown",
+            property_id=None,
+            result_sha256="b" * 64,
+            dimension=None,
+            scope=None,
+            cut=None,
+            upper_bound=None,
+        )
+        unknown = evaluate_assertion_2(
+            growth,
+            flow,
+            self.no_bound,
+            self.no_release,
+            resource_lifecycle=unresolved,
+        )
+        self.assertEqual("unknown", unknown.status)
+        self.assertEqual(("A2_RESOURCE_LIFECYCLE_UNKNOWN",), unknown.reason_codes)
 
     def test_derive_verdict_uses_only_deterministic_assertion_status(self) -> None:
         matched = evaluate_assertion_1(self.growth, self.flow, self.no_guard, self.no_bound)

@@ -19,8 +19,8 @@ from dosweb.artifacts.identifiers import canonical_json, file_sha256
 from dosweb.errors import AnalyzerError
 
 STAGES: Final[tuple[str, ...]] = ("entries", "growth", "flows", "lifecycle", "conclude", "report")
-SCHEMA_VERSION: Final = "2.7"
-TOOL_VERSION: Final = "0.6.0"
+SCHEMA_VERSION: Final = "2.8"
+TOOL_VERSION: Final = "0.7.0"
 _MAX_RECORDS: Final = 4096
 _MAX_RECORD_BYTES: Final = 262144
 _MAX_TOTAL_BYTES: Final = 16 * 1024 * 1024

@@ -1,3 +1,12 @@
+## [2026-09-18] Production resource lifecycle integration
+
+- 将 RC1 生命周期后端接入正式 lifecycle/conclude：项目级只运行一次提取与求解，按 Growth submit/execute 程序点的完整 `dispatch` 事实绑定 `TaskBinding -> instance -> resource family -> executor contract`，拒绝仅凭文件/行号或 create 点关联。
+- 新增独立 `ResourceLifecycleDecision`；`accepted_task_population` 仅在 exact executor scope、`arbitrary_finite_repetitions` cut、无 coverage gap 且上界为正时反驳 A2。未再伪造 legacy `BoundCandidate` 的 reject/phase/result_checked/scope 字段，异步释放与关闭义务语义保持不变。
+- 生命周期结果和证书持久化 binding/property/result 引用；正式输出新增 `resource_lifecycle_bindings.jsonl` 以及可回放的 private facts/results，聚合器同步纳入 allowlist 与 binding 聚合。冻结 query-pack、DB/source/query/facts/result/implementation identity 进入证据和 resume identity。
+- production lifecycle 在消费后端结果前强制核对 CodeQL database fingerprint，拒绝把其他数据库的 RC1 facts/property 绑定到当前 Growth 候选。
+- 新增显式 lifecycle propagation 消融开关：full/off 都执行同一 provider 并保留相同 raw facts/results，只切换严格绑定性质是否进入 lifecycle/conclude；传播模式进入 run/config fingerprint，禁止跨模式 resume。
+- schema/tool 升至 2.8/0.7.0；新增同位置错 callable/receiver、dispatch 歧义、unknown property、A2 refute/unknown、provider 单次执行与证书传播回归。
+
 ## [2026-09-17] Resource lifecycle RC1 delivery
 
 - R1–R6 验收通过，工程 rc_ready、研究 unvalidated；被测实现 1a2d01aa2b605d8a9cbc76d1da0f05345845b5c4。九输入全部提取、8方法解析、4非空单元在3模块完成求解及回放、0预算退出。

@@ -108,6 +108,18 @@ class ProductionFactoryTests(unittest.TestCase):
         }
         return values
 
+    def test_injected_resource_provider_requires_resume_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(AnalyzerError) as raised:
+                build_production_pipeline(
+                    self._values(root),
+                    environ={},
+                    run_query_fn=lambda *_args, **_kwargs: None,
+                    resource_lifecycle_provider=lambda _database, _output: None,
+                )
+            self.assertEqual("CONFIG_INVALID_VALUE", raised.exception.code)
+
     def _netty_route_alias_entries(
         self,
     ) -> tuple[EntryFact, EntryFact, EntryFact]:
@@ -6084,28 +6096,28 @@ public class ServiceApplication extends Application<Object> {
         for stage, version in production._IMPLEMENTATION_VERSIONS.items():  # noqa: SLF001
             with self.subTest(stage=stage):
                 self.assertTrue(
-                    version.startswith(f"production-v2.7-open-world-maturation-{stage}-"),
+                    version.startswith(f"production-v2.8-open-world-maturation-{stage}-"),
                     version,
                 )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["flows"],
-            "production-v2.7-open-world-maturation-flows-v21",
+            "production-v2.8-open-world-maturation-flows-v21",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["entries"],
-            "production-v2.7-open-world-maturation-entries-v17",
+            "production-v2.8-open-world-maturation-entries-v17",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["growth"],
-            "production-v2.7-open-world-maturation-growth-v32",
+            "production-v2.8-open-world-maturation-growth-v32",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["lifecycle"],
-            "production-v2.7-open-world-maturation-lifecycle-v14",
+            "production-v2.8-open-world-maturation-lifecycle-v15",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],
-            "production-v2.7-open-world-maturation-conclude-v5",
+            "production-v2.8-open-world-maturation-conclude-v6",
         )
 
     def test_growth_v31_stage_manifest_cannot_resume_under_v32(self) -> None:
@@ -6142,7 +6154,7 @@ public class ServiceApplication extends Application<Object> {
     def test_candidate_link_schema_hardening_invalidates_pre_fix_conclude_resume(self) -> None:
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],
-            "production-v2.7-open-world-maturation-conclude-v5",
+            "production-v2.8-open-world-maturation-conclude-v6",
         )
 
     def test_only_formal_eligible_candidate_is_gap_free_for_positive_gate(self) -> None:
@@ -6564,7 +6576,7 @@ public class ServiceApplication extends Application<Object> {
             lines[23] = "  byte[] materialized = body;"
             lines[25] = "}"
             source_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            info = DatabaseInfo(root / "database", root, "d" * 64)
+            info = DatabaseInfo(root / "database", root, "9" * 64)
             rows_by_query: dict[str, tuple[tuple[str, ...], list[list[object]]]] = {
                 "SpringMvcEntries": (ENTRY_COLUMNS, [[
                     "spring_mvc", "http", "fixture.Handler.handle", "src/Handler.java", 20,
@@ -6665,16 +6677,35 @@ public class ServiceApplication extends Application<Object> {
                         confidence="high",
                     )
 
+            resource_calls: list[str] = []
+
+            def resource_provider(
+                database: DatabaseInfo, _output: Path
+            ):
+                from tests.test_resource_lifecycle_production_bridge import _run
+
+                resource_calls.append(database.fingerprint)
+                return _run()
+
             pipeline = build_production_pipeline(
                 self._values(root, allow_remote_llm=True),
                 environ={"DEEPSEEK_API_KEY": "fixture-secret"},
                 validate_database_fn=lambda *_args, **_kwargs: info,
                 run_query_fn=fake_run,
+                resource_lifecycle_provider=resource_provider,
+                resource_lifecycle_provider_identity="fixture-resource-v1",
                 deepseek_client=FakeLlm(),
                 source_excerpt_fn=fake_excerpt,
             )
             result = pipeline.run("analyze")
             self.assertEqual("completed", result["status"])
+            self.assertEqual(1, len(resource_calls))
+            self.assertTrue(
+                (root / "output" / "resource_lifecycle_bindings.jsonl").is_file()
+            )
+            self.assertTrue(
+                (root / "output" / "resource_lifecycle_facts.private.json").is_file()
+            )
             disposition = json.loads(
                 (root / "output" / "candidate_dispositions.jsonl").read_text().strip()
             )
@@ -6688,6 +6719,10 @@ public class ServiceApplication extends Application<Object> {
             self.assertEqual("static_unknown", findings["verdict"])
             certificate = json.loads((root / "output" / "lifecycle_certificates.jsonl").read_text().strip())
             self.assertEqual(findings["certificate_id"], certificate["certificate_id"])
+            self.assertEqual(
+                "unresolved",
+                certificate["resource_lifecycle_decisions"][0]["decision"]["status"],
+            )
             self.assertIn("VERDICT_UNRESOLVED_EVIDENCE", findings["reason_codes"])
             self.assertIn("VERDICT_CANDIDATE_RELEVANT_GAP", findings["reason_codes"])
             family = json.loads(
@@ -6700,6 +6735,207 @@ public class ServiceApplication extends Application<Object> {
             )
             self.assertEqual(family["amplification_class"], "large_single_request")
             self.assertIn("static_unknown", (root / "output" / "report.md").read_text())
+
+    def test_bounded_resource_property_changes_formal_verdict_with_identical_raw_facts(self) -> None:
+        rows_by_query: dict[str, tuple[tuple[str, ...], list[list[object]]]] = {
+            "SpringMvcEntries": (ENTRY_COLUMNS, [[
+                "spring_mvc", "http", "Fixture.handle",
+                "src/main/java/Fixture.java", 2,
+                "annotation_mapping", "Fixture",
+                "src/main/java/Fixture.java", 1, "/submit",
+                "unauthenticated", "count", "int", "request_parameter",
+                "in_handler", "complete", "spring_annotation_mapping",
+            ]]),
+            "AsyncWorkGrowth": (GROWTH_COLUMNS, [[
+                "src/main/java/Fixture.java", 3, "async_work_growth",
+                "java.util.concurrent.Executor.execute", "tasks",
+                "this.executor", "this.executor", "count",
+                "submission_count", "instance", "async_submission", "complete",
+                "queue_or_executor_capacity_requires_contract:attacker_controlled_loop_multiplicity_proven",
+            ]]),
+            "EntryToGrowth": (FLOW_COLUMNS, [[
+                "src/main/java/Fixture.java", 2,
+                "src/main/java/Fixture.java", 3,
+                "submission_count", "count", "count", "Fixture.handle",
+                "in_handler", "data_flow", "proven", "complete",
+                "same_handler_call_graph_association",
+            ]]),
+            "EntryToGrowthAssociations": (FLOW_COLUMNS, [[
+                "src/main/java/Fixture.java", 2,
+                "src/main/java/Fixture.java", 3,
+                "submission_count", "count", "count", "Fixture.handle",
+                "in_handler", "data_flow", "proven", "complete",
+                "same_handler_call_graph_association",
+            ]]),
+            "EntrySecurity": (SECURITY_COLUMNS, [[
+                "Fixture.handle", "src/main/java/Fixture.java", 2, "",
+                "src/main/java/Fixture.java", 1, "annotation",
+                "unauthenticated_annotation", "complete", "permit_all",
+            ]]),
+            "GuardCandidates": (GUARD_COLUMNS, []),
+            "BoundCandidates": (BOUND_COLUMNS, []),
+            "SynchronousReleaseCandidates": (RELEASE_COLUMNS, []),
+            "LifecycleCoverage": (LIFECYCLE_COVERAGE_COLUMNS, [
+                ["src/main/java/Fixture.java", 3, family, "complete", "exact_anchor_no_candidate"]
+                for family in ("guard", "bound", "release")
+            ]),
+            "LifecycleSummary": (LIFECYCLE_SUMMARY_COLUMNS, []),
+        }
+
+        class FakeLlm:
+            def classify_auth(self, entry_id: str, facts: object, configuration: object):
+                from dosweb.reachability import AuthContract
+
+                fact = tuple(facts)[0]
+                return AuthContract("unauthenticated", (fact.fact_id,), (), "high")
+
+            def classify_growth(self, bounded: object) -> GrowthContract:
+                facts = tuple(bounded.payload.static_facts)
+                flow = next(
+                    fact for fact in facts
+                    if fact.kind == "flow" and fact.relation == "flows_to"
+                )
+                sink = next(fact for fact in facts if fact.kind == "async_submission")
+                value_space = next(fact for fact in facts if fact.kind == "value_space")
+                retention = next(fact for fact in facts if fact.kind == "retention")
+                amplification = next(fact for fact in facts if fact.kind == "amplification")
+                return GrowthContract(
+                    is_resource_growth="yes",
+                    growth_kind="async_work_growth",
+                    resource_dimension="tasks",
+                    attacker_influence=(
+                        AttackerInfluence("submission_count", flow.fact_id),
+                    ),
+                    resource_effect="enqueues_tasks",
+                    attacker_variable="request count",
+                    attacker_value_space="unlimited",
+                    growth_unit="accepted tasks",
+                    growth_function="request count controls task submissions",
+                    amplification_class="queue_instability",
+                    requests_to_pressure="one",
+                    concurrency_model="bounded executor",
+                    retention_window="process",
+                    failure_mechanism="queue_latency_collapse",
+                    failure_signal="accepted tasks exceed service rate",
+                    required_static_evidence=(
+                        sink.fact_id,
+                        value_space.fact_id,
+                        retention.fact_id,
+                        amplification.fact_id,
+                    ),
+                    contract_status="dos_relevant",
+                    rejection_reason="none",
+                    confidence="high",
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            provider_calls: list[tuple[str, bool]] = []
+
+            def run_case(name: str, propagation_enabled: bool) -> Path:
+                root = base / name
+                (root / "database").mkdir(parents=True)
+                source = root / "src/main/java/Fixture.java"
+                source.parent.mkdir(parents=True)
+                source.write_text(
+                    "@PostMapping(\"/submit\")\n"
+                    "void handle(int count) {\n"
+                    "  this.executor.execute(task);\n"
+                    "}\n",
+                    encoding="utf-8",
+                )
+                info = DatabaseInfo(root / "database", root, "9" * 64)
+
+                def fake_run(
+                    query: Path,
+                    _database: DatabaseInfo,
+                    output_dir: Path,
+                    **_kwargs: object,
+                ) -> QueryResult:
+                    columns, rows = rows_by_query.get(
+                        query.stem,
+                        (
+                            SECURITY_COLUMNS
+                            if query.name == "EntrySecurity.ql"
+                            else INTERPOSITION_COLUMNS
+                            if query.name == "EntryInterpositions.ql"
+                            else ENTRY_COLUMNS
+                            if query.parent.name == "Entries"
+                            else GROWTH_COLUMNS,
+                            [],
+                        ),
+                    )
+                    decoded = output_dir / f"{query.stem}.json"
+                    decoded.write_text(
+                        json.dumps(self._bqrs_payload(columns, rows)),
+                        encoding="utf-8",
+                    )
+                    return QueryResult(
+                        query.name, query, query, decoded, "a" * 64, "b" * 64
+                    )
+
+                def fake_excerpt(
+                    checkout: Path, commit: str, path: str, line: int
+                ) -> SourceExcerpt:
+                    import hashlib
+
+                    content = f"attested line {line}\n"
+                    return SourceExcerpt(
+                        f"excerpt:{line}", path, line, line, content,
+                        "c" * 64, hashlib.sha256(content.encode()).hexdigest(),
+                    )
+
+                def resource_provider(
+                    database: DatabaseInfo, _output: Path
+                ):
+                    from tests.test_resource_lifecycle_production_bridge import _run
+
+                    provider_calls.append((database.fingerprint, propagation_enabled))
+                    return _run()
+
+                pipeline = build_production_pipeline(
+                    self._values(root, allow_remote_llm=True),
+                    environ={"DEEPSEEK_API_KEY": "fixture-secret"},
+                    validate_database_fn=lambda *_args, **_kwargs: info,
+                    run_query_fn=fake_run,
+                    resource_lifecycle_provider=resource_provider,
+                    resource_lifecycle_provider_identity="fixture-resource-v1",
+                    resource_lifecycle_propagation_enabled=propagation_enabled,
+                    deepseek_client=FakeLlm(),
+                    source_excerpt_fn=fake_excerpt,
+                )
+                self.assertEqual("completed", pipeline.run("analyze")["status"])
+                return root / "output"
+
+            full = run_case("full", True)
+            off = run_case("off", False)
+            self.assertEqual(provider_calls, [("9" * 64, True), ("9" * 64, False)])
+            for artifact in (
+                "growth_candidates.jsonl",
+                "flow_proofs.jsonl",
+                "resource_lifecycle_facts.private.json",
+                "resource_lifecycle_results.private.json",
+            ):
+                self.assertEqual((full / artifact).read_bytes(), (off / artifact).read_bytes())
+
+            full_finding = json.loads((full / "static_findings.jsonl").read_text())
+            off_finding = json.loads((off / "static_findings.jsonl").read_text())
+            self.assertEqual(
+                "bounded_under_modeled_assumptions",
+                full_finding["verdict"],
+                full_finding,
+            )
+            self.assertEqual("static_vulnerable", off_finding["verdict"])
+            full_certificate = json.loads(
+                (full / "lifecycle_certificates.jsonl").read_text()
+            )
+            self.assertEqual(
+                "refutes_relevant_growth",
+                full_certificate["resource_lifecycle_decisions"][0]["decision"]["status"],
+            )
+            self.assertEqual([], json.loads(
+                (off / "lifecycle_certificates.jsonl").read_text()
+            )["resource_lifecycle_decisions"])
 
     def test_lifecycle_decision_records_preserve_exact_boolean_checks_and_coverage(self) -> None:
         for decision in (
