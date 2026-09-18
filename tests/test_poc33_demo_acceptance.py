@@ -728,7 +728,7 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(plan.mode, "full")
         self.assertIs(plan.provider["allow_remote_llm"], True)
         self.assertEqual(plan.provider["model"], "grok-4.6")
-        self.assertEqual(plan.provider["base_url"], "https://apibasis.com/v1/")
+        self.assertEqual(plan.provider["base_url"], "https://rightapi.ai/grok/v1/")
         self.assertEqual(plan.provider["timeout_seconds"], 180)
         self.assertEqual(plan.provider["max_retries"], 5)
         self.assertIn("--allow-remote-llm", calls[0][0])

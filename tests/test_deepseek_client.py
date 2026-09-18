@@ -298,7 +298,7 @@ class DeepSeekClientTests(unittest.TestCase):
             ),
         )
 
-    def test_valid_contract_uses_apibasis_responses(self) -> None:
+    def test_valid_contract_uses_rightapi_responses(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
         client = self._client()
@@ -320,9 +320,9 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertIn("instructions", body)
         self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
         self.assertEqual(body["text"]["format"]["type"], "json_schema")
-        self.assertEqual(client.last_audit().settings["provider"], "apibasis_responses")
+        self.assertEqual(client.last_audit().settings["provider"], "rightapi_responses")
         _, identity = cache_identity(self.config, self.slice)
-        self.assertEqual(identity["provider"], "apibasis_responses")
+        self.assertEqual(identity["provider"], "rightapi_responses")
         self.assertEqual(body["text"]["format"]["name"], "growth_contract")
         self.assertTrue(body["text"]["format"]["strict"])
         self.assertEqual(
@@ -1479,7 +1479,7 @@ class DeepSeekClientTests(unittest.TestCase):
                 self.assertEqual(len(_ScriptedHandler.requests), 1)
 
     def test_authorized_provider_model_alias_is_accepted_but_other_mismatches_fail(self) -> None:
-        client = self._client(model="grok-4.6", base_url="https://apibasis.com/v1/")
+        client = self._client(model="grok-4.6", base_url="https://rightapi.ai/grok/v1/")
         reply = ProviderReply(
             json.dumps({
                 "id": "req_alias_1",
@@ -1616,7 +1616,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
             _payload = DeepSeekClientTests._success(PROVIDER_CONTRACT)
-        client = DeepSeekClient(replace(self.config, base_url="https://apibasis.com/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
+        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
         client._opener = mock.Mock()
         client._opener.open.return_value = SlowResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1655,7 +1655,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = DeepSeekClient(replace(self.config, base_url="https://apibasis.com/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
+        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
         client._opener = mock.Mock()
         client._opener.open.return_value = InvalidResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1672,7 +1672,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = self._client(max_retries=3, base_url="https://apibasis.com/v1/")
+        client = self._client(max_retries=3, base_url="https://rightapi.ai/grok/v1/")
         client._transport = None
         client._opener = mock.Mock()
         client._opener.open.return_value = TimeoutResponse()
@@ -2204,7 +2204,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
     def test_default_verifier_requires_public_matching_commit_and_clean_checkout(self) -> None:
         config = LlmConfig(
             model="grok-4.6",
-            base_url="https://apibasis.com/v1/",
+            base_url="https://rightapi.ai/grok/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -2413,7 +2413,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
     def test_default_verifier_rejects_private_repository_without_commit_or_deepseek_call(self) -> None:
         config = LlmConfig(
             model="grok-4.6",
-            base_url="https://apibasis.com/v1/",
+            base_url="https://rightapi.ai/grok/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -2444,9 +2444,12 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
 
     def test_endpoint_validation_allows_only_production_or_loopback(self) -> None:
-        self.assertEqual(validate_provider_endpoint("https://apibasis.com/v1"), "https://apibasis.com/v1/")
+        self.assertEqual(
+            validate_provider_endpoint("https://rightapi.ai/grok/v1"),
+            "https://rightapi.ai/grok/v1/",
+        )
         with self.assertRaises(AnalyzerError):
-            validate_provider_endpoint("https://rightapi.ai/grok/v1/")
+            validate_provider_endpoint("https://apibasis.com/v1/")
         with self.assertRaises(AnalyzerError):
             validate_provider_endpoint("https://api.deepseek.com/")
         self.assertEqual(validate_provider_endpoint("http://[::1]:8000/", allow_test_transport=True), "http://[::1]:8000/")

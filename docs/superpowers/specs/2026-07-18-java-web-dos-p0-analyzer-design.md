@@ -1311,14 +1311,14 @@ completion alone cannot reject any of these candidates.
 
 ### 21.3 Growth Contract v5 and safe correction
 
-The current formal provider is APIBasis Responses at the canonical production
-base URL `https://apibasis.com/v1/`, using model `grok-4.6`, non-streaming
-`POST /responses`, and provider identity `apibasis_responses`. The former
+The current formal provider is RightAPI Responses at the canonical production
+base URL `https://rightapi.ai/grok/v1/`, using model `grok-4.6`, non-streaming
+`POST /responses`, and provider identity `rightapi_responses`. The former
 RightAPI endpoint is no longer an accepted production endpoint. The base URL
 and provider identity participate in Growth/Auth cache identity, while the base
 URL also participates in formal model/stage identity; switching credentials
 changes cache HMAC authentication. Therefore no RightAPI stage or cache is
-reused by a fresh APIBasis formal run. Credentials remain restricted to the
+reused by a fresh RightAPI formal run. Credentials remain restricted to the
 process environment or owner-only gitignored `config/local_secrets.json`.
 
 The provider response schema is `growth-contract-schema-v5`. The provider no
@@ -1985,7 +1985,7 @@ boundary and does not change a formal stage artifact, so production stage
 fingerprints remain unchanged.
 
 The PoC-33 real-provider acceptance layer binds `model=grok-4.6`,
-`base_url=https://apibasis.com/v1/`, `timeout_seconds=180`, `max_retries=5`, and
+`base_url=https://rightapi.ai/grok/v1/`, `timeout_seconds=180`, `max_retries=5`, and
 `allow_remote_llm=true` into the immutable formal full plan. Archive validation
 requires exactly that five-field provider mapping; a digest-consistent plan with
 any missing, extra, or different provider setting is rejected. These settings alter only

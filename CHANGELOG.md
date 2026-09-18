@@ -1,5 +1,6 @@
 ## [2026-09-18] Production resource lifecycle integration
 
+- 将正式 Responses provider 与当前项目配置统一为 `https://rightapi.ai/grok/v1/` / `grok-4.6`，provider/cache identity 改为 `rightapi_responses`；旧 APIBasis full archive 的 `LLM_RETRIES_EXHAUSTED` 保留为配置漂移证据，不复用其 plan/cache。
 - 将 RC1 生命周期后端接入正式 lifecycle/conclude：项目级只运行一次提取与求解，按 Growth submit/execute 程序点的完整 `dispatch` 事实绑定 `TaskBinding -> instance -> resource family -> executor contract`，拒绝仅凭文件/行号或 create 点关联。
 - 新增独立 `ResourceLifecycleDecision`；`accepted_task_population` 仅在 exact executor scope、`arbitrary_finite_repetitions` cut、无 coverage gap 且上界为正时反驳 A2。未再伪造 legacy `BoundCandidate` 的 reject/phase/result_checked/scope 字段，异步释放与关闭义务语义保持不变。
 - 生命周期结果和证书持久化 binding/property/result 引用；正式输出新增 `resource_lifecycle_bindings.jsonl` 以及可回放的 private facts/results，聚合器同步纳入 allowlist 与 binding 聚合。冻结 query-pack、DB/source/query/facts/result/implementation identity 进入证据和 resume identity。
