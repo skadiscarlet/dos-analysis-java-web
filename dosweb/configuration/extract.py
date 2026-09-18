@@ -132,8 +132,7 @@ def _yaml(content: str, path: str) -> Iterable[ModeledConfigurationFact]:
         else:
             yield prefix, value
     for key, value in walk(raw):
-        # profiles and placeholders are not default-effective without a full environment model.
-        if key.startswith("spring.profiles") or not modeled_key_allowed(key):
+        if not modeled_key_allowed(key):
             continue
         normalized = normalize_modeled_value(key, value)
         if normalized is not None:

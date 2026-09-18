@@ -6,15 +6,43 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dosweb.configuration import extract_modeled_configuration, extract_modeled_configuration_with_coverage
+from dosweb.configuration import (
+    ModeledConfigurationFact,
+    extract_modeled_configuration,
+    extract_modeled_configuration_with_coverage,
+)
 from dosweb.errors import AnalyzerError
 from dosweb.reachability.models import AuthContract, EntrySecurityFact, LlmAuditRecord
+from dosweb.reachability.extract import (
+    bind_entry_security_rows,
+    extract_entry_deployment_defaults,
+    resolve_deployment_status,
+)
 from dosweb.reachability.audit import publish_private_audit
-from dosweb.reachability.verify import verify_auth_contract
+from dosweb.reachability.verify import (
+    derive_auth_contract_from_facts,
+    verify_auth_contract,
+)
 from dosweb.production import _extract_entry_security_facts
 
 
 class ConfigurationExtractionTests(unittest.TestCase):
+    def test_default_profile_and_feature_gate_values_are_modeled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "application.properties").write_text(
+                "spring.profiles.active=prod,api\n"
+                "feature.upload.enabled=false\n"
+                "optional.module.enabled=true\n",
+                encoding="utf-8",
+            )
+
+            by_key = {item["key"]: item for item in extract_modeled_configuration(root)}
+
+        self.assertEqual("prod,api", by_key["spring.profiles.active"]["value"])
+        self.assertFalse(by_key["feature.upload.enabled"]["value"])
+        self.assertTrue(by_key["optional.module.enabled"]["value"])
+
     def test_properties_duplicate_placeholder_and_cli_precedence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -107,6 +135,30 @@ class ConfigurationExtractionTests(unittest.TestCase):
 
 
 class EntrySecurityExtractionTests(unittest.TestCase):
+    def test_complete_registration_is_positive_default_evidence_but_explicit_gate_wins(self) -> None:
+        entries = [{
+            "entry_id": "entry:public",
+            "registration": {
+                "kind": "annotation_mapping",
+                "callable": "fixture.Controller",
+                "file": "src/Controller.java",
+                "start_line": 10,
+            },
+        }]
+
+        defaults = extract_entry_deployment_defaults(entries)
+        replaced = extract_entry_deployment_defaults(
+            entries,
+            excluded_entry_ids=frozenset({"entry:public"}),
+        )
+
+        self.assertEqual(1, len(defaults))
+        self.assertEqual("deployment_gate", defaults[0].kind)
+        self.assertEqual("default_enabled", defaults[0].value)
+        self.assertEqual("complete", defaults[0].coverage)
+        self.assertEqual("src/Controller.java", defaults[0].location)
+        self.assertEqual((), replaced)
+
     def test_explicit_annotations_are_classified_without_inferring_from_absence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -136,22 +188,744 @@ class EntrySecurityExtractionTests(unittest.TestCase):
             self.assertEqual("low_privilege_annotation", facts["entry:user"]["value"])
             self.assertEqual("privileged_annotation", facts["entry:admin"]["value"])
             self.assertEqual("partial", facts["entry:unknown"]["coverage"])
+            self.assertTrue(all(item["coverage"] == "partial" for item in facts.values()))
+
+    def test_codeql_security_rows_bind_only_to_a_unique_normalized_entry(self) -> None:
+        entries = [
+            {
+                "entry_id": "entry:public",
+                "handler": {"callable": "fixture.Controller.publicHandler", "file": "src/Controller.java", "start_line": 20},
+                "route_or_event": "GET /public",
+            },
+            {
+                "entry_id": "entry:admin",
+                "handler": {"callable": "fixture.Controller.adminHandler", "file": "src/Controller.java", "start_line": 30},
+                "route_or_event": "GET /admin",
+            },
+        ]
+        rows = [
+            {
+                "handler_fqn": "fixture.Controller.publicHandler",
+                "handler_file": "src/Controller.java",
+                "handler_start_line": 20,
+                "route_or_event": "GET /public",
+                "fact_file": "src/Controller.java",
+                "fact_start_line": 19,
+                "kind": "annotation",
+                "value": "unauthenticated_annotation",
+                "coverage_status": "complete",
+                "coverage_note": "permit_all",
+            },
+            {
+                "handler_fqn": "fixture.Security.securityFilterChain",
+                "handler_file": "src/Security.java",
+                "handler_start_line": 10,
+                "route_or_event": "/admin",
+                "fact_file": "src/Security.java",
+                "fact_start_line": 12,
+                "kind": "security_filter_chain",
+                "value": "privileged_filter",
+                "coverage_status": "complete",
+                "coverage_note": "static_request_matcher_has_role",
+            },
+            {
+                "handler_fqn": "fixture.Security.securityFilterChain",
+                "handler_file": "src/Security.java",
+                "handler_start_line": 10,
+                "route_or_event": "dynamic_matcher",
+                "fact_file": "src/Security.java",
+                "fact_start_line": 13,
+                "kind": "security_filter_chain",
+                "value": "security_matcher_unknown",
+                "coverage_status": "partial",
+                "coverage_note": "dynamic_matcher",
+            },
+        ]
+
+        facts = bind_entry_security_rows(rows, entries)
+
+        self.assertEqual(
+            {("entry:public", "unauthenticated_annotation"), ("entry:admin", "privileged_filter")},
+            {(fact.entry_id, fact.value) for fact in facts},
+        )
+
+    def test_concrete_route_rules_bind_every_semantic_match_deterministically(self) -> None:
+        entries = [
+            {
+                "entry_id": "entry:admin-api",
+                "handler": {
+                    "callable": "fixture.Api.admin",
+                    "file": "src/Api.java",
+                    "start_line": 20,
+                },
+                "route_or_event": "GET /api/admin/jobs",
+            },
+            {
+                "entry_id": "entry:user-api",
+                "handler": {
+                    "callable": "fixture.Api.user",
+                    "file": "src/Api.java",
+                    "start_line": 30,
+                },
+                "route_or_event": "GET /api/user/jobs",
+            },
+            {
+                "entry_id": "entry:lookalike-prefix",
+                "handler": {
+                    "callable": "fixture.Api.lookalike",
+                    "file": "src/Api.java",
+                    "start_line": 40,
+                },
+                "route_or_event": "GET /apix/jobs",
+            },
+        ]
+        rows = [
+            {
+                "handler_fqn": "fixture.Security.configure",
+                "handler_file": "src/Security.java",
+                "handler_start_line": 10,
+                "route_or_event": "/api/**",
+                "fact_file": "src/Security.java",
+                "fact_start_line": 11,
+                "kind": "security_filter_chain",
+                "value": "low_privilege_filter",
+                "coverage_status": "complete",
+                "coverage_note": "static_request_matcher_authenticated",
+            },
+            {
+                "handler_fqn": "fixture.Security.configure",
+                "handler_file": "src/Security.java",
+                "handler_start_line": 10,
+                "route_or_event": "/api/admin/**",
+                "fact_file": "src/Security.java",
+                "fact_start_line": 12,
+                "kind": "security_filter_chain",
+                "value": "privileged_filter",
+                "coverage_status": "complete",
+                "coverage_note": "static_request_matcher_exact_administrative_role",
+            },
+            {
+                "handler_fqn": "fixture.Api.admin",
+                "handler_file": "src/Api.java",
+                "handler_start_line": 20,
+                "route_or_event": "",
+                "fact_file": "src/Api.java",
+                "fact_start_line": 19,
+                "kind": "annotation",
+                "value": "unauthenticated_annotation",
+                "coverage_status": "complete",
+                "coverage_note": "permit_all",
+            },
+        ]
+
+        expected = bind_entry_security_rows(rows, entries)
+        reversed_result = bind_entry_security_rows(
+            list(reversed(rows)), list(reversed(entries))
+        )
+
+        self.assertEqual(expected, reversed_result)
+        values_by_entry = {
+            entry_id: {
+                fact.value for fact in expected if fact.entry_id == entry_id
+            }
+            for entry_id in (
+                "entry:admin-api",
+                "entry:user-api",
+                "entry:lookalike-prefix",
+            )
+        }
+        self.assertEqual(
+            values_by_entry["entry:admin-api"],
+            {
+                "unauthenticated_annotation",
+                "low_privilege_filter",
+                "privileged_filter",
+            },
+        )
+        self.assertEqual(
+            values_by_entry["entry:user-api"], {"low_privilege_filter"}
+        )
+        self.assertEqual(values_by_entry["entry:lookalike-prefix"], set())
+        self.assertIsNone(
+            derive_auth_contract_from_facts("entry:admin-api", expected)
+        )
+        self.assertEqual(
+            "low_privilege",
+            derive_auth_contract_from_facts(
+                "entry:user-api", expected
+            ).auth_context,
+        )
+
+    def test_concrete_route_miss_does_not_fall_back_to_handler_identity(self) -> None:
+        entries = [{
+            "entry_id": "entry:one",
+            "handler": {
+                "callable": "fixture.Api.one",
+                "file": "src/Api.java",
+                "start_line": 20,
+            },
+            "route_or_event": "GET /api/one",
+        }]
+        row = {
+            "handler_fqn": "fixture.Api.one",
+            "handler_file": "src/Api.java",
+            "handler_start_line": 20,
+            "route_or_event": "/different/**",
+            "fact_file": "src/Security.java",
+            "fact_start_line": 11,
+            "kind": "security_filter_chain",
+            "value": "low_privilege_filter",
+            "coverage_status": "complete",
+            "coverage_note": "static_request_matcher_authenticated",
+        }
+
+        self.assertEqual((), bind_entry_security_rows([row], entries))
+
+    def test_deployment_resolution_handles_profile_optional_and_unknown(self) -> None:
+        enabled = EntrySecurityFact("entry:test", "deployment_gate", "A.java", 1, "default_enabled", "complete")
+        disabled = EntrySecurityFact("entry:test", "deployment_gate", "A.java", 2, "default_disabled", "complete")
+        optional = EntrySecurityFact("entry:test", "deployment_gate", "A.java", 3, "optional", "complete")
+        dynamic = EntrySecurityFact("entry:test", "deployment_gate", "A.java", 4, "dynamic_matcher", "partial")
+        self.assertEqual("default_enabled", resolve_deployment_status([enabled], ()))
+        self.assertEqual("default_disabled", resolve_deployment_status([disabled], ()))
+        self.assertEqual("optional", resolve_deployment_status([optional], ()))
+        self.assertEqual("unknown", resolve_deployment_status([dynamic], ()))
+        self.assertEqual("unknown", resolve_deployment_status([], ()))
+
+    def test_duplicate_effective_configuration_is_typed_and_order_independent(self) -> None:
+        gate = EntrySecurityFact(
+            "entry:test", "deployment_gate", "A.java", 1,
+            "conditional_property:feature.enabled=true", "complete",
+        )
+        enabled = ModeledConfigurationFact(
+            "feature.enabled", True, "application.yml", 1, "default",
+            "extracted_default", True, "known",
+        )
+        same_enabled = ModeledConfigurationFact(
+            "feature.enabled", True, "application.properties", 2, "default",
+            "extracted_default", True, "known",
+        )
+        typed_conflict = ModeledConfigurationFact(
+            "feature.enabled", 1, "application.properties", 3, "default",
+            "extracted_default", True, "known",
+        )
+
+        self.assertEqual(
+            "default_enabled",
+            resolve_deployment_status((gate,), (enabled, same_enabled)),
+        )
+        for facts in (
+            (enabled, typed_conflict),
+            (typed_conflict, enabled),
+        ):
+            with self.subTest(order=tuple(type(fact.value).__name__ for fact in facts)):
+                self.assertEqual(
+                    "unknown", resolve_deployment_status((gate,), facts)
+                )
+
+    def test_complex_profile_expression_never_proves_default_disabled(self) -> None:
+        negated = EntrySecurityFact(
+            "entry:test", "deployment_gate", "A.java", 1,
+            "profile:!prod", "complete",
+        )
+        conjunction = EntrySecurityFact(
+            "entry:test", "deployment_gate", "A.java", 2,
+            "profile:prod & cloud", "complete",
+        )
+        active = ModeledConfigurationFact(
+            "spring.profiles.active", "dev", "application.properties", 1,
+            "default", "extracted_default", True, "known",
+        )
+
+        for fact in (negated, conjunction):
+            with self.subTest(value=fact.value):
+                self.assertEqual(
+                    "unknown", resolve_deployment_status((fact,), (active,))
+                )
 
 
 class ReachabilityContractTests(unittest.TestCase):
-    def _fact(self, coverage: str = "complete", value: str = "privileged_annotation") -> EntrySecurityFact:
-        return EntrySecurityFact("entry:test", "annotation", "A.java", 1, value, coverage)  # type: ignore[arg-type]
+    def _fact(self, coverage: str = "complete", value: str = "privileged_annotation", kind: str = "annotation") -> EntrySecurityFact:
+        return EntrySecurityFact("entry:test", kind, "A.java", 1, value, coverage)  # type: ignore[arg-type]
+
+    def _decision(
+        self,
+        context: str,
+        value: str,
+        deployment: str = "default_enabled",
+        *,
+        kind: str = "annotation",
+    ):
+        auth = self._fact(value=value, kind=kind)
+        gate = self._fact(value=deployment, kind="deployment_gate")
+        return verify_auth_contract(
+            "entry:test",
+            AuthContract(context, (auth.fact_id,), (), "high"),  # type: ignore[arg-type]
+            [auth, gate],
+            slice_fact_ids=frozenset({auth.fact_id, gate.fact_id}),
+        )
+
+    def test_complete_public_and_low_privilege_default_entries_are_reachable(self) -> None:
+        public = self._decision("unauthenticated", "unauthenticated_annotation")
+        user = self._decision(
+            "low_privilege", "low_privilege_filter", kind="security_filter_chain"
+        )
+        self.assertEqual("ordinary_attacker_reachable", public.status)
+        self.assertEqual("default_enabled", public.deployment_status)
+        self.assertEqual("ordinary_attacker_reachable", user.status)
+        self.assertIn("REACH_ORDINARY_ATTACKER", public.reason_codes)
+
+    def test_auth_context_requires_an_exact_kind_value_pair(self) -> None:
+        spoof = self._fact(
+            value="unauthenticated_annotation", kind="dependency_coverage"
+        )
+        gate = self._fact(value="default_enabled", kind="deployment_gate")
+
+        self.assertIsNone(derive_auth_contract_from_facts("entry:test", (spoof,)))
+        decision = verify_auth_contract(
+            "entry:test",
+            AuthContract("unauthenticated", (spoof.fact_id,), (), "high"),
+            (spoof, gate),
+            slice_fact_ids=frozenset({spoof.fact_id, gate.fact_id}),
+        )
+        self.assertEqual("unknown", decision.auth_context)
+        self.assertEqual("unknown", decision.status)
+        self.assertIn("REACH_AUTH_UNKNOWN", decision.reason_codes)
+
+        legal_pairs = (
+            ("annotation", "unauthenticated_annotation", "unauthenticated"),
+            ("servlet_constraint", "privileged_constraint", "privileged"),
+            ("security_filter_chain", "low_privilege_filter", "low_privilege"),
+            ("filter", "privileged_filter", "privileged"),
+            ("configuration", "unauthenticated_configuration", "unauthenticated"),
+        )
+        for kind, value, expected in legal_pairs:
+            with self.subTest(kind=kind, value=value):
+                fact = self._fact(value=value, kind=kind)
+                contract = derive_auth_contract_from_facts("entry:test", (fact,))
+                self.assertIsNotNone(contract)
+                assert contract is not None
+                self.assertEqual(expected, contract.auth_context)
+
+    def test_foreign_entry_deployment_fact_cannot_change_current_entry(self) -> None:
+        public = self._fact(value="unauthenticated_annotation")
+        current_gate = self._fact(
+            value="default_enabled", kind="deployment_gate"
+        )
+        foreign_gate = EntrySecurityFact(
+            "entry:foreign", "deployment_gate", "Foreign.java", 1,
+            "default_disabled", "complete",
+        )
+        facts = (public, current_gate, foreign_gate)
+        slice_fact_ids = frozenset(fact.fact_id for fact in facts)
+        contract = AuthContract(
+            "unauthenticated", (public.fact_id,), (), "high"
+        )
+
+        forward = verify_auth_contract(
+            "entry:test", contract, facts, slice_fact_ids=slice_fact_ids
+        )
+        reverse = verify_auth_contract(
+            "entry:test", contract, reversed(facts),
+            slice_fact_ids=slice_fact_ids,
+        )
+
+        self.assertEqual(forward, reverse)
+        self.assertEqual("unauthenticated", forward.auth_context)
+        self.assertEqual("default_enabled", forward.deployment_status)
+        self.assertEqual("ordinary_attacker_reachable", forward.status)
+        self.assertNotIn(foreign_gate.fact_id, forward.evidence_ids)
+
+    def test_unique_high_cardinality_auth_derivation_uses_bounded_deterministic_evidence(self) -> None:
+        facts = tuple(
+            EntrySecurityFact(
+                "entry:test", "annotation", "A.java", line,
+                "unauthenticated_annotation", "complete",
+            )
+            for line in range(1, 41)
+        )
+
+        forward = derive_auth_contract_from_facts("entry:test", facts)
+        reverse = derive_auth_contract_from_facts("entry:test", reversed(facts))
+
+        self.assertIsNotNone(forward)
+        self.assertEqual(forward, reverse)
+        assert forward is not None
+        self.assertEqual("unauthenticated", forward.auth_context)
+        self.assertEqual((min(fact.fact_id for fact in facts),), forward.evidence_ids)
+        self.assertLessEqual(len(forward.evidence_ids), 32)
+
+    def test_max_provider_citations_leave_budget_for_auth_conflict_and_deployment(self) -> None:
+        public = tuple(
+            EntrySecurityFact(
+                "entry:test", "annotation", "A.java", line,
+                "unauthenticated_annotation", "complete",
+            )
+            for line in range(1, 33)
+        )
+        privileged = EntrySecurityFact(
+            "entry:test", "annotation", "A.java", 100,
+            "privileged_annotation", "complete",
+        )
+        gate = EntrySecurityFact(
+            "entry:test", "deployment_gate", "A.java", 101,
+            "default_enabled", "complete",
+        )
+        facts = (*public, privileged, gate)
+        contract = AuthContract(
+            "unauthenticated",
+            tuple(sorted(fact.fact_id for fact in public)),
+            (),
+            "high",
+        )
+        slice_fact_ids = frozenset(fact.fact_id for fact in facts)
+
+        forward = verify_auth_contract(
+            "entry:test", contract, facts, slice_fact_ids=slice_fact_ids
+        )
+        reverse = verify_auth_contract(
+            "entry:test", contract, reversed(facts),
+            slice_fact_ids=slice_fact_ids,
+        )
+
+        self.assertEqual(forward, reverse)
+        self.assertEqual("unknown", forward.auth_context)
+        self.assertEqual("default_enabled", forward.deployment_status)
+        self.assertEqual("unknown", forward.status)
+        self.assertLessEqual(len(forward.evidence_ids), 32)
+        self.assertTrue(
+            {
+                min(fact.fact_id for fact in public),
+                privileged.fact_id,
+                gate.fact_id,
+            }.issubset(forward.evidence_ids)
+        )
+
+    def test_many_deployment_facts_use_status_representatives_within_budget(self) -> None:
+        public = tuple(
+            EntrySecurityFact(
+                "entry:test", "annotation", "A.java", line,
+                "unauthenticated_annotation", "complete",
+            )
+            for line in range(1, 33)
+        )
+        enabled = tuple(
+            EntrySecurityFact(
+                "entry:test", "deployment_gate", "Enabled.java", line,
+                "default_enabled", "complete",
+            )
+            for line in range(1, 21)
+        )
+        disabled = tuple(
+            EntrySecurityFact(
+                "entry:test", "deployment_gate", "Disabled.java", line,
+                "default_disabled", "complete",
+            )
+            for line in range(1, 21)
+        )
+        facts = (*public, *enabled, *disabled)
+        contract = AuthContract(
+            "unauthenticated",
+            tuple(sorted(fact.fact_id for fact in public)),
+            (),
+            "high",
+        )
+        slice_fact_ids = frozenset(fact.fact_id for fact in facts)
+
+        forward = verify_auth_contract(
+            "entry:test", contract, facts, slice_fact_ids=slice_fact_ids
+        )
+        reverse = verify_auth_contract(
+            "entry:test", contract, reversed(facts),
+            slice_fact_ids=slice_fact_ids,
+        )
+
+        self.assertEqual(forward, reverse)
+        self.assertEqual("unauthenticated", forward.auth_context)
+        self.assertEqual("unknown", forward.deployment_status)
+        self.assertEqual("unknown", forward.status)
+        self.assertNotIn("REACH_AUTH_CONFLICT", forward.reason_codes)
+        self.assertLessEqual(len(forward.evidence_ids), 32)
+        self.assertTrue(
+            {
+                min(fact.fact_id for fact in public),
+                min(fact.fact_id for fact in enabled),
+                min(fact.fact_id for fact in disabled),
+            }.issubset(forward.evidence_ids)
+        )
+
+    def test_complete_auth_conflict_cannot_be_hidden_by_selective_citation(self) -> None:
+        public = self._fact(value="unauthenticated_annotation")
+        privileged = EntrySecurityFact(
+            "entry:test", "annotation", "A.java", 2,
+            "privileged_annotation", "complete",
+        )
+        gate = self._fact(value="default_enabled", kind="deployment_gate")
+
+        for claimed_context, cited_fact in (
+            ("unauthenticated", public),
+            ("privileged", privileged),
+        ):
+            with self.subTest(claimed_context=claimed_context):
+                decision = verify_auth_contract(
+                    "entry:test",
+                    AuthContract(
+                        claimed_context, (cited_fact.fact_id,), (), "high"
+                    ),  # type: ignore[arg-type]
+                    [public, privileged, gate],
+                    slice_fact_ids=frozenset(
+                        {public.fact_id, privileged.fact_id, gate.fact_id}
+                    ),
+                )
+
+                self.assertEqual("unknown", decision.auth_context)
+                self.assertEqual("default_enabled", decision.deployment_status)
+                self.assertEqual("unknown", decision.status)
+                self.assertIn("REACH_AUTH_UNKNOWN", decision.reason_codes)
+                self.assertIn("REACH_AUTH_CONFLICT", decision.reason_codes)
+                self.assertIn(public.fact_id, decision.evidence_ids)
+                self.assertIn(privileged.fact_id, decision.evidence_ids)
+
+    def test_partial_or_unsupported_auth_fact_is_a_fail_closed_coverage_gap(self) -> None:
+        for complete_value, claimed_context in (
+            ("unauthenticated_annotation", "unauthenticated"),
+            ("privileged_annotation", "privileged"),
+        ):
+            for coverage in ("partial", "unsupported"):
+                with self.subTest(
+                    complete_value=complete_value,
+                    coverage=coverage,
+                ):
+                    complete = self._fact(value=complete_value)
+                    deployment = (
+                        "default_disabled"
+                        if claimed_context == "unauthenticated"
+                        else "default_enabled"
+                    )
+                    gate = self._fact(
+                        value=deployment, kind="deployment_gate"
+                    )
+                    gap = EntrySecurityFact(
+                        "entry:test",
+                        "annotation",
+                        "A.java",
+                        2,
+                        "security_matcher_unknown",
+                        coverage,  # type: ignore[arg-type]
+                    )
+                    facts = (complete, gap, gate)
+                    slice_fact_ids = frozenset(fact.fact_id for fact in facts)
+
+                    self.assertIsNone(
+                        derive_auth_contract_from_facts("entry:test", facts)
+                    )
+                    decision = verify_auth_contract(
+                        "entry:test",
+                        AuthContract(
+                            claimed_context, (complete.fact_id,), (), "high"
+                        ),  # type: ignore[arg-type]
+                        facts,
+                        slice_fact_ids=slice_fact_ids,
+                    )
+
+                    self.assertEqual("unknown", decision.auth_context)
+                    self.assertEqual(deployment, decision.deployment_status)
+                    self.assertEqual("unknown", decision.status)
+                    self.assertIn(
+                        "REACH_AUTH_COVERAGE_PARTIAL", decision.reason_codes
+                    )
+                    self.assertIn("REACH_AUTH_UNKNOWN", decision.reason_codes)
+                    self.assertIn(gap.fact_id, decision.evidence_ids)
+
+    def test_many_partial_auth_gaps_keep_a_representative_within_budget(self) -> None:
+        public = tuple(
+            EntrySecurityFact(
+                "entry:test",
+                "annotation",
+                "Public.java",
+                line,
+                "unauthenticated_annotation",
+                "complete",
+            )
+            for line in range(1, 33)
+        )
+        gaps = tuple(
+            EntrySecurityFact(
+                "entry:test",
+                "dependency_coverage",
+                "Gap.java",
+                line,
+                "security_extraction_not_modeled",
+                "partial" if line % 2 else "unsupported",
+            )
+            for line in range(1, 45)
+        )
+        gate = EntrySecurityFact(
+            "entry:test",
+            "deployment_gate",
+            "Gate.java",
+            1,
+            "default_enabled",
+            "complete",
+        )
+        facts = (*public, *gaps, gate)
+        contract = AuthContract(
+            "unauthenticated",
+            tuple(sorted(fact.fact_id for fact in public)),
+            (),
+            "high",
+        )
+        slice_fact_ids = frozenset(fact.fact_id for fact in facts)
+
+        forward = verify_auth_contract(
+            "entry:test", contract, facts, slice_fact_ids=slice_fact_ids
+        )
+        reverse = verify_auth_contract(
+            "entry:test", contract, reversed(facts), slice_fact_ids=slice_fact_ids
+        )
+
+        self.assertEqual(forward, reverse)
+        self.assertEqual("unknown", forward.auth_context)
+        self.assertEqual("unknown", forward.status)
+        self.assertLessEqual(len(forward.evidence_ids), 32)
+        self.assertIn(min(fact.fact_id for fact in gaps), forward.evidence_ids)
+        self.assertIn("REACH_AUTH_COVERAGE_PARTIAL", forward.reason_codes)
+
+    def test_partial_deployment_fact_is_not_an_auth_coverage_gap(self) -> None:
+        public = self._fact(value="unauthenticated_annotation")
+        deployment_gap = self._fact(
+            "partial", "optional", "deployment_gate"
+        )
+        facts = (public, deployment_gap)
+
+        derived = derive_auth_contract_from_facts("entry:test", facts)
+        self.assertIsNotNone(derived)
+        decision = verify_auth_contract(
+            "entry:test",
+            AuthContract("unauthenticated", (public.fact_id,), (), "high"),
+            facts,
+            slice_fact_ids=frozenset(fact.fact_id for fact in facts),
+        )
+
+        self.assertEqual("unauthenticated", decision.auth_context)
+        self.assertEqual("unknown", decision.deployment_status)
+        self.assertEqual("unknown", decision.status)
+        self.assertNotIn("REACH_AUTH_COVERAGE_PARTIAL", decision.reason_codes)
+        self.assertNotIn("REACH_AUTH_UNKNOWN", decision.reason_codes)
+        self.assertIn("REACH_DEPLOYMENT_UNKNOWN", decision.reason_codes)
+
+    def test_prefixed_conditional_property_uses_only_the_canonical_key(self) -> None:
+        gate = self._fact(
+            value="conditional_property:feature.enabled=true",
+            kind="deployment_gate",
+        )
+        prefixed = ModeledConfigurationFact(
+            "feature.enabled",
+            True,
+            "application.properties",
+            1,
+            "default",
+            "extracted_default",
+            True,
+            "known",
+        )
+        conflicting_unprefixed = ModeledConfigurationFact(
+            "enabled",
+            False,
+            "application.properties",
+            2,
+            "default",
+            "extracted_default",
+            True,
+            "known",
+        )
+
+        self.assertEqual(
+            "default_enabled",
+            resolve_deployment_status(
+                (gate,), (prefixed, conflicting_unprefixed)
+            ),
+        )
+        self.assertEqual(
+            "unknown",
+            resolve_deployment_status((gate,), (conflicting_unprefixed,)),
+        )
+
+    def test_deployment_conflict_is_resolved_independently_from_auth(self) -> None:
+        public = self._fact(value="unauthenticated_annotation")
+        enabled = self._fact(value="default_enabled", kind="deployment_gate")
+        disabled = EntrySecurityFact(
+            "entry:test", "deployment_gate", "A.java", 2,
+            "default_disabled", "complete",
+        )
+
+        decision = verify_auth_contract(
+            "entry:test",
+            AuthContract("unauthenticated", (public.fact_id,), (), "high"),
+            [public, enabled, disabled],
+            slice_fact_ids=frozenset(
+                {public.fact_id, enabled.fact_id, disabled.fact_id}
+            ),
+        )
+
+        self.assertEqual("unauthenticated", decision.auth_context)
+        self.assertEqual("unknown", decision.deployment_status)
+        self.assertEqual("unknown", decision.status)
+        self.assertNotIn("REACH_AUTH_CONFLICT", decision.reason_codes)
+        self.assertNotIn("REACH_AUTH_UNKNOWN", decision.reason_codes)
+        self.assertIn("REACH_DEPLOYMENT_UNKNOWN", decision.reason_codes)
+
+    def test_admin_disabled_and_optional_entries_are_not_reachable(self) -> None:
+        admin = self._decision(
+            "privileged", "privileged_constraint", kind="servlet_constraint"
+        )
+        disabled = self._decision(
+            "unauthenticated", "unauthenticated_filter", "default_disabled",
+            kind="filter",
+        )
+        optional = self._decision(
+            "unauthenticated", "unauthenticated_filter", "optional",
+            kind="filter",
+        )
+        self.assertEqual("not_entry_reachable", admin.status)
+        self.assertIn("REACH_PRIVILEGED", admin.reason_codes)
+        self.assertEqual("not_entry_reachable", disabled.status)
+        self.assertIn("REACH_DEFAULT_DISABLED", disabled.reason_codes)
+        self.assertEqual("not_entry_reachable", optional.status)
+        self.assertIn("REACH_OPTIONAL_COMPONENT", optional.reason_codes)
+
+    def test_dynamic_matcher_and_missing_deployment_stay_unknown(self) -> None:
+        auth = self._fact("partial", "security_matcher_unknown", "security_filter_chain")
+        gate = self._fact(value="default_enabled", kind="deployment_gate")
+        dynamic = verify_auth_contract(
+            "entry:test",
+            AuthContract("unauthenticated", (auth.fact_id,), (), "high"),
+            [auth, gate],
+            slice_fact_ids=frozenset({auth.fact_id, gate.fact_id}),
+        )
+        public = self._fact(value="unauthenticated_annotation")
+        missing_gate = verify_auth_contract(
+            "entry:test",
+            AuthContract("unauthenticated", (public.fact_id,), (), "high"),
+            [public],
+            slice_fact_ids=frozenset({public.fact_id}),
+        )
+        self.assertEqual("unknown", dynamic.status)
+        self.assertEqual("unknown", missing_gate.deployment_status)
+        self.assertEqual("unknown", missing_gate.status)
 
     def test_text_cannot_create_unauthenticated_without_complete_fact(self) -> None:
         fact = self._fact("partial")
-        decision = verify_auth_contract("entry:test", AuthContract("unauthenticated", (fact.fact_id,), (), "high"), [fact], slice_fact_ids=frozenset({fact.fact_id}))
+        gate = self._fact(value="default_enabled", kind="deployment_gate")
+        decision = verify_auth_contract("entry:test", AuthContract("unauthenticated", (fact.fact_id,), (), "high"), [fact, gate], slice_fact_ids=frozenset({fact.fact_id, gate.fact_id}))
         self.assertEqual("unknown", decision.auth_context)
 
     def test_privileged_and_outside_slice(self) -> None:
         fact = self._fact()
-        decision = verify_auth_contract("entry:test", AuthContract("privileged", (fact.fact_id,), (), "high"), [fact], slice_fact_ids=frozenset({fact.fact_id}))
+        gate = self._fact(value="default_enabled", kind="deployment_gate")
+        decision = verify_auth_contract("entry:test", AuthContract("privileged", (fact.fact_id,), (), "high"), [fact, gate], slice_fact_ids=frozenset({fact.fact_id, gate.fact_id}))
         self.assertEqual("not_entry_reachable", decision.status)
-        self.assertEqual("unknown", verify_auth_contract("entry:test", AuthContract("unauthenticated", (fact.fact_id,), (), "high"), [fact], slice_fact_ids=frozenset({fact.fact_id})).auth_context)
+        self.assertEqual("unknown", verify_auth_contract("entry:test", AuthContract("unauthenticated", (fact.fact_id,), (), "high"), [fact, gate], slice_fact_ids=frozenset({fact.fact_id, gate.fact_id})).auth_context)
         with self.assertRaises(AnalyzerError):
             verify_auth_contract("entry:test", AuthContract("low_privilege", (fact.fact_id,), (), "high"), [fact], slice_fact_ids=frozenset())
 

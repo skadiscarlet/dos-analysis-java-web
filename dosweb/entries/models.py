@@ -8,6 +8,11 @@ from typing import Final, Literal
 from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.artifacts.jsonl import read_jsonl_strict
 from dosweb.artifacts.schemas import validate_records
+from dosweb.entries.coverage import (
+    registration_coverage_pattern_belongs_to_framework,
+    registration_coverage_pattern_id,
+    registration_coverage_pattern_ids,
+)
 from dosweb.errors import AnalyzerError
 
 
@@ -220,6 +225,7 @@ class EntryFact:
     protocol: str
     handler: HandlerFact
     registration: RegistrationFact
+    registration_pattern_id: str
     route_or_event: str
     auth_context: str
     attacker_inputs: tuple[AttackerInputFact, ...]
@@ -240,6 +246,15 @@ class EntryFact:
             raise _entry_invalid("NESTED_FACT_INVALID")
         if self.registration.kind not in _FRAMEWORK_REGISTRATIONS[framework]:
             raise _entry_invalid("REGISTRATION_NOT_MODELED_FOR_FRAMEWORK", field="registration_kind")
+        pattern_id = _nonempty_string(
+            self.registration_pattern_id, "registration_pattern_id"
+        )
+        if pattern_id not in registration_coverage_pattern_ids(
+            framework, self.registration.kind
+        ):
+            raise _coverage_invalid(
+                "REGISTRATION_PATTERN_UNMODELED", field="registration_pattern_id"
+            )
         if not isinstance(self.attacker_inputs, tuple) or not self.attacker_inputs or not all(
             isinstance(item, AttackerInputFact) for item in self.attacker_inputs
         ):
@@ -248,6 +263,7 @@ class EntryFact:
         route = canonical_route(self.route_or_event, framework)
         object.__setattr__(self, "framework", framework)
         object.__setattr__(self, "protocol", protocol)
+        object.__setattr__(self, "registration_pattern_id", pattern_id)
         object.__setattr__(self, "route_or_event", route)
         object.__setattr__(self, "auth_context", auth_context)
         object.__setattr__(self, "attacker_inputs", inputs)
@@ -272,6 +288,11 @@ class EntryFact:
         if raw["coverage_status"] != "complete":
             raise _entry_invalid("ENTRY_COVERAGE_INCOMPLETE", field="coverage_status")
         framework = _enum(raw["framework"], _FRAMEWORKS, "framework")
+        protocol = _enum(raw["protocol"], _PROTOCOLS, "protocol")
+        if protocol != _FRAMEWORK_PROTOCOLS[framework]:
+            raise _entry_invalid(
+                "PROTOCOL_NOT_MODELED_FOR_FRAMEWORK", field="protocol"
+            )
         handler = HandlerFact(
             _nonempty_string(raw["handler_fqn"], "handler_fqn"),
             _source_path(raw["handler_file"], "handler_file"),
@@ -283,6 +304,19 @@ class EntryFact:
             _source_path(raw["registration_file"], "registration_file"),
             _positive_line(raw["registration_start_line"], "registration_start_line"),
         )
+        if registration.kind not in _FRAMEWORK_REGISTRATIONS[framework]:
+            raise _entry_invalid(
+                "REGISTRATION_NOT_MODELED_FOR_FRAMEWORK",
+                field="registration_kind",
+            )
+        coverage_note = _nonempty_string(raw["coverage_note"], "coverage_note")
+        pattern_id = registration_coverage_pattern_id(
+            framework, registration.kind, coverage_note
+        )
+        if pattern_id is None:
+            raise _coverage_invalid(
+                "REGISTRATION_PATTERN_UNMODELED", field="coverage_note"
+            )
         attacker_input = AttackerInputFact(
             _nonempty_string(raw["attacker_input_name"], "attacker_input_name"),
             _nonempty_string(raw["attacker_input_type"], "attacker_input_type"),
@@ -291,9 +325,10 @@ class EntryFact:
         provisional = cls.__new__(cls)
         object.__setattr__(provisional, "entry_id", "")
         object.__setattr__(provisional, "framework", framework)
-        object.__setattr__(provisional, "protocol", _enum(raw["protocol"], _PROTOCOLS, "protocol"))
+        object.__setattr__(provisional, "protocol", protocol)
         object.__setattr__(provisional, "handler", handler)
         object.__setattr__(provisional, "registration", registration)
+        object.__setattr__(provisional, "registration_pattern_id", pattern_id)
         object.__setattr__(provisional, "route_or_event", canonical_route(raw["route_or_event"], framework))
         object.__setattr__(provisional, "auth_context", _enum(raw["auth_context"], _AUTH_CONTEXTS, "auth_context"))
         object.__setattr__(provisional, "attacker_inputs", (attacker_input,))
@@ -309,6 +344,7 @@ class EntryFact:
             protocol=provisional.protocol,
             handler=handler,
             registration=registration,
+            registration_pattern_id=pattern_id,
             route_or_event=provisional.route_or_event,
             auth_context=provisional.auth_context,
             attacker_inputs=(attacker_input,),
@@ -323,6 +359,7 @@ class EntryFact:
             "protocol",
             "handler",
             "registration",
+            "registration_pattern_id",
             "route_or_event",
             "auth_context",
             "attacker_inputs",
@@ -377,6 +414,7 @@ class EntryFact:
                 registration_raw["file"],
                 registration_raw["start_line"],
             ),
+            registration_pattern_id=raw["registration_pattern_id"],
             route_or_event=raw["route_or_event"],
             auth_context=raw["auth_context"],
             attacker_inputs=tuple(attacker_inputs),
@@ -391,6 +429,7 @@ class EntryFact:
         protocol: str,
         handler: HandlerFact,
         registration: RegistrationFact,
+        registration_pattern_id: str,
         route_or_event: str,
         auth_context: str,
         attacker_inputs: tuple[AttackerInputFact, ...],
@@ -409,6 +448,7 @@ class EntryFact:
             "protocol": protocol,
             "handler": handler.to_dict(),
             "registration": registration.to_dict(),
+            "registration_pattern_id": registration_pattern_id,
             "route_or_event": canonical_route(route_or_event, framework),
             "auth_context": auth_context,
             "attacker_inputs": [item.to_dict() for item in sorted(set(attacker_inputs))],
@@ -419,6 +459,7 @@ class EntryFact:
             "protocol": protocol,
             "handler": handler,
             "registration": registration,
+            "registration_pattern_id": registration_pattern_id,
             "route_or_event": route_or_event,
             "auth_context": auth_context,
             "attacker_inputs": attacker_inputs,
@@ -431,6 +472,7 @@ class EntryFact:
             "protocol": self.protocol,
             "handler": self.handler.to_dict(),
             "registration": self.registration.to_dict(),
+            "registration_pattern_id": self.registration_pattern_id,
             "route_or_event": self.route_or_event,
             "auth_context": self.auth_context,
             "attacker_inputs": [item.to_dict() for item in self.attacker_inputs],
@@ -479,6 +521,15 @@ class FrameworkCoverage:
             raise _coverage_invalid("COMPLETE_HAS_GAPS", field="unsupported_patterns")
         if self.status != "complete" and not unsupported:
             raise _coverage_invalid("GAP_PATTERN_REQUIRED", field="unsupported_patterns")
+        if any(
+            not registration_coverage_pattern_belongs_to_framework(
+                self.framework, pattern_id
+            )
+            for pattern_id in supported
+        ):
+            raise _coverage_invalid(
+                "SUPPORTED_PATTERN_ID_INVALID", field="supported_patterns"
+            )
         object.__setattr__(self, "supported_patterns", supported)
         object.__setattr__(self, "unsupported_patterns", unsupported)
 

@@ -26,9 +26,12 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
         embedded = _ROOT / "dosweb" / "codeql" / "pack" / "dosweb"
         direct = _ROOT / "codeql" / "dosweb"
         relatives = (
+            "Entries/EntrySecurity.ql",
             "Entries/EntryInterpositions.ql",
-            "Flows/EntryToGrowth.ql", "Flows/EntryToGrowthAssociations.ql",
+            "Flows/EntryGrowthDomain.qll", "Flows/EntryToGrowth.ql",
+            "Flows/EntryToGrowthAssociations.ql",
             "Lifecycle/GuardCandidates.ql", "Lifecycle/BoundCandidates.ql",
+            "Lifecycle/FrameworkLimitDomain.qll",
             "Lifecycle/SynchronousReleaseCandidates.ql", "Lifecycle/LifecycleCoverage.ql",
             "Lifecycle/LifecycleSummary.ql", "Growth/LoopAmplification.qll",
             "Growth/ContainerGrowth.ql", "Growth/AsyncWorkGrowth.ql",
@@ -67,13 +70,23 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
                     self.assertNotIn(term, content.lower())
 
     def test_flow_and_lifecycle_queries_share_growth_and_handler_domains(self) -> None:
+        shared_domain = (
+            _ROOT / "codeql/dosweb/Flows/EntryGrowthDomain.qll"
+        ).read_text(encoding="utf-8")
+
+        def effective_content(relative: str) -> str:
+            content = (_ROOT / "codeql" / "dosweb" / relative).read_text(
+                encoding="utf-8"
+            )
+            return content + ("\n" + shared_domain if relative.startswith("Flows/") else "")
+
         for relative in (
             "Flows/EntryToGrowth.ql",
             "Flows/EntryToGrowthAssociations.ql",
             "Lifecycle/LifecycleCoverage.ql",
         ):
             with self.subTest(query=relative, domain="armeria"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn('"aggregateWithPooledObjects"', content)
                 self.assertIn("isArmeriaRequestType", content)
         for relative in (
@@ -82,10 +95,10 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
             "Lifecycle/LifecycleCoverage.ql",
         ):
             with self.subTest(query=relative, domain="constructor"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("constructorCall", content)
                 self.assertIn("lexicalLambdaCall", content)
-        flow = (_ROOT / "codeql/dosweb/Flows/EntryToGrowth.ql").read_text(encoding="utf-8")
+        flow = effective_content("Flows/EntryToGrowth.ql")
         self.assertIn("servletRequestAccessor", flow)
         for relative in (
             "Flows/EntryToGrowth.ql",
@@ -93,17 +106,118 @@ class CodeqlLifecycleQueryContractTests(unittest.TestCase):
             "Lifecycle/LifecycleCoverage.ql",
         ):
             with self.subTest(query=relative, domain="byte_array_output_stream"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn('"java.io", "ByteArrayOutputStream", "toByteArray"', content)
             with self.subTest(query=relative, domain="source_input_stream_handler"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("sourceInputStreamHandler", content)
             with self.subTest(query=relative, domain="netty_full_http_request_string"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("nettyFullRequestStringMaterialization", content)
             with self.subTest(query=relative, domain="http_session_attribute_write"):
-                content = (_ROOT / "codeql" / "dosweb" / relative).read_text(encoding="utf-8")
+                content = effective_content(relative)
                 self.assertIn("httpSessionAttributeWrite", content)
+
+    def test_association_and_formal_flow_share_proof_carrying_domain(self) -> None:
+        shared = _ROOT / "codeql" / "dosweb" / "Flows" / "EntryGrowthDomain.qll"
+        self.assertTrue(shared.is_file())
+        domain = shared.read_text(encoding="utf-8")
+        self.assertIn("module EntryGrowthPathDomain", domain)
+        self.assertIn("predicate entryGrowthPath", domain)
+        self.assertIn("EntryToGrowthFlow::flow", domain)
+        self.assertIn("boundedCallPath", domain)
+        self.assertIn("callEdgeId", domain)
+        self.assertIn("getStartLine().toString()", domain)
+        self.assertIn("import dosweb.Growth.LoopAmplification", domain)
+        self.assertIn("getADimension", domain)
+        self.assertNotIn("getDimension(0)", domain)
+        self.assertIn("provenAttackerLoopMultiplicity", domain)
+        self.assertIn('target = "iteration_count"', domain)
+        self.assertIn('target = "submission_count"', domain)
+        self.assertIn("exactRequestLocalContainerIterationDemand", domain)
+        self.assertIn("exactAsyncSubmissionIterationDemand", domain)
+        self.assertIn(
+            "provenAttackerLoopMultiplicityForDirectAllocation", domain
+        )
+
+        loop_domain = (
+            _ROOT / "codeql" / "dosweb" / "Growth" / "LoopAmplification.qll"
+        ).read_text(encoding="utf-8")
+        for marker in (
+            "canonicalAttackerBoundForLoop",
+            "variableUpdatedInLoopBody",
+            "soleTopLevelStatement",
+            "unconditionalTopLevelGrowthInLoop",
+            "unconditionalTopLevelDirectAllocationInLoop",
+            "provenAttackerLoopMultiplicity",
+            "provenAttackerLoopMultiplicityForDirectAllocation",
+            "growth.getEnclosingCallable() = loop.getEnclosingCallable()",
+            "statement.getExpr() = growth",
+            "AssignExpr assignment",
+            "assignment.getSource() = growth",
+            "SingletonBlock",
+        ):
+            with self.subTest(loop_marker=marker):
+                self.assertIn(marker, loop_domain)
+
+        for query_name in ("EntryToGrowth.ql", "EntryToGrowthAssociations.ql"):
+            with self.subTest(query=query_name):
+                content = (
+                    _ROOT / "codeql" / "dosweb" / "Flows" / query_name
+                ).read_text(encoding="utf-8")
+                self.assertIn("import EntryGrowthDomain", content)
+                self.assertIn("EntryGrowthPathDomain::entryGrowthPath", content)
+
+    def test_shared_flow_domain_unrolls_bounded_call_path(self) -> None:
+        domain = (
+            _ROOT / "codeql" / "dosweb" / "Flows" / "EntryGrowthDomain.qll"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("predicate boundedCallEdges", domain)
+        for depth in range(4):
+            with self.subTest(depth=depth):
+                self.assertIn(f"depth = {depth}", domain)
+
+    def test_framework_limit_domains_are_explicit_and_coverage_is_fail_closed(self) -> None:
+        bound = (
+            _ROOT / "codeql" / "dosweb" / "Lifecycle" / "BoundCandidates.ql"
+        ).read_text(encoding="utf-8")
+        coverage = (
+            _ROOT / "codeql" / "dosweb" / "Lifecycle" / "LifecycleCoverage.ql"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "StreamReadConstraints",
+            "HttpObjectAggregator",
+            "MultipartConfig",
+            "formdataUploadLimitInKB",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, bound)
+                self.assertIn(token, coverage)
+        self.assertIn("familyModeledDomain", coverage)
+        self.assertIn("numericClampBound", bound)
+        framework_domain = (
+            _ROOT
+            / "codeql"
+            / "dosweb"
+            / "Lifecycle"
+            / "FrameworkLimitDomain.qll"
+        ).read_text(encoding="utf-8")
+        self.assertIn("exists(IntegerLiteral configured", framework_domain)
+        self.assertIn("configured.getIntValue() > 0", framework_domain)
+        self.assertIn("value = configured.getIntValue().toString()", framework_domain)
+        self.assertIn("annotation = input.getAnAnnotation()", framework_domain)
+        self.assertIn(
+            '["RequestBody", "RequestParam", "PathVariable", "RequestHeader"]',
+            framework_domain,
+        )
+        self.assertIn("demand = access", framework_domain)
+        self.assertNotIn("not demand instanceof CompileTimeConstantExpr", framework_domain)
+        self.assertIn("directByteAllocationModeledDomain", coverage)
+        self.assertIn("lifecycle_family_api_domain_unmodeled", coverage)
+        self.assertNotIn(
+            'not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and\n      not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and\n      statusValue = "complete"',
+            coverage,
+        )
 
 
 @unittest.skipUnless(
@@ -148,6 +262,50 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             payload,
             DecodeSource(database.source_root, query_sha256),
         )
+
+    def test_route_alias_and_unrelated_handler_share_one_proof_carrying_path(self) -> None:
+        source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
+        fixture = source_root / "fixture" / "spring" / "FlowAliasController.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        canonical_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "void canonical(HttpServletRequest request)" in line
+        )
+        unrelated_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "void unrelated(HttpServletRequest request)" in line
+        )
+        growth_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "request.getInputStream().readAllBytes()" in line
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "proof-carrying-alias")
+            associations = self._rows(
+                "Flows/EntryToGrowthAssociations.ql", database, temporary
+            )
+            flows = self._rows("Flows/EntryToGrowth.ql", database, temporary)
+
+        def matching(rows: list[dict[str, object]], source_line: int) -> list[dict[str, object]]:
+            return [
+                row for row in rows
+                if row.get("source_file", "").endswith("FlowAliasController.java")
+                and row.get("source_start_line") == source_line
+                and row.get("sink_start_line") == growth_line
+            ]
+
+        canonical_associations = matching(associations, canonical_line)
+        canonical_flows = matching(flows, canonical_line)
+        self.assertEqual(len(canonical_associations), 1, canonical_associations)
+        self.assertEqual(len(canonical_flows), 1, canonical_flows)
+        self.assertEqual(canonical_associations[0]["confidence"], "proven")
+        self.assertEqual(canonical_associations[0]["coverage_status"], "complete")
+        self.assertEqual(canonical_flows[0]["confidence"], "proven")
+        self.assertEqual(canonical_flows[0]["coverage_status"], "complete")
+        self.assertEqual(canonical_associations[0]["call_path"], canonical_flows[0]["call_path"])
+        self.assertEqual(matching(associations, unrelated_line), [])
+        self.assertEqual(matching(flows, unrelated_line), [])
 
     def test_source_input_stream_handler_and_byte_array_output_copy(self) -> None:
         source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
@@ -205,14 +363,19 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             any(row.get("sink_start_line") == copy_line for row in source_associations),
             source_associations,
         )
-        self.assertFalse(
-            any(
-                row.get("source_file", "").endswith("SourceStreamResource.java")
-                and row.get("source_start_line") == beyond_bound_line
-                and row.get("sink_start_line") == deep_copy_line
-                for row in association_rows
-            ),
-            association_rows,
+        bounded_helper_rows = [
+            row
+            for row in association_rows
+            if row.get("source_file", "").endswith("SourceStreamResource.java")
+            and row.get("source_start_line") == beyond_bound_line
+            and row.get("sink_start_line") == deep_copy_line
+        ]
+        self.assertEqual(len(bounded_helper_rows), 1, bounded_helper_rows)
+        self.assertEqual(bounded_helper_rows[0]["confidence"], "proven")
+        self.assertEqual(bounded_helper_rows[0]["coverage_status"], "complete")
+        self.assertEqual(
+            bounded_helper_rows[0]["coverage_note"],
+            "unique_bounded_call_path_global_dataflow",
         )
         self.assertTrue(
             any(
@@ -232,6 +395,53 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             ),
             coverage_rows,
         )
+
+    def test_source_stream_to_bounded_parser_output_copy_is_exact_partial(self) -> None:
+        source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
+        fixture = source_root / "fixture" / "spring" / "SourceStreamResource.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        method_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "public byte[] processParserOutput(InputStream input)" in line
+        )
+        copy_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "return parserOutput.toByteArray()" in line
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "source-parser-output")
+            associations = self._rows(
+                "Flows/EntryToGrowthAssociations.ql", database, temporary
+            )
+            flows = self._rows("Flows/EntryToGrowth.ql", database, temporary)
+
+        matching_associations = [
+            row for row in associations
+            if row.get("source_file", "").endswith("SourceStreamResource.java")
+            and row.get("source_start_line") == method_line
+            and row.get("sink_start_line") == copy_line
+        ]
+        matching_flows = [
+            row for row in flows
+            if row.get("source_file", "").endswith("SourceStreamResource.java")
+            and row.get("source_start_line") == method_line
+            and row.get("sink_start_line") == copy_line
+        ]
+        self.assertEqual(len(matching_associations), 1, matching_associations)
+        self.assertEqual(len(matching_flows), 1, matching_flows)
+        self.assertEqual(
+            matching_associations[0]["call_path"], matching_flows[0]["call_path"]
+        )
+        for row in matching_associations + matching_flows:
+            self.assertEqual(row["attacker_target"], "size")
+            self.assertEqual(row["confidence"], "partial")
+            self.assertEqual(row["coverage_status"], "partial")
+            self.assertEqual(
+                row["coverage_note"],
+                "source_input_stream_to_output_copy_requires_dataflow_witness",
+            )
+        self.assertEqual(matching_flows[0]["attacker_source"], "input")
 
     def test_jmqtt_qos2_dispatch_emits_only_partial_association(self) -> None:
         source_root = _ROOT / "tests" / "fixtures" / "mqtt" / "src" / "main" / "java"
@@ -458,8 +668,12 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             fixture_coverage,
         )
         self.assertTrue(
-            all(row["coverage_status"] == "complete" for row in fixture_coverage),
+            all(row["coverage_status"] == "partial" for row in fixture_coverage),
             fixture_coverage,
+        )
+        self.assertEqual(
+            {row["coverage_note"] for row in fixture_coverage},
+            {"lifecycle_family_api_domain_unmodeled"},
         )
         for negative_line in (unannotated_line, lookalike_line):
             self.assertNotIn(
@@ -535,8 +749,12 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             fixture_coverage,
         )
         self.assertTrue(
-            all(row["coverage_status"] == "complete" for row in fixture_coverage),
+            all(row["coverage_status"] == "partial" for row in fixture_coverage),
             fixture_coverage,
+        )
+        self.assertEqual(
+            {row["coverage_note"] for row in fixture_coverage},
+            {"lifecycle_family_api_domain_unmodeled"},
         )
         self.assertNotIn(
             lookalike_line,
@@ -613,6 +831,284 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
         self.assertEqual(
             {row["coverage_note"] for row in matching_coverage},
             {"netty_async_json_dispatch_lifecycle_unresolved"},
+        )
+
+    def test_framework_limits_emit_complete_growth_anchored_bound_rows(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "framework_limits" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "limits" / "FrameworkLimitFixture.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        anchors = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(jacksonSize)",
+                "ByteBuffer.allocate(Math.min(requestedSize, 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0x400))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))",
+                "ByteBuffer.allocate(message.content().readableBytes())",
+                "ByteBuffer.allocate(request.size())",
+                "keyStream.toByteArray()",
+            )
+        }
+        unrelated_anchors = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(unboundJacksonSize)",
+                "ByteBuffer.allocate((Integer) looseMessage)",
+                "ByteBuffer.allocate(1024); // unrelated multipart allocation",
+            )
+        }
+        invalid_clamp_anchors = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(Math.min(requestedSize, 512 + 512))",
+                "ByteBuffer.allocate(Math.min(requestedSize, LIMIT))",
+                "ByteBuffer.allocate(Math.min(serverDerivedValue(), 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0))",
+                "ByteBuffer.allocate(Math.min(requestedSize, -1))",
+                "ByteBuffer.allocate(Math.min(-1, 1024))",
+            )
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "framework-limits")
+            bounds = self._rows("Lifecycle/BoundCandidates.ql", database, temporary)
+            coverage = self._rows("Lifecycle/LifecycleCoverage.ql", database, temporary)
+
+        fixture_bounds = [
+            row for row in bounds
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+        ]
+        self.assertEqual(
+            {row["evidence"] for row in fixture_bounds},
+            {
+                "jackson_stream_read_constraints_literal",
+                "netty_http_object_aggregator_literal",
+                "numeric_min_literal",
+                "servlet_multipart_config_literal",
+                "solr_formdata_upload_limit_literal",
+            },
+            fixture_bounds,
+        )
+        self.assertEqual(
+            {row["anchor_start_line"] for row in fixture_bounds},
+            set(anchors.values()),
+            fixture_bounds,
+        )
+        self.assertEqual(len(fixture_bounds), 7, fixture_bounds)
+        expected_bound_rows = {
+            anchors["ByteBuffer.allocate(jacksonSize)"]: (
+                "jackson_stream_read_constraints_literal",
+                "1024",
+                "json",
+            ),
+            anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"]: (
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            anchors["ByteBuffer.allocate(Math.min(requestedSize, 0x400))"]: (
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            anchors["ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"]: (
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            anchors["ByteBuffer.allocate(message.content().readableBytes())"]: (
+                "netty_http_object_aggregator_literal",
+                "1024",
+                "aggregated_http",
+            ),
+            anchors["ByteBuffer.allocate(request.size())"]: (
+                "servlet_multipart_config_literal",
+                "1024",
+                "multipart",
+            ),
+            anchors["keyStream.toByteArray()"]: (
+                "solr_formdata_upload_limit_literal",
+                "1024",
+                "form_urlencoded",
+            ),
+        }
+        self.assertEqual(
+            {
+                row["anchor_start_line"]: (
+                    row["evidence"],
+                    row["configuration_value"],
+                    row["request_encoding"],
+                )
+                for row in fixture_bounds
+            },
+            expected_bound_rows,
+            fixture_bounds,
+        )
+        self.assertTrue(
+            set(unrelated_anchors.values()).isdisjoint(
+                {row["anchor_start_line"] for row in fixture_bounds}
+            ),
+            fixture_bounds,
+        )
+        self.assertTrue(
+            set(invalid_clamp_anchors.values()).isdisjoint(
+                {row["anchor_start_line"] for row in fixture_bounds}
+            ),
+            fixture_bounds,
+        )
+        framework_bounds = [
+            row for row in fixture_bounds
+            if row["evidence"] != "numeric_min_literal"
+        ]
+        self.assertEqual(len(framework_bounds), 4, framework_bounds)
+        self.assertTrue(
+            all(
+                row["coverage_status"] == "complete"
+                and row["behavior"] == "reject"
+                and row["coverage_note"] == "framework_limit_exact_path_literal"
+                and row["phase"] == "before_growth"
+                and row["covers_flow"] is True
+                and row["product_bound"] is True
+                for row in framework_bounds
+            ),
+            framework_bounds,
+        )
+        clamp_bounds = [
+            row for row in fixture_bounds
+            if row["evidence"] == "numeric_min_literal"
+        ]
+        self.assertEqual(len(clamp_bounds), 3, clamp_bounds)
+        self.assertEqual(
+            {
+                anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"],
+                anchors["ByteBuffer.allocate(Math.min(requestedSize, 0x400))"],
+                anchors[
+                    "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"
+                ],
+            },
+            {row["anchor_start_line"] for row in clamp_bounds},
+        )
+        self.assertTrue(
+            all(
+                row["behavior"] == "clamp"
+                and row["coverage_note"] == "same_expression_numeric_clamp"
+                and row["phase"] == "inside_growth"
+                and row["configuration_value"] == "1024"
+                and row["coverage_status"] == "complete"
+                and row["covers_flow"] is True
+                and row["product_bound"] is True
+                for row in clamp_bounds
+            ),
+            clamp_bounds,
+        )
+        bound_coverage = [
+            row for row in coverage
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+            and row.get("anchor_start_line") in anchors.values()
+            and row.get("family") == "bound"
+        ]
+        self.assertEqual(len(bound_coverage), 7, bound_coverage)
+        self.assertEqual(
+            {row["anchor_start_line"] for row in bound_coverage},
+            set(anchors.values()),
+            bound_coverage,
+        )
+        self.assertTrue(
+            all(
+                row["coverage_status"] == "complete"
+                and row["coverage_note"] == "same_callable_modeled_domain_scanned"
+                for row in bound_coverage
+            ),
+            bound_coverage,
+        )
+
+    def test_direct_byte_allocation_bound_domain_covers_absence_and_numeric_clamp(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "framework_limits" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "limits" / "FrameworkLimitFixture.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        plain_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "ByteBuffer.allocate(requestedSize)" in line
+        )
+        clamped_lines = {
+            marker: next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(Math.min(requestedSize, 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0x400))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))",
+            )
+        }
+        invalid_clamped_lines = {
+            next(
+                number for number, line in enumerate(lines, 1) if marker in line
+            )
+            for marker in (
+                "ByteBuffer.allocate(Math.min(requestedSize, 512 + 512))",
+                "ByteBuffer.allocate(Math.min(requestedSize, LIMIT))",
+                "ByteBuffer.allocate(Math.min(serverDerivedValue(), 1024))",
+                "ByteBuffer.allocate(Math.min(requestedSize, 0))",
+                "ByteBuffer.allocate(Math.min(requestedSize, -1))",
+                "ByteBuffer.allocate(Math.min(-1, 1024))",
+            )
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(source_root, temporary, "direct-allocation-bound-domain")
+            bounds = self._rows("Lifecycle/BoundCandidates.ql", database, temporary)
+            coverage = self._rows("Lifecycle/LifecycleCoverage.ql", database, temporary)
+
+        fixture_bounds = [
+            row for row in bounds
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+        ]
+        self.assertFalse(
+            any(row["anchor_start_line"] == plain_line for row in fixture_bounds),
+            fixture_bounds,
+        )
+        clamped = [
+            row for row in fixture_bounds
+            if row["anchor_start_line"] in clamped_lines.values()
+        ]
+        self.assertEqual(3, len(clamped), clamped)
+        self.assertTrue(
+            all(
+                row["behavior"] == "clamp"
+                and row["evidence"] == "numeric_min_literal"
+                and row["configuration_value"] == "1024"
+                and row["product_bound"] is True
+                for row in clamped
+            ),
+            clamped,
+        )
+        self.assertTrue(
+            invalid_clamped_lines.isdisjoint(
+                {row["anchor_start_line"] for row in fixture_bounds}
+            ),
+            fixture_bounds,
+        )
+        bound_coverage = {
+            row["anchor_start_line"]: row
+            for row in coverage
+            if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
+            and row.get("family") == "bound"
+            and row.get("anchor_start_line") in {plain_line, *clamped_lines.values()}
+        }
+        self.assertEqual({plain_line, *clamped_lines.values()}, set(bound_coverage))
+        self.assertTrue(
+            all(row["coverage_status"] == "complete" for row in bound_coverage.values()),
+            bound_coverage,
         )
 
     def test_fixture_semantics(self) -> None:

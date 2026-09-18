@@ -8,6 +8,156 @@ from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
 
 
 class SourceBackedJaxRsEntryTests(unittest.TestCase):
+    def _write_sisu_named_module_tree(
+        self,
+        root: Path,
+        *,
+        duplicate_install: bool = False,
+        duplicate_binding: bool = False,
+        wildcard_helper_import: bool = False,
+        non_singleton_scope: bool = False,
+    ) -> None:
+        java = root / "server" / "src" / "main" / "java" / "fixture"
+        java.mkdir(parents=True)
+        (java / "Main.java").write_text(
+            """package fixture;
+import org.eclipse.sisu.space.BeanScanning;
+import org.eclipse.sisu.space.SpaceModule;
+import org.eclipse.sisu.space.URLClassSpace;
+import org.eclipse.sisu.wire.WireModule;
+public class Main {
+  Object modules(ClassLoader loader) {
+    return new WireModule(new SpaceModule(new URLClassSpace(loader), BeanScanning.GLOBAL_INDEX));
+  }
+}
+""",
+            encoding="utf-8",
+        )
+        installs = "binder.install(new ChildModule());"
+        if duplicate_install:
+            installs += "\n    binder.install(new ChildModule());"
+        (java / "RootModule.java").write_text(
+            f"""package fixture;
+import com.google.inject.Binder;
+import com.google.inject.Module;
+import javax.inject.Named;
+@Named
+public class RootModule implements Module {{
+  public void configure(Binder binder) {{
+    {installs}
+  }}
+}}
+""",
+            encoding="utf-8",
+        )
+        bindings = "bindJaxRsResource(binder, BinaryResource.class);"
+        if duplicate_binding:
+            bindings += "\n    bindJaxRsResource(binder, BinaryResource.class);"
+        (java / "ChildModule.java").write_text(
+            f"""package fixture;
+import com.google.inject.Binder;
+import com.google.inject.Module;
+import static fixture.Bindings.{"*" if wildcard_helper_import else "bindJaxRsResource"};
+public class ChildModule implements Module {{
+  public void configure(Binder binder) {{
+    {bindings}
+  }}
+}}
+""",
+            encoding="utf-8",
+        )
+        scope = "OTHER_SCOPE" if non_singleton_scope else "SINGLETON"
+        (java / "Bindings.java").write_text(
+            """package fixture;
+import com.google.inject.Binder;
+import static com.google.inject.Scopes.SINGLETON;
+import static com.google.inject.multibindings.Multibinder.newSetBinder;
+public class Bindings {
+  private static final Object OTHER_SCOPE = new Object();
+  public static void bindJaxRsResource(Binder binder, Class<? extends Component> klass) {
+    binder.bind(klass).in(""" + scope + """);
+    newSetBinder(binder, Component.class).addBinding().to(klass);
+  }
+}
+""",
+            encoding="utf-8",
+        )
+        (java / "Component.java").write_text(
+            "package fixture; public interface Component {}\n",
+            encoding="utf-8",
+        )
+        (java / "BinaryResource.java").write_text(
+            """package fixture;
+import jakarta.ws.rs.*;
+import java.io.InputStream;
+@Path("/api/v2/tasks")
+public class BinaryResource {
+  @POST
+  @Path("{id}/segments/{segmentId}/data")
+  @RequestBody(content = @Content(schema = @Schema(type = "string")))
+  public void append(InputStream data) {}
+}
+""",
+            encoding="utf-8",
+        )
+
+    def test_sisu_named_guice_child_helper_registration_is_promoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_sisu_named_module_tree(root)
+
+            rows = augment_source_backed_jaxrs_entries([], root)
+
+            self.assertEqual(len(rows), 1, rows)
+            self.assertEqual(rows[0]["handler_fqn"], "fixture.BinaryResource.append")
+            self.assertEqual(
+                rows[0]["route_or_event"],
+                "POST /api/v2/tasks/{id}/segments/{segmentId}/data",
+            )
+            self.assertEqual(rows[0]["attacker_input_name"], "data")
+            self.assertEqual(rows[0]["attacker_input_kind"], "stream")
+            self.assertEqual(rows[0]["coverage_status"], "complete")
+            self.assertEqual(
+                rows[0]["coverage_note"], "sisu_named_guice_source_registration"
+            )
+            self.assertEqual(
+                rows[0]["registration_fqn"], "fixture.Bindings.bindJaxRsResource"
+            )
+
+    def test_sisu_duplicate_child_install_is_not_promoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_sisu_named_module_tree(root, duplicate_install=True)
+
+            self.assertEqual(augment_source_backed_jaxrs_entries([], root), [])
+
+    def test_sisu_duplicate_helper_binding_is_not_promoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_sisu_named_module_tree(root, duplicate_binding=True)
+
+            self.assertEqual(augment_source_backed_jaxrs_entries([], root), [])
+
+    def test_sisu_static_wildcard_helper_registration_is_promoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_sisu_named_module_tree(root, wildcard_helper_import=True)
+
+            rows = augment_source_backed_jaxrs_entries([], root)
+
+            self.assertEqual(len(rows), 1, rows)
+            self.assertEqual(rows[0]["handler_fqn"], "fixture.BinaryResource.append")
+            self.assertEqual(
+                rows[0]["registration_fqn"], "fixture.Bindings.bindJaxRsResource"
+            )
+
+    def test_sisu_non_singleton_helper_is_not_promoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_sisu_named_module_tree(root, non_singleton_scope=True)
+
+            self.assertEqual(augment_source_backed_jaxrs_entries([], root), [])
+
     def test_airlift_jaxrs_binder_registration_is_promoted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

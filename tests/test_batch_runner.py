@@ -211,7 +211,9 @@ class BatchRunnerTests(unittest.TestCase):
 
     def test_retry_failed_reexecutes_nondeterministic_provider_output_failures(self) -> None:
         for error_code in (
+            "LLM_AUTHENTICATION_FAILED",
             "LLM_NETWORK_FAILED",
+            "LLM_RESPONSE_INVALID",
             "LLM_RESPONSE_SCHEMA_INVALID",
             "LLM_RESPONSE_SENSITIVE_CONTENT",
         ):
@@ -239,6 +241,81 @@ class BatchRunnerTests(unittest.TestCase):
                 )
                 self.assertEqual(state["status"], "completed")
                 self.assertEqual(len(calls), 1)
+
+    def test_retry_failed_reexecutes_provider_failure_within_one_fresh_invocation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = _plan(count=1)
+            self._tree(root, plan)
+            calls: list[str] = []
+
+            class FlakyProvider:
+                def __init__(self, values: dict[str, object]) -> None:
+                    self.values = values
+
+                def run(self, command: str) -> dict[str, str]:
+                    calls.append(command)
+                    if len(calls) == 1:
+                        raise AnalyzerError(
+                            "LLM_RESPONSE_INVALID",
+                            "provider output rejected",
+                        )
+                    output = self.values["output"]
+                    assert isinstance(output, Path)
+                    (output / "run.json").write_text(
+                        json.dumps({"status": "completed"}),
+                        encoding="utf-8",
+                    )
+                    return {"status": "completed"}
+
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: FlakyProvider(dict(values)),
+                repo_root=root,
+                environ={},
+                resume=False,
+                retry_failed=True,
+                max_attempts=2,
+            )
+
+            record = state["targets"][plan.targets[0].target_id]
+            self.assertEqual("completed", state["status"])
+            self.assertEqual("completed", record["state"])
+            self.assertEqual(2, record["attempt"])
+            self.assertEqual(["entries", "entries"], calls)
+
+    def test_fresh_provider_retry_stops_at_the_attempt_ceiling(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = _plan(count=1)
+            self._tree(root, plan)
+            calls: list[str] = []
+
+            class AlwaysInvalidProvider:
+                def run(self, command: str) -> dict[str, str]:
+                    calls.append(command)
+                    raise AnalyzerError(
+                        "LLM_RESPONSE_SCHEMA_INVALID",
+                        "provider output rejected",
+                    )
+
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: AlwaysInvalidProvider(),
+                repo_root=root,
+                environ={},
+                resume=False,
+                retry_failed=True,
+                max_attempts=2,
+            )
+
+            record = state["targets"][plan.targets[0].target_id]
+            self.assertEqual("completed_with_failures", state["status"])
+            self.assertEqual("failed", record["state"])
+            self.assertEqual(2, record["attempt"])
+            self.assertEqual(["entries", "entries"], calls)
 
     def test_batch_lock_excludes_concurrent_runner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

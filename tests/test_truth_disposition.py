@@ -357,6 +357,92 @@ class DispositionTests(unittest.TestCase):
         self.assertEqual(result["reason_codes"], ["ENTRY_DYNAMIC_REGISTRATION_UNPROVEN"])
         self.assertEqual(result["matched_gap_ids"], ["gap:smqtt"])
 
+    def test_four_custom_mqtt_dispatches_remain_growth_only_static_unknown(self):
+        markers = (
+            "retainedMessages.put",
+            "sessionStates.put",
+            "topicMembers.computeIfAbsent",
+            "inflightPackets.put",
+        )
+        for index, marker in enumerate(markers, 1):
+            with self.subTest(dispatch=index):
+                artifacts = _artifacts(
+                    entry_gaps=[{
+                        "gap_id": f"gap:custom-dispatch:{index}",
+                        "framework": "mqtt",
+                        "protocol": "mqtt",
+                        "route_or_event": "mqtt_protocol",
+                        "handler_file": "broker/src/main/java/fixture/BrokerReceiver.java",
+                        "handler_start_line": 20 + index,
+                        "coverage_status": "partial",
+                        "coverage_note": "custom_reactor_dispatch_binding_unresolved",
+                    }],
+                    growth_candidates=[_growth(f"growth:custom:{index}", marker)],
+                )
+                truth = {
+                    **_truth(
+                        f"custom-dispatch-{index}",
+                        "protocol service on port 1883",
+                        [marker],
+                    ),
+                    "repository": "fixture/mqtt-broker",
+                    "app": "fixture/mqtt-broker",
+                    "protocol": "mqtt",
+                }
+
+                result = compute_disposition(truth, artifacts)
+
+                self.assertEqual(result["status"], "growth_only")
+                self.assertEqual(result.get("matched_entry_ids", []), [])
+                self.assertEqual(
+                    result["matched_gap_ids"], [f"gap:custom-dispatch:{index}"]
+                )
+                self.assertEqual(
+                    result["matched_growth_ids"], [f"growth:custom:{index}"]
+                )
+                self.assertEqual(result.get("matched_finding_ids", []), [])
+                self.assertEqual(result.get("verdicts", []), [])
+                self.assertEqual(
+                    result["reason_codes"],
+                    ["ENTRY_DYNAMIC_REGISTRATION_UNPROVEN", "GROWTH_SINK_MATCHED"],
+                )
+
+    def test_missing_grpc_compilation_unit_is_coverage_gap_not_supported_failure(self):
+        artifacts = _artifacts(
+            entry_gaps=[{
+                "gap_id": "gap:grpc-source-coverage",
+                "framework": "grpc",
+                "protocol": "grpc",
+                "route_or_event": "/example.LocalCoverage/collect",
+                "handler_file": "receiver/src/main/java/fixture/StreamingHandler.java",
+                "handler_start_line": 42,
+                "coverage_status": "partial",
+                "coverage_note": "database_source_coverage_missing",
+            }],
+            growth_candidates=[_growth("growth:stream", "segments.add")],
+        )
+        truth = {
+            **_truth(
+                "grpc-source-coverage",
+                "gRPC /example.LocalCoverage/collect",
+                ["segments.add"],
+            ),
+            "repository": "fixture/grpc-service",
+            "app": "fixture/grpc-service",
+            "protocol": "grpc",
+        }
+
+        result = compute_disposition(truth, artifacts)
+
+        self.assertEqual(result["status"], "growth_only")
+        self.assertEqual(
+            result["reason_codes"],
+            ["ENTRY_DYNAMIC_REGISTRATION_UNPROVEN", "GROWTH_SINK_MATCHED"],
+        )
+        self.assertEqual(result["matched_gap_ids"], ["gap:grpc-source-coverage"])
+        self.assertEqual(result["matched_growth_ids"], ["growth:stream"])
+        self.assertEqual(result.get("matched_finding_ids", []), [])
+
     def test_partial_dynamic_route_with_growth_preserves_furthest_stage(self):
         artifacts = _artifacts(
             entry_gaps=[{

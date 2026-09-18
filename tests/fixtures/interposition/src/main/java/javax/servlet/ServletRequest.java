@@ -1,1 +1,1 @@
-package javax.servlet; public interface ServletRequest {}
+package javax.servlet; public interface ServletRequest { String getRequestURI(); }

@@ -8,14 +8,20 @@ from dosweb.errors import AnalyzerError
 from dosweb.conclude import (
     AssertionEvaluation,
     CandidateCoverage,
+    VerdictProofGate,
+    apply_positive_proof_gate,
     derive_verdict,
     evaluate_assertion_1,
     evaluate_assertion_2,
 )
 from dosweb.flows import FlowProof, normalize_flow_rows, verify_flow
 from dosweb.lifecycle import BoundDecision, GuardDecision, ReleaseDecision
-from dosweb.lifecycle.certificates import StaticFinding, build_lifecycle_certificate
-from dosweb.report import build_summary, render_report
+from dosweb.lifecycle.certificates import (
+    LifecycleCertificate,
+    StaticFinding,
+    build_lifecycle_certificate,
+)
+from dosweb.report import build_finding_families, build_summary, render_report
 from tests.test_flow_verification import FlowVerificationTests
 
 
@@ -42,10 +48,10 @@ class CertificateReportTests(unittest.TestCase):
         self.coverage = CandidateCoverage(
             framework=self.entry.framework,
             status="complete",
-            supported_patterns=(self.entry.registration.kind,),
+            supported_patterns=(self.entry.registration_pattern_id,),
             unsupported_patterns=(),
             effect_on_verdict="none",
-            registration_pattern=self.entry.registration.kind,
+            registration_pattern_id=self.entry.registration_pattern_id,
             entry_id=self.entry.entry_id,
             growth_id=self.growth.growth_id,
             path_id=self.flow.path_id,
@@ -92,10 +98,15 @@ class CertificateReportTests(unittest.TestCase):
     def test_summary_and_markdown_agree_on_ids_and_verdicts(self) -> None:
         certificate = self._certificate()
         finding = StaticFinding.from_certificate(certificate)
-        summary = build_summary((finding,), (self._framework_coverage(),))
-        report = render_report(summary, (finding,), (certificate,))
+        families = self._families(finding, certificate)
+        summary = build_summary(families, (finding,), (self._framework_coverage(),))
+        report = render_report(summary, families, (finding,), (certificate,))
+        self.assertEqual(summary["family_ids"], [families[0].family_id])
         self.assertEqual(summary["finding_ids"], [finding.finding_id])
         self.assertEqual(summary["verdict_counts"][finding.verdict], 1)
+        self.assertIn("## Finding families", report)
+        self.assertIn("| Priority | Family ID | Verdict | Amplification | Reachability | Bound status | Missing evidence / reasons |", report)
+        self.assertLess(report.index("## Finding families"), report.index("## Exact finding audit"))
         self.assertIn(finding.finding_id, report)
         self.assertIn(certificate.verdict, report)
         self.assertIn("Coverage and limitations", report)
@@ -117,6 +128,178 @@ class CertificateReportTests(unittest.TestCase):
             build_lifecycle_certificate(
                 self.entry, self.growth, (self.flow,), self.guard, self.bound, self.release,
                 assertions, self.coverage, replace(verdict, covered_paths=()),
+            )
+
+    def test_certificate_rejects_sibling_registration_pattern_scope(self) -> None:
+        sibling_pattern_id = (
+            "entry-registration-coverage:"
+            "spring_mvc:annotation_mapping:spring_spel_source_default_modeled_entry"
+        )
+        sibling_coverage = replace(
+            self.coverage,
+            supported_patterns=(sibling_pattern_id,),
+            registration_pattern_id=sibling_pattern_id,
+        )
+        assertions = (
+            evaluate_assertion_1(self.growth, self.flow, self.guard, self.bound),
+            evaluate_assertion_2(self.growth, self.flow, self.bound, self.release),
+        )
+        verdict = derive_verdict(assertions, sibling_coverage)
+        with self.assertRaises(AnalyzerError) as raised:
+            build_lifecycle_certificate(
+                self.entry,
+                self.growth,
+                (self.flow,),
+                self.guard,
+                self.bound,
+                self.release,
+                assertions,
+                sibling_coverage,
+                verdict,
+            )
+        self.assertEqual(raised.exception.code, "ANALYSIS_CERTIFICATE_INVALID")
+
+    def test_certificate_rejects_generic_unscoped_current_or_sibling_coverage(self) -> None:
+        assertions = (
+            evaluate_assertion_1(self.growth, self.flow, self.guard, self.bound),
+            evaluate_assertion_2(self.growth, self.flow, self.bound, self.release),
+        )
+        sibling_pattern_id = (
+            "entry-registration-coverage:"
+            "spring_mvc:annotation_mapping:spring_spel_source_default_modeled_entry"
+        )
+        for pattern_id in (self.entry.registration_pattern_id, sibling_pattern_id):
+            with self.subTest(pattern_id=pattern_id):
+                unscoped = CandidateCoverage(
+                    framework=self.entry.framework,
+                    status="complete",
+                    supported_patterns=(pattern_id,),
+                    unsupported_patterns=(),
+                    effect_on_verdict="none",
+                )
+                verdict = derive_verdict(assertions, unscoped)
+                with self.assertRaises(AnalyzerError) as raised:
+                    build_lifecycle_certificate(
+                        self.entry,
+                        self.growth,
+                        (self.flow,),
+                        self.guard,
+                        self.bound,
+                        self.release,
+                        assertions,
+                        unscoped,
+                        verdict,
+                    )
+                self.assertEqual(
+                    raised.exception.code, "ANALYSIS_CERTIFICATE_INVALID"
+                )
+
+    def test_certificate_requires_exact_entry_and_growth_coverage_scope(self) -> None:
+        assertions = (
+            evaluate_assertion_1(self.growth, self.flow, self.guard, self.bound),
+            evaluate_assertion_2(self.growth, self.flow, self.bound, self.release),
+        )
+        for missing_scope in ("entry_id", "growth_id"):
+            with self.subTest(missing_scope=missing_scope):
+                incomplete_scope = replace(self.coverage, **{missing_scope: None})
+                verdict = derive_verdict(assertions, incomplete_scope)
+                with self.assertRaises(AnalyzerError) as raised:
+                    build_lifecycle_certificate(
+                        self.entry,
+                        self.growth,
+                        (self.flow,),
+                        self.guard,
+                        self.bound,
+                        self.release,
+                        assertions,
+                        incomplete_scope,
+                        verdict,
+                    )
+                self.assertEqual(
+                    raised.exception.code, "ANALYSIS_CERTIFICATE_INVALID"
+                )
+
+    def test_builder_recomputes_positive_proof_gate_before_signing_certificate(self) -> None:
+        assertions = (
+            evaluate_assertion_1(self.growth, self.flow, self.guard, self.bound),
+            evaluate_assertion_2(self.growth, self.flow, self.bound, self.release),
+        )
+        derived = derive_verdict(assertions, self.coverage)
+        gate = VerdictProofGate(True, False, True, True, True, True, True)
+        gated = apply_positive_proof_gate(derived, gate)
+
+        certificate = build_lifecycle_certificate(
+            self.entry,
+            self.growth,
+            (self.flow,),
+            self.guard,
+            self.bound,
+            self.release,
+            assertions,
+            self.coverage,
+            gated,
+            proof_gate=gate,
+        )
+        self.assertEqual(certificate.verdict, "static_unknown")
+        self.assertIn("VERDICT_REACHABILITY_NOT_PROVEN", certificate.reason_codes)
+        with self.assertRaises(AnalyzerError):
+            build_lifecycle_certificate(
+                self.entry,
+                self.growth,
+                (self.flow,),
+                self.guard,
+                self.bound,
+                self.release,
+                assertions,
+                self.coverage,
+                derived,
+                proof_gate=gate,
+            )
+
+    def test_builder_downgrades_bounded_certificate_with_candidate_gap(self) -> None:
+        guard = GuardDecision(
+            "effective", (), (), ("fact:guard",), (), ("guard:one",)
+        )
+        assertions = (
+            evaluate_assertion_1(self.growth, self.flow, guard, self.bound),
+            evaluate_assertion_2(self.growth, self.flow, self.bound, self.release),
+        )
+        derived = derive_verdict(assertions, self.coverage)
+        self.assertEqual("bounded_under_modeled_assumptions", derived.verdict)
+        gate = VerdictProofGate(True, True, True, True, True, True, False)
+        gated = apply_positive_proof_gate(derived, gate)
+
+        certificate = build_lifecycle_certificate(
+            self.entry,
+            self.growth,
+            (self.flow,),
+            guard,
+            self.bound,
+            self.release,
+            assertions,
+            self.coverage,
+            gated,
+            proof_gate=gate,
+        )
+
+        self.assertEqual("static_unknown", certificate.verdict)
+        self.assertIn("VERDICT_CANDIDATE_RELEVANT_GAP", certificate.reason_codes)
+        self.assertNotIn(
+            "STATIC_EVIDENCE_COVERAGE_COMPLETE", certificate.assumptions
+        )
+        self.assertIn("MODELED_DEFAULT_CONFIGURATION", certificate.assumptions)
+        with self.assertRaises(AnalyzerError):
+            build_lifecycle_certificate(
+                self.entry,
+                self.growth,
+                (self.flow,),
+                guard,
+                self.bound,
+                self.release,
+                assertions,
+                self.coverage,
+                derived,
+                proof_gate=gate,
             )
 
     def test_partial_sibling_path_forces_static_unknown(self) -> None:
@@ -191,25 +374,66 @@ class CertificateReportTests(unittest.TestCase):
         record["resource_point"]["receiver"] = "mutated"
         self.assertNotEqual(record["resource_point"], certificate.to_dict()["resource_point"])
 
+    def test_certificate_roundtrip_reconstruction_preserves_canonical_scope(self) -> None:
+        certificate = self._certificate()
+        record = certificate.to_dict()
+        constructor_record = {
+            **record,
+            "attacker_inputs": tuple(record["attacker_inputs"]),
+            "path_ids": tuple(record["path_ids"]),
+            "assertions": tuple(record["assertions"]),
+            "reason_codes": tuple(record["reason_codes"]),
+            "assumptions": tuple(record["assumptions"]),
+            "coverage_gaps": tuple(record["coverage_gaps"]),
+            "unresolved_facts": tuple(record["unresolved_facts"]),
+            "suggested_follow_up_measurements": tuple(
+                record["suggested_follow_up_measurements"]
+            ),
+        }
+        reconstructed = LifecycleCertificate(**constructor_record)
+        self.assertEqual(reconstructed.to_dict(), record)
+        with self.assertRaises(AnalyzerError) as raised:
+            LifecycleCertificate(
+                **{
+                    **constructor_record,
+                    "entry_id": "entry:sibling",
+                }
+            )
+        self.assertEqual(raised.exception.code, "ANALYSIS_CERTIFICATE_INVALID")
+
     def test_report_rejects_orphan_certificate(self) -> None:
         certificate = self._certificate()
-        summary = build_summary((), (self._framework_coverage(),))
+        summary = build_summary((), (), (self._framework_coverage(),))
         with self.assertRaises(AnalyzerError) as raised:
-            render_report(summary, (), (certificate,))
+            render_report(summary, (), (), (certificate,))
         self.assertEqual(raised.exception.code, "ANALYSIS_REPORT_INVALID")
 
     def test_report_rejects_finding_certificate_disagreement(self) -> None:
         certificate = self._certificate()
         finding = StaticFinding.from_certificate(certificate)
-        summary = build_summary((finding,), (self._framework_coverage(),))
+        families = self._families(finding, certificate)
+        summary = build_summary(families, (finding,), (self._framework_coverage(),))
         forged = replace(finding, reason_codes=("FORGED",))
         with self.assertRaises(AnalyzerError):
-            render_report(summary, (forged,), (certificate,))
+            render_report(summary, families, (forged,), (certificate,))
+
+    def _families(self, finding, certificate):
+        return build_finding_families(
+            (finding,),
+            (certificate,),
+            {self.entry.entry_id: self.entry},
+            {},
+            {(self.entry.entry_id, self.growth.growth_id): "large_single_request"},
+        )
 
     def _framework_coverage(self):
         from dosweb.entries import FrameworkCoverage
         return FrameworkCoverage(
-            self.entry.framework, "complete", (self.entry.registration.kind,), (), "none"
+            self.entry.framework,
+            "complete",
+            (self.entry.registration_pattern_id,),
+            (),
+            "none",
         )
 
 

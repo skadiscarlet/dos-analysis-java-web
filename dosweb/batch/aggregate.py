@@ -34,12 +34,14 @@ P0_ARTIFACTS = (
     "entry_security_facts.jsonl", "modeled_configuration.jsonl",
     "amplification_decisions.jsonl", "auth_contracts.jsonl",
     "candidate_dispositions.jsonl", "candidate_entry_links.jsonl",
+    "candidate_negative_proofs.jsonl",
     "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl",
     "reachability_decisions.jsonl", "repeatability_decisions.jsonl",
     "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
     "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
     "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "release_candidates.jsonl",
-    "lifecycle_certificates.jsonl", "static_findings.jsonl", "report.md", "summary.json",
+    "finding_families.jsonl", "lifecycle_certificates.jsonl", "static_findings.jsonl",
+    "report.md", "summary.json",
 )
 P0_JSONL_OUTPUTS = {
     "entry_facts.jsonl": "aggregate_entries.jsonl",
@@ -49,6 +51,7 @@ P0_JSONL_OUTPUTS = {
     "modeled_configuration.jsonl": "aggregate_modeled_configuration.jsonl",
     "growth_candidates.jsonl": "aggregate_growth_candidates.jsonl",
     "candidate_entry_links.jsonl": "aggregate_candidate_entry_links.jsonl",
+    "candidate_negative_proofs.jsonl": "aggregate_candidate_negative_proofs.jsonl",
     "candidate_dispositions.jsonl": "aggregate_candidate_dispositions.jsonl",
     "repeatability_decisions.jsonl": "aggregate_repeatability_decisions.jsonl",
     "amplification_decisions.jsonl": "aggregate_amplification_decisions.jsonl",
@@ -65,9 +68,128 @@ P0_JSONL_OUTPUTS = {
     "lifecycle_summaries.jsonl": "aggregate_lifecycle_summaries.jsonl",
     "lifecycle_results.jsonl": "aggregate_lifecycle_results.jsonl",
     "static_findings.jsonl": "aggregate_findings.jsonl",
+    "finding_families.jsonl": "aggregate_finding_families.jsonl",
     "lifecycle_certificates.jsonl": "aggregate_lifecycle_certificates.jsonl",
 }
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _candidate_link_reconciliation_errors(
+    parsed_rows: Mapping[str, list[dict[str, Any]]],
+) -> list[str]:
+    """Reconcile the complete Growth disposition/link domain.
+
+    Aggregation is an independent trust boundary and must not rely on Flow
+    having consumed only eligible candidates.  Inventory and rejected
+    dispositions can carry association evidence too, so every link must have
+    exactly one same-Growth disposition owner with the production shape.
+    """
+
+    raw_growth_ids = {
+        row.get("growth_id")
+        for row in parsed_rows.get("growth_candidates", [])
+        if isinstance(row.get("growth_id"), str)
+    }
+    entry_ids = {
+        row.get("entry_id")
+        for row in parsed_rows.get("entry_facts", [])
+        if isinstance(row.get("entry_id"), str)
+    }
+    link_rows = parsed_rows.get("candidate_entry_links", [])
+    disposition_rows = parsed_rows.get("candidate_dispositions", [])
+    errors: list[str] = []
+    links_by_id: dict[str, dict[str, Any]] = {}
+    for row in link_rows:
+        link_id = row.get("link_id")
+        growth_id = row.get("growth_id")
+        entry_id = row.get("entry_id")
+        status = row.get("status")
+        if (
+            not isinstance(link_id, str)
+            or not isinstance(growth_id, str)
+            or not isinstance(entry_id, str)
+            or status not in {"complete", "partial"}
+        ):
+            errors.append(
+                "candidate_entry_links: reconciliation record is malformed"
+            )
+            continue
+        if link_id in links_by_id:
+            errors.append(
+                "candidate_entry_links: reconciliation link id is duplicated"
+            )
+            continue
+        links_by_id[link_id] = row
+        if growth_id not in raw_growth_ids:
+            errors.append(
+                "candidate_entry_links: link references a missing raw Growth candidate"
+            )
+        if entry_id not in entry_ids:
+            errors.append(
+                "candidate_entry_links: link references a missing Entry fact"
+            )
+
+    citation_counts: Counter[str] = Counter()
+    for row in disposition_rows:
+        growth_id = row.get("growth_id")
+        association_status = row.get("association_status")
+        canonical_entry_id = row.get("canonical_entry_id")
+        link_ids = row.get("link_ids")
+        if (
+            not isinstance(growth_id, str)
+            or association_status
+            not in {"complete", "partial", "missing", "ambiguous"}
+            or not isinstance(canonical_entry_id, str)
+            or not isinstance(link_ids, list)
+            or any(not isinstance(link_id, str) for link_id in link_ids)
+        ):
+            errors.append(
+                "candidate_dispositions: link reconciliation record is malformed"
+            )
+            continue
+
+        owned_links: list[dict[str, Any]] = []
+        for link_id in link_ids:
+            citation_counts[link_id] += 1
+            link = links_by_id.get(link_id)
+            if link is None:
+                errors.append(
+                    "candidate_dispositions: disposition references a missing Entry link"
+                )
+                continue
+            if link.get("growth_id") != growth_id:
+                errors.append(
+                    "candidate_dispositions: disposition references a different Growth link"
+                )
+            owned_links.append(link)
+
+        if association_status in {"complete", "partial"}:
+            if (
+                len(link_ids) != 1
+                or len(owned_links) != 1
+                or not canonical_entry_id
+                or canonical_entry_id not in entry_ids
+                or owned_links[0].get("entry_id") != canonical_entry_id
+                or owned_links[0].get("status") != association_status
+            ):
+                errors.append(
+                    "candidate_dispositions: complete/partial association disagrees with its sole canonical link"
+                )
+        elif association_status == "missing":
+            if link_ids or canonical_entry_id:
+                errors.append(
+                    "candidate_dispositions: missing association cannot own links or a canonical Entry"
+                )
+        elif canonical_entry_id or len(link_ids) == 1:
+            errors.append(
+                "candidate_dispositions: ambiguous association has a canonical Entry shape"
+            )
+
+    if any(citation_counts.get(link_id, 0) != 1 for link_id in links_by_id):
+        errors.append(
+            "candidate_entry_links: every link must be cited by exactly one Growth disposition"
+        )
+    return errors
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -512,18 +634,33 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
             except ValueError as exc:
                 malformed.append(str(exc))
     if parsed_rows:
-        known: dict[str, Any] = {"fact_id": set()}
-        def collect_fact_ids(value: Any) -> None:
-            if isinstance(value, Mapping):
-                for key, nested in value.items():
-                    if key.endswith("_id") and isinstance(nested, str) and nested.startswith("fact:"):
-                        known["fact_id"].add(nested)
-                    collect_fact_ids(nested)
-            elif isinstance(value, list):
-                for nested in value:
-                    collect_fact_ids(nested)
-        for rows in parsed_rows.values():
-            collect_fact_ids(rows)
+        raw_growth_ids = [
+            row.get("growth_id")
+            for row in parsed_rows.get("growth_candidates", [])
+            if isinstance(row.get("growth_id"), str)
+        ]
+        disposition_growth_ids = [
+            row.get("growth_id")
+            for row in parsed_rows.get("candidate_dispositions", [])
+            if isinstance(row.get("growth_id"), str)
+        ]
+        raw_growth_counts = Counter(raw_growth_ids)
+        disposition_growth_counts = Counter(disposition_growth_ids)
+        if (
+            len(raw_growth_ids)
+            != len(parsed_rows.get("growth_candidates", []))
+            or len(disposition_growth_ids)
+            != len(parsed_rows.get("candidate_dispositions", []))
+            or set(raw_growth_counts) != set(disposition_growth_counts)
+            or any(count != 1 for count in raw_growth_counts.values())
+            or any(count != 1 for count in disposition_growth_counts.values())
+        ):
+            malformed.append(
+                "candidate_dispositions: every raw Growth candidate must have "
+                "exactly one disposition and no phantom disposition is allowed"
+            )
+        malformed.extend(_candidate_link_reconciliation_errors(parsed_rows))
+        known: dict[str, Any] = {}
         for schema_name, rows in parsed_rows.items():
             schema = ARTIFACT_SCHEMAS.get(schema_name)
             if schema is not None:
@@ -535,11 +672,52 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
         growth_fact_ids: dict[str, set[str]] = {}
         for row in parsed_rows.get("growth_candidates", []):
             if isinstance(row.get("growth_id"), str):
-                growth_fact_ids[row["growth_id"]] = {value for value in row.get("candidate_evidence", []) if isinstance(value, str)}
+                evidence = row.get("candidate_evidence")
+                growth_fact_ids[row["growth_id"]] = (
+                    {value for value in evidence if isinstance(value, str)}
+                    if isinstance(evidence, list)
+                    else set()
+                )
+        security_fact_ids = {
+            row["fact_id"]
+            for row in parsed_rows.get("entry_security_facts", [])
+            if isinstance(row.get("fact_id"), str)
+        }
+        entry_security_fact_ids: dict[str, set[str]] = {
+            row["entry_id"]: set()
+            for row in parsed_rows.get("entry_facts", [])
+            if isinstance(row.get("entry_id"), str)
+        }
+        for row in parsed_rows.get("entry_security_facts", []):
+            entry_id = row.get("entry_id")
+            fact_id = row.get("fact_id")
+            if isinstance(entry_id, str) and isinstance(fact_id, str):
+                entry_security_fact_ids.setdefault(entry_id, set()).add(fact_id)
+        negative_proof_growth_ids = {
+            row["negative_proof_id"]: row["growth_id"]
+            for row in parsed_rows.get("candidate_negative_proofs", [])
+            if isinstance(row.get("negative_proof_id"), str)
+            and isinstance(row.get("growth_id"), str)
+        }
+        link_ownership = {
+            row["link_id"]: (row["growth_id"], row["entry_id"], row["status"])
+            for row in parsed_rows.get("candidate_entry_links", [])
+            if isinstance(row.get("link_id"), str)
+            and isinstance(row.get("growth_id"), str)
+            and isinstance(row.get("entry_id"), str)
+            and isinstance(row.get("status"), str)
+        }
+        known["fact_id"] = security_fact_ids | {
+            fact_id
+            for fact_ids in growth_fact_ids.values()
+            for fact_id in fact_ids
+        }
         known["growth_fact_ids"] = growth_fact_ids
+        known["security_fact_ids"] = security_fact_ids
+        known["entry_security_fact_ids"] = entry_security_fact_ids
+        known["negative_proof_growth_ids"] = negative_proof_growth_ids
+        known["link_ownership"] = link_ownership
         for schema_name, rows in parsed_rows.items():
-            if not rows or schema_name not in known:
-                continue
             try:
                 validate_references(schema_name, rows, known)
             except Exception as exc:

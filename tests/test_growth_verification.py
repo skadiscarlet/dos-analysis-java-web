@@ -60,8 +60,11 @@ class GrowthVerificationTests(unittest.TestCase):
     def _slice(self, candidate: GrowthCandidate, *, facts: tuple[StaticFact, ...] | None = None) -> BoundedSlice:
         excerpt = self._excerpt()
         facts = facts or (
-            StaticFact("fact:source", "flow", excerpt.excerpt_id, "source"),
+            StaticFact("fact:source", "flow", excerpt.excerpt_id, "source", None, "request_body"),
             StaticFact("fact:sink", "container_write", excerpt.excerpt_id, "sink", "fact:source"),
+            StaticFact("fact:value-space", "value_space", excerpt.excerpt_id, "flows_to", "fact:source", "unlimited"),
+            StaticFact("fact:retention", "retention", excerpt.excerpt_id, "sink", None, "process"),
+            StaticFact("fact:amplification", "amplification", excerpt.excerpt_id, "sink", None, "high_cardinality_retention"),
             *(StaticFact(fact_id, "container_write", excerpt.excerpt_id, "sink") for fact_id in sorted(candidate.evidence_ids)),
         )
         return build_bounded_slice(
@@ -81,7 +84,19 @@ class GrowthVerificationTests(unittest.TestCase):
             "resource_dimension": "entries",
             "attacker_influence": (AttackerInfluence("key", "fact:source"),),
             "resource_effect": "adds_entries",
-            "required_static_evidence": ("fact:sink",),
+            "attacker_variable": "key",
+            "attacker_value_space": "unlimited",
+            "growth_unit": "one map entry",
+            "growth_function": "distinct keys add retained entries",
+            "amplification_class": "high_cardinality_retention",
+            "requests_to_pressure": "many",
+            "concurrency_model": "repeatable requests",
+            "retention_window": "process",
+            "failure_mechanism": "heap_exhaustion",
+            "failure_signal": "retained entries exhaust heap",
+            "required_static_evidence": ("fact:sink", "fact:value-space", "fact:retention", "fact:amplification"),
+            "contract_status": "dos_relevant",
+            "rejection_reason": "none",
             "confidence": "high",
         }
         values.update(changes)
@@ -165,18 +180,40 @@ class GrowthVerificationTests(unittest.TestCase):
         self.assertIn("fact:sink", {f.fact_id for f in left.payload.static_facts})
         self.assertIn("fact:source", {f.fact_id for f in left.payload.static_facts})
 
-    def test_no_and_unknown_short_circuit_before_mismatch_checks(self) -> None:
+    def test_negative_and_unknown_status_short_circuit_before_mismatch_checks(self) -> None:
         candidate = self._candidate()
         slice_ = self._slice(candidate)
         index = {fact.fact_id: fact for fact in slice_.payload.static_facts}
         rejected = verify_growth_contract(
-            candidate, slice_, self._contract(is_resource_growth="no", growth_kind="direct_allocation"), index
+            candidate,
+            slice_,
+            self._contract(
+                is_resource_growth="no",
+                contract_status="growth_not_dos_relevant",
+                rejection_reason="no_failure_mechanism",
+                growth_kind="direct_allocation",
+            ),
+            index,
         )
         unresolved = verify_growth_contract(
-            candidate, slice_, self._contract(is_resource_growth="unknown", resource_dimension="bytes"), index
+            candidate,
+            slice_,
+            self._contract(
+                is_resource_growth="unknown",
+                contract_status="unknown",
+                rejection_reason="unknown",
+                resource_dimension="bytes",
+            ),
+            index,
         )
-        self.assertEqual((rejected.status, rejected.reason_codes), ("rejected", ("GROWTH_CONTRACT_NEGATED",)))
-        self.assertEqual((unresolved.status, unresolved.reason_codes), ("unresolved", ("GROWTH_CONTRACT_UNKNOWN",)))
+        self.assertEqual(
+            (rejected.status, rejected.reason_codes),
+            ("rejected", ("GROWTH_NOT_DOS_RELEVANT",)),
+        )
+        self.assertEqual(
+            (unresolved.status, unresolved.reason_codes),
+            ("unresolved", ("GROWTH_DOS_RELEVANCE_UNKNOWN",)),
+        )
 
     def test_mismatches_and_unmapped_evidence_are_unresolved(self) -> None:
         candidate = self._candidate()
@@ -277,6 +314,62 @@ class GrowthVerificationTests(unittest.TestCase):
         self.assertTrue(all(result.checks for result in results))
         for result in results:
             validate_records("verified_growth", [result.to_dict()])
+
+    def test_dos_contract_status_failure_pressure_and_semantic_citations_gate_verification(self) -> None:
+        candidate = self._candidate()
+        slice_ = self._slice(candidate)
+        index = {fact.fact_id: fact for fact in slice_.payload.static_facts}
+        cases = (
+            (
+                self._contract(
+                    contract_status="growth_not_dos_relevant",
+                    rejection_reason="low_amplification",
+                    amplification_class="low_amplification",
+                    failure_mechanism="none",
+                ),
+                "rejected",
+                "GROWTH_NOT_DOS_RELEVANT",
+            ),
+            (
+                self._contract(
+                    is_resource_growth="unknown",
+                    contract_status="unknown",
+                    rejection_reason="unknown",
+                ),
+                "unresolved",
+                "GROWTH_DOS_RELEVANCE_UNKNOWN",
+            ),
+            (
+                self._contract(failure_mechanism="none"),
+                "unresolved",
+                "GROWTH_FAILURE_MECHANISM_UNPROVEN",
+            ),
+            (
+                self._contract(requests_to_pressure="implausible"),
+                "unresolved",
+                "GROWTH_PRESSURE_IMPLAUSIBLE",
+            ),
+            (
+                self._contract(required_static_evidence=("fact:sink", "fact:value-space", "fact:amplification")),
+                "unresolved",
+                "GROWTH_RETENTION_EVIDENCE_UNMAPPED",
+            ),
+            (
+                self._contract(required_static_evidence=("fact:sink", "fact:value-space", "fact:retention")),
+                "unresolved",
+                "GROWTH_AMPLIFICATION_EVIDENCE_UNMAPPED",
+            ),
+            (
+                self._contract(retention_window="session"),
+                "unresolved",
+                "GROWTH_RETENTION_EVIDENCE_UNMAPPED",
+            ),
+        )
+        for contract, status, reason in cases:
+            with self.subTest(reason=reason):
+                result = verify_growth_contract(candidate, slice_, contract, index)
+                self.assertEqual(result.status, status)
+                self.assertIn(reason, result.reason_codes)
 
 
 if __name__ == "__main__":

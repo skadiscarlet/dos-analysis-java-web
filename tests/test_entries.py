@@ -68,6 +68,10 @@ class EntryNormalizationTests(unittest.TestCase):
                 "file": "fixture/spring/SpringFixture.java",
                 "start_line": 8,
             },
+            "registration_pattern_id": (
+                "entry-registration-coverage:"
+                "spring_mvc:annotation_mapping:spring_annotation_mapping"
+            ),
             "route_or_event": "/items",
             "auth_context": "unknown",
             "attacker_inputs": [
@@ -158,6 +162,7 @@ class EntryNormalizationTests(unittest.TestCase):
                     framework="jax_rs",
                     protocol="http",
                     registration_kind="static_registration",
+                    coverage_note="jax_rs_static_registration",
                     route_or_event="GET //api//items/{id}",
                 ),
                 "GET /api/items/{id}",
@@ -199,6 +204,7 @@ class EntryNormalizationTests(unittest.TestCase):
                 handler_fqn="fixture.servlet.RegisteredServlet.doPost",
                 registration_kind="annotation_mapping",
                 registration_fqn="fixture.servlet.RegisteredServlet",
+                coverage_note="servlet_annotation_mapping",
             ),
             self._row(
                 framework="netty",
@@ -211,6 +217,7 @@ class EntryNormalizationTests(unittest.TestCase):
                 attacker_input_type="java.lang.Object",
                 attacker_input_kind="message_payload",
                 materialization_phase="streaming",
+                coverage_note="netty_pipeline_registration",
             ),
             self._row(
                 framework="mqtt",
@@ -223,6 +230,7 @@ class EntryNormalizationTests(unittest.TestCase):
                 attacker_input_type="MqttMessage",
                 attacker_input_kind="message_payload",
                 materialization_phase="streaming",
+                coverage_note="mqtt_subscription_registration",
             ),
             self._row(
                 framework="mqtt",
@@ -235,6 +243,7 @@ class EntryNormalizationTests(unittest.TestCase):
                 attacker_input_type="io.netty.handler.codec.mqtt.MqttMessage",
                 attacker_input_kind="message_payload",
                 materialization_phase="streaming",
+                coverage_note="jmqtt_anonymous_channel_initializer",
             ),
         )
         normalized = normalize_entry_rows(rows)
@@ -386,7 +395,10 @@ class EntryNormalizationTests(unittest.TestCase):
             {
                 "framework": "spring_mvc",
                 "status": "partial",
-                "supported_patterns": ["spring_annotation_mapping"],
+                "supported_patterns": [
+                    "entry-registration-coverage:"
+                    "spring_mvc:annotation_mapping:spring_annotation_mapping"
+                ],
                 "unsupported_patterns": ["dynamic_route_expression"],
                 "effect_on_verdict": "forces_unknown",
             },
@@ -444,6 +456,10 @@ class EntryNormalizationTests(unittest.TestCase):
                 protocol="http",
                 handler=object(),  # type: ignore[arg-type]
                 registration=object(),  # type: ignore[arg-type]
+                registration_pattern_id=(
+                    "entry-registration-coverage:"
+                    "spring_mvc:annotation_mapping:spring_annotation_mapping"
+                ),
                 route_or_event="/items",
                 auth_context="unknown",
                 attacker_inputs=(object(),),  # type: ignore[arg-type]

@@ -1,7 +1,7 @@
 """Bounded, resumable execution of a published Java Web batch plan."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
@@ -37,7 +37,9 @@ _RETRYABLE_ERROR_CODES = frozenset({
     # across a fresh target attempt.  Permit only the runner's already-bounded
     # retry so a malformed/sensitive model response or a one-off permanent
     # network classification cannot strand an otherwise reusable formal run.
+    "LLM_AUTHENTICATION_FAILED",
     "LLM_NETWORK_FAILED",
+    "LLM_RESPONSE_INVALID",
     "LLM_RESPONSE_SCHEMA_INVALID",
     "LLM_RESPONSE_SENSITIVE_CONTENT",
     "BATCH_TARGET_FAILED",
@@ -559,15 +561,14 @@ class BatchRunner:
                     target for target in self.plan.targets
                     if self._eligible(target, self._state.targets[target.target_id])
                 ]
-                pending = iter(targets)
+                pending = deque(targets)
                 active: dict[object, BatchTargetPlan] = {}
                 with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="dosweb-batch") as pool:
                     def submit_available() -> None:
                         while not self._interrupt.is_set() and len(active) < self.max_workers:
-                            try:
-                                target = next(pending)
-                            except StopIteration:
+                            if not pending:
                                 return
+                            target = pending.popleft()
                             active[pool.submit(self._run_target, target)] = target
 
                     submit_available()
@@ -589,6 +590,15 @@ class BatchRunner:
                                     self._interrupted_target_ids.add(target.target_id)
                                 self._request_interrupt()
                                 self._mark_interrupted()
+                            if (
+                                target is not None
+                                and not self._interrupt.is_set()
+                                and self._eligible(
+                                    target,
+                                    self._state.targets[target.target_id],
+                                )
+                            ):
+                                pending.append(target)
                         submit_available()
                 if self._interrupt.is_set():
                     self._mark_interrupted()

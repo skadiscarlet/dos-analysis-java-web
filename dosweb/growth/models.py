@@ -31,6 +31,60 @@ _MAX_CONFIG_INTEGER = 2**63 - 1
 _MAX_LINE_NUMBER = 2**31 - 1
 _MAX_REDACTION_EVENTS = 256
 _REDACTION_PATTERNS = frozenset({"credential_assignment", "credential_header", "credential_mutator"})
+_STATIC_FACT_KINDS = frozenset(
+    {
+        "container_write", "allocation", "input_materialization",
+        "async_submission", "flow", "guard", "bound", "release",
+        "driver_origin", "value_space", "escape_scope", "retention", "amplification",
+        "loop_multiplicity", "field_identity", "materialization_phase",
+        "known_limit_location", "attacker_target",
+    }
+)
+_STATIC_FACT_VALUES = {
+    "driver_origin": frozenset(
+        {
+            "request_body", "request_parameter", "request_path", "request_header",
+            "request_stream", "network_message", "server_controlled", "unknown",
+        }
+    ),
+    "value_space": frozenset(
+        {"stream", "unlimited", "large", "limited", "server_controlled", "unknown"}
+    ),
+    "escape_scope": frozenset({"request", "session", "instance", "global", "unknown"}),
+    "retention": frozenset({"request", "session", "process", "until_release", "unknown"}),
+    "amplification": frozenset(
+        {
+            "superlinear", "large_single_request", "concurrent_retention",
+            "queue_instability", "high_cardinality_retention", "low_amplification",
+            "unknown",
+        }
+    ),
+    "loop_multiplicity": frozenset(
+        {"single_operation", "repeated_requests", "attacker_controlled_loop", "concurrent_requests", "unknown"}
+    ),
+    "field_identity": frozenset(
+        {"attacker_key", "attacker_value", "field_backed", "request_local", "fixed_key", "unknown"}
+    ),
+    "materialization_phase": frozenset(
+        {"before_handler", "in_handler", "streaming", "after_handler", "unknown"}
+    ),
+    "known_limit_location": frozenset(
+        {"pre_growth", "post_growth", "configured_unknown_phase", "none", "unknown"}
+    ),
+    "attacker_target": frozenset(
+        {"size", "key", "value", "iteration_count", "submission_count", "unknown"}
+    ),
+}
+_FLOW_NORMALIZED_VALUES = _STATIC_FACT_VALUES["driver_origin"]
+_CONTRACT_TEXT_BYTES = 4096
+_CONTRACT_SECRET = re.compile(
+    r"(?i)(?:authorization\s*[:=]|bearer\s+[A-Za-z0-9._-]{4,}|"
+    r"(?:api[_-]?key|password|passwd|secret|token)\s*[:=])"
+)
+_CONTRACT_SOURCE = re.compile(
+    r"(?i)(?:\b(?:public|private|protected|class|interface|void|new)\s+[A-Za-z_$]|"
+    r"\b[A-Za-z_$][\w$]*\s*\.\s*[A-Za-z_$][\w$]*\s*\(|[{};])"
+)
 
 
 def _fail() -> None:
@@ -120,16 +174,57 @@ class SourceExcerpt:
 
 @dataclass(frozen=True)
 class StaticFact:
-    fact_id: str; kind: Literal["container_write", "allocation", "input_materialization", "async_submission", "flow", "guard", "bound", "release"]; location_ref: str; relation: Literal["source", "sink", "flows_to", "guards", "bounds", "releases"]; value_ref: str | None = None
+    fact_id: str
+    kind: Literal[
+        "container_write", "allocation", "input_materialization", "async_submission",
+        "flow", "guard", "bound", "release", "driver_origin", "value_space",
+        "escape_scope", "retention", "amplification", "loop_multiplicity", "field_identity",
+        "materialization_phase", "known_limit_location", "attacker_target",
+    ]
+    location_ref: str
+    relation: Literal["source", "sink", "flows_to", "guards", "bounds", "releases"]
+    value_ref: str | None = None
+    normalized_value: str | None = None
+
     def __post_init__(self) -> None:
-        if not _id(self.fact_id, "fact:") or self.kind not in {"container_write", "allocation", "input_materialization", "async_submission", "flow", "guard", "bound", "release"} or not _id(self.location_ref, "excerpt:") or self.relation not in {"source", "sink", "flows_to", "guards", "bounds", "releases"} or (self.value_ref is not None and not _id(self.value_ref, "fact:")): _fail()
-    def to_dict(self) -> dict[str, object]: return self.__dict__.copy()
+        allowed_values = _STATIC_FACT_VALUES.get(self.kind)
+        normalized_valid = (
+            self.normalized_value is None
+            if allowed_values is None and self.kind != "flow"
+            else self.normalized_value is None
+            or self.normalized_value in (
+                _FLOW_NORMALIZED_VALUES if self.kind == "flow" else allowed_values
+            )
+        )
+        if allowed_values is not None and self.kind != "flow":
+            normalized_valid = self.normalized_value in allowed_values
+        if (
+            not _id(self.fact_id, "fact:")
+            or self.kind not in _STATIC_FACT_KINDS
+            or not _id(self.location_ref, "excerpt:")
+            or self.relation not in {"source", "sink", "flows_to", "guards", "bounds", "releases"}
+            or (self.value_ref is not None and not _id(self.value_ref, "fact:"))
+            or not normalized_valid
+        ):
+            _fail()
+
+    def to_dict(self) -> dict[str, object]:
+        return self.__dict__.copy()
 
     @classmethod
     def from_dict(cls, record: Mapping[str, object]) -> StaticFact:
-        if not isinstance(record, Mapping) or set(record) != {"fact_id", "kind", "location_ref", "relation", "value_ref"}:
+        if not isinstance(record, Mapping) or set(record) != {
+            "fact_id", "kind", "location_ref", "relation", "value_ref", "normalized_value"
+        }:
             _fail()
-        return cls(cast(str, record["fact_id"]), cast(str, record["kind"]), cast(str, record["location_ref"]), cast(str, record["relation"]), cast(str | None, record["value_ref"]))
+        return cls(
+            cast(str, record["fact_id"]),
+            cast(str, record["kind"]),
+            cast(str, record["location_ref"]),
+            cast(str, record["relation"]),
+            cast(str | None, record["value_ref"]),
+            cast(str | None, record["normalized_value"]),
+        )
 
 
 @dataclass(frozen=True)
@@ -253,14 +348,212 @@ class AttackerInfluence:
 
 
 @dataclass(frozen=True)
+class ProviderGrowthContract:
+    """Strict v5 provider response before local candidate-shape binding."""
+
+    is_resource_growth: Literal["yes", "no", "unknown"]
+    attacker_evidence_ids: tuple[str, ...]
+    resource_effect: Literal["materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"]
+    attacker_variable: str
+    attacker_value_space: Literal["stream", "unlimited", "large", "limited", "server_controlled", "unknown"]
+    growth_unit: str
+    growth_function: str
+    amplification_class: Literal["superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"]
+    requests_to_pressure: Literal["one", "few", "many", "implausible", "unknown"]
+    concurrency_model: str
+    retention_window: Literal["request", "session", "process", "until_release", "unknown"]
+    failure_mechanism: Literal["heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"]
+    failure_signal: str
+    required_static_evidence: tuple[str, ...]
+    contract_status: Literal["dos_relevant", "growth_not_dos_relevant", "unknown"]
+    rejection_reason: Literal["none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"]
+    confidence: Literal["high", "medium", "low"]
+
+    def __post_init__(self) -> None:
+        try:
+            attacker_evidence = tuple(islice(iter(self.attacker_evidence_ids), 17))
+            required = tuple(islice(iter(self.required_static_evidence), 33))
+        except (TypeError, ValueError, OverflowError, MemoryError, RecursionError) as exc:
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid provider Growth Contract.") from exc
+        object.__setattr__(self, "attacker_evidence_ids", attacker_evidence)
+        object.__setattr__(self, "required_static_evidence", required)
+        free_text = (
+            self.attacker_variable,
+            self.growth_unit,
+            self.growth_function,
+            self.concurrency_model,
+            self.failure_signal,
+        )
+        valid_text = all(
+            isinstance(value, str)
+            and bool(value)
+            and _utf8_bytes_at_most(value, _CONTRACT_TEXT_BYTES) is not None
+            and "\x00" not in value
+            and "\n" not in value
+            and "\r" not in value
+            and _CONTRACT_SECRET.search(value) is None
+            and _CONTRACT_SOURCE.search(value) is None
+            for value in free_text
+        )
+        valid_status = (
+            self.contract_status != "growth_not_dos_relevant"
+            or self.rejection_reason not in {"none", "unknown"}
+        ) and (
+            self.contract_status != "dos_relevant" or self.rejection_reason == "none"
+        ) and (
+            self.contract_status != "dos_relevant" or self.is_resource_growth == "yes"
+        ) and (
+            self.contract_status != "unknown"
+            or (self.rejection_reason == "unknown" and self.is_resource_growth == "unknown")
+        )
+        if (
+            self.is_resource_growth not in {"yes", "no", "unknown"}
+            or self.resource_effect not in {"materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"}
+            or self.attacker_value_space not in {"stream", "unlimited", "large", "limited", "server_controlled", "unknown"}
+            or self.amplification_class not in {"superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"}
+            or self.requests_to_pressure not in {"one", "few", "many", "implausible", "unknown"}
+            or self.retention_window not in {"request", "session", "process", "until_release", "unknown"}
+            or self.failure_mechanism not in {"heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"}
+            or self.contract_status not in {"dos_relevant", "growth_not_dos_relevant", "unknown"}
+            or self.rejection_reason not in {"none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"}
+            or self.confidence not in {"high", "medium", "low"}
+            or len(attacker_evidence) > 16
+            or len(set(attacker_evidence)) != len(attacker_evidence)
+            or not all(_id(value, "fact:") for value in attacker_evidence)
+            or len(required) > 32
+            or len(set(required)) != len(required)
+            or not all(_id(value, "fact:") for value in required)
+            or not valid_text
+            or not valid_status
+            or (
+                self.contract_status == "dos_relevant"
+                and (not attacker_evidence or not required)
+            )
+        ):
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid provider Growth Contract.")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "is_resource_growth": self.is_resource_growth,
+            "attacker_evidence_ids": list(self.attacker_evidence_ids),
+            "resource_effect": self.resource_effect,
+            "attacker_variable": self.attacker_variable,
+            "attacker_value_space": self.attacker_value_space,
+            "growth_unit": self.growth_unit,
+            "growth_function": self.growth_function,
+            "amplification_class": self.amplification_class,
+            "requests_to_pressure": self.requests_to_pressure,
+            "concurrency_model": self.concurrency_model,
+            "retention_window": self.retention_window,
+            "failure_mechanism": self.failure_mechanism,
+            "failure_signal": self.failure_signal,
+            "required_static_evidence": list(self.required_static_evidence),
+            "contract_status": self.contract_status,
+            "rejection_reason": self.rejection_reason,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass(frozen=True)
 class GrowthContract:
-    is_resource_growth: Literal["yes", "no", "unknown"]; growth_kind: Literal["input_materialization", "direct_allocation", "container_growth", "async_work_growth", "unknown"]; resource_dimension: Literal["entries", "bytes", "tasks", "connections", "objects", "unknown"]; attacker_influence: tuple[AttackerInfluence, ...]; resource_effect: Literal["materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"]; required_static_evidence: tuple[str, ...]; confidence: Literal["high", "medium", "low"]
+    is_resource_growth: Literal["yes", "no", "unknown"]
+    growth_kind: Literal["input_materialization", "direct_allocation", "container_growth", "async_work_growth", "unknown"]
+    resource_dimension: Literal["entries", "bytes", "tasks", "connections", "objects", "unknown"]
+    attacker_influence: tuple[AttackerInfluence, ...]
+    resource_effect: Literal["materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"]
+    attacker_variable: str
+    attacker_value_space: Literal["stream", "unlimited", "large", "limited", "server_controlled", "unknown"]
+    growth_unit: str
+    growth_function: str
+    amplification_class: Literal["superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"]
+    requests_to_pressure: Literal["one", "few", "many", "implausible", "unknown"]
+    concurrency_model: str
+    retention_window: Literal["request", "session", "process", "until_release", "unknown"]
+    failure_mechanism: Literal["heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"]
+    failure_signal: str
+    required_static_evidence: tuple[str, ...]
+    contract_status: Literal["dos_relevant", "growth_not_dos_relevant", "unknown"]
+    rejection_reason: Literal["none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"]
+    confidence: Literal["high", "medium", "low"]
+
     def __post_init__(self) -> None:
         try:
             influences = tuple(islice(iter(self.attacker_influence), 17))
             evidence = tuple(islice(iter(self.required_static_evidence), 33))
         except (TypeError, ValueError, OverflowError, MemoryError, RecursionError) as exc:
             raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid Growth Contract.") from exc
-        object.__setattr__(self, "attacker_influence", influences); object.__setattr__(self, "required_static_evidence", evidence)
-        if self.is_resource_growth not in {"yes", "no", "unknown"} or self.growth_kind not in {"input_materialization", "direct_allocation", "container_growth", "async_work_growth", "unknown"} or self.resource_dimension not in {"entries", "bytes", "tasks", "connections", "objects", "unknown"} or self.resource_effect not in {"materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"} or self.confidence not in {"high", "medium", "low"} or len(self.attacker_influence) > 16 or not all(isinstance(x, AttackerInfluence) for x in self.attacker_influence) or len(self.required_static_evidence) > 32 or not all(_id(x, "fact:") for x in self.required_static_evidence): raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid Growth Contract.")
-    def to_dict(self) -> dict[str, object]: return {"is_resource_growth": self.is_resource_growth, "growth_kind": self.growth_kind, "resource_dimension": self.resource_dimension, "attacker_influence": [x.to_dict() for x in self.attacker_influence], "resource_effect": self.resource_effect, "required_static_evidence": list(self.required_static_evidence), "confidence": self.confidence}
+        object.__setattr__(self, "attacker_influence", influences)
+        object.__setattr__(self, "required_static_evidence", evidence)
+        free_text = (
+            self.attacker_variable,
+            self.growth_unit,
+            self.growth_function,
+            self.concurrency_model,
+            self.failure_signal,
+        )
+        valid_text = all(
+            isinstance(value, str)
+            and bool(value)
+            and _utf8_bytes_at_most(value, _CONTRACT_TEXT_BYTES) is not None
+            and "\x00" not in value
+            and "\n" not in value
+            and "\r" not in value
+            and _CONTRACT_SECRET.search(value) is None
+            and _CONTRACT_SOURCE.search(value) is None
+            for value in free_text
+        )
+        valid_status = (
+            self.contract_status != "growth_not_dos_relevant"
+            or self.rejection_reason not in {"none", "unknown"}
+        ) and (
+            self.contract_status != "dos_relevant" or self.rejection_reason == "none"
+        ) and (
+            self.contract_status != "dos_relevant" or self.is_resource_growth == "yes"
+        ) and (
+            self.contract_status != "unknown"
+            or (self.rejection_reason == "unknown" and self.is_resource_growth == "unknown")
+        )
+        if (
+            self.is_resource_growth not in {"yes", "no", "unknown"}
+            or self.growth_kind not in {"input_materialization", "direct_allocation", "container_growth", "async_work_growth", "unknown"}
+            or self.resource_dimension not in {"entries", "bytes", "tasks", "connections", "objects", "unknown"}
+            or self.resource_effect not in {"materializes_bytes", "allocates_objects", "adds_entries", "enqueues_tasks", "opens_connections", "unknown"}
+            or self.attacker_value_space not in {"stream", "unlimited", "large", "limited", "server_controlled", "unknown"}
+            or self.amplification_class not in {"superlinear", "large_single_request", "concurrent_retention", "queue_instability", "high_cardinality_retention", "low_amplification", "unknown"}
+            or self.requests_to_pressure not in {"one", "few", "many", "implausible", "unknown"}
+            or self.retention_window not in {"request", "session", "process", "until_release", "unknown"}
+            or self.failure_mechanism not in {"heap_exhaustion", "gc_thrashing", "cpu_starvation", "thread_exhaustion", "connection_exhaustion", "queue_latency_collapse", "none", "unknown"}
+            or self.contract_status not in {"dos_relevant", "growth_not_dos_relevant", "unknown"}
+            or self.rejection_reason not in {"none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"}
+            or self.confidence not in {"high", "medium", "low"}
+            or len(self.attacker_influence) > 16
+            or not all(isinstance(x, AttackerInfluence) for x in self.attacker_influence)
+            or len(self.required_static_evidence) > 32
+            or not all(_id(x, "fact:") for x in self.required_static_evidence)
+            or not valid_text
+            or not valid_status
+        ):
+            raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Invalid Growth Contract.")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "is_resource_growth": self.is_resource_growth,
+            "growth_kind": self.growth_kind,
+            "resource_dimension": self.resource_dimension,
+            "attacker_influence": [x.to_dict() for x in self.attacker_influence],
+            "resource_effect": self.resource_effect,
+            "attacker_variable": self.attacker_variable,
+            "attacker_value_space": self.attacker_value_space,
+            "growth_unit": self.growth_unit,
+            "growth_function": self.growth_function,
+            "amplification_class": self.amplification_class,
+            "requests_to_pressure": self.requests_to_pressure,
+            "concurrency_model": self.concurrency_model,
+            "retention_window": self.retention_window,
+            "failure_mechanism": self.failure_mechanism,
+            "failure_signal": self.failure_signal,
+            "required_static_evidence": list(self.required_static_evidence),
+            "contract_status": self.contract_status,
+            "rejection_reason": self.rejection_reason,
+            "confidence": self.confidence,
+        }

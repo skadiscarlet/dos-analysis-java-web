@@ -20,7 +20,7 @@ class FlowVerificationTests(unittest.TestCase):
             "route_or_event": "/items", "auth_context": "unauthenticated",
             "attacker_input_name": "limit", "attacker_input_type": "int",
             "attacker_input_kind": "request_parameter", "materialization_phase": "in_handler",
-            "coverage_status": "complete", "coverage_note": "registered",
+            "coverage_status": "complete", "coverage_note": "spring_annotation_mapping",
         })
 
     def _candidate(self) -> GrowthCandidate:
@@ -63,6 +63,86 @@ class FlowVerificationTests(unittest.TestCase):
         verified = verify_flow(proof, {entry.entry_id: entry}, {growth.growth_id: growth})
         self.assertEqual(verified.status, "verified")
         self.assertTrue(verified.satisfies_premise)
+        self.assertTrue(
+            {proof.path_id, entry.entry_id, growth.growth_id}.issubset(
+                set(verified.evidence_ids)
+            )
+        )
+        self.assertTrue(
+            {"entry_source_location", "growth_sink_location", "call_path_edges"}.issubset(
+                {check.name for check in verified.checks if check.passed}
+            )
+        )
+
+    def test_verifier_rejects_substring_sink_and_unbound_call_path(self) -> None:
+        entry = self._entry()
+        growth = self._growth()
+        substring_sink = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "unlimited"),
+            call_path=(entry.handler.callable,),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        invalid_sink = verify_flow(
+            substring_sink,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(invalid_sink.status, "unresolved")
+        self.assertIn("FLOW_SEMANTIC_MAPPING_INVALID", invalid_sink.reason_codes)
+
+        wrong_path = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "allocate(limit)"),
+            call_path=("fixture.Other.handle",),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        invalid_path = verify_flow(
+            wrong_path,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(invalid_path.status, "partial")
+        self.assertIn("FLOW_CALL_PATH_ENTRY_MISMATCH", invalid_path.reason_codes)
+
+        unbound_edge = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "allocate(limit)"),
+            call_path=(entry.handler.callable, "fixture.Helper.allocate"),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        invalid_edge = verify_flow(
+            unbound_edge,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(invalid_edge.status, "partial")
+        self.assertIn("FLOW_CALL_PATH_EDGE_INVALID", invalid_edge.reason_codes)
+
+        oversized_line = FlowProof.create(
+            entry_id=entry.entry_id,
+            growth_id=growth.growth_id,
+            attacker_control=AttackerControl("size", "limit", "allocate(limit)"),
+            call_path=(
+                entry.handler.callable,
+                f"{entry.handler.callable}~fixture.Helper.allocate@src/Helper.java:{'9' * 5000}",
+            ),
+            phase_sequence=("in_handler", "growth"),
+            confidence="proven",
+        )
+        oversized_result = verify_flow(
+            oversized_line,
+            {entry.entry_id: entry},
+            {growth.growth_id: growth},
+        )
+        self.assertEqual(oversized_result.status, "partial")
+        self.assertIn("FLOW_CALL_PATH_EDGE_INVALID", oversized_result.reason_codes)
 
     def test_partial_remains_audit_evidence(self) -> None:
         entry = self._entry()
@@ -85,7 +165,7 @@ class FlowVerificationTests(unittest.TestCase):
             "route_or_event": "/aliases", "auth_context": "unauthenticated",
             "attacker_input_name": "limit", "attacker_input_type": "int",
             "attacker_input_kind": "request_parameter", "materialization_phase": "in_handler",
-            "coverage_status": "complete", "coverage_note": "registered",
+            "coverage_status": "complete", "coverage_note": "spring_annotation_mapping",
         })
         growth = self._growth()
         records = normalize_flow_rows(
@@ -154,6 +234,45 @@ class FlowVerificationTests(unittest.TestCase):
         forged = {**record, "path_id": "flow:forged"}
         with self.assertRaises(Exception):
             validate_records("flow_proofs", (forged,))
+
+    def test_duplicate_path_id_rows_fail_closed_in_every_codeql_order(self) -> None:
+        entry = self._entry()
+        growth = self._growth()
+        first = self._raw(
+            confidence="partial",
+            coverage_status="complete",
+            coverage_note="first_codeql_row",
+        )
+        second = self._raw(
+            confidence="partial",
+            flow_kind="unmodeled",
+            coverage_status="partial",
+            coverage_note="second_codeql_row",
+        )
+        sequences = {
+            "forward": (first, second),
+            "reverse": (second, first),
+            "identical": (first, first),
+        }
+        observed: set[tuple[str, str | None]] = set()
+        for label, rows in sequences.items():
+            with self.subTest(order=label):
+                with self.assertRaises(Exception) as raised:
+                    normalize_flow_rows(
+                        rows,
+                        {entry.entry_id: entry},
+                        {growth.growth_id: growth},
+                    )
+                observed.add(
+                    (
+                        getattr(raised.exception, "code", ""),
+                        getattr(raised.exception, "details", {}).get("reason"),
+                    )
+                )
+        self.assertEqual(
+            observed,
+            {("ANALYSIS_FLOW_INVALID", "DUPLICATE_PATH_ID")},
+        )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
  */
 
 import java
+import LoopAmplification
 
 // Exact Task 3 contract:
 // "site_file", "site_start_line", "growth_kind", "operation",
@@ -40,6 +41,30 @@ predicate nettyFullRequestStringMaterialization(
   stringify.getQualifier() = content and
   content.getMethod().getName() = "content" and content.getNumArgument() = 0 and
   request = content.getQualifier() and isNettyFullHttpRequestType(request.getType())
+}
+
+predicate requestStreamExpression(Expr input) {
+  exists(Parameter parameter, VarAccess access, Annotation annotation |
+    access = input and access.getVariable() = parameter and
+    annotation = parameter.getAnAnnotation() and
+    (
+      annotation.getType().hasQualifiedName(
+        "org.springframework.web.bind.annotation", "RequestBody"
+      )
+      or annotation.getType().hasQualifiedName(
+           "org.glassfish.jersey.media.multipart", "FormDataParam"
+         )
+    )
+  )
+  or exists(Method method, Parameter request, VarAccess access, MethodCall getter |
+    getter = input and getter.getMethod().getName() = ["getInputStream", "getReader"] and
+    access = getter.getQualifier() and access.getVariable() = request and
+    method = getter.getEnclosingCallable() and p0AttackerParameter(method, request)
+  )
+}
+
+predicate serverFileStreamExpression(Expr input) {
+  input.getType().(RefType).getASupertype*().hasQualifiedName("java.io", "FileInputStream")
 }
 
 predicate materializationRow(
@@ -108,8 +133,15 @@ predicate materializationRow(
     ) and
     operation = call.getMethod().getDeclaringType().getQualifiedName() + "." + call.getMethod().getName() and
     receiver = input.toString() and fieldPath = receiver and demandName = receiver and
-    evidence = "request_stream_read_all" and coverage = "complete" and
-    note = "recognized_read_all_materialization_api"
+    evidence = "request_stream_read_all" and
+    (
+      requestStreamExpression(input) and coverage = "complete" and
+      note = "request_stream_origin_proven"
+      or serverFileStreamExpression(input) and coverage = "complete" and
+         note = "server_side_file_materialization"
+      or not requestStreamExpression(input) and not serverFileStreamExpression(input) and
+         coverage = "partial" and note = "stream_origin_unclassified"
+    )
   )
   or
   exists(MethodCall call |
@@ -117,8 +149,24 @@ predicate materializationRow(
     call.getMethod().getDeclaringType().getASupertype*().hasQualifiedName("java.io", "InputStream") and
     operation = call.getMethod().getDeclaringType().getQualifiedName() + ".readAllBytes" and
     receiver = call.getQualifier().toString() and fieldPath = receiver and demandName = receiver and
-    evidence = "request_stream_read_all" and coverage = "complete" and
-    note = "recognized_read_all_materialization_api"
+    evidence = "request_stream_read_all" and
+    (
+      requestStreamExpression(call.getQualifier()) and coverage = "complete" and
+      note = "request_stream_origin_proven"
+      or serverFileStreamExpression(call.getQualifier()) and coverage = "complete" and
+         note = "server_side_file_materialization"
+      or not requestStreamExpression(call.getQualifier()) and
+         not serverFileStreamExpression(call.getQualifier()) and
+         coverage = "partial" and note = "stream_origin_unclassified"
+    )
+  )
+  or
+  exists(MethodCall call |
+    site = call and call.getMethod().hasQualifiedName("java.nio.file", "Files", "readAllBytes") and
+    operation = "java.nio.file.Files.readAllBytes" and
+    receiver = call.getArgument(0).toString() and fieldPath = receiver and demandName = receiver and
+    evidence = "server_file_read_all" and coverage = "complete" and
+    note = "server_side_file_materialization"
   )
   or
   exists(MethodCall call |
@@ -126,8 +174,8 @@ predicate materializationRow(
     call.getMethod().hasQualifiedName("java.io", "ByteArrayOutputStream", "toByteArray") and
     operation = "java.io.ByteArrayOutputStream.toByteArray" and
     receiver = call.getQualifier().toString() and fieldPath = receiver and demandName = receiver and
-    evidence = "byte_array_output_stream_full_copy" and coverage = "complete" and
-    note = "recognized_byte_array_output_stream_materialization"
+    evidence = "byte_array_output_stream_full_copy" and coverage = "partial" and
+    note = "recognized_byte_array_output_stream_materialization:parser_materialization_partial"
   )
   or
   exists(Constructor constructor, Parameter request, MethodCall inputStream, MethodCall read, MethodCall append, WhileStmt loop |

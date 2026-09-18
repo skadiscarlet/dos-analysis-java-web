@@ -9,6 +9,7 @@ from dosweb.growth.completeness import (
     AmplificationDecision,
     CandidateDisposition,
     CandidateEntryLink,
+    CandidateNegativeProof,
     RepeatabilityDecision,
 )
 from dosweb.growth.models import (
@@ -18,10 +19,12 @@ from dosweb.growth.models import (
     CfgSummary,
     ConfigFact,
     GrowthContract,
+    ProviderGrowthContract,
     RegistrationFact,
     SourceExcerpt,
     StaticFact,
 )
+from dosweb.growth.relevance import RelevanceDecision, evaluate_candidate_relevance
 from dosweb.growth.slices import (
     CoverageStatus,
     DemandInput,
@@ -47,6 +50,7 @@ __all__ = [
     "AttackerInfluence",
     "CandidateDisposition",
     "CandidateEntryLink",
+    "CandidateNegativeProof",
     "BoundedSlice",
     "BoundedSlicePayload",
     "CfgSummary",
@@ -57,9 +61,11 @@ __all__ = [
     "EscapeScope",
     "GrowthCandidate",
     "GrowthContract",
+    "ProviderGrowthContract",
     "GrowthKind",
     "GrowthStaticEvidence",
     "RegistrationFact",
+    "RelevanceDecision",
     "RepeatabilityDecision",
     "ResourceDimension",
     "SourceExcerpt",
@@ -70,6 +76,7 @@ __all__ = [
     "adapt_growth_static_evidence",
     "build_bounded_slice",
     "extract_source_excerpt",
+    "evaluate_candidate_relevance",
     "normalize_growth_rows",
     "load_growth_candidates",
     "verify_growth_contract",

@@ -24,13 +24,19 @@ predicate hardFiniteSubmission(MethodCall call) {
 predicate asyncSubmission(MethodCall call) {
   call.getMethod().getName() = ["submit", "execute", "offer", "add", "schedule"] and
   (
-    call.getMethod().getDeclaringType().getASourceSupertype*().hasQualifiedName("java.util.concurrent", "ExecutorService")
+    call.getQualifier().getType().(RefType).getASourceSupertype*().hasQualifiedName(
+      "java.util.concurrent", ["Executor", "ExecutorService", "ScheduledExecutorService"]
+    )
     or
-    call.getMethod().getDeclaringType().getASourceSupertype*().hasQualifiedName("java.util.concurrent", "BlockingQueue")
+    call.getQualifier().getType().(RefType).getASourceSupertype*().hasQualifiedName(
+      "java.util.concurrent", "BlockingQueue"
+    )
   )
 }
 
-from MethodCall call, FieldAccess fieldReceiver, Expr work, string receiver, string fieldPath, string escapeScope, string coverageStatus, string coverageNote, string capacityNote
+from MethodCall call, FieldAccess fieldReceiver, Expr work, string receiver,
+     string fieldPath, string escapeScope, string demandName, string demandRole,
+     string coverageStatus, string coverageNote, string capacityNote
 where
   asyncSubmission(call) and
   fieldReceiver = call.getQualifier() and
@@ -44,22 +50,42 @@ where
   ) and
   (
     hardFiniteSubmission(call) and
-    coverageStatus = "complete" and capacityNote = "finite_queue_submission_candidate"
+    capacityNote = "finite_queue_submission_candidate"
     or
     not hardFiniteSubmission(call) and
-    coverageStatus = "partial" and capacityNote = "queue_or_executor_capacity_requires_contract"
+    capacityNote = "queue_or_executor_capacity_requires_contract"
   ) and
   (
     not exists(LoopStmt loop | growthInLoopBody(call, loop)) and
-    coverageNote = capacityNote + ":single_submission_no_enclosing_loop"
+    demandName = work.toString() and demandRole = "value" and
+    coverageNote = capacityNote + ":single_submission_no_enclosing_loop" and
+    (
+      hardFiniteSubmission(call) and coverageStatus = "complete"
+      or not hardFiniteSubmission(call) and coverageStatus = "partial"
+    )
     or
-    exists(LoopStmt loop | growthInLoopBody(call, loop) and attackerControlsLoop(loop) and capacityNote != "finite_queue_submission_candidate") and
+    exists(LoopStmt loop, Parameter bound, VarAccess boundAccess |
+      provenAttackerLoopMultiplicity(call, loop, bound, boundAccess) and
+      demandName = bound.getName()
+    ) and demandRole = "submission_count" and capacityNote != "finite_queue_submission_candidate" and
+    coverageStatus = "complete" and
     coverageNote = capacityNote + ":attacker_controlled_loop_multiplicity_proven"
     or
-    exists(LoopStmt loop | growthInLoopBody(call, loop) and attackerControlsLoop(loop) and capacityNote = "finite_queue_submission_candidate") and
+    exists(LoopStmt loop, Parameter bound, VarAccess boundAccess |
+      provenAttackerLoopMultiplicity(call, loop, bound, boundAccess) and
+      demandName = bound.getName()
+    ) and demandRole = "submission_count" and capacityNote = "finite_queue_submission_candidate" and
+    coverageStatus = "complete" and
     coverageNote = capacityNote + ":finite_capacity_prevents_amplification"
     or
-    exists(LoopStmt loop | growthInLoopBody(call, loop) and not attackerControlsLoop(loop)) and
+    exists(LoopStmt loop |
+      growthInLoopBody(call, loop) and
+      not exists(Parameter bound, VarAccess boundAccess |
+        provenAttackerLoopMultiplicity(call, loop, bound, boundAccess)
+      )
+    ) and
+    demandName = work.toString() and demandRole = "value" and
+    coverageStatus = "partial" and
     coverageNote = capacityNote + ":loop_bound_not_attacker_proven"
   )
 select
@@ -70,9 +96,8 @@ select
   "tasks" as resource_dimension,
   receiver,
   fieldPath as field_path,
-  work.toString() as demand_input_name,
-  // A task payload is not proof that one request performs multiple submissions.
-  "value" as demand_input_role,
+  demandName as demand_input_name,
+  demandRole as demand_input_role,
   escapeScope as escape_scope,
   "async_submission" as candidate_evidence,
   coverageStatus as coverage_status,

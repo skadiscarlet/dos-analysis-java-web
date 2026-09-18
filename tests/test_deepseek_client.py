@@ -48,21 +48,48 @@ VALID_CONTRACT = {
     "resource_dimension": "entries",
     "attacker_influence": [{"target": "key", "evidence_id": "fact:key"}],
     "resource_effect": "adds_entries",
+    "attacker_variable": "request key",
+    "attacker_value_space": "unlimited",
+    "growth_unit": "one retained map entry",
+    "growth_function": "distinct keys add retained entries",
+    "amplification_class": "high_cardinality_retention",
+    "requests_to_pressure": "many",
+    "concurrency_model": "repeatable requests",
+    "retention_window": "process",
+    "failure_mechanism": "heap_exhaustion",
+    "failure_signal": "retained entries exhaust heap",
     "required_static_evidence": ["fact:key", "fact:put"],
+    "contract_status": "dos_relevant",
+    "rejection_reason": "none",
     "confidence": "high",
 }
 
 PROVIDER_CONTRACT = {
-    **VALID_CONTRACT,
-    "attacker_influence": [{"target": "key", "evidence_id": "fact:1"}],
+    **{
+        key: value
+        for key, value in VALID_CONTRACT.items()
+        if key not in {"growth_kind", "resource_dimension", "attacker_influence"}
+    },
+    "attacker_evidence_ids": ["fact:1"],
     "required_static_evidence": ["fact:1", "fact:2"],
 }
 
 UNKNOWN_CONTRACT = {
     **PROVIDER_CONTRACT,
     "is_resource_growth": "unknown",
-    "growth_kind": "unknown",
-    "resource_dimension": "unknown",
+    "resource_effect": "unknown",
+    "attacker_variable": "unknown",
+    "attacker_value_space": "unknown",
+    "growth_unit": "unknown",
+    "growth_function": "unknown",
+    "amplification_class": "unknown",
+    "requests_to_pressure": "unknown",
+    "concurrency_model": "unknown",
+    "retention_window": "unknown",
+    "failure_mechanism": "unknown",
+    "failure_signal": "unknown",
+    "contract_status": "unknown",
+    "rejection_reason": "unknown",
     "confidence": "low",
 }
 
@@ -112,7 +139,7 @@ def _process_cache_producer(cache_dir: str, key: str, identity: dict[str, object
                 identity,
                 validate_growth_contract(VALID_CONTRACT),
                 {
-                    "method": identity["request_method"], "url": identity["request_url"], "provider": "rightapi_codex_responses", "protocol": "responses-v1",
+                    "method": identity["request_method"], "url": identity["request_url"], "provider": identity["provider"], "protocol": "responses-v1",
                     "requested_model": "grok-4.6", "actual_model": "grok-4.6",
                     "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
                     "allow_remote_llm": True, "public_source_url": identity["public_source_url"],
@@ -224,7 +251,11 @@ class DeepSeekClientTests(unittest.TestCase):
                         hashlib.sha256(excerpt_content.encode()).hexdigest(),
                     ),
                 ),
-                static_facts=(StaticFact("fact:key", "flow", "excerpt:1", "source"), StaticFact("fact:put", "container_write", "excerpt:1", "sink")),
+                static_facts=(
+                    StaticFact("fact:key", "flow", "excerpt:1", "source"),
+                    StaticFact("fact:put", "container_write", "excerpt:1", "sink"),
+                    StaticFact("fact:target", "attacker_target", "excerpt:1", "source", "fact:key", "key"),
+                ),
                 cfg_summary=CfgSummary(("path:1",), ("in_handler",), ("fact:key",)),
                 registration_facts=(RegistrationFact("spring_mvc", "excerpt:1"),),
                 config_facts=(),
@@ -257,16 +288,21 @@ class DeepSeekClientTests(unittest.TestCase):
             BoundedSlicePayload(
                 "entry:sensitive", "growth:sensitive",
                 (SourceExcerpt("excerpt:sensitive", "Example.java", 1, 1, content, "a" * 64, hashlib.sha256(content.encode()).hexdigest()),),
-                (StaticFact("fact:sensitive", "flow", "excerpt:sensitive", "source"),),
+                (
+                    StaticFact("fact:sensitive", "flow", "excerpt:sensitive", "source"),
+                    StaticFact("fact:sink", "container_write", "excerpt:sensitive", "sink"),
+                    StaticFact("fact:target", "attacker_target", "excerpt:sensitive", "source", "fact:sensitive", "key"),
+                ),
                 CfgSummary(("path:sensitive",), ("in_handler",), ("fact:sensitive",)),
                 (RegistrationFact("spring_mvc", "excerpt:sensitive"),), (),
             ),
         )
 
-    def test_valid_contract_uses_rightapi_responses(self) -> None:
+    def test_valid_contract_uses_apibasis_responses(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
-        result = self._client().classify_growth(self.slice)
+        client = self._client()
+        result = client.classify_growth(self.slice)
 
         self.assertEqual(result.is_resource_growth, "yes")
         self.assertEqual(len(_ScriptedHandler.requests), 1)
@@ -283,7 +319,17 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(body["temperature"], 0)
         self.assertIn("instructions", body)
         self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
-        self.assertEqual(body["text"]["format"]["type"], "json_object")
+        self.assertEqual(body["text"]["format"]["type"], "json_schema")
+        self.assertEqual(client.last_audit().settings["provider"], "apibasis_responses")
+        _, identity = cache_identity(self.config, self.slice)
+        self.assertEqual(identity["provider"], "apibasis_responses")
+        self.assertEqual(body["text"]["format"]["name"], "growth_contract")
+        self.assertTrue(body["text"]["format"]["strict"])
+        self.assertEqual(
+            set(body["text"]["format"]["schema"]),
+            {"type", "properties", "required", "additionalProperties"},
+        )
+        self.assertEqual(len(body["text"]["format"]["schema"]["required"]), 17)
         self.assertFalse(body["store"])
         self.assertFalse(body["stream"])
         self.assertNotIn("messages", body)
@@ -295,7 +341,7 @@ class DeepSeekClientTests(unittest.TestCase):
         result = self._client().classify_growth(self.slice)
 
         self.assertEqual(result.is_resource_growth, "unknown")
-        self.assertEqual(result.growth_kind, "unknown")
+        self.assertEqual(result.growth_kind, "container_growth")
         self.assertEqual(len(_ScriptedHandler.requests), 1)
 
     def test_429_and_500_are_retried_up_to_configured_attempts(self) -> None:
@@ -319,9 +365,8 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_empty_or_non_json_content_fails_schema_validation(self) -> None:
         for content in ("", "not-json"):
             with self.subTest(content=content):
-                _ScriptedHandler.scripted_responses = [
-                    (200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]})
-                ]
+                response = (200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]})
+                _ScriptedHandler.scripted_responses = [response] if not content else [response, response]
                 with self.assertRaises(AnalyzerError) as raised:
                     self._client().classify_growth(self.slice)
                 self.assertIn(raised.exception.code, {"LLM_RESPONSE_INVALID", "LLM_RESPONSE_SCHEMA_INVALID"})
@@ -479,6 +524,39 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(_ScriptedHandler.requests), 1)
         self.assertEqual(len(list(self.cache_dir.glob("*.json"))), 1)
+
+    def test_v9_cache_entry_is_a_miss_even_with_a_valid_old_domain_hmac(self) -> None:
+        _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
+        self._client(api_key="cache-auth-key").classify_growth(self.slice)
+        key, identity = cache_identity(self.config, self.slice)
+        cache_file = self.cache_dir / f"{key}.json"
+        entry = json.loads(cache_file.read_text(encoding="utf-8"))
+        entry["cache_format"] = "growth-contract-cache-v9"
+        entry.pop("accepted_prompt_variant")
+        stable = {
+            name: value
+            for name, value in entry.items()
+            if name not in {"entry_hash", "entry_hmac"}
+        }
+        entry["entry_hash"] = hashlib.sha256(
+            json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        unsigned = {name: value for name, value in entry.items() if name != "entry_hmac"}
+        entry["entry_hmac"] = hmac.new(
+            b"cache-auth-key",
+            b"growth-contract-cache-entry-v9\0"
+            + json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        cache_file.write_text(json.dumps(entry), encoding="utf-8")
+
+        self.assertIsNone(
+            ContractCache(self.cache_dir, "cache-auth-key").get(
+                key,
+                identity,
+                frozenset({"fact:key", "fact:put"}),
+            )
+        )
 
     def test_fresh_client_reuses_cache_when_only_caller_slice_id_changes(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
@@ -652,7 +730,7 @@ class DeepSeekClientTests(unittest.TestCase):
 
     def test_same_key_waiters_share_deterministic_failure_without_negative_cache(self) -> None:
         invalid = {"is_resource_growth": "yes"}
-        _ScriptedHandler.scripted_responses = [(200, self._success(invalid))]
+        _ScriptedHandler.scripted_responses = [(200, self._success(invalid))] * 2
         barrier = threading.Barrier(3)
         errors: list[AnalyzerError] = []
 
@@ -672,12 +750,12 @@ class DeepSeekClientTests(unittest.TestCase):
 
         self.assertFalse(any(worker.is_alive() for worker in workers))
         self.assertEqual([error.code for error in errors], ["LLM_RESPONSE_SCHEMA_INVALID"] * 2)
-        self.assertEqual(len(_ScriptedHandler.requests), 1)
+        self.assertEqual(len(_ScriptedHandler.requests), 2)
         self.assertEqual(list(self.cache_dir.glob("*.json")), [])
 
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
         self.assertEqual(self._client().classify_growth(self.slice).is_resource_growth, "yes")
-        self.assertEqual(len(_ScriptedHandler.requests), 2)
+        self.assertEqual(len(_ScriptedHandler.requests), 3)
 
     @unittest.skipUnless(hasattr(os, "fork"), "requires os.fork")
     def test_inherited_locked_thread_lock_is_reset_after_fork(self) -> None:
@@ -751,8 +829,23 @@ class DeepSeekClientTests(unittest.TestCase):
                 mkdir_barrier.wait(timeout=5)
             original_mkdir(path, mode, dir_fd=dir_fd)
 
+        def create_and_release() -> None:
+            descriptor = _create_private_hierarchy(target)
+            if descriptor is None:
+                results.append(False)
+                return
+            try:
+                info = os.fstat(descriptor)
+                results.append(
+                    stat.S_ISDIR(info.st_mode)
+                    and info.st_uid == os.getuid()
+                    and stat.S_IMODE(info.st_mode) == 0o700
+                )
+            finally:
+                os.close(descriptor)
+
         with mock.patch("dosweb.llm.cache.os.mkdir", side_effect=racing_mkdir):
-            workers = [threading.Thread(target=lambda: results.append(_create_private_hierarchy(target))) for _ in range(2)]
+            workers = [threading.Thread(target=create_and_release) for _ in range(2)]
             for worker in workers:
                 worker.start()
             for worker in workers:
@@ -762,13 +855,107 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(results, [True, True])
         self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
 
+    def test_capacity_reservation_pins_auth_publication_directory_across_anchor_substitution(self) -> None:
+        base = self.cache_dir.parent
+        foreign = base / "foreign-capacity"
+        foreign.mkdir(mode=0o755)
+        anchor = foreign / "owned-anchor"
+        anchor.mkdir(mode=0o755)
+        cache_dir = anchor / "cache"
+        detached_anchor = foreign / "detached-anchor"
+        redirect_anchor = base / "redirect-capacity"
+        redirect_cache = redirect_anchor / "cache"
+        redirect_cache.mkdir(parents=True, mode=0o700)
+        key = "3" * 64
+        cache = ContractCache(cache_dir, "test-api-key")
+        baseline_fds = len(os.listdir("/proc/self/fd"))
+
+        with cache.capacity_reservation(key, entry_prefix="auth-"):
+            self.assertTrue((cache_dir / ".capacity.lock").is_file())
+            anchor.rename(detached_anchor)
+            anchor.symlink_to(redirect_anchor, target_is_directory=True)
+            self.assertTrue(
+                cache.put_auth_record(
+                    key,
+                    {"kind": "auth"},
+                    {
+                        "auth_context": "unknown",
+                        "evidence_ids": [],
+                        "assumptions": [],
+                        "confidence": "low",
+                    },
+                    "{}",
+                )
+            )
+
+        original_cache = detached_anchor / "cache"
+        self.assertTrue((original_cache / ".capacity.lock").is_file())
+        self.assertTrue((original_cache / f"auth-{key}.json").is_file())
+        self.assertFalse((redirect_cache / f"auth-{key}.json").exists())
+        self.assertEqual(list(redirect_cache.iterdir()), [])
+        self.assertEqual(len(os.listdir("/proc/self/fd")), baseline_fds)
+
+    def test_single_flight_pins_growth_publication_directory_across_anchor_substitution(self) -> None:
+        base = self.cache_dir.parent
+        foreign = base / "foreign-stripe"
+        foreign.mkdir(mode=0o755)
+        anchor = foreign / "owned-anchor"
+        anchor.mkdir(mode=0o755)
+        cache_dir = anchor / "cache"
+        detached_anchor = foreign / "detached-anchor"
+        redirect_anchor = base / "redirect-stripe"
+        redirect_cache = redirect_anchor / "cache"
+        redirect_cache.mkdir(parents=True, mode=0o700)
+        key, identity = cache_identity(
+            replace(self.config, cache_dir=cache_dir),
+            self.slice,
+        )
+        cache = ContractCache(cache_dir, "test-api-key")
+        audit = {
+            "method": identity["request_method"],
+            "url": identity["request_url"],
+            "provider": identity["provider"],
+            "protocol": identity["protocol"],
+            "requested_model": identity["model"],
+            "actual_model": identity["model"],
+            "provider_request_id_digest": cache.provider_request_id_digest("fixture"),
+            "slice_content_hash": identity["slice_content_hash"],
+            "allow_remote_llm": identity["allow_remote_llm"],
+            "public_source_url": identity["public_source_url"],
+            "source_commit_sha": identity["source_commit_sha"],
+            "verified_public": identity["verified_public"],
+            "verified_clean_checkout": identity["verified_clean_checkout"],
+        }
+        baseline_fds = len(os.listdir("/proc/self/fd"))
+
+        with cache.single_flight(key):
+            stripe = int(key[:8], 16) % 64
+            self.assertTrue((cache_dir / f".stripe-{stripe:02d}.lock").is_file())
+            anchor.rename(detached_anchor)
+            anchor.symlink_to(redirect_anchor, target_is_directory=True)
+            self.assertTrue(
+                cache.put(
+                    key,
+                    identity,
+                    validate_growth_contract(VALID_CONTRACT),
+                    audit,
+                    raw_response="{}",
+                )
+            )
+
+        original_cache = detached_anchor / "cache"
+        self.assertTrue((original_cache / f"{key}.json").is_file())
+        self.assertFalse((redirect_cache / f"{key}.json").exists())
+        self.assertEqual(list(redirect_cache.iterdir()), [])
+        self.assertEqual(len(os.listdir("/proc/self/fd")), baseline_fds)
+
     def test_nested_default_cache_path_supports_process_reuse(self) -> None:
         nested = self.cache_dir.parent / "output" / "cache" / "llm"
         key, identity = cache_identity(replace(self.config, cache_dir=nested), self.slice)
         cache = ContractCache(nested, "test-api-key")
         with cache.single_flight(key):
             self.assertTrue(cache.put(key, identity, validate_growth_contract(VALID_CONTRACT), {
-                "method": identity["request_method"], "url": identity["request_url"], "provider": "rightapi_codex_responses", "protocol": "responses-v1",
+                "method": identity["request_method"], "url": identity["request_url"], "provider": identity["provider"], "protocol": "responses-v1",
                 "requested_model": "grok-4.6", "actual_model": "grok-4.6",
                 "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
                 "allow_remote_llm": True, "public_source_url": identity["public_source_url"],
@@ -780,10 +967,13 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(nested.stat().st_mode), 0o700)
 
     def test_cache_supports_more_than_sixty_four_valid_facts(self) -> None:
-        facts = tuple(StaticFact(f"fact:f{index}", "flow", "excerpt:1", "source") for index in range(65))
+        facts = tuple(StaticFact(f"fact:f{index}", "flow", "excerpt:1", "source") for index in range(65)) + (
+            StaticFact("fact:sink", "container_write", "excerpt:1", "sink"),
+            StaticFact("fact:target", "attacker_target", "excerpt:1", "source", "fact:f0", "key"),
+        )
         payload = replace(self.slice.payload, static_facts=facts, cfg_summary=CfgSummary(("path:1",), ("in_handler",), ("fact:f0",)))
         slice_ = BoundedSlice("slice:many-facts", payload)
-        contract = {**PROVIDER_CONTRACT, "attacker_influence": [{"target": "key", "evidence_id": "fact:1"}], "required_static_evidence": ["fact:1"]}
+        contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:66"]}
         _ScriptedHandler.scripted_responses = [(200, self._success(contract))]
         first = self._client().classify_growth(slice_)
         second = self._client().classify_growth(slice_)
@@ -903,6 +1093,34 @@ class DeepSeekClientTests(unittest.TestCase):
                     pass
         self.assertEqual(raised.exception.code, "LLM_CACHE_LOCK_FAILED")
 
+    def test_cache_directory_transaction_releases_once_after_context_exception(self) -> None:
+        from dosweb.llm import cache as cache_module
+
+        for kind in ("capacity", "stripe"):
+            with self.subTest(kind=kind):
+                cache_dir = self.cache_dir.parent / f"exception-{kind}"
+                cache = ContractCache(cache_dir, "test-api-key")
+                key = hashlib.sha256(kind.encode()).hexdigest()
+                baseline_fds = len(os.listdir("/proc/self/fd"))
+                captured_state = None
+                with self.assertRaisesRegex(RuntimeError, "injected transaction failure"):
+                    context = (
+                        cache.capacity_reservation(key)
+                        if kind == "capacity"
+                        else cache.single_flight(key)
+                    )
+                    with context:
+                        states = cache_module._ACTIVE_RESERVATIONS.directories
+                        captured_state = next(iter(states.values()))
+                        raise RuntimeError("injected transaction failure")
+                self.assertIsNotNone(captured_state)
+                self.assertEqual(captured_state.descriptor, -1)
+                self.assertEqual(
+                    getattr(cache_module._ACTIVE_RESERVATIONS, "directories", {}),
+                    {},
+                )
+                self.assertEqual(len(os.listdir("/proc/self/fd")), baseline_fds)
+
     def test_cache_stripes_and_memory_are_globally_bounded(self) -> None:
         from dosweb.llm import cache as cache_module
         cache = ContractCache(self.cache_dir, "test-api-key")
@@ -930,19 +1148,25 @@ class DeepSeekClientTests(unittest.TestCase):
         cache = ContractCache(self.cache_dir, "test-api-key")
         with cache.single_flight(key):
             descriptor = next(iter(cache_module._ACTIVE_FLOCK_FDS))
+            directory_descriptor = next(
+                iter(cache_module._ACTIVE_RESERVATIONS.directories.values())
+            ).descriptor
             pid = os.fork()
             if pid == 0:
                 try:
                     os.fstat(descriptor)
                 except OSError:
-                    os._exit(0)
+                    try:
+                        os.fstat(directory_descriptor)
+                    except OSError:
+                        os._exit(0)
                 os._exit(1)
             _, status = os.waitpid(pid, 0)
         self.assertEqual(os.waitstatus_to_exitcode(status), 0)
 
     def test_live_contract_rejects_fabricated_static_fact_references_without_caching(self) -> None:
-        fabricated = {**PROVIDER_CONTRACT, "attacker_influence": [{"target": "key", "evidence_id": "fact:invented"}]}
-        _ScriptedHandler.scripted_responses = [(200, self._success(fabricated))]
+        fabricated = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:invented"]}
+        _ScriptedHandler.scripted_responses = [(200, self._success(fabricated))] * 2
 
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self.slice)
@@ -975,7 +1199,7 @@ class DeepSeekClientTests(unittest.TestCase):
         nested: object = PROVIDER_CONTRACT
         for _ in range(17):
             nested = [nested]
-        _ScriptedHandler.scripted_responses = [(200, self._success(nested))]
+        _ScriptedHandler.scripted_responses = [(200, self._success(nested))] * 2
 
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self.slice)
@@ -994,7 +1218,8 @@ class DeepSeekClientTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, "LLM_RESPONSE_SCHEMA_INVALID")
 
     def test_failed_response_is_not_written_as_success_cache(self) -> None:
-        _ScriptedHandler.scripted_responses = [(200, self._success({"is_resource_growth": "yes"}))]
+        invalid = (200, self._success({"is_resource_growth": "yes"}))
+        _ScriptedHandler.scripted_responses = [invalid, invalid]
 
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self.slice)
@@ -1008,6 +1233,7 @@ class DeepSeekClientTests(unittest.TestCase):
         serialized = next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8")
         entry = json.loads(serialized)
         identity = entry["identity"]
+        self.assertEqual(identity["prompt_version"], "growth-contract-v9")
         self.assertIn("slice_content_hash", identity)
         self.assertNotIn("normalized_slice", identity)
         identity_serialized = json.dumps(identity, sort_keys=True)
@@ -1018,7 +1244,7 @@ class DeepSeekClientTests(unittest.TestCase):
         secret = "sk-secret-value"
         client = self._client(api_key=secret)
         unsafe_response = {**self._success({"is_resource_growth": "yes", "note": secret}), "Authorization": f"Bearer {secret}"}
-        _ScriptedHandler.scripted_responses = [(200, unsafe_response)]
+        _ScriptedHandler.scripted_responses = [(200, unsafe_response)] * 2
 
         with self.assertRaises(AnalyzerError) as raised:
             client.classify_growth(self.slice)
@@ -1032,7 +1258,7 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_sensitive_envelope_metadata_is_never_cached_or_audited_for_growth_or_auth(self) -> None:
         secret = "sk-envelope-secret"
         growth_envelope = {**self._success(PROVIDER_CONTRACT), "reasoning": {"metadata": f"Bearer {secret}"}}
-        _ScriptedHandler.scripted_responses = [(200, growth_envelope)]
+        _ScriptedHandler.scripted_responses = [(200, growth_envelope)] * 2
         growth_client = self._client(api_key=secret)
 
         with self.assertRaises(AnalyzerError) as raised:
@@ -1044,7 +1270,7 @@ class DeepSeekClientTests(unittest.TestCase):
 
         auth_contract = {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
         auth_envelope = {**self._success(auth_contract), "metadata": {"api_key_echo": secret}}
-        _ScriptedHandler.scripted_responses = [(200, auth_envelope)]
+        _ScriptedHandler.scripted_responses = [(200, auth_envelope)] * 2
         auth_client = self._client(api_key=secret)
 
         with self.assertRaises(AnalyzerError) as raised:
@@ -1063,7 +1289,7 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_sensitive_model_text_is_not_cached(self) -> None:
         secret = "sk-response-secret"
         payload = {**PROVIDER_CONTRACT, "resource_effect": f"Stores {secret} as a map key."}
-        _ScriptedHandler.scripted_responses = [(200, self._success(payload))]
+        _ScriptedHandler.scripted_responses = [(200, self._success(payload))] * 2
 
         with self.assertRaises(AnalyzerError) as raised:
             self._client(api_key="another-secret").classify_growth(self.slice)
@@ -1237,19 +1463,23 @@ class DeepSeekClientTests(unittest.TestCase):
                     BoundedSlicePayload(
                         "entry:non-deny", "growth:non-deny",
                         (SourceExcerpt("excerpt:non-deny", "Example.java", 1, 1, content, "a" * 64, hashlib.sha256(content.encode()).hexdigest()),),
-                        (StaticFact("fact:non-deny", "flow", "excerpt:non-deny", "source"),),
+                        (
+                            StaticFact("fact:non-deny", "flow", "excerpt:non-deny", "source"),
+                            StaticFact("fact:sink", "container_write", "excerpt:non-deny", "sink"),
+                            StaticFact("fact:target", "attacker_target", "excerpt:non-deny", "source", "fact:non-deny", "key"),
+                        ),
                         CfgSummary(("path:non-deny",), ("in_handler",), ("fact:non-deny",)),
                         (RegistrationFact("spring_mvc", "excerpt:non-deny"),), (),
                     ),
                 )
                 _ScriptedHandler.requests = []
-                contract = {**PROVIDER_CONTRACT, "attacker_influence": [{"target": "key", "evidence_id": "fact:1"}], "required_static_evidence": ["fact:1"]}
+                contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:2"]}
                 _ScriptedHandler.scripted_responses = [(200, self._success(contract))]
                 self._client().classify_growth(slice_)
                 self.assertEqual(len(_ScriptedHandler.requests), 1)
 
     def test_authorized_provider_model_alias_is_accepted_but_other_mismatches_fail(self) -> None:
-        client = self._client(model="grok-4.6", base_url="https://rightapi.ai/grok/v1/")
+        client = self._client(model="grok-4.6", base_url="https://apibasis.com/v1/")
         reply = ProviderReply(
             json.dumps({
                 "id": "req_alias_1",
@@ -1277,9 +1507,15 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(cache_entry["request_audit"]["requested_model"], "grok-4.6")
         self.assertEqual(cache_entry["request_audit"]["actual_model"], "grok-4.6-build")
         request_count = len(_ScriptedHandler.requests)
-        second = self._client(model="grok-4.6").classify_growth(self.slice)
+        replay_client = self._client(model="grok-4.6")
+        second = replay_client.classify_growth(self.slice)
         self.assertEqual(second.to_dict(), first.to_dict())
         self.assertEqual(len(_ScriptedHandler.requests), request_count)
+        self.assertIsNotNone(replay_client.last_audit())
+        self.assertEqual(
+            replay_client.last_audit().settings["actual_model"],
+            "grok-4.6-build",
+        )
 
     def test_response_requires_matching_model_and_persists_only_request_id_digest(self) -> None:
         bad = {"model": "not-allowed-model", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(PROVIDER_CONTRACT)}]}]}
@@ -1380,7 +1616,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
             _payload = DeepSeekClientTests._success(PROVIDER_CONTRACT)
-        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
+        client = DeepSeekClient(replace(self.config, base_url="https://apibasis.com/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
         client._opener = mock.Mock()
         client._opener.open.return_value = SlowResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1419,7 +1655,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
+        client = DeepSeekClient(replace(self.config, base_url="https://apibasis.com/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
         client._opener = mock.Mock()
         client._opener.open.return_value = InvalidResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1436,7 +1672,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = self._client(max_retries=3, base_url="https://rightapi.ai/grok/v1/")
+        client = self._client(max_retries=3, base_url="https://apibasis.com/v1/")
         client._transport = None
         client._opener = mock.Mock()
         client._opener.open.return_value = TimeoutResponse()
@@ -1461,10 +1697,11 @@ class DeepSeekClientTests(unittest.TestCase):
         facts = (
             StaticFact(private_id, "flow", "excerpt:1", "source"),
             StaticFact("fact:put", "container_write", "excerpt:1", "sink"),
+            StaticFact("fact:target", "attacker_target", "excerpt:1", "source", private_id, "key"),
         )
         payload = replace(self.slice.payload, entry_id="entry:private", growth_id="growth:private", static_facts=facts, cfg_summary=CfgSummary(("path:private",), ("in_handler",), (private_id,)))
         slice_ = BoundedSlice("slice:private", payload)
-        aliased_contract = {**VALID_CONTRACT, "attacker_influence": [{"target": "key", "evidence_id": "fact:1"}], "required_static_evidence": ["fact:1", "fact:2"]}
+        aliased_contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:2"]}
         _ScriptedHandler.scripted_responses = [(200, self._success(aliased_contract))]
 
         result = self._client().classify_growth(slice_)
@@ -1498,14 +1735,27 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_prompt_contains_exact_typed_contract_schema(self) -> None:
         from dosweb.llm.schemas import GROWTH_CONTRACT_RESPONSE_SCHEMA, RESPONSE_SCHEMA_VERSION
 
+        self.assertEqual("growth-contract-schema-v5", RESPONSE_SCHEMA_VERSION)
         messages = build_growth_messages(self.slice)
         user = json.loads(messages[1]["content"])
         self.assertEqual(user["response_schema_version"], RESPONSE_SCHEMA_VERSION)
         self.assertEqual(user["response_schema"], GROWTH_CONTRACT_RESPONSE_SCHEMA)
-        self.assertEqual(set(user["response_schema"]), {"is_resource_growth", "growth_kind", "resource_dimension", "attacker_influence", "resource_effect", "required_static_evidence", "confidence"})
-        self.assertEqual(set(user["response_schema"]["attacker_influence"][0]), {"target", "evidence_id"})
+        self.assertEqual(
+            set(user["response_schema"]),
+            {
+                "is_resource_growth", "attacker_evidence_ids", "resource_effect", "attacker_variable",
+                "attacker_value_space", "growth_unit", "growth_function",
+                "amplification_class", "requests_to_pressure",
+                "concurrency_model", "retention_window", "failure_mechanism",
+                "failure_signal", "required_static_evidence", "contract_status",
+                "rejection_reason", "confidence",
+            },
+        )
+        self.assertEqual(user["response_schema"]["attacker_evidence_ids"], ["fact:<ordinal>"])
         canonical = json.dumps(GROWTH_CONTRACT_RESPONSE_SCHEMA, sort_keys=True, separators=(",", ":"))
         self.assertIn(canonical, messages[0]["content"])
+        self.assertIn("collection mutation alone is not DoS", messages[0]["content"])
+        self.assertIn("growth_not_dos_relevant", messages[0]["content"])
 
     def test_request_id_credentials_are_rejected_without_cache_persistence(self) -> None:
         api_key = "exact-provider-key"
@@ -1513,12 +1763,13 @@ class DeepSeekClientTests(unittest.TestCase):
             api_key,
             "Authorization: Bearer header-token-value",
             "serviceCredential=private-value",
-            "owner@example.com",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
+            "postgresql://user:password@datastore.example/app",
         )
         for request_id in credential_ids:
             with self.subTest(request_id=request_id):
                 _ScriptedHandler.requests = []
-                _ScriptedHandler.scripted_responses = [(200, {**self._success(PROVIDER_CONTRACT), "id": request_id})]
+                _ScriptedHandler.scripted_responses = [(200, {**self._success(PROVIDER_CONTRACT), "id": request_id})] * 2
                 with self.assertRaises(AnalyzerError) as raised:
                     self._client(api_key=api_key).classify_growth(self.slice)
                 self.assertEqual(raised.exception.code, "LLM_RESPONSE_SENSITIVE_CONTENT")
@@ -1600,7 +1851,7 @@ class DeepSeekClientTests(unittest.TestCase):
                 result = self._client().classify_growth(self._slice_with_content(excerpt))
                 self.assertEqual(result.is_resource_growth, "yes")
         long_echo = "unique-source-echo-" + "x" * 96
-        _ScriptedHandler.scripted_responses = [(200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": long_echo}]}]})]
+        _ScriptedHandler.scripted_responses = [(200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": long_echo}]}]})] * 2
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self._slice_with_content(long_echo))
         self.assertEqual(raised.exception.code, "LLM_RESPONSE_SENSITIVE_CONTENT")
@@ -1623,6 +1874,29 @@ class DeepSeekClientTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, "LLM_NETWORK_FAILED")
                 self.assertEqual(transport.post.call_count, 1)
                 self.assertNotIn("secret-token", f"{raised.exception.message} {raised.exception.details}")
+
+    def test_transient_proxy_and_tls_eof_failures_are_retried(self) -> None:
+        transient_failures = (
+            URLError(OSError("Tunnel connection failed: 502 Bad Gateway")),
+            ssl.SSLEOFError(ssl.SSL_ERROR_EOF, "unexpected provider EOF"),
+        )
+        for index, failure in enumerate(transient_failures, 1):
+            with self.subTest(failure=type(failure).__name__):
+                transport = mock.Mock()
+                transport.post.side_effect = [
+                    failure,
+                    json.dumps(self._success(PROVIDER_CONTRACT), separators=(",", ":")),
+                ]
+                client = self._client(
+                    max_retries=3,
+                    cache_dir=Path(self.temporary_directory.name) / f"transient-cache-{index}",
+                )
+                client._transport = transport
+
+                result = client.classify_growth(self.slice)
+
+                self.assertEqual(result.contract_status, "dos_relevant")
+                self.assertEqual(transport.post.call_count, 2)
 
     def test_repeated_config_id_uses_one_provider_alias(self) -> None:
         from dosweb.llm.prompts import build_provider_payload
@@ -1681,25 +1955,30 @@ class DeepSeekClientTests(unittest.TestCase):
             cache.put_auth_record("f" * 64, {"index": 257}, contract, "{}")
         self.assertEqual("LLM_CACHE_CAPACITY_EXHAUSTED", raised.exception.code)
 
-    def test_authenticated_auth_v1_is_retired_then_v2_can_publish(self) -> None:
+    def test_authenticated_auth_v2_is_cold_then_v4_can_publish_under_new_identity(self) -> None:
         from dosweb.artifacts.identifiers import canonical_json, sha256_canonical_json
 
         self.cache_dir.mkdir(mode=0o700)
         cache = ContractCache(self.cache_dir, "test-api-key")
-        key, identity = "a" * 64, {"kind": "auth", "version": 1}
+        key, identity = "a" * 64, {"kind": "auth", "version": 2}
         contract = {"auth_context": "unknown", "evidence_ids": [], "assumptions": [], "confidence": "low"}
-        entry = {"cache_format": "auth-contract-cache-v1", "cache_key": key, "identity": identity, "contract": contract, "raw_response": "{}"}
+        entry = {"cache_format": "auth-contract-cache-v2", "cache_key": key, "identity": identity, "contract": contract, "raw_response": "{}"}
         entry["entry_hash"] = sha256_canonical_json(entry)
-        entry["entry_hmac"] = hmac.new(b"test-api-key", b"auth-contract-cache-v1\\0" + canonical_json(entry), hashlib.sha256).hexdigest()
+        entry["entry_hmac"] = hmac.new(b"test-api-key", b"auth-contract-cache-v2\\0" + canonical_json(entry), hashlib.sha256).hexdigest()
         destination = self.cache_dir / f"auth-{key}.json"
         destination.write_bytes(canonical_json(entry))
         destination.chmod(0o600)
 
         self.assertIsNone(cache.get_auth_record(key, identity))
-        self.assertFalse(destination.exists())
-        self.assertTrue(cache.put_auth_record(key, identity, contract, "{}"))
-        self.assertEqual(cache.get_auth_record(key, identity), {"contract": contract, "raw_response": "{}"})
-        self.assertEqual(json.loads(destination.read_text(encoding="utf-8"))["cache_format"], "auth-contract-cache-v2")
+        self.assertTrue(destination.exists())
+        new_key, new_identity = "c" * 64, {"kind": "auth", "version": 3}
+        self.assertTrue(cache.put_auth_record(new_key, new_identity, contract, "{}"))
+        self.assertEqual(
+            cache.get_auth_record(new_key, new_identity),
+            {"contract": contract, "raw_response": "{}", "accepted_prompt_variant": "initial", "actual_model": "grok-4.6"},
+        )
+        published = self.cache_dir / f"auth-{new_key}.json"
+        self.assertEqual(json.loads(published.read_text(encoding="utf-8"))["cache_format"], "auth-contract-cache-v5")
 
     def test_tampered_auth_v1_is_not_deleted(self) -> None:
         self.cache_dir.mkdir(mode=0o700)
@@ -1745,7 +2024,9 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(len(body["input"][0]["content"]), 1)
         self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
         self.assertIsInstance(body["input"][0]["content"][0]["text"], str)
-        self.assertEqual(body["text"], {"format": {"type": "json_object"}})
+        self.assertEqual(body["text"]["format"]["type"], "json_schema")
+        self.assertEqual(body["text"]["format"]["name"], "auth_contract")
+        self.assertTrue(body["text"]["format"]["strict"])
         self.assertFalse(body["store"])
         self.assertFalse(body["stream"])
         self.assertNotIn("messages", body)
@@ -1763,7 +2044,8 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(1, len(auth_files))
         cached_record = json.loads(auth_files[0].read_text(encoding="utf-8"))
         self.assertEqual(AUTH_PROMPT_VERSION, cached_record["identity"]["prompt_version"])
-        self.assertEqual("auth-contract-v3", cached_record["identity"]["prompt_version"])
+        self.assertEqual("auth-contract-v5", cached_record["identity"]["prompt_version"])
+        self.assertEqual("initial", cached_record["accepted_prompt_variant"])
         self.assertNotIn("test-api-key", auth_files[0].read_text(encoding="utf-8"))
 
 
@@ -1922,7 +2204,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
     def test_default_verifier_requires_public_matching_commit_and_clean_checkout(self) -> None:
         config = LlmConfig(
             model="grok-4.6",
-            base_url="https://rightapi.ai/grok/v1/",
+            base_url="https://apibasis.com/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -2131,7 +2413,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
     def test_default_verifier_rejects_private_repository_without_commit_or_deepseek_call(self) -> None:
         config = LlmConfig(
             model="grok-4.6",
-            base_url="https://rightapi.ai/grok/v1/",
+            base_url="https://apibasis.com/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -2162,7 +2444,9 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "CONFIG_PUBLIC_SOURCE_UNVERIFIED")
 
     def test_endpoint_validation_allows_only_production_or_loopback(self) -> None:
-        self.assertEqual(validate_provider_endpoint("https://rightapi.ai/grok/v1/"), "https://rightapi.ai/grok/v1/")
+        self.assertEqual(validate_provider_endpoint("https://apibasis.com/v1"), "https://apibasis.com/v1/")
+        with self.assertRaises(AnalyzerError):
+            validate_provider_endpoint("https://rightapi.ai/grok/v1/")
         with self.assertRaises(AnalyzerError):
             validate_provider_endpoint("https://api.deepseek.com/")
         self.assertEqual(validate_provider_endpoint("http://[::1]:8000/", allow_test_transport=True), "http://[::1]:8000/")

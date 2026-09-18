@@ -25,7 +25,7 @@ from dosweb.lifecycle import (
 )
 from dosweb.lifecycle.certificates import StaticFinding, build_lifecycle_certificate
 from dosweb.pipeline import Pipeline, STAGES, StageOutput
-from dosweb.report import build_summary, render_report
+from dosweb.report import build_finding_families, build_summary, render_report
 
 
 class P0EndToEndTests(unittest.TestCase):
@@ -51,6 +51,13 @@ class P0EndToEndTests(unittest.TestCase):
             protocol=protocol,
             handler=handler,
             registration=registration_fact,
+            registration_pattern_id={
+                ("spring_mvc", "annotation_mapping"): "entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",
+                ("spring_mvc", "static_registration"): "entry-registration-coverage:spring_mvc:static_registration:armeria_annotated_service_registration",
+                ("netty", "pipeline_registration"): "entry-registration-coverage:netty:pipeline_registration:netty_pipeline_registration",
+                ("mqtt", "subscription_registration"): "entry-registration-coverage:mqtt:subscription_registration:mqtt_subscription_registration",
+                ("mqtt", "broker_registration"): "entry-registration-coverage:mqtt:broker_registration:jmqtt_anonymous_channel_initializer",
+            }[(framework, registration)],
             route_or_event="/p0" if framework == "spring_mvc" else "channelRead" if framework == "netty" else "messageArrived",
             auth_context="unauthenticated",
             attacker_inputs=(AttackerInputFact(input_name, input_type, input_kind),),
@@ -85,7 +92,10 @@ class P0EndToEndTests(unittest.TestCase):
                 entry_id=entry.entry_id,
                 growth_id=growth.growth_id,
                 attacker_control=AttackerControl(role, input_name, f"resource.{input_name}"),
-                call_path=(handler.callable, "resource.grow"),
+                call_path=(
+                    handler.callable,
+                    f"{handler.callable}~resource.grow@{file_name}:19",
+                ),
                 phase_sequence=("in_handler", "growth"),
                 confidence="proven",
             ),
@@ -112,16 +122,18 @@ class P0EndToEndTests(unittest.TestCase):
     def _coverage(self, case: dict[str, object]) -> CandidateCoverage:
         status = case["coverage_status"]
         if status == "partial":
-            supported, unsupported, effect = ("static_subscription",), ("dynamic_subscription",), "forces_unknown"
+            supported, unsupported, effect = (), ("dynamic_subscription",), "forces_unknown"
         else:
-            supported, unsupported, effect = (case["registration"],), (), "none"
+            supported, unsupported, effect = (
+                case["entry"].registration_pattern_id,
+            ), (), "none"
         return CandidateCoverage(
             framework=case["framework"],
             status=status,
             supported_patterns=supported,
             unsupported_patterns=unsupported,
             effect_on_verdict=effect,
-            registration_pattern=case["registration"],
+            registration_pattern_id=case["entry"].registration_pattern_id,
             entry_id=case["entry"].entry_id,
             growth_id=case["growth"].growth_id,
             path_id=case["flow"].path_id,
@@ -216,15 +228,39 @@ class P0EndToEndTests(unittest.TestCase):
         self.assertIn("dynamic_subscription", mqtt_certificate.coverage_gaps)
         self.assertTrue(mqtt_certificate.coverage_gaps)
 
+        entries = {
+            case["entry"].entry_id: case["entry"]
+            for _, case, _, _, _, _ in scenarios
+        }
+        amplification_classes = {
+            (finding.entry_id, finding.growth_id): (
+                "large_single_request"
+                if case["growth"].candidate.kind
+                in {"input_materialization", "direct_allocation"}
+                else "high_cardinality_retention"
+                if case["growth"].candidate.kind == "container_growth"
+                else "queue_instability"
+            )
+            for finding, (_, case, _, _, _, _) in zip(findings, scenarios, strict=True)
+        }
+        families = build_finding_families(
+            tuple(findings),
+            tuple(certificates),
+            entries,
+            {},
+            amplification_classes,
+        )
+
         summary = build_summary(
+            families,
             tuple(findings),
             (
-                FrameworkCoverage("spring_mvc", "complete", ("annotation_mapping",), (), "none"),
-                FrameworkCoverage("netty", "complete", ("pipeline_registration",), (), "none"),
-                FrameworkCoverage("mqtt", "partial", ("static_subscription",), ("dynamic_subscription",), "forces_unknown"),
+                FrameworkCoverage("spring_mvc", "complete", ("entry-registration-coverage:spring_mvc:annotation_mapping:spring_annotation_mapping",), (), "none"),
+                FrameworkCoverage("netty", "complete", ("entry-registration-coverage:netty:pipeline_registration:netty_pipeline_registration",), (), "none"),
+                FrameworkCoverage("mqtt", "partial", (), ("dynamic_subscription",), "forces_unknown"),
             ),
         )
-        report = render_report(summary, tuple(findings), tuple(certificates))
+        report = render_report(summary, families, tuple(findings), tuple(certificates))
         self.assertEqual(summary["finding_ids"], sorted(item.finding_id for item in findings))
         self.assertEqual(sum(summary["verdict_counts"].values()), 10)
         self.assertEqual(summary["verdict_counts"]["static_unknown"], 2)

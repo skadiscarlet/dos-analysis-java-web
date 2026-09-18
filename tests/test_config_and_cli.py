@@ -17,7 +17,7 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(result.llm.base_url, DEFAULT_BASE_URL)
         self.assertEqual(result.llm.model, DEFAULT_MODEL)
-        self.assertEqual(DEFAULT_BASE_URL, "https://rightapi.ai/grok/v1/")
+        self.assertEqual(DEFAULT_BASE_URL, "https://apibasis.com/v1/")
         self.assertEqual(DEFAULT_MODEL, "grok-4.6")
 
     def test_local_secrets_file_provides_the_api_key_without_environment(self):

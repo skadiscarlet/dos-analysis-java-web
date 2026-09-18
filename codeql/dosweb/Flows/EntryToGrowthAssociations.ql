@@ -5,6 +5,7 @@
  * @id dosweb/entry-to-growth-associations
  */
 import java
+import EntryGrowthDomain
 
 predicate isInputStreamType(Type type) {
   type.(RefType).getASupertype*().hasQualifiedName("java.io", "InputStream")
@@ -464,6 +465,23 @@ predicate uniqueSourceTarget(MethodCall edge, Method target) {
     not exists(Method other |
       other != target and other.fromSource() and not other.isAbstract() and
       other.getSignature() = edge.getMethod().getSignature() and
+        other.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType()
+      )
+    )
+  or exists(Method filter, FieldAccess receiver, Field field |
+    filter = edge.getEnclosingCallable() and filter.getName() = "doFilter" and
+    (
+      filter.getDeclaringType().getASourceSupertype*().hasQualifiedName("javax.servlet", "Filter")
+      or filter.getDeclaringType().getASourceSupertype*().hasQualifiedName("jakarta.servlet", "Filter")
+    ) and
+    edge.getQualifier() = receiver and receiver.getField() = field and field.isFinal() and
+    edge.getMethod().isAbstract() and
+    target.fromSource() and not target.isAbstract() and
+    target.getSignature() = edge.getMethod().getSignature() and
+    target.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType() and
+    not exists(Method other |
+      other != target and other.fromSource() and not other.isAbstract() and
+      other.getSignature() = edge.getMethod().getSignature() and
       other.getDeclaringType().getASupertype*() = edge.getMethod().getDeclaringType()
     )
   )
@@ -529,7 +547,7 @@ predicate bodyMaterialization(Method method, Parameter body) {
   )
 }
 
-predicate associationRow(Method entry, Element site, string target, string sink, string path, string phase, string confidence, string coverage, string note) {
+predicate legacyAssociationRow(Method entry, Element site, string target, string sink, string path, string phase, string confidence, string coverage, string note) {
   exists(Expr growth, Callable owner |
     growthSite(growth, owner, target) and
     (
@@ -582,6 +600,31 @@ predicate associationRow(Method entry, Element site, string target, string sink,
     phase = "entry>netty_json_switch>async>service>growth" and
     confidence = "partial" and coverage = "partial" and
     note = "netty_json_switch_async_dispatch_requires_path_coverage"
+  )
+}
+
+/** A complete association is emitted only by the same domain that emits the
+ * formal flow row. Legacy call-graph/framework skeletons remain partial and
+ * are suppressed when the proof-carrying domain already owns the path. */
+predicate associationRow(Method entry, Element site, string target, string sink,
+                         string path, string phase, string confidence,
+                         string coverage, string note) {
+  exists(Parameter input |
+    EntryGrowthPathDomain::entryGrowthPath(
+      entry, input, site, target, sink, path, phase, confidence, coverage, note
+    )
+  )
+  or
+  legacyAssociationRow(
+    entry, site, target, sink, path, phase, confidence, coverage, note
+  ) and confidence = "partial" and coverage = "partial" and
+  not exists(Parameter input, string proofSink, string proofPath,
+             string proofPhase, string proofConfidence, string proofCoverage,
+             string proofNote |
+    EntryGrowthPathDomain::entryGrowthPath(
+      entry, input, site, target, proofSink, proofPath, proofPhase,
+      proofConfidence, proofCoverage, proofNote
+    )
   )
 }
 from Method entry, Element site, string target, string sink, string path, string phase, string confidence, string coverage, string note
