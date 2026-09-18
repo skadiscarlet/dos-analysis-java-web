@@ -1,0 +1,35 @@
+{
+  "analysis_mode": "formal",
+  "backend": "resource-lifecycle-production-bridge-v2",
+  "delivery_state": "implementation_verified_formal_full_blocked",
+  "dynamic_validation": false,
+  "entries_archive": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-rightapi-20260918_165304-entries",
+  "entries_plan_digest": "da8bbad891608bbe282a3439a2e96ecf9dc71d0690f3d4bb2535727306af6554",
+  "format": "dosweb-lifecycle-e2e-run-v1",
+  "full_archive": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-rightapi-20260918_165304-full",
+  "full_plan_digest": "b40b547ea62ee842c9b5946fe9deb39262bef800a2182956665a1923e0bee73b",
+  "full_provider": {
+    "allow_remote_llm": true,
+    "base_url": "https://rightapi.ai/grok/v1/",
+    "max_retries": 5,
+    "model": "grok-4.6",
+    "timeout_seconds": 180
+  },
+  "implementation_commit": "5f7b117cd6463748efeba38734a72d2bc4a8092c",
+  "input_manifest": "reports/lifecycle-e2e/input-manifest.json",
+  "oracle_consumed_by_analyzer": false,
+  "provider_probe": {
+    "http_status": 401,
+    "response_body_persisted": false
+  },
+  "query_failure_policy": "fail_closed",
+  "run_id": "lifecycle-e2e-poc33-rightapi-20260918_165304",
+  "schema_version": "2.8",
+  "tool_version": "0.7.0",
+  "validation": {
+    "focused": "348 passed, 154 subtests passed",
+    "provider_client_loopback": "121 passed, 151 subtests passed",
+    "real_codeql_dispatch_fixture": "1 passed in 160.88s",
+    "resource_lifecycle": "522 passed, 24 skipped, 242 subtests passed"
+  }
+}

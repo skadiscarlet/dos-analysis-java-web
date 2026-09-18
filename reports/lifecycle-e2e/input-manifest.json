@@ -1,0 +1,467 @@
+{
+  "canonical_manifest_sha256": "055854fc7556ea6143bc33575509a0069555851ff0ea16fece7779248cb4d514",
+  "format": "dosweb-poc33-input-manifest-v1",
+  "implementation_commit": "5f7b117cd6463748efeba38734a72d2bc4a8092c",
+  "manifest_digest": "bbf831755e3c3437be0caf113d61913cfcaa66fa71d4efdcd5fa03ec8d82c2ff",
+  "oracle_separation": {
+    "analyzer_inputs": "repository identity, source/database paths, fingerprints, configuration and canonical analysis scope",
+    "evaluation_only": "truth status, expected endpoint/location, root cause and prior verdict",
+    "record_mapping_consumed_by_analyzer": false
+  },
+  "projects": [
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 8,
+      "database_path": "databases/applications/apache__hertzbeat-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "6dbf101934fc8a485842c6522185a61e4e64710568cb9eac8dd937502fbd1d60",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "apache/hertzbeat",
+      "source_path": "frameworks/applications/apache__hertzbeat",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 20,
+      "database_path": "databases/applications/cicizz__jmqtt-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "032ac7eababf54e072910b49e86c18716abdaab6",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "cicizz/jmqtt",
+      "source_path": "frameworks/applications/cicizz__jmqtt",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 26,
+      "database_path": "databases/applications/dependencytrack__dependency-track-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "0886dc60a365c61fda12c9cb6484fc25df163a5b2fed78ac2b8c784f278949bc",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "dependencytrack/dependency-track",
+      "source_path": "frameworks/applications/dependencytrack__dependency-track",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 43,
+      "database_path": "databases/applications/erupts__erupt-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "e725556dd41659c0d1ef9d4bf4dfbdffbe6c3936",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "erupts/erupt",
+      "source_path": "frameworks/applications/erupts__erupt",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 48,
+      "database_path": "databases/applications/getrebuild__rebuild-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "11b99899d3aba18b3a4e891f831ff7efc283ecc9",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "getrebuild/rebuild",
+      "source_path": "frameworks/applications/getrebuild__rebuild",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 51,
+      "database_path": "databases/applications/grobidOrg__grobid-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "000e6768a837ed1bc0a0f53e9c0f9b68ed3e06c5",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "grobidorg/grobid",
+      "source_path": "frameworks/applications/grobidOrg__grobid",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 68,
+      "database_path": "databases/applications/jetlinks__jetlinks-community-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "bb6e8a93ccbbb7fd91711a75c36d69472d5c2964",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "jetlinks/jetlinks-community",
+      "source_path": "frameworks/applications/jetlinks__jetlinks-community",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 100,
+      "database_path": "databases/applications/openzipkin__zipkin-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "b72f75667b203d11356a46e9223679a6ae444f97334e56945f8492bef8fd1fd5",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "openzipkin/zipkin",
+      "source_path": "frameworks/applications/openzipkin__zipkin",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 104,
+      "database_path": "databases/applications/powerjob__powerjob-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "332179de26b44f0a949f7594ce9f57ee26fb6b27",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "powerjob/powerjob",
+      "source_path": "frameworks/applications/powerjob__powerjob",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 107,
+      "database_path": "databases/applications/quickmsg__smqtt-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "90c80b0c1cbd2caffe9e6028e7683b0a20a5b850",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "quickmsg/smqtt",
+      "source_path": "frameworks/applications/quickmsg__smqtt",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 127,
+      "database_path": "databases/applications/thingsboard__thingsboard-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "39105560e25438ba5ce1cf62ce55e961a03e9ae6252eec0c3892c8a716b1fa4c",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "thingsboard/thingsboard",
+      "source_path": "frameworks/applications/thingsboard__thingsboard",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 128,
+      "database_path": "databases/applications/tianshiyeben__wgcloud-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "cfd2066ca44cc9477986ef79a8b6f554af8639cb",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "tianshiyeben/wgcloud",
+      "source_path": "frameworks/applications/tianshiyeben__wgcloud",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 131,
+      "database_path": "databases/applications/walmartlabs__concord-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "9caa877161aff11501bc01c9a2ea51d99f7e1d80",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "walmartlabs/concord",
+      "source_path": "frameworks/applications/walmartlabs__concord",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 138,
+      "database_path": "databases/applications/xuxueli__xxl-job-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "128dd678962b8918b9abf2e82928818b0072ac50",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "xuxueli/xxl-job",
+      "source_path": "frameworks/applications/xuxueli__xxl-job",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 140,
+      "database_path": "databases/applications/yangzongzhuan__ruoyi-vue-fast-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "abdb78dd24c7e514c1c45105edfb5fe0dc6ffe93",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "yangzongzhuan/ruoyi-vue-fast",
+      "source_path": "frameworks/applications/yangzongzhuan__ruoyi-vue-fast",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 141,
+      "database_path": "databases/applications/yiuman__citrus-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "05605ba1a23f4bca3a9fd0abc2ab5bf6a2c44abe",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "yiuman/citrus",
+      "source_path": "frameworks/applications/yiuman__citrus",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 201,
+      "database_path": "databases/applications/apache__druid-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "f198b90f3c6d063ec640d00526e49f3710f7bffb3962a57e4c3f805188d434aa",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "apache/druid",
+      "source_path": "frameworks/applications/apache__druid",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 202,
+      "database_path": "databases/applications/apache__skywalking-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "469291a96608d8677ea1b567df5cd46a20d04ee536b3f0cd5985a0e6c37cefa9",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "apache/skywalking",
+      "source_path": "frameworks/applications/apache__skywalking",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 203,
+      "database_path": "databases/applications/apache__solr-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "68e31819e84d4e4a6c840b12324fc03f18518dbfc23c043687b7e6e31189000b",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "apache/solr",
+      "source_path": "frameworks/applications/apache__solr",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 204,
+      "database_path": "databases/applications/prestodb__presto-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "c0a2f6e630314c66d2930e14cf98c73aa328f2bc6dfee47af5a6687a589f82d7",
+      "fingerprint_type": "tree-sha256",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "prestodb/presto",
+      "source_path": "frameworks/applications/prestodb__presto",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    },
+    {
+      "analysis_scope": "canonical_project_scope",
+      "canonical_index": 205,
+      "database_path": "databases/applications/dromara__datacompare-db",
+      "database_present": true,
+      "exclusions": [],
+      "fingerprint": "906df90c8d881f5a6ff9dcb819578e1a8eb022c8",
+      "fingerprint_type": "git-commit",
+      "known_record_version_match": "unknown",
+      "modules": [],
+      "normalized_project_id": "dromara/datacompare",
+      "source_path": "frameworks/applications/dromara__datacompare",
+      "source_present": true,
+      "version_match_reason": "poc_manifest_has_no_source_version_provenance"
+    }
+  ],
+  "records": [
+    {
+      "normalized_project_id": "yiuman/citrus",
+      "record_id": "CITRUS-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "yiuman/citrus",
+      "record_id": "CITRUS-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "dromara/datacompare",
+      "record_id": "DCMP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "dromara/datacompare",
+      "record_id": "DCMP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "erupts/erupt",
+      "record_id": "ERUPT-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "erupts/erupt",
+      "record_id": "ERUPT-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "cicizz/jmqtt",
+      "record_id": "JMQTT-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "powerjob/powerjob",
+      "record_id": "POWERJOB-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "getrebuild/rebuild",
+      "record_id": "REBUILD-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "getrebuild/rebuild",
+      "record_id": "REBUILD-APP-STATIC-0003"
+    },
+    {
+      "normalized_project_id": "yangzongzhuan/ruoyi-vue-fast",
+      "record_id": "RYVF-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "quickmsg/smqtt",
+      "record_id": "SMQTT-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "quickmsg/smqtt",
+      "record_id": "SMQTT-APP-STATIC-0003"
+    },
+    {
+      "normalized_project_id": "quickmsg/smqtt",
+      "record_id": "SMQTT-APP-STATIC-0004"
+    },
+    {
+      "normalized_project_id": "quickmsg/smqtt",
+      "record_id": "SMQTT-APP-STATIC-0006"
+    },
+    {
+      "normalized_project_id": "tianshiyeben/wgcloud",
+      "record_id": "WGCLOUD-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "xuxueli/xxl-job",
+      "record_id": "XXL-JOB-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "xuxueli/xxl-job",
+      "record_id": "XXL-JOB-APP-STATIC-0003"
+    },
+    {
+      "normalized_project_id": "xuxueli/xxl-job",
+      "record_id": "XXL-JOB-APP-STATIC-0004"
+    },
+    {
+      "normalized_project_id": "apache/druid",
+      "record_id": "apache__druid-DRUID-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "apache/druid",
+      "record_id": "apache__druid-DRUID-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "apache/hertzbeat",
+      "record_id": "apache__hertzbeat-HERTZBEAT-DOS-0001"
+    },
+    {
+      "normalized_project_id": "apache/skywalking",
+      "record_id": "apache__skywalking-SKYWALKING-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "apache/solr",
+      "record_id": "apache__solr-SOLR-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "dependencytrack/dependency-track",
+      "record_id": "dependencytrack__dependency-track-DTRACK-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "grobidorg/grobid",
+      "record_id": "grobidorg__grobid-GROBID-STATIC-001"
+    },
+    {
+      "normalized_project_id": "grobidorg/grobid",
+      "record_id": "grobidorg__grobid-GROBID-STATIC-002"
+    },
+    {
+      "normalized_project_id": "jetlinks/jetlinks-community",
+      "record_id": "jetlinks__jetlinks-community-JL-STAGEA-0001"
+    },
+    {
+      "normalized_project_id": "openzipkin/zipkin",
+      "record_id": "openzipkin__zipkin-ZIPKIN-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "prestodb/presto",
+      "record_id": "prestodb__presto-PRESTO-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "thingsboard/thingsboard",
+      "record_id": "thingsboard__thingsboard-TB-APP-STATIC-0001"
+    },
+    {
+      "normalized_project_id": "thingsboard/thingsboard",
+      "record_id": "thingsboard__thingsboard-TB-APP-STATIC-0002"
+    },
+    {
+      "normalized_project_id": "walmartlabs/concord",
+      "record_id": "walmartlabs__concord-fnd3"
+    }
+  ],
+  "run_id": "lifecycle-e2e-poc33-rightapi-20260918_165304",
+  "schema_version": "2.8",
+  "selection_digest": "74626d85ecd801df16936b6ce4cf2cb03eeaed13739a4c0c7fba8cc5f55679ce",
+  "tool_version": "0.7.0",
+  "truth_manifest_sha256": "ee9163f231eb7a98c705aab647c6be1e72070e94d26bd0c93d5e041af9ba75e9"
+}
