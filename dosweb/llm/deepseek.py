@@ -104,7 +104,7 @@ _PII_PATTERNS = (
 _SLICE_CREDENTIAL_PATTERNS = (*_RESPONSE_CREDENTIAL_PATTERNS, *_PII_PATTERNS)
 _GITHUB_SOURCE_PATTERN = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$")
 _FULL_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
-_PRODUCTION_ENDPOINTS = frozenset({"https://rightapi.ai/grok/v1/"})
+_PRODUCTION_ENDPOINTS = frozenset({"https://api.api2cn.com/v1/"})
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 

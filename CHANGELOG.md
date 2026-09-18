@@ -1,5 +1,6 @@
 ## [2026-09-18] Production resource lifecycle integration
 
+- 按用户提供的新 provider 配置将正式 Responses endpoint 迁移到 `https://api.api2cn.com/v1/`，模型保持 `grok-4.6`，provider/cache identity 改为 `api2cn_responses`；旧 RightAPI endpoint 从 production allowlist 移除。新凭据仅写入 gitignored、owner-only `config/local_secrets.json`，旧 RightAPI full plan/cache 不复用，必须用新 run ID 重建 immutable plan。
 - 固定 RightAPI PoC-33 run `lifecycle-e2e-poc33-rightapi-20260918_165304`：entries 21/21 completed、168 selected queries、0 diagnostics、0 skipped。formal full 首项在 Growth 收到 `LLM_AUTHENTICATION_FAILED`，独立无源码最小探针确认 HTTP 401，环境无备用 key；停止后续确定性失败并交付真实 partial ledger、33 行未评价记录、null TP/FP/U、immutable plan 和恢复命令，不宣称 33/33 或 precision。
 - 将正式 Responses provider 与当前项目配置统一为 `https://rightapi.ai/grok/v1/` / `grok-4.6`，provider/cache identity 改为 `rightapi_responses`；旧 APIBasis full archive 的 `LLM_RETRIES_EXHAUSTED` 保留为配置漂移证据，不复用其 plan/cache。
 - 将 RC1 生命周期后端接入正式 lifecycle/conclude：项目级只运行一次提取与求解，按 Growth submit/execute 程序点的完整 `dispatch` 事实绑定 `TaskBinding -> instance -> resource family -> executor contract`，拒绝仅凭文件/行号或 create 点关联。

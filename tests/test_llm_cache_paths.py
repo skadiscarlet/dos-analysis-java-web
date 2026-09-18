@@ -45,7 +45,7 @@ def _growth_cache_fixture(
     identity: dict[str, object] = {
         "request_method": "POST",
         "request_url": "https://example.test/responses",
-        "provider": "rightapi_responses",
+        "provider": "api2cn_responses",
         "protocol": "responses-v1",
         "model": "grok-4.6",
         "slice_content_hash": "a" * 64,

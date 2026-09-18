@@ -196,7 +196,7 @@ class BenchmarkTruthTests(unittest.TestCase):
             plan = json.loads((output / "batch_plan.json").read_text(encoding="utf-8"))
             self.assertEqual("8d75d8b55226680373483f8f36a42a1893e1d60b096febec76b6cee0ac3c70e1", plan["plan_digest"])
             self.assertEqual("grok-4.6", plan["provider"]["model"])
-            self.assertEqual("https://rightapi.ai/grok/v1/", plan["provider"]["base_url"])
+            self.assertEqual("https://api.api2cn.com/v1/", plan["provider"]["base_url"])
             self.assertEqual(18, len(plan["targets"]))
             self.assertTrue(all(target["initial_state"] == "queued" for target in plan["targets"]))
             run_manifest = json.loads((output / "run_manifest.json").read_text(encoding="utf-8"))

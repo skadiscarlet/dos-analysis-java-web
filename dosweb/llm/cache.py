@@ -25,7 +25,7 @@ from dosweb.llm.schemas import GROWTH_CONTRACT_JSON_SCHEMA, PROMPT_VERSION, RESP
 
 _CACHE_FORMAT = "growth-contract-cache-v14"
 AUTH_CACHE_FORMAT = "auth-contract-cache-v5"
-PROVIDER_ID = "rightapi_responses"
+PROVIDER_ID = "api2cn_responses"
 _AUTH_CACHE_HMAC_DOMAIN = f"{AUTH_CACHE_FORMAT}\0".encode("ascii")
 _LOCK_STRIPES = 64
 _LOCKS_GUARD = threading.Lock()
