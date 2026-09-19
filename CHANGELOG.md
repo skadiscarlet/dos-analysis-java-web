@@ -1,5 +1,6 @@
 ## [2026-09-18] Production resource lifecycle integration
 
+- 修复 formal Flow 对同一程序点、同一精确 attacker demand 的多资源维度 Growth 身份误判为 `FLOW_REFERENCE_AMBIGUOUS`：单条 source-to-sink 证据现在按稳定 Growth ID 分别生成路径，仍拒绝位置不一致、demand 不兼容、canonical Entry 不匹配和重复路径；XXL-JOB 同一 queue insertion 的 retained entries / accepted tasks 双重建模不再中止正式分析。
 - 将 RC1 source snapshot declaration coverage insufficiency 改为明确 typed gap：production 仅对该类缺口降级，为相关 async task Growth 路径发布 path-bound unresolved decision 并得到 `static_unknown`；不生成伪造 solver facts/results。归档字节不匹配、数据库身份错配、selected query failure 与 malformed result 仍 fail closed。
 - 按用户提供的新 provider 配置将正式 Responses endpoint 迁移到 `https://api.api2cn.com/v1/`，模型保持 `grok-4.6`，provider/cache identity 改为 `api2cn_responses`；旧 RightAPI endpoint 从 production allowlist 移除。新凭据仅写入 gitignored、owner-only `config/local_secrets.json`，旧 RightAPI full plan/cache 不复用，必须用新 run ID 重建 immutable plan。
 - 固定 RightAPI PoC-33 run `lifecycle-e2e-poc33-rightapi-20260918_165304`：entries 21/21 completed、168 selected queries、0 diagnostics、0 skipped。formal full 首项在 Growth 收到 `LLM_AUTHENTICATION_FAILED`，独立无源码最小探针确认 HTTP 401，环境无备用 key；停止后续确定性失败并交付真实 partial ledger、33 行未评价记录、null TP/FP/U、immutable plan 和恢复命令，不宣称 33/33 或 precision。

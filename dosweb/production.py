@@ -109,7 +109,7 @@ _IMPLEMENTATION_VERSIONS: Final = {
         if stage == "entries"
         else "production-v2.8-open-world-maturation-conclude-v6"
         if stage == "conclude"
-        else "production-v2.8-open-world-maturation-flows-v21"
+        else "production-v2.8-open-world-maturation-flows-v22"
         if stage == "flows"
         else f"production-v2.8-open-world-maturation-{stage}-v16"
         if stage == "lifecycle"

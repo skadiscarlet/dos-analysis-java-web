@@ -272,55 +272,59 @@ def normalize_flow_rows(
                 for demand in item.candidate.demand_inputs
             )
         ]
-        if len(growth_matches) != 1 or not entry_matches:
+        if not growth_matches or not entry_matches:
             raise _invalid("FLOW_REFERENCE_AMBIGUOUS")
-        growth_result = growth_matches[0]
-        source_matched = tuple(
-            entry for entry in entry_matches
-            if control.source in {item.name for item in entry.attacker_inputs}
-        )
-        entry_domain = tuple(
-            sorted(
-                source_matched or tuple(entry_matches),
-                key=lambda item: item.entry_id,
-            )
-        )
-        if canonical_entry_ids is None:
-            resolved_entries = _entries_for_growth(entry_domain, growth_result)
-        else:
-            canonical_entry_id = canonical_entry_ids.get(growth_result.growth_id)
-            canonical_entry = entries.get(canonical_entry_id or "")
-            if (
-                not isinstance(canonical_entry_id, str)
-                or not isinstance(canonical_entry, EntryFact)
-                or canonical_entry not in entry_domain
-            ):
-                raise _invalid("FLOW_CANONICAL_ENTRY_MISMATCH")
-            resolved_entries = (canonical_entry,)
-        roles = {item.role for item in growth_result.candidate.demand_inputs}
-        demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == control.target}
-        if control.target not in roles:
-            raise _invalid("ATTACKER_TARGET_NOT_GROWTH_DEMAND", "attacker_target")
-        if not any(expression_binds_demand(name, control.sink) for name in demand_names):
-            raise _invalid("ATTACKER_SINK_NOT_GROWTH_DEMAND", "attacker_sink")
         raw_coverage = _enum(row["coverage_status"], _COVERAGE, "coverage_status")
         raw_confidence = cast(FlowConfidence, _enum(row["confidence"], _CONFIDENCE, "confidence"))
         flow_kind = _string(row["flow_kind"], "flow_kind")
         raw_note = _string(row["coverage_note"], "coverage_note")
-        for entry in resolved_entries:
-            if control.source not in {item.name for item in entry.attacker_inputs}:
-                raise _invalid("ATTACKER_SOURCE_NOT_ENTRY_INPUT", "attacker_source")
-            coverage = raw_coverage
-            confidence = raw_confidence
-            note = raw_note
-            if len(resolved_entries) > 1:
-                coverage = "partial"
-                confidence = "partial"
-                note = "multiple_route_registrations_require_path_coverage"
-            elif coverage != "complete" or flow_kind not in {"data_flow", "local_data_flow"}:
-                confidence = "partial"
-            proof = FlowProof.create(entry_id=entry.entry_id, growth_id=growth_result.growth_id, attacker_control=control, call_path=_sequence(row["call_path"], "call_path"), phase_sequence=_sequence(row["phase_sequence"], "phase_sequence"), confidence=confidence, flow_kind=flow_kind, coverage_status=coverage, coverage_note=note)
-            if proof.path_id in proofs:
-                raise _invalid("DUPLICATE_PATH_ID")
-            proofs[proof.path_id] = proof
+        # One program point may represent distinct resource dimensions (for
+        # example, the retained entries and accepted tasks of one queue
+        # insertion). A row that binds the same exact demand is evidence for
+        # each Growth identity; the Growth ID keeps those paths distinct.
+        for growth_result in sorted(growth_matches, key=lambda item: item.growth_id):
+            source_matched = tuple(
+                entry for entry in entry_matches
+                if control.source in {item.name for item in entry.attacker_inputs}
+            )
+            entry_domain = tuple(
+                sorted(
+                    source_matched or tuple(entry_matches),
+                    key=lambda item: item.entry_id,
+                )
+            )
+            if canonical_entry_ids is None:
+                resolved_entries = _entries_for_growth(entry_domain, growth_result)
+            else:
+                canonical_entry_id = canonical_entry_ids.get(growth_result.growth_id)
+                canonical_entry = entries.get(canonical_entry_id or "")
+                if (
+                    not isinstance(canonical_entry_id, str)
+                    or not isinstance(canonical_entry, EntryFact)
+                    or canonical_entry not in entry_domain
+                ):
+                    raise _invalid("FLOW_CANONICAL_ENTRY_MISMATCH")
+                resolved_entries = (canonical_entry,)
+            roles = {item.role for item in growth_result.candidate.demand_inputs}
+            demand_names = {item.name for item in growth_result.candidate.demand_inputs if item.role == control.target}
+            if control.target not in roles:
+                raise _invalid("ATTACKER_TARGET_NOT_GROWTH_DEMAND", "attacker_target")
+            if not any(expression_binds_demand(name, control.sink) for name in demand_names):
+                raise _invalid("ATTACKER_SINK_NOT_GROWTH_DEMAND", "attacker_sink")
+            for entry in resolved_entries:
+                if control.source not in {item.name for item in entry.attacker_inputs}:
+                    raise _invalid("ATTACKER_SOURCE_NOT_ENTRY_INPUT", "attacker_source")
+                coverage = raw_coverage
+                confidence = raw_confidence
+                note = raw_note
+                if len(resolved_entries) > 1:
+                    coverage = "partial"
+                    confidence = "partial"
+                    note = "multiple_route_registrations_require_path_coverage"
+                elif coverage != "complete" or flow_kind not in {"data_flow", "local_data_flow"}:
+                    confidence = "partial"
+                proof = FlowProof.create(entry_id=entry.entry_id, growth_id=growth_result.growth_id, attacker_control=control, call_path=_sequence(row["call_path"], "call_path"), phase_sequence=_sequence(row["phase_sequence"], "phase_sequence"), confidence=confidence, flow_kind=flow_kind, coverage_status=coverage, coverage_note=note)
+                if proof.path_id in proofs:
+                    raise _invalid("DUPLICATE_PATH_ID")
+                proofs[proof.path_id] = proof
     return [proofs[key].to_dict() for key in sorted(proofs, key=lambda item: canonical_json(proofs[item].semantic_identity))]

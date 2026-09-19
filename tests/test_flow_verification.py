@@ -183,6 +183,42 @@ class FlowVerificationTests(unittest.TestCase):
             )
         )
 
+    def test_same_site_and_demand_publish_flow_for_each_growth_identity(self) -> None:
+        entry = self._entry()
+        first = self._growth()
+        second_candidate = GrowthCandidate.from_raw({
+            "site_file": "fixture/spring/SpringFixture.java", "site_start_line": 18,
+            "growth_kind": "async_work_growth", "operation": "java.nio.ByteBuffer.allocate",
+            "resource_dimension": "tasks", "receiver": "java.nio.ByteBuffer",
+            "field_path": "allocation", "demand_input_name": "limit", "demand_input_role": "size",
+            "escape_scope": "instance", "candidate_evidence": "accepted_tasks",
+            "coverage_status": "partial", "coverage_note": "task population requires lifecycle proof",
+            "query_name": "growth", "query_sha256": "b" * 64,
+            "site_location": "fixture/spring/SpringFixture.java:18",
+        })
+        second = VerifiedGrowthResult.create(
+            candidate=second_candidate,
+            slice_id="slice:accepted-tasks",
+            status="unresolved",
+            reason_codes=("GROWTH_COVERAGE_INCOMPLETE",),
+            checks=(VerificationCheck("growth_coverage", False, "GROWTH_COVERAGE_INCOMPLETE"),),
+        )
+        records = normalize_flow_rows(
+            (self._raw(confidence="partial", coverage_status="partial"),),
+            {entry.entry_id: entry},
+            {first.growth_id: first, second.growth_id: second},
+            canonical_entry_ids={
+                first.growth_id: entry.entry_id,
+                second.growth_id: entry.entry_id,
+            },
+        )
+        self.assertEqual(len(records), 2)
+        self.assertEqual(
+            {record["growth_id"] for record in records},
+            {first.growth_id, second.growth_id},
+        )
+        self.assertEqual(len({record["path_id"] for record in records}), 2)
+
     def test_dangling_references_raise_stable_error(self) -> None:
         entry = self._entry()
         growth = self._growth()
