@@ -6113,7 +6113,7 @@ public class ServiceApplication extends Application<Object> {
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["lifecycle"],
-            "production-v2.8-open-world-maturation-lifecycle-v15",
+            "production-v2.8-open-world-maturation-lifecycle-v16",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],
@@ -6682,10 +6682,14 @@ public class ServiceApplication extends Application<Object> {
             def resource_provider(
                 database: DatabaseInfo, _output: Path
             ):
-                from tests.test_resource_lifecycle_production_bridge import _run
+                from dosweb.lifecycle.resource_properties import ResourceLifecycleCoverageGap
 
                 resource_calls.append(database.fingerprint)
-                return _run()
+                raise ResourceLifecycleCoverageGap(
+                    database_fingerprint=database.fingerprint,
+                    source_snapshot_sha256="d" * 64,
+                    implementation_sha256="e" * 64,
+                )
 
             pipeline = build_production_pipeline(
                 self._values(root, allow_remote_llm=True),
@@ -6703,8 +6707,15 @@ public class ServiceApplication extends Application<Object> {
             self.assertTrue(
                 (root / "output" / "resource_lifecycle_bindings.jsonl").is_file()
             )
-            self.assertTrue(
-                (root / "output" / "resource_lifecycle_facts.private.json").is_file()
+            self.assertFalse(
+                (root / "output" / "resource_lifecycle_facts.private.json").exists()
+            )
+            binding = json.loads(
+                (root / "output" / "resource_lifecycle_bindings.jsonl").read_text().strip()
+            )
+            self.assertEqual(
+                ["RESOURCE_LIFECYCLE_SOURCE_SNAPSHOT_COVERAGE_UNRESOLVED"],
+                binding["coverage_gaps"],
             )
             disposition = json.loads(
                 (root / "output" / "candidate_dispositions.jsonl").read_text().strip()

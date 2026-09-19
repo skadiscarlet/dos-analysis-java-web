@@ -245,6 +245,73 @@ def test_unknown_population_property_forces_candidate_local_unknown() -> None:
     validate_records("resource_lifecycle_bindings", [decision.record])
 
 
+def test_source_snapshot_coverage_gap_is_candidate_local_and_never_refutes() -> None:
+    from dosweb.lifecycle.resource_properties import (
+        ResourceLifecycleCoverageGap,
+        bind_resource_lifecycle_coverage_gap,
+    )
+
+    entry = _entry()
+    result = _verified(_growth())
+    gap = ResourceLifecycleCoverageGap(
+        database_fingerprint="9" * 64,
+        source_snapshot_sha256="d" * 64,
+        implementation_sha256="e" * 64,
+    )
+    decision = bind_resource_lifecycle_coverage_gap(
+        entry, result, _flow(entry, result), gap
+    )
+
+    assert decision.resource_decision.status == "unresolved"
+    assert decision.resource_decision.property_id is None
+    assert decision.resource_decision.upper_bound is None
+    assert decision.record["coverage_gaps"] == [gap.reason_code]
+    assert decision.record["reason_code"] == gap.reason_code
+    validate_records("resource_lifecycle_bindings", [decision.record])
+
+    unrelated = _verified(
+        GrowthCandidate.create(
+            site=SourceLocation("src/main/java/Fixture.java", 3),
+            kind="input_materialization",
+            operation="readAllBytes()",
+            resource_dimension="bytes",
+            receiver="request",
+            field_path="request.body",
+            demand_inputs=(DemandInput("body", "size"),),
+            escape_scope="request",
+            evidence_ids=frozenset({"fact:unrelated"}),
+        )
+    )
+    unrelated_entry = EntryFact.create(
+        framework="spring_mvc",
+        protocol="http",
+        handler=entry.handler,
+        registration=entry.registration,
+        registration_pattern_id=entry.registration_pattern_id,
+        route_or_event="/submit",
+        auth_context="unauthenticated",
+        attacker_inputs=(AttackerInputFact("body", "byte[]", "request_body"),),
+        materialization_phase="in_handler",
+    )
+    unrelated_flow = verify_flow(
+        FlowProof.create(
+            entry_id=unrelated_entry.entry_id,
+            growth_id=unrelated.growth_id,
+            attacker_control=AttackerControl("size", "body", "body"),
+            call_path=(entry.handler.callable,),
+            phase_sequence=("in_handler",),
+            confidence="proven",
+        ),
+        {unrelated_entry.entry_id: unrelated_entry},
+        {unrelated.growth_id: unrelated},
+    )
+    unrelated_decision = bind_resource_lifecycle_coverage_gap(
+        unrelated_entry, unrelated, unrelated_flow, gap
+    )
+    assert unrelated_decision.resource_decision.status == "not_applicable"
+    assert unrelated_decision.resource_decision.unresolved_facts == ()
+
+
 def test_line_without_exact_dispatch_never_binds_property() -> None:
     entry = _entry()
     result = _verified(_growth(line=4))

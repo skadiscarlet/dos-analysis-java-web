@@ -90,7 +90,9 @@ from dosweb.lifecycle.releases import ReleaseCandidate, ReleaseDecision, evaluat
 from dosweb.lifecycle.evidence import LifecycleCoverage, LifecycleEvidence, LifecycleSummary
 from dosweb.lifecycle.resource_properties import (
     ResourceLifecycleBackendRun,
+    ResourceLifecycleCoverageGap,
     ResourceLifecycleDecision,
+    bind_resource_lifecycle_coverage_gap,
     bind_resource_lifecycle_property,
 )
 from dosweb.llm.deepseek import DeepSeekClient
@@ -109,7 +111,7 @@ _IMPLEMENTATION_VERSIONS: Final = {
         if stage == "conclude"
         else "production-v2.8-open-world-maturation-flows-v21"
         if stage == "flows"
-        else f"production-v2.8-open-world-maturation-{stage}-v15"
+        else f"production-v2.8-open-world-maturation-{stage}-v16"
         if stage == "lifecycle"
         else f"production-v2.8-open-world-maturation-{stage}-v1"
     )
@@ -3466,14 +3468,29 @@ def make_lifecycle_executor(
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
             rows = _run_codeql_family(config, database, "lifecycle", pack, runner)
         resource_run: ResourceLifecycleBackendRun | None = None
+        resource_coverage_gap: ResourceLifecycleCoverageGap | None = None
         if resource_lifecycle_provider is not None:
             with tempfile.TemporaryDirectory(
                 prefix="dosweb-resource-lifecycle-"
             ) as temporary:
-                resource_run = resource_lifecycle_provider(
-                    database, Path(temporary) / "analysis"
+                try:
+                    resource_run = resource_lifecycle_provider(
+                        database, Path(temporary) / "analysis"
+                    )
+                except ResourceLifecycleCoverageGap as exc:
+                    resource_coverage_gap = exc
+            if (
+                resource_coverage_gap is not None
+                and resource_coverage_gap.database_fingerprint
+                != database.fingerprint
+            ):
+                raise AnalyzerError(
+                    "ANALYSIS_RESOURCE_LIFECYCLE_INVALID",
+                    "Resource lifecycle coverage gap belongs to a different CodeQL database.",
                 )
             if (
+                resource_run is not None
+                and
                 resource_run.extracted.coverage.get("database_fingerprint")
                 != database.fingerprint
             ):
@@ -3548,6 +3565,14 @@ def make_lifecycle_executor(
             if resource_run is not None and resource_lifecycle_propagation_enabled:
                 resource_binding = bind_resource_lifecycle_property(
                     entry, result, flow, resource_run
+                )
+                resource_lifecycle_bindings.append(dict(resource_binding.record))
+            elif (
+                resource_coverage_gap is not None
+                and resource_lifecycle_propagation_enabled
+            ):
+                resource_binding = bind_resource_lifecycle_coverage_gap(
+                    entry, result, flow, resource_coverage_gap
                 )
                 resource_lifecycle_bindings.append(dict(resource_binding.record))
             # Summary rows are independently decoded source locations and are

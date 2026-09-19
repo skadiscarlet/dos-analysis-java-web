@@ -45,8 +45,10 @@ def test_comment_only_archive_difference_preserves_full_tree_identity(tmp_path):
 def test_missing_declarations_or_ambiguous_lexing_fail_closed(tmp_path, missing):
     db = database(tmp_path, missing)
     assert not commands._database_source_scope(db)['scope_complete']
-    with pytest.raises(ValueError, match='unarchived'):
+    with pytest.raises(commands.ResourceLifecycleCoverageGap, match='unarchived') as raised:
         commands._verify_database_source_snapshot(db)
+    assert raised.value.reason_code == 'RESOURCE_LIFECYCLE_SOURCE_SNAPSHOT_COVERAGE_UNRESOLVED'
+    assert raised.value.database_fingerprint == db.fingerprint
 
 
 def test_archived_byte_mismatch_still_fails(tmp_path):

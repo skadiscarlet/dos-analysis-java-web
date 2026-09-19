@@ -19,6 +19,7 @@ from dosweb.artifacts.identifiers import canonical_json, file_sha256, stable_ide
 from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query, validate_database
 from dosweb.codeql.database import DatabaseInfo
 from dosweb.errors import AnalyzerError
+from dosweb.lifecycle.resource_properties import ResourceLifecycleCoverageGap
 from dosweb.resource_lifecycle.adapters import (
     AnalysisUnit,
     ExtractedFacts,
@@ -228,7 +229,11 @@ def _verify_database_source_snapshot(database: DatabaseInfo) -> str:
     if scope["archived_mismatch_files"]:
         raise ValueError("CodeQL database source snapshot does not match archived live source bytes")
     if not scope["scope_complete"]:
-        raise ValueError("CodeQL source snapshot has unarchived declarations or unclassified semantics; dependency coverage unresolved")
+        raise ResourceLifecycleCoverageGap(
+            database_fingerprint=database.fingerprint,
+            source_snapshot_sha256=str(scope["source_snapshot_sha256"]),
+            implementation_sha256=_implementation_sha256(),
+        )
     return str(scope["source_snapshot_sha256"])
 
 

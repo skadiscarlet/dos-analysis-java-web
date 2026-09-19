@@ -17,10 +17,37 @@ from dosweb.resource_lifecycle.adapters import (
     extracted_to_dict,
 )
 
-_BACKEND_VERSION = "resource-lifecycle-production-bridge-v2"
+_BACKEND_VERSION = "resource-lifecycle-production-bridge-v3"
 ResourceDecisionStatus = Literal[
     "refutes_relevant_growth", "unresolved", "not_applicable"
 ]
+
+
+class ResourceLifecycleCoverageGap(ValueError):
+    """Typed, reviewable absence of RC1 coverage for one production database."""
+
+    reason_code = "RESOURCE_LIFECYCLE_SOURCE_SNAPSHOT_COVERAGE_UNRESOLVED"
+
+    def __init__(
+        self,
+        *,
+        database_fingerprint: str,
+        source_snapshot_sha256: str,
+        implementation_sha256: str,
+    ) -> None:
+        self.database_fingerprint = _digest(
+            database_fingerprint, "database_fingerprint"
+        )
+        self.source_snapshot_sha256 = _digest(
+            source_snapshot_sha256, "source_snapshot_sha256"
+        )
+        self.implementation_sha256 = _digest(
+            implementation_sha256, "implementation_sha256"
+        )
+        super().__init__(
+            "CodeQL source snapshot has unarchived declarations or "
+            "unclassified semantics; dependency coverage unresolved"
+        )
 
 
 def _digest(value: object, field: str) -> str:
@@ -460,9 +487,104 @@ def bind_resource_lifecycle_property(
     return ResourceLifecycleBindingDecision(record, decision)
 
 
+def bind_resource_lifecycle_coverage_gap(
+    entry: EntryFact,
+    result: VerifiedGrowthResult,
+    flow: VerifiedFlow,
+    gap: ResourceLifecycleCoverageGap,
+) -> ResourceLifecycleBindingDecision:
+    """Bind an RC1 backend coverage gap without inventing solver facts."""
+
+    candidate = result.candidate
+    if candidate is None or result.status != "verified" or not flow.satisfies_premise:
+        status: ResourceDecisionStatus = "unresolved"
+        reason = "RESOURCE_PROPERTY_PREMISE_UNRESOLVED"
+    elif candidate.kind != "async_work_growth" or candidate.resource_dimension != "tasks":
+        status = "not_applicable"
+        reason = "RESOURCE_PROPERTY_DIMENSION_NOT_CONSUMED"
+    else:
+        status = "unresolved"
+        reason = gap.reason_code
+    gap_evidence = {
+        "reason_code": gap.reason_code,
+        "database_fingerprint": gap.database_fingerprint,
+        "source_snapshot_sha256": gap.source_snapshot_sha256,
+        "backend_implementation_sha256": gap.implementation_sha256,
+    }
+    facts_sha256 = hashlib.sha256(canonical_json(gap_evidence) + b"\n").hexdigest()
+    result_sha256 = hashlib.sha256(
+        canonical_json(
+            {
+                **gap_evidence,
+                "entry_id": entry.entry_id,
+                "growth_id": result.growth_id,
+                "path_id": flow.path_id,
+                "status": status,
+            }
+        )
+        + b"\n"
+    ).hexdigest()
+    semantic = {
+        "entry_id": entry.entry_id,
+        "growth_id": result.growth_id,
+        "path_id": flow.path_id,
+        "analysis_unit_id": None,
+        "resource_family_id": None,
+        "instance_id": None,
+        "task_binding_id": None,
+        "executor_contract_id": None,
+        "submit_program_point": None,
+        "submit_callable": None,
+        "submit_file": None,
+        "submit_line": None,
+        "submit_column": None,
+        "submit_line_sha256": None,
+        "allocation_file": None,
+        "allocation_line": None,
+        "allocation_source_sha256": None,
+        "growth_dimension": candidate.resource_dimension if candidate else None,
+        "growth_scope": candidate.escape_scope if candidate else None,
+        "property_id": None,
+        "property_dimension": None,
+        "property_scope": None,
+        "property_cut": None,
+        "property_status": None,
+        "upper_bound": None,
+        "assumptions": [],
+        "coverage_gaps": [gap.reason_code],
+        "evidence_refs": [],
+        "binding_status": status,
+        "reason_code": reason,
+        "backend_version": _BACKEND_VERSION,
+        "backend_implementation_sha256": gap.implementation_sha256,
+        "facts_sha256": facts_sha256,
+        "result_sha256": result_sha256,
+        "database_fingerprint": gap.database_fingerprint,
+        "source_snapshot_sha256": gap.source_snapshot_sha256,
+        "query_sha256": None,
+    }
+    record = {"binding_id": stable_identifier("resource-binding", semantic), **semantic}
+    decision = ResourceLifecycleDecision.create(
+        status=status,
+        reason_codes=(reason,),
+        evidence_ids=(record["binding_id"],),
+        unresolved_facts=(reason,) if status == "unresolved" else (),
+        binding_id=record["binding_id"],
+        property_id=None,
+        result_sha256=result_sha256,
+        dimension=None,
+        scope=None,
+        cut=None,
+        upper_bound=None,
+    )
+    return ResourceLifecycleBindingDecision(record, decision)
+
+
 __all__ = [
     "ResourceLifecycleBackendRun",
     "ResourceLifecycleBindingDecision",
+    "ResourceLifecycleCoverageGap",
     "ResourceLifecycleDecision",
+    "bind_resource_lifecycle_coverage_gap",
     "bind_resource_lifecycle_property",
 ]
