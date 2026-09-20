@@ -248,6 +248,7 @@ class ArtifactContractTests(unittest.TestCase):
                 "entry_security_facts",
                 "modeled_configuration",
                 "growth_candidates",
+                "growth_static_facts",
                 "candidate_entry_links",
                 "candidate_negative_proofs",
                 "candidate_dispositions",

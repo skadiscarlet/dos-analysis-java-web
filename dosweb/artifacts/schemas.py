@@ -37,6 +37,7 @@ _ID_PREFIXES: Final = {
     "gap_id": "gap:", "interposition_id": "interposition:",
     "family_id": "family:",
     "negative_proof_id": "negative_proof:",
+    "growth_static_fact_id": "growth_static_fact:",
     "binding_id": "resource-binding:",
 }
 _MAX_ARTIFACT_ID_BYTES: Final = 256
@@ -169,6 +170,47 @@ ARTIFACT_SCHEMAS: Final[dict[str, ArtifactSchema]] = {
         field_kinds=_COMMON_GROWTH_FIELD_KINDS,
         record_validator=lambda record, artifact_name, line: _validate_growth(
             record, artifact_name, line
+        ),
+    ),
+    "growth_static_facts": ArtifactSchema(
+        id_field="growth_static_fact_id",
+        required_fields=frozenset(
+            {
+                "growth_static_fact_id",
+                "growth_id",
+                "fact_id",
+                "kind",
+                "location_ref",
+                "relation",
+                "value_ref",
+                "normalized_value",
+            }
+        ),
+        enum_fields={
+            "kind": frozenset(
+                {
+                    "container_write", "allocation", "input_materialization",
+                    "async_submission", "flow", "guard", "bound", "release",
+                    "driver_origin", "value_space", "escape_scope", "retention",
+                    "amplification", "loop_multiplicity", "field_identity",
+                    "materialization_phase", "known_limit_location",
+                    "attacker_target",
+                }
+            ),
+            "relation": frozenset(
+                {"source", "sink", "flows_to", "guards", "bounds", "releases"}
+            ),
+        },
+        reference_fields={"growth_id": ReferenceSpec("growth_id")},
+        field_kinds=_field_kinds(
+            growth_static_fact_id="string",
+            growth_id="string",
+            fact_id="string",
+            kind="string",
+            location_ref="string",
+            relation="string",
+            value_ref="any",
+            normalized_value="any",
         ),
     ),
     "candidate_entry_links": ArtifactSchema(

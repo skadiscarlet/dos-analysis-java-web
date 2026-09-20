@@ -35,7 +35,8 @@ P0_ARTIFACTS = (
     "amplification_decisions.jsonl", "auth_contracts.jsonl",
     "candidate_dispositions.jsonl", "candidate_entry_links.jsonl",
     "candidate_negative_proofs.jsonl",
-    "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl",
+    "growth_candidates.jsonl", "growth_static_facts.jsonl",
+    "growth_contracts.jsonl", "llm_audit.private.jsonl",
     "reachability_decisions.jsonl", "repeatability_decisions.jsonl",
     "verified_growth.jsonl", "flow_proofs.jsonl", "bound_candidates.jsonl",
     "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
@@ -52,6 +53,7 @@ P0_JSONL_OUTPUTS = {
     "entry_security_facts.jsonl": "aggregate_entry_security_facts.jsonl",
     "modeled_configuration.jsonl": "aggregate_modeled_configuration.jsonl",
     "growth_candidates.jsonl": "aggregate_growth_candidates.jsonl",
+    "growth_static_facts.jsonl": "aggregate_growth_static_facts.jsonl",
     "candidate_entry_links.jsonl": "aggregate_candidate_entry_links.jsonl",
     "candidate_negative_proofs.jsonl": "aggregate_candidate_negative_proofs.jsonl",
     "candidate_dispositions.jsonl": "aggregate_candidate_dispositions.jsonl",
@@ -681,6 +683,11 @@ def _p0_target(item: dict[str, Any], batch_root: Path, *, plan: Mapping[str, Any
                     if isinstance(evidence, list)
                     else set()
                 )
+        for row in parsed_rows.get("growth_static_facts", []):
+            growth_id = row.get("growth_id")
+            fact_id = row.get("fact_id")
+            if isinstance(growth_id, str) and isinstance(fact_id, str):
+                growth_fact_ids.setdefault(growth_id, set()).add(fact_id)
         security_fact_ids = {
             row["fact_id"]
             for row in parsed_rows.get("entry_security_facts", [])

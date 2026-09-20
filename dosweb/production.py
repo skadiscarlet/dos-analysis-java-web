@@ -103,7 +103,7 @@ from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
-        "production-v2.8-open-world-maturation-growth-v32"
+        "production-v2.8-open-world-maturation-growth-v33"
         if stage == "growth"
         else "production-v2.8-open-world-maturation-entries-v17"
         if stage == "entries"
@@ -2724,6 +2724,7 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
         configuration_facts = _load_configuration_facts(context)
         configuration_models = tuple(ModeledConfigurationFact.from_dict(item) for item in configuration_facts)
         contracts: list[dict[str, object]] = []; verified: list[dict[str, object]] = []
+        static_fact_records: list[dict[str, object]] = []
         links: list[dict[str, object]] = []; dispositions: list[dict[str, object]] = []
         negative_proofs: list[dict[str, object]] = []
         repeatability: list[dict[str, object]] = []; amplification: list[dict[str, object]] = []
@@ -2876,6 +2877,21 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                 preliminary_flow_rows,
                 configuration_models,
             )
+            for fact in bounded.payload.static_facts:
+                fact_record = fact.to_dict()
+                static_fact_records.append(
+                    {
+                        "growth_static_fact_id": stable_identifier(
+                            "growth_static_fact",
+                            {
+                                "growth_id": candidate.growth_id,
+                                "fact_id": fact.fact_id,
+                            },
+                        ),
+                        "growth_id": candidate.growth_id,
+                        **fact_record,
+                    }
+                )
             classify = getattr(classifier, "classify_growth", None)
             if not callable(classify):
                 raise AnalyzerError("INTERNAL_STAGE_EXECUTORS_UNAVAILABLE", "Growth classifier is unavailable.")
@@ -2901,7 +2917,9 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
                 evidence_ids=(result.verified_growth_id,),
             )
             dispositions.append(disposition.to_dict())
-        validate_records("growth_contracts", contracts); validate_records("verified_growth", verified)
+        static_fact_records.sort(key=canonical_json)
+        validate_records("growth_static_facts", static_fact_records)
+        validate_records("verified_growth", verified)
         validate_records("candidate_entry_links", links)
         growth_ids = {str(record["growth_id"]) for record in candidate_records}
         growth_fact_ids = {
@@ -2910,6 +2928,29 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             }
             for record in candidate_records
         }
+        for record in static_fact_records:
+            growth_fact_ids.setdefault(str(record["growth_id"]), set()).add(
+                str(record["fact_id"])
+            )
+        all_growth_fact_ids = {
+            fact_id
+            for fact_ids in growth_fact_ids.values()
+            for fact_id in fact_ids
+        }
+        validate_references(
+            "growth_static_facts",
+            static_fact_records,
+            {"growth_id": growth_ids},
+        )
+        validate_references(
+            "growth_contracts",
+            contracts,
+            {
+                "growth_id": growth_ids,
+                "fact_id": all_growth_fact_ids,
+                "growth_fact_ids": growth_fact_ids,
+            },
+        )
         negative_proof_growth_ids = {
             str(record["negative_proof_id"]): str(record["growth_id"])
             for record in negative_proofs
@@ -2919,11 +2960,7 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
             negative_proofs,
             {
                 "growth_id": growth_ids,
-                "fact_id": {
-                    fact_id
-                    for fact_ids in growth_fact_ids.values()
-                    for fact_id in fact_ids
-                },
+                "fact_id": all_growth_fact_ids,
                 "growth_fact_ids": growth_fact_ids,
             },
         )
@@ -2948,7 +2985,7 @@ def make_growth_executor(config: AnalyzerConfig, *, database_info_fn: Callable[[
         )
         validate_records("repeatability_decisions", repeatability); validate_records("amplification_decisions", amplification)
         validate_records("auth_contracts", auth_contracts); validate_records("reachability_decisions", reachability); validate_records("llm_audit", audits)
-        return StageOutput({"growth_candidates.jsonl": candidate_records, "candidate_entry_links.jsonl": links, "candidate_negative_proofs.jsonl": negative_proofs, "candidate_dispositions.jsonl": dispositions, "repeatability_decisions.jsonl": repeatability, "amplification_decisions.jsonl": amplification, "growth_contracts.jsonl": contracts, "verified_growth.jsonl": verified, "auth_contracts.jsonl": auth_contracts, "reachability_decisions.jsonl": reachability, "llm_audit.private.jsonl": audits}, {"candidate_count": len(candidate_records), "candidate_disposition_count": len(dispositions), "formal_eligible_candidate_count": sum(item["status"] == "formal_eligible" for item in dispositions), "gap_eligible_candidate_count": sum(item["status"] == "gap_eligible" for item in dispositions), "negative_proof_count": len(negative_proofs), "mapped_candidate_count": len(verified), "inventory_unresolved_candidate_count": sum(item["status"] == "inventory_unresolved" for item in dispositions), "auth_contract_count": len(auth_contracts), "llm_audit_count": len(audits)})
+        return StageOutput({"growth_candidates.jsonl": candidate_records, "growth_static_facts.jsonl": static_fact_records, "candidate_entry_links.jsonl": links, "candidate_negative_proofs.jsonl": negative_proofs, "candidate_dispositions.jsonl": dispositions, "repeatability_decisions.jsonl": repeatability, "amplification_decisions.jsonl": amplification, "growth_contracts.jsonl": contracts, "verified_growth.jsonl": verified, "auth_contracts.jsonl": auth_contracts, "reachability_decisions.jsonl": reachability, "llm_audit.private.jsonl": audits}, {"candidate_count": len(candidate_records), "static_fact_count": len(static_fact_records), "candidate_disposition_count": len(dispositions), "formal_eligible_candidate_count": sum(item["status"] == "formal_eligible" for item in dispositions), "gap_eligible_candidate_count": sum(item["status"] == "gap_eligible" for item in dispositions), "negative_proof_count": len(negative_proofs), "mapped_candidate_count": len(verified), "inventory_unresolved_candidate_count": sum(item["status"] == "inventory_unresolved" for item in dispositions), "auth_contract_count": len(auth_contracts), "llm_audit_count": len(audits)})
     return execute
 
 
