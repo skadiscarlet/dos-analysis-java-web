@@ -1689,15 +1689,15 @@ def _run_codeql_snapshot_suite(
     """Run an internal query suite through the production workspace contract."""
 
     snapshots: list[dict[str, object]] = []
-    workspace_owner: list[_CodeqlQueryWorkspace] = []
-    workspace: _CodeqlQueryWorkspace | None = None
-    try:
-        workspace = _create_codeql_query_workspace(
-            config.output,
-            stage,
-            owner_holder=workspace_owner,
-        )
-        for query in queries:
+    for index, query in enumerate(queries, start=1):
+        workspace_owner: list[_CodeqlQueryWorkspace] = []
+        workspace: _CodeqlQueryWorkspace | None = None
+        try:
+            workspace = _create_codeql_query_workspace(
+                config.output,
+                f"{stage}-{index:02d}",
+                owner_holder=workspace_owner,
+            )
             result = _run_workspace_query(
                 workspace,
                 runner,
@@ -1725,38 +1725,40 @@ def _run_codeql_snapshot_suite(
                     "payload": dict(payload),
                 }
             )
-    except BaseException as exc:
-        owned_workspace = workspace_owner[0] if workspace_owner else workspace
-        cleanup_succeeded = owned_workspace is None
-        cleanup_retry_succeeded = owned_workspace is None
-        if owned_workspace is not None:
-            try:
-                cleanup_succeeded = _cleanup_codeql_query_workspace(
-                    owned_workspace
-                )
-            finally:
-                cleanup_retry_succeeded = _cleanup_codeql_query_workspace(
-                    owned_workspace
-                )
+        except BaseException as exc:
+            owned_workspace = (
+                workspace_owner[0] if workspace_owner else workspace
+            )
+            cleanup_succeeded = owned_workspace is None
+            cleanup_retry_succeeded = owned_workspace is None
+            if owned_workspace is not None:
+                try:
+                    cleanup_succeeded = _cleanup_codeql_query_workspace(
+                        owned_workspace
+                    )
+                finally:
+                    cleanup_retry_succeeded = _cleanup_codeql_query_workspace(
+                        owned_workspace
+                    )
+            if not cleanup_succeeded and not cleanup_retry_succeeded:
+                raise _workspace_query_failed() from exc
+            raise
+        assert workspace is not None
+        cleanup_succeeded = False
+        cleanup_retry_succeeded = False
+        try:
+            cleanup_succeeded = _cleanup_codeql_query_workspace(workspace)
+        finally:
+            cleanup_retry_succeeded = _cleanup_codeql_query_workspace(workspace)
         if not cleanup_succeeded and not cleanup_retry_succeeded:
-            raise _workspace_query_failed() from exc
-        raise
-    assert workspace is not None
-    cleanup_succeeded = False
-    cleanup_retry_succeeded = False
-    try:
-        cleanup_succeeded = _cleanup_codeql_query_workspace(workspace)
-    finally:
-        cleanup_retry_succeeded = _cleanup_codeql_query_workspace(workspace)
-    if not cleanup_succeeded and not cleanup_retry_succeeded:
-        raise AnalyzerError(
-            "CODEQL_QUERY_FAILED",
-            "CodeQL query execution failed.",
-            {
-                "stage": "publication",
-                "diagnostic": "retained unsafe query workspace",
-            },
-        )
+            raise AnalyzerError(
+                "CODEQL_QUERY_FAILED",
+                "CodeQL query execution failed.",
+                {
+                    "stage": "publication",
+                    "diagnostic": "retained unsafe query workspace",
+                },
+            )
     return tuple(snapshots)
 
 
