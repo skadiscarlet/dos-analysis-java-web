@@ -182,7 +182,11 @@ def _same_java_callable(source_root: Path, relative_file: str, first_line: int, 
     common = [scope for scope in scopes if scope[0] <= first_line <= scope[1] and scope[0] <= second_line <= scope[1]]
     return bool(common)
 _MAX_ENTRY_ROWS: Final = 4096
-_CODEQL_TIMEOUT_SECONDS: Final = 300
+# RC1 task-relation extraction performs whole-program joins that exceed the
+# generic five-minute query budget on the largest PoC-33 database (Ruoyi).
+# Keep the bound explicit while allowing that formal selected query to finish;
+# timeout remains a terminal selected-query failure.
+_CODEQL_TIMEOUT_SECONDS: Final = 900
 
 validate_database = _validate_database
 run_query = _run_query
