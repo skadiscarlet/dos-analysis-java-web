@@ -271,6 +271,48 @@ class BatchRunnerTests(unittest.TestCase):
             self.assertEqual(state["status"], "completed")
             self.assertEqual(len(calls), 1)
 
+    def test_retry_failed_rechecks_restored_plan_database_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); plan = _plan(count=1, database_fingerprint="b" * 64); self._tree(root, plan); calls = []
+            validations = 0
+
+            def validator(_database: Path) -> DatabaseInfo:
+                nonlocal validations
+                validations += 1
+                target = plan.targets[0]
+                fingerprint = (
+                    "f" * 64 if validations == 1 else target.database_fingerprint
+                )
+                return DatabaseInfo(
+                    path=root / target.identity.database_path,
+                    source_root=root / target.identity.source_path,
+                    fingerprint=fingerprint,
+                )
+
+            first = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={},
+                database_validator=validator,
+            )
+            record = first["targets"][plan.targets[0].target_id]
+            self.assertEqual(record["error_code"], "BATCH_DATABASE_FINGERPRINT_MISMATCH")
+            self.assertEqual(calls, [])
+
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={},
+                database_validator=validator,
+                retry_failed=True,
+            )
+            self.assertEqual(state["status"], "completed")
+            self.assertEqual(len(calls), 1)
+
     def test_retry_failed_reexecutes_provider_failure_within_one_fresh_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

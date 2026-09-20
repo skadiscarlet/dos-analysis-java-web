@@ -47,6 +47,11 @@ _RETRYABLE_ERROR_CODES = frozenset({
     # fingerprint before constructing a fresh private snapshot, so bounded
     # target retry is safe while a real persistent drift remains fail-closed.
     "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+    # An operator may restore a drifted canonical database to the exact
+    # immutable-plan fingerprint between invocations.  Retrying remains safe:
+    # _validate_database_binding executes before the pipeline on every attempt
+    # and a persistent or different database never reaches analysis.
+    "BATCH_DATABASE_FINGERPRINT_MISMATCH",
     "BATCH_TARGET_FAILED",
 })
 

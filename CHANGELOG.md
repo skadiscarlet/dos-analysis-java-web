@@ -1,6 +1,6 @@
 ## [2026-09-18] Production resource lifecycle integration
 
-- 将 private CodeQL execution snapshot 失败纳入 batch 的有界 target retry：每次重试前仍强制核对 immutable plan 绑定的 canonical database fingerprint，持续漂移保持 fail-closed；修复偶发 `CANONICAL_DATABASE_CHANGED` 只能停在 attempt 1、无法用新私有快照恢复的问题。
+- 将 private CodeQL execution snapshot 失败纳入 batch 的有界 target retry：每次重试前仍强制核对 immutable plan 绑定的 canonical database fingerprint，持续漂移保持 fail-closed；修复偶发 `CANONICAL_DATABASE_CHANGED` 只能停在 attempt 1、无法用新私有快照恢复的问题。若 operator 在两次 invocation 间将漂移数据库精确恢复为 plan fingerprint，`BATCH_DATABASE_FINGERPRINT_MISMATCH` 也可进入下一次有界前置核验；未恢复或恢复为其他身份时仍不会执行 pipeline。
 - 修复 formal Flow 对同一程序点、同一精确 attacker demand 的多资源维度 Growth 身份误判为 `FLOW_REFERENCE_AMBIGUOUS`：单条 source-to-sink 证据现在按稳定 Growth ID 分别生成路径，仍拒绝位置不一致、demand 不兼容、canonical Entry 不匹配和重复路径；XXL-JOB 同一 queue insertion 的 retained entries / accepted tasks 双重建模不再中止正式分析。
 - 将 RC1 source snapshot declaration coverage insufficiency 改为明确 typed gap：production 仅对该类缺口降级，为相关 async task Growth 路径发布 path-bound unresolved decision 并得到 `static_unknown`；不生成伪造 solver facts/results。归档字节不匹配、数据库身份错配、selected query failure 与 malformed result 仍 fail closed。
 - 按用户提供的新 provider 配置将正式 Responses endpoint 迁移到 `https://api.api2cn.com/v1/`，模型保持 `grok-4.6`，provider/cache identity 改为 `api2cn_responses`；旧 RightAPI endpoint 从 production allowlist 移除。新凭据仅写入 gitignored、owner-only `config/local_secrets.json`，旧 RightAPI full plan/cache 不复用，必须用新 run ID 重建 immutable plan。
