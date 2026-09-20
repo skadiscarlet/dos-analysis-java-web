@@ -198,6 +198,31 @@ class BatchRunnerTests(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             self.assertEqual(state["status"], "completed")
 
+    def test_refresh_completed_reenters_target_with_pipeline_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); plan = _plan(count=1); self._tree(root, plan); calls = []
+            first = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={},
+            )
+            second = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={},
+                refresh_completed=True,
+                max_attempts=2,
+            )
+            record = second["targets"][plan.targets[0].target_id]
+            self.assertEqual(first["targets"][plan.targets[0].target_id]["attempt"], 1)
+            self.assertEqual(record["attempt"], 2)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(second["status"], "completed")
+
     def test_retry_failed_only_retries_transient_error_codes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); plan = _plan(count=1); self._tree(root, plan); calls = []

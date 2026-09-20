@@ -165,6 +165,7 @@ class BatchRunner:
         max_workers: int = 3,
         resume: bool = True,
         retry_failed: bool = False,
+        refresh_completed: bool = False,
         max_attempts: int = 2,
         repo_root: Path | str | None = None,
         environ: Mapping[str, str] | None = None,
@@ -190,6 +191,7 @@ class BatchRunner:
         self.max_workers = max_workers
         self.resume = resume
         self.retry_failed = retry_failed
+        self.refresh_completed = refresh_completed
         self.max_attempts = max_attempts
         self.repo_root = Path(repo_root or Path.cwd()).resolve()
         self.environ = dict(os.environ if environ is None else environ)
@@ -435,6 +437,8 @@ class BatchRunner:
         if isinstance(attempt, bool) or not isinstance(attempt, int):
             return False
         if state == "completed":
+            if self.refresh_completed:
+                return attempt < self.max_attempts
             # A state record alone is not enough to skip a target on resume.
             # Missing/mismatched artifacts are repaired by a bounded rerun.
             return not self._completed_artifacts_reusable(target) and attempt < self.max_attempts
@@ -684,6 +688,7 @@ def run_batch(
     max_workers: int = 3,
     resume: bool = True,
     retry_failed: bool = False,
+    refresh_completed: bool = False,
     max_attempts: int = 2,
     repo_root: Path | str | None = None,
     environ: Mapping[str, str] | None = None,
@@ -697,6 +702,7 @@ def run_batch(
         max_workers=max_workers,
         resume=resume,
         retry_failed=retry_failed,
+        refresh_completed=refresh_completed,
         max_attempts=max_attempts,
         repo_root=repo_root,
         environ=environ,

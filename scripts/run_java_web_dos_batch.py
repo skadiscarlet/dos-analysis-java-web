@@ -39,6 +39,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--retry-failed", action="store_true")
+    parser.add_argument(
+        "--refresh-completed",
+        action="store_true",
+        help="re-enter completed targets so pipeline resume can invalidate stale stages",
+    )
     parser.add_argument("--allow-remote-llm", action="store_true", help="authorize remote provider use during full execution")
     parser.add_argument("--plan-only", action="store_true", help="publish a plan but do not execute it (including full mode)")
     parser.add_argument("--model")
@@ -188,6 +193,7 @@ def main(
             max_workers=arguments.max_workers,
             resume=not arguments.no_resume,
             retry_failed=arguments.retry_failed,
+            refresh_completed=arguments.refresh_completed,
             max_attempts=arguments.max_attempts,
             repo_root=arguments.repo_root,
             environ=environment,
