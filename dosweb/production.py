@@ -1679,6 +1679,87 @@ def _run_workspace_query(
     return result
 
 
+def _run_codeql_snapshot_suite(
+    config: AnalyzerConfig,
+    database: DatabaseInfo,
+    stage: str,
+    queries: Sequence[Path],
+    runner: Callable[..., QueryResult],
+) -> tuple[dict[str, object], ...]:
+    """Run an internal query suite through the production workspace contract."""
+
+    snapshots: list[dict[str, object]] = []
+    workspace_owner: list[_CodeqlQueryWorkspace] = []
+    workspace: _CodeqlQueryWorkspace | None = None
+    try:
+        workspace = _create_codeql_query_workspace(
+            config.output,
+            stage,
+            owner_holder=workspace_owner,
+        )
+        for query in queries:
+            result = _run_workspace_query(
+                workspace,
+                runner,
+                query,
+                database,
+                config,
+            )
+            if not isinstance(result, QueryResult):
+                raise AnalyzerError(
+                    "CODEQL_QUERY_FAILED",
+                    "The query runner returned an invalid result.",
+                )
+            if not _workspace_has_safe_generation_inventory(workspace):
+                raise _workspace_query_failed(
+                    "retained hidden query quarantine"
+                )
+            _require_workspace_bindings(workspace)
+            payload = _bounded_json_file(result, workspace)
+            _require_workspace_bindings(workspace)
+            snapshots.append(
+                {
+                    "query_name": result.query_name,
+                    "query_sha256": result.query_sha256,
+                    "bqrs_sha256": result.bqrs_sha256,
+                    "payload": dict(payload),
+                }
+            )
+    except BaseException as exc:
+        owned_workspace = workspace_owner[0] if workspace_owner else workspace
+        cleanup_succeeded = owned_workspace is None
+        cleanup_retry_succeeded = owned_workspace is None
+        if owned_workspace is not None:
+            try:
+                cleanup_succeeded = _cleanup_codeql_query_workspace(
+                    owned_workspace
+                )
+            finally:
+                cleanup_retry_succeeded = _cleanup_codeql_query_workspace(
+                    owned_workspace
+                )
+        if not cleanup_succeeded and not cleanup_retry_succeeded:
+            raise _workspace_query_failed() from exc
+        raise
+    assert workspace is not None
+    cleanup_succeeded = False
+    cleanup_retry_succeeded = False
+    try:
+        cleanup_succeeded = _cleanup_codeql_query_workspace(workspace)
+    finally:
+        cleanup_retry_succeeded = _cleanup_codeql_query_workspace(workspace)
+    if not cleanup_succeeded and not cleanup_retry_succeeded:
+        raise AnalyzerError(
+            "CODEQL_QUERY_FAILED",
+            "CodeQL query execution failed.",
+            {
+                "stage": "publication",
+                "diagnostic": "retained unsafe query workspace",
+            },
+        )
+    return tuple(snapshots)
+
+
 def _run_codeql_family(config: AnalyzerConfig, database: DatabaseInfo, stage: str, query_root: Path, runner: Callable[..., QueryResult]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     workspace_owner: list[_CodeqlQueryWorkspace] = []
@@ -4150,12 +4231,20 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
                     resource_pack
                     / "dosweb/ResourceLifecycle/ResourceLifecycleTaskRelations.ql",
                 )
+                query_snapshots = _run_codeql_snapshot_suite(
+                    config,
+                    database,
+                    "resource-lifecycle",
+                    query_paths,
+                    runner,
+                )
                 extracted, results, implementation_sha256, facts_sha256 = (
                     analyze_codeql_database_in_memory(
                         database,
                         output,
                         codeql_binary=config.codeql_binary,
                         query_paths=query_paths,
+                        query_snapshots=query_snapshots,
                     )
                 )
                 return ResourceLifecycleBackendRun(

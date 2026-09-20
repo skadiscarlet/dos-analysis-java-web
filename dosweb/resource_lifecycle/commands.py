@@ -387,45 +387,82 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         "resource_lifecycle",
         "resource_lifecycle_task_relations",
     )
-    results = tuple(
-        run_query(
-            query,
-            database,
-            output / "codeql" / f"{index:02d}-{expected_name}",
-            codeql_binary=str(values.get("codeql_binary") or "codeql"),
+    supplied_snapshots = values.get("_query_snapshots")
+    snapshots: list[dict[str, object]] = []
+    if supplied_snapshots is None:
+        results = tuple(
+            run_query(
+                query,
+                database,
+                output / "codeql" / f"{index:02d}-{expected_name}",
+                codeql_binary=str(values.get("codeql_binary") or "codeql"),
+            )
+            for index, (query, expected_name) in enumerate(
+                zip(query_paths, expected_names, strict=True),
+                start=1,
+            )
         )
-        for index, (query, expected_name) in enumerate(
-            zip(query_paths, expected_names, strict=True),
-            start=1,
-        )
-    )
-    if tuple(result.query_name for result in results) != expected_names:
-        raise ValueError("CodeQL lifecycle query suite identity is invalid")
+        if tuple(result.query_name for result in results) != expected_names:
+            raise ValueError("CodeQL lifecycle query suite identity is invalid")
+        for expected_name, result in zip(expected_names, results, strict=True):
+            if (
+                file_sha256(result.query_path) != result.query_sha256
+                or file_sha256(result.bqrs_path) != result.bqrs_sha256
+            ):
+                raise ValueError("CodeQL lifecycle query artifact changed after execution")
+            payload = load_json_regular(
+                result.decoded_path, max_bytes=64 * 1024 * 1024
+            )
+            snapshots.append(
+                {
+                    "query_name": expected_name,
+                    "query_sha256": result.query_sha256,
+                    "bqrs_sha256": result.bqrs_sha256,
+                    "payload": payload,
+                }
+            )
+    else:
+        if (
+            not isinstance(supplied_snapshots, (tuple, list))
+            or len(supplied_snapshots) != len(expected_names)
+        ):
+            raise ValueError("CodeQL lifecycle query snapshots are invalid")
+        for expected_name, item in zip(
+            expected_names, supplied_snapshots, strict=True
+        ):
+            if (
+                not isinstance(item, Mapping)
+                or set(item) != {
+                    "query_name",
+                    "query_sha256",
+                    "bqrs_sha256",
+                    "payload",
+                }
+                or item.get("query_name") != expected_name
+                or not isinstance(item.get("query_sha256"), str)
+                or not isinstance(item.get("bqrs_sha256"), str)
+                or not isinstance(item.get("payload"), Mapping)
+            ):
+                raise ValueError("CodeQL lifecycle query snapshots are invalid")
+            snapshots.append(dict(item))
     rows: list[Mapping[str, object]] = []
     query_provenance: list[dict[str, str]] = []
-    for expected_name, result in zip(expected_names, results):
-        if (
-            file_sha256(result.query_path) != result.query_sha256
-            or file_sha256(result.bqrs_path) != result.bqrs_sha256
-        ):
-            raise ValueError("CodeQL lifecycle query artifact changed after execution")
-        payload = load_json_regular(
-            result.decoded_path, max_bytes=64 * 1024 * 1024
-        )
+    for expected_name, snapshot in zip(expected_names, snapshots, strict=True):
+        payload = snapshot["payload"]
         if not isinstance(payload, Mapping):
             raise ValueError("CodeQL decoded result is invalid")
         rows.extend(
             decode_bqrs_json(
                 expected_name,
                 payload,
-                DecodeSource(database.source_root, result.query_sha256),
+                DecodeSource(database.source_root, str(snapshot["query_sha256"])),
             )
         )
         query_provenance.append(
             {
                 "query_name": expected_name,
-                "query_sha256": result.query_sha256,
-                "bqrs_sha256": result.bqrs_sha256,
+                "query_sha256": str(snapshot["query_sha256"]),
+                "bqrs_sha256": str(snapshot["bqrs_sha256"]),
             }
         )
     if database.execution is not None:
@@ -687,6 +724,7 @@ def analyze_codeql_database_in_memory(
     codeql_binary: str = "codeql",
     budget: AnalysisBudget | None = None,
     query_paths: tuple[Path, Path] | None = None,
+    query_snapshots: tuple[Mapping[str, object], Mapping[str, object]] | None = None,
 ) -> tuple[ExtractedFacts, dict[str, object], str, str]:
     """Run the RC1 extractor and solver once for a production database.
 
@@ -716,6 +754,11 @@ def analyze_codeql_database_in_memory(
             "codeql_binary": codeql_binary,
             "_database_info": database,
             **({"_query_paths": query_paths} if query_paths is not None else {}),
+            **(
+                {"_query_snapshots": query_snapshots}
+                if query_snapshots is not None
+                else {}
+            ),
         },
         output,
     )

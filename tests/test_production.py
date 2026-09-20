@@ -1631,10 +1631,16 @@ class ProductionFactoryTests(unittest.TestCase):
         cleanup_calls, cleanup_owners = paired_owners(
             "_cleanup_codeql_query_workspace"
         )
-        self.assertEqual(len(cleanup_calls), 8)
+        self.assertEqual(len(cleanup_calls), 12)
         self.assertEqual(
             Counter(cleanup_owners),
-            Counter({"_run_codeql_family": 2, "execute": 2}),
+            Counter(
+                {
+                    "_run_codeql_snapshot_suite": 2,
+                    "_run_codeql_family": 2,
+                    "execute": 2,
+                }
+            ),
         )
         snapshot_calls, snapshot_owners = paired_owners("snapshot_cleanup")
         self.assertEqual(len(snapshot_calls), 2)
