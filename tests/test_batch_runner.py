@@ -313,6 +313,63 @@ class BatchRunnerTests(unittest.TestCase):
             self.assertEqual(state["status"], "completed")
             self.assertEqual(len(calls), 1)
 
+    def test_retry_failed_only_retries_structured_query_publication_cleanup(self) -> None:
+        for diagnostic, expected_calls in (
+            ("generation directory release failed", 1),
+            ("selected query execution failed", 0),
+        ):
+            with self.subTest(diagnostic=diagnostic), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); plan = _plan(count=1); self._tree(root, plan); calls = []
+
+                class QueryFailure:
+                    def __init__(self, values: dict[str, object]) -> None:
+                        self.values = values
+
+                    def run(self, _command: str) -> dict[str, str]:
+                        output = self.values["output"]
+                        assert isinstance(output, Path)
+                        (output / "run.json").write_text(
+                            json.dumps(
+                                {
+                                    "status": "failed",
+                                    "error": {
+                                        "code": "CODEQL_QUERY_FAILED",
+                                        "message": "CodeQL query execution failed.",
+                                        "details": {
+                                            "stage": "publication",
+                                            "diagnostic": diagnostic,
+                                        },
+                                    },
+                                }
+                            ),
+                            encoding="utf-8",
+                        )
+                        raise AnalyzerError(
+                            "CODEQL_QUERY_FAILED",
+                            "CodeQL query execution failed.",
+                        )
+
+                run_batch(
+                    plan,
+                    root / "out",
+                    pipeline_factory=lambda values, environ: QueryFailure(dict(values)),
+                    repo_root=root,
+                    environ={},
+                )
+                state = run_batch(
+                    plan,
+                    root / "out",
+                    pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                    repo_root=root,
+                    environ={},
+                    retry_failed=True,
+                )
+                self.assertEqual(len(calls), expected_calls)
+                self.assertEqual(
+                    state["status"],
+                    "completed" if expected_calls else "completed_with_failures",
+                )
+
     def test_retry_failed_reexecutes_provider_failure_within_one_fresh_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

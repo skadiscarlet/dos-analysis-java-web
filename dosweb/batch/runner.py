@@ -26,9 +26,9 @@ PipelineFactory = Callable[..., object]
 DatabaseValidator = Callable[..., DatabaseInfo]
 Clock = Callable[[], datetime | str]
 
-# Retry decisions are made from the persisted error code, never from a message
-# or exception type.  The generic injected-pipeline code remains for backwards
-# compatibility with the original runner contract.
+# Retry decisions are made from persisted structured error data, never from a
+# message or exception type.  The generic injected-pipeline code remains for
+# backwards compatibility with the original runner contract.
 _RETRYABLE_ERROR_CODES = frozenset({
     "LLM_RETRYABLE_HTTP",
     "LLM_NETWORK_RETRYABLE",
@@ -53,6 +53,10 @@ _RETRYABLE_ERROR_CODES = frozenset({
     # and a persistent or different database never reaches analysis.
     "BATCH_DATABASE_FINGERPRINT_MISMATCH",
     "BATCH_TARGET_FAILED",
+})
+
+_RETRYABLE_QUERY_PUBLICATION_DETAILS = frozenset({
+    ("publication", "generation directory release failed"),
 })
 
 
@@ -439,9 +443,40 @@ class BatchRunner:
         if state == "failed":
             if not self.retry_failed:
                 return False
-            if record.get("error_code") not in _RETRYABLE_ERROR_CODES:
+            if not self._retryable_failure(target, record):
                 return False
         return attempt < self.max_attempts
+
+    def _retryable_failure(
+        self,
+        target: BatchTargetPlan,
+        record: Mapping[str, object],
+    ) -> bool:
+        code = record.get("error_code")
+        if code in _RETRYABLE_ERROR_CODES:
+            return True
+        if code != "CODEQL_QUERY_FAILED":
+            return False
+        run_path = _target_directory(self.output_directory, target) / "run.json"
+        try:
+            run = json.loads(run_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+        if not isinstance(run, Mapping):
+            return False
+        error = run.get("error")
+        if not isinstance(error, Mapping) or error.get("code") != code:
+            return False
+        details = error.get("details")
+        if not isinstance(details, Mapping) or set(details) != {
+            "stage",
+            "diagnostic",
+        }:
+            return False
+        return (
+            details.get("stage"),
+            details.get("diagnostic"),
+        ) in _RETRYABLE_QUERY_PUBLICATION_DETAILS
 
     def _run_target(self, target: BatchTargetPlan) -> None:
         assert self._state is not None
