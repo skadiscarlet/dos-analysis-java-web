@@ -3829,15 +3829,6 @@ def make_lifecycle_executor(
             "lifecycle_coverage.jsonl": lifecycle_coverage,
             "lifecycle_results.jsonl": lifecycle_records,
         }
-        if resource_run is not None:
-            from dosweb.resource_lifecycle.adapters import extracted_to_dict
-
-            artifacts["resource_lifecycle_facts.private.json"] = (
-                canonical_json(extracted_to_dict(resource_run.extracted)) + b"\n"
-            )
-            artifacts["resource_lifecycle_results.private.json"] = (
-                canonical_json(dict(resource_run.results)) + b"\n"
-            )
         return StageOutput(
             artifacts,  # type: ignore[arg-type]
             {

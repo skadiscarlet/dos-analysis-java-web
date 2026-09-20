@@ -96,8 +96,6 @@ class BatchAggregationContractTests(unittest.TestCase):
                     "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
                     "lifecycle_results.jsonl", "lifecycle_summaries.jsonl",
                     "resource_lifecycle_bindings.jsonl",
-                    "resource_lifecycle_facts.private.json",
-                    "resource_lifecycle_results.private.json",
                     "release_candidates.jsonl",
                 },
                 "conclude": {
@@ -840,8 +838,6 @@ class BatchAggregationContractTests(unittest.TestCase):
             "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
             "lifecycle_results.jsonl", "lifecycle_summaries.jsonl",
             "resource_lifecycle_bindings.jsonl",
-            "resource_lifecycle_facts.private.json",
-            "resource_lifecycle_results.private.json",
             "release_candidates.jsonl",
             "finding_families.jsonl", "lifecycle_certificates.jsonl",
             "static_findings.jsonl", "report.md", "summary.json",
@@ -906,7 +902,7 @@ class BatchAggregationContractTests(unittest.TestCase):
                 "entries": {"configuration_coverage.json", "coverage.json", "descriptor_coverage.json", "entry_facts.jsonl", "entry_gap_facts.jsonl", "entry_interposition_facts.jsonl", "entry_security_facts.jsonl", "modeled_configuration.jsonl"},
                 "growth": {"amplification_decisions.jsonl", "auth_contracts.jsonl", "candidate_dispositions.jsonl", "candidate_entry_links.jsonl", "candidate_negative_proofs.jsonl", "growth_candidates.jsonl", "growth_contracts.jsonl", "llm_audit.private.jsonl", "reachability_decisions.jsonl", "repeatability_decisions.jsonl", "verified_growth.jsonl"},
                 "flows": {"flow_proofs.jsonl"},
-                "lifecycle": {"bound_candidates.jsonl", "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl", "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "resource_lifecycle_bindings.jsonl", "resource_lifecycle_facts.private.json", "resource_lifecycle_results.private.json", "release_candidates.jsonl"},
+                "lifecycle": {"bound_candidates.jsonl", "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl", "lifecycle_results.jsonl", "lifecycle_summaries.jsonl", "resource_lifecycle_bindings.jsonl", "release_candidates.jsonl"},
                 "conclude": {"finding_families.jsonl", "static_findings.jsonl", "lifecycle_certificates.jsonl"},
                 "report": {"summary.json", "report.md"},
             }

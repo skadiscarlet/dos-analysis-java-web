@@ -6930,10 +6930,14 @@ public class ServiceApplication extends Application<Object> {
             for artifact in (
                 "growth_candidates.jsonl",
                 "flow_proofs.jsonl",
+            ):
+                self.assertEqual((full / artifact).read_bytes(), (off / artifact).read_bytes())
+            for artifact in (
                 "resource_lifecycle_facts.private.json",
                 "resource_lifecycle_results.private.json",
             ):
-                self.assertEqual((full / artifact).read_bytes(), (off / artifact).read_bytes())
+                self.assertFalse((full / artifact).exists())
+                self.assertFalse((off / artifact).exists())
 
             full_finding = json.loads((full / "static_findings.jsonl").read_text())
             off_finding = json.loads((off / "static_findings.jsonl").read_text())

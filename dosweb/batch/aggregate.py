@@ -41,8 +41,6 @@ P0_ARTIFACTS = (
     "guard_candidates.jsonl", "lifecycle_coverage.jsonl", "lifecycle_evidence.jsonl",
     "lifecycle_results.jsonl", "lifecycle_summaries.jsonl",
     "resource_lifecycle_bindings.jsonl",
-    "resource_lifecycle_facts.private.json",
-    "resource_lifecycle_results.private.json",
     "release_candidates.jsonl",
     "finding_families.jsonl", "lifecycle_certificates.jsonl", "static_findings.jsonl",
     "report.md", "summary.json",
