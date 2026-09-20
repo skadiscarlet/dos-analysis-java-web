@@ -242,6 +242,35 @@ class BatchRunnerTests(unittest.TestCase):
                 self.assertEqual(state["status"], "completed")
                 self.assertEqual(len(calls), 1)
 
+    def test_retry_failed_reexecutes_execution_snapshot_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); plan = _plan(count=1); self._tree(root, plan); calls = []
+
+            class SnapshotFailure:
+                def run(self, _command: str) -> dict[str, str]:
+                    raise AnalyzerError(
+                        "CODEQL_EXECUTION_SNAPSHOT_FAILED",
+                        "private snapshot validation failed",
+                    )
+
+            run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: SnapshotFailure(),
+                repo_root=root,
+                environ={},
+            )
+            state = run_batch(
+                plan,
+                root / "out",
+                pipeline_factory=lambda values, environ: _Pipeline(dict(values), calls),
+                repo_root=root,
+                environ={},
+                retry_failed=True,
+            )
+            self.assertEqual(state["status"], "completed")
+            self.assertEqual(len(calls), 1)
+
     def test_retry_failed_reexecutes_provider_failure_within_one_fresh_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

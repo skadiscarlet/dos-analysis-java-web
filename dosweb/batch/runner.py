@@ -42,6 +42,11 @@ _RETRYABLE_ERROR_CODES = frozenset({
     "LLM_RESPONSE_INVALID",
     "LLM_RESPONSE_SCHEMA_INVALID",
     "LLM_RESPONSE_SENSITIVE_CONTENT",
+    # A target may observe canonical-database drift after its private snapshot
+    # has finished.  The next attempt still revalidates the plan-bound database
+    # fingerprint before constructing a fresh private snapshot, so bounded
+    # target retry is safe while a real persistent drift remains fail-closed.
+    "CODEQL_EXECUTION_SNAPSHOT_FAILED",
     "BATCH_TARGET_FAILED",
 })
 
