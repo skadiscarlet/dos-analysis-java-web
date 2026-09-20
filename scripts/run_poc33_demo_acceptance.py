@@ -38,6 +38,7 @@ _ACCEPTANCE_FORMAT = "dosweb-poc33-acceptance-v1"
 _REAL_PROVIDER_TIMEOUT_SECONDS = 180
 _REAL_PROVIDER_MAX_RETRIES = 5
 _REAL_PROVIDER_MAX_TARGET_ATTEMPTS = 2
+_MAX_ARCHIVE_TARGET_ATTEMPTS = 64
 PAUSED_EXIT_STATUS = 3
 
 
@@ -414,10 +415,21 @@ def validate_entries_archive(root: Path, *, run_id: str) -> dict[str, object]:
     }
 
 
-def validate_full_archive(root: Path, *, run_id: str) -> dict[str, object]:
+def validate_full_archive(
+    root: Path,
+    *,
+    run_id: str,
+    max_target_attempts: int = _REAL_PROVIDER_MAX_TARGET_ATTEMPTS,
+) -> dict[str, object]:
     """Require 21 formal, fail-closed targets with owner-only private audits."""
     if not _RUN_ID.fullmatch(run_id):
         raise ValueError("run_id is invalid")
+    if (
+        isinstance(max_target_attempts, bool)
+        or not isinstance(max_target_attempts, int)
+        or not 1 <= max_target_attempts <= _MAX_ARCHIVE_TARGET_ATTEMPTS
+    ):
+        raise ValueError("max_target_attempts is invalid")
     if root.is_symlink() or not root.is_dir():
         raise ValueError("full archive is not a directory")
     plan = load_batch_plan(root / "batch_plan.json")
@@ -494,7 +506,7 @@ def validate_full_archive(root: Path, *, run_id: str) -> dict[str, object]:
             or state_row.get("status") != "completed"
             or isinstance(attempt, bool)
             or not isinstance(attempt, int)
-            or not 1 <= attempt <= _REAL_PROVIDER_MAX_TARGET_ATTEMPTS
+            or not 1 <= attempt <= max_target_attempts
         ):
             raise ValueError("full target did not complete")
         retried_targets += int(attempt > 1)
@@ -553,7 +565,7 @@ def validate_full_archive(root: Path, *, run_id: str) -> dict[str, object]:
         "query_diagnostics": 0,
         "skipped_queries": 0,
         "private_audit_mode": "0600",
-        "max_target_attempts": _REAL_PROVIDER_MAX_TARGET_ATTEMPTS,
+        "max_target_attempts": max_target_attempts,
         "retried_targets": retried_targets,
     }
 
@@ -1051,7 +1063,21 @@ def main(
             if not isinstance(arguments.run_id, str) or not _RUN_ID.fullmatch(arguments.run_id):
                 raise ValueError("--run-id is required and must be safe")
             full = results_root / f"{arguments.run_id}-full"
-            validate_full_archive(full, run_id=arguments.run_id)
+            archive_acceptance = _read_object(full / "acceptance_manifest.json")
+            archive_attempt_limit = archive_acceptance.get(
+                "max_target_attempts"
+            )
+            if (
+                archive_acceptance.get("format") != _ACCEPTANCE_FORMAT
+                or archive_acceptance.get("run_id") != arguments.run_id
+                or archive_acceptance.get("status") != "completed"
+            ):
+                raise ValueError("full acceptance manifest is invalid")
+            validate_full_archive(
+                full,
+                run_id=arguments.run_id,
+                max_target_attempts=archive_attempt_limit,
+            )
             validate_p0_aggregate(full, run_id=arguments.run_id)
             plan = load_batch_plan(full / "batch_plan.json")
             selection = _read_object(full / "selection.json")
