@@ -16,7 +16,14 @@ from typing import Final
 import zipfile
 
 from dosweb.artifacts.identifiers import canonical_json, file_sha256, stable_identifier
-from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query, validate_database
+from dosweb.codeql import (
+    DecodeSource,
+    decode_bqrs_json,
+    run_query,
+    validate_canonical_database,
+    validate_database,
+    validate_execution_database,
+)
 from dosweb.codeql.database import DatabaseInfo
 from dosweb.errors import AnalyzerError
 from dosweb.lifecycle.resource_properties import ResourceLifecycleCoverageGap
@@ -350,7 +357,20 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
     entry_methods = manifest["entry_methods"]
     if not isinstance(entry_methods, list):
         raise ValueError("CodeQL manifest entry_methods are invalid")
-    database = validate_database(Path(str(manifest["database"])))
+    injected_database = values.get("_database_info")
+    if injected_database is None:
+        database = validate_database(Path(str(manifest["database"])))
+    else:
+        if (
+            not isinstance(injected_database, DatabaseInfo)
+            or injected_database.execution is None
+            or Path(str(manifest["database"])).resolve(strict=False)
+            != injected_database.path.resolve(strict=False)
+        ):
+            raise ValueError("CodeQL execution database binding is invalid")
+        validate_execution_database(injected_database)
+        validate_canonical_database(injected_database)
+        database = injected_database
     if values.get("_project_intake_diagnostics"):
         scope = _database_source_scope(database)
         scope["requested_entry_methods"] = sorted(set(entry_methods))
@@ -405,12 +425,16 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
                 "bqrs_sha256": result.bqrs_sha256,
             }
         )
-    current_database = validate_database(database.path)
-    if (
-        current_database.fingerprint != database.fingerprint
-        or current_database.source_root != database.source_root
-    ):
-        raise ValueError("CodeQL database changed during lifecycle query suite")
+    if database.execution is not None:
+        validate_execution_database(database)
+        validate_canonical_database(database)
+    else:
+        current_database = validate_database(database.path)
+        if (
+            current_database.fingerprint != database.fingerprint
+            or current_database.source_root != database.source_root
+        ):
+            raise ValueError("CodeQL database changed during lifecycle query suite")
     if _verify_database_source_snapshot(database) != source_snapshot_sha256:
         raise ValueError("CodeQL source snapshot changed during extraction")
     extracted = adapt_codeql_rows(
@@ -687,6 +711,7 @@ def analyze_codeql_database_in_memory(
         manifest,
         {
             "codeql_binary": codeql_binary,
+            "_database_info": database,
             **({"_query_paths": query_paths} if query_paths is not None else {}),
         },
         output,

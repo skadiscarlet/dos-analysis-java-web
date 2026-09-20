@@ -339,6 +339,89 @@ def _legacy_facts_payload(current, *, legacy_executor_identity: bool = False):
 
 
 class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
+    def test_in_memory_extraction_preserves_private_execution_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            database_path = root / "canonical-db"
+            database_path.mkdir()
+            database = DatabaseInfo(
+                database_path,
+                source,
+                "d" * 64,
+                execution=object(),  # type: ignore[arg-type]
+            )
+            query_results = []
+            for query_name in (
+                "resource_lifecycle",
+                "resource_lifecycle_task_relations",
+            ):
+                query = root / f"{query_name}.ql"
+                query.write_text("select 1\n", encoding="utf-8")
+                bqrs = root / f"{query_name}.bqrs"
+                bqrs.write_bytes(query_name.encode("ascii"))
+                decoded = root / f"{query_name}.json"
+                decoded.write_text(
+                    json.dumps(
+                        {
+                            "#select": {
+                                "columns": list(QUERY_SPECS[query_name].columns),
+                                "tuples": [],
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                query_results.append(
+                    QueryResult(
+                        query_name,
+                        query,
+                        bqrs,
+                        decoded,
+                        hashlib.sha256(query.read_bytes()).hexdigest(),
+                        hashlib.sha256(bqrs.read_bytes()).hexdigest(),
+                    )
+                )
+            seen_databases = []
+
+            def query_runner(_query, selected_database, _output, **_kwargs):
+                seen_databases.append(selected_database)
+                return query_results[len(seen_databases) - 1]
+
+            manifest = {
+                "schema_version": "1.1",
+                "mode": "codeql_database",
+                "database": str(database_path),
+                "entry_methods": [],
+                "budget": asdict(AnalysisBudget()),
+            }
+            with (
+                patch.object(
+                    lifecycle_commands,
+                    "validate_database",
+                    side_effect=AssertionError("canonical path must not be reopened"),
+                ),
+                patch.object(lifecycle_commands, "validate_execution_database") as validate_execution,
+                patch.object(lifecycle_commands, "validate_canonical_database") as validate_canonical,
+                patch.object(lifecycle_commands, "run_query", side_effect=query_runner),
+                patch.object(
+                    lifecycle_commands,
+                    "_verify_database_source_snapshot",
+                    return_value="a" * 64,
+                ),
+            ):
+                extracted = lifecycle_commands._codeql_facts(
+                    manifest,
+                    {"_database_info": database},
+                    root / "output",
+                )
+
+            self.assertEqual(seen_databases, [database, database])
+            self.assertEqual(validate_execution.call_count, 2)
+            self.assertEqual(validate_canonical.call_count, 2)
+            self.assertEqual(extracted.coverage["database_fingerprint"], "d" * 64)
+
     def test_proof_identical_cfg_transitions_are_deduplicated(self) -> None:
         first = Transition(
             "transition:a",
