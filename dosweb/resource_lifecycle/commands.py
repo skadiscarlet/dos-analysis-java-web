@@ -383,18 +383,21 @@ def _codeql_facts(manifest: Mapping[str, object], values: Mapping[str, object], 
         or any(not isinstance(query, Path) for query in query_paths)
     ):
         raise ValueError("CodeQL lifecycle query suite paths are invalid")
+    expected_names = (
+        "resource_lifecycle",
+        "resource_lifecycle_task_relations",
+    )
     results = tuple(
         run_query(
             query,
             database,
-            output / "codeql",
+            output / "codeql" / f"{index:02d}-{expected_name}",
             codeql_binary=str(values.get("codeql_binary") or "codeql"),
         )
-        for query in query_paths
-    )
-    expected_names = (
-        "resource_lifecycle",
-        "resource_lifecycle_task_relations",
+        for index, (query, expected_name) in enumerate(
+            zip(query_paths, expected_names, strict=True),
+            start=1,
+        )
     )
     if tuple(result.query_name for result in results) != expected_names:
         raise ValueError("CodeQL lifecycle query suite identity is invalid")

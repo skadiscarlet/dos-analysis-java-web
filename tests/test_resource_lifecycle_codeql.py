@@ -384,9 +384,11 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                     )
                 )
             seen_databases = []
+            seen_outputs = []
 
-            def query_runner(_query, selected_database, _output, **_kwargs):
+            def query_runner(_query, selected_database, selected_output, **_kwargs):
                 seen_databases.append(selected_database)
+                seen_outputs.append(selected_output)
                 return query_results[len(seen_databases) - 1]
 
             manifest = {
@@ -418,6 +420,14 @@ class ResourceLifecycleCodeqlContractTests(unittest.TestCase):
                 )
 
             self.assertEqual(seen_databases, [database, database])
+            self.assertEqual(
+                [path.name for path in seen_outputs],
+                [
+                    "01-resource_lifecycle",
+                    "02-resource_lifecycle_task_relations",
+                ],
+            )
+            self.assertEqual(len(set(seen_outputs)), 2)
             self.assertEqual(validate_execution.call_count, 2)
             self.assertEqual(validate_canonical.call_count, 2)
             self.assertEqual(extracted.coverage["database_fingerprint"], "d" * 64)
