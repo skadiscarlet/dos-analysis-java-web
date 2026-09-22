@@ -3607,6 +3607,8 @@ def make_lifecycle_executor(
         # binding contract already requires.
         resource_lifecycle_relevant = any(
             result.candidate is not None
+            and result.status == "verified"
+            and flow.satisfies_premise
             and result.candidate.kind == "async_work_growth"
             and result.candidate.resource_dimension == "tasks"
             for flow in flows
