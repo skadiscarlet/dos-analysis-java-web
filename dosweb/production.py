@@ -3591,9 +3591,30 @@ def make_lifecycle_executor(
         with tempfile.TemporaryDirectory(prefix="dosweb-pack-") as temporary:
             pack = _materialize_query_pack(Path(temporary), query_pack_snapshot_fn())
             rows = _run_codeql_family(config, database, "lifecycle", pack, runner)
+        entries = _load_entries(context)
+        growth = _load_verified_growth(context)
+        flows = [
+            verify_flow(FlowProof.from_dict(record), entries, growth)
+            for record in _records(
+                context, "flows", "flow_proofs.jsonl", "flow_proofs"
+            )
+        ]
+        # RC1 currently proves only accepted task population for an exact
+        # async-work Growth path. Running its project-wide allocation/CFG
+        # queries when no formal path can consume that property creates a huge
+        # irrelevant result and can turn an unrelated backend coverage gap into
+        # a candidate-wide unknown. Keep the backend candidate-local, as its
+        # binding contract already requires.
+        resource_lifecycle_relevant = any(
+            result.candidate is not None
+            and result.candidate.kind == "async_work_growth"
+            and result.candidate.resource_dimension == "tasks"
+            for flow in flows
+            if (result := growth.get(flow.growth_id)) is not None
+        )
         resource_run: ResourceLifecycleBackendRun | None = None
         resource_coverage_gap: ResourceLifecycleCoverageGap | None = None
-        if resource_lifecycle_provider is not None:
+        if resource_lifecycle_provider is not None and resource_lifecycle_relevant:
             with tempfile.TemporaryDirectory(
                 prefix="dosweb-resource-lifecycle-"
             ) as temporary:
@@ -3655,14 +3676,6 @@ def make_lifecycle_executor(
         guards = [GuardCandidate.from_dict(record) for record in guard_records]
         bounds = [BoundCandidate.from_dict(record) for record in bound_records]
         releases = [ReleaseCandidate.from_dict(record) for record in release_records]
-        entries = _load_entries(context)
-        growth = _load_verified_growth(context)
-        flows = [
-            verify_flow(FlowProof.from_dict(record), entries, growth)
-            for record in _records(
-                context, "flows", "flow_proofs.jsonl", "flow_proofs"
-            )
-        ]
         # Lifecycle CodeQL results are candidate-only. Bind each row to one
         # concrete E->G path.  Filename equality is never a binding proof: a
         # candidate must share the Growth callable and (for resource families)

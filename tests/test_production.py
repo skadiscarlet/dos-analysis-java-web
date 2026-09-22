@@ -6709,19 +6709,21 @@ public class ServiceApplication extends Application<Object> {
             )
             result = pipeline.run("analyze")
             self.assertEqual("completed", result["status"])
-            self.assertEqual(1, len(resource_calls))
+            # RC1 accepted-task population is irrelevant to byte
+            # materialization, so the project-wide resource provider must not
+            # run or inject an unrelated coverage gap.
+            self.assertEqual([], resource_calls)
             self.assertTrue(
                 (root / "output" / "resource_lifecycle_bindings.jsonl").is_file()
             )
             self.assertFalse(
                 (root / "output" / "resource_lifecycle_facts.private.json").exists()
             )
-            binding = json.loads(
-                (root / "output" / "resource_lifecycle_bindings.jsonl").read_text().strip()
-            )
             self.assertEqual(
-                ["RESOURCE_LIFECYCLE_SOURCE_SNAPSHOT_COVERAGE_UNRESOLVED"],
-                binding["coverage_gaps"],
+                "",
+                (root / "output" / "resource_lifecycle_bindings.jsonl")
+                .read_text()
+                .strip(),
             )
             disposition = json.loads(
                 (root / "output" / "candidate_dispositions.jsonl").read_text().strip()
@@ -6736,10 +6738,7 @@ public class ServiceApplication extends Application<Object> {
             self.assertEqual("static_unknown", findings["verdict"])
             certificate = json.loads((root / "output" / "lifecycle_certificates.jsonl").read_text().strip())
             self.assertEqual(findings["certificate_id"], certificate["certificate_id"])
-            self.assertEqual(
-                "unresolved",
-                certificate["resource_lifecycle_decisions"][0]["decision"]["status"],
-            )
+            self.assertEqual([], certificate["resource_lifecycle_decisions"])
             self.assertIn("VERDICT_UNRESOLVED_EVIDENCE", findings["reason_codes"])
             self.assertIn("VERDICT_CANDIDATE_RELEVANT_GAP", findings["reason_codes"])
             family = json.loads(
