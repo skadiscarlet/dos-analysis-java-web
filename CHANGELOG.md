@@ -1,5 +1,8 @@
-## [2026-09-18] Production resource lifecycle integration
+## [2026-09-22] PoC-33 lifecycle E2E acceptance
 
+- 完成固定 PoC-33 API2CN 验收归档与离线评价：entries/full 均 21/21 completed，168 selected queries、0 diagnostics/skipped，P0 aggregate 21 completed/0 malformed/0 missing；132 findings 去重为 126 families，全部 `static_unknown`，正式阳性与已知记录命中均为 0（0/33），TP/FP/U=0/0/126，rollout gate failed，178-target full 保持暂停。更新 33-row match ledger、126-row review queue、metrics、run manifest、STATUS/HANDOFF；不把 unknown/full-chain candidate 计为命中。
+
+## [2026-09-18] Production resource lifecycle integration
 - 将 RC1 backend execution 收窄到正式 Flow 域中实际可消费 accepted-task population 性质的 verified、premise-satisfied `async_work_growth` / `tasks` 候选：普通 bytes、entries、connections，以及 Growth/Flow 前提本身 unresolved 的 task 候选，不再触发无关的全项目 allocation/CFG 查询，也不会被无关 RC1 source/backend gap 污染。正式 Entry/Growth/Flow 仍先完成并经校验；存在相关 task 候选时 full 与 propagation-off 消融继续执行完全相同的 provider/raw facts，仅在消费侧分叉。该修复关闭 PoC-33 大库第一条 RC1 query 产生 129–857 MB decoded JSON、超过通用 64 MiB 安全上限且原错误被 cleanup 遮蔽的问题，而不提高通用 artifact/decoded 上限。
 - 修复 `--refresh-completed` 在同一次 batch invocation 内反复重排已完成目标直至耗尽 `max_attempts`：每个 invocation 现在只为原始 completed target 授权一次 refresh；若该次执行失败，显式 `--retry-failed` 的既有结构化、有界 retry 语义保持不变。回归将 attempt 上限提高到 3，并确认仍只执行一次 refresh、最终 attempt 为 2。
 - 修复 production RC1 provider 丢失 private execution database binding：`analyze_codeql_database_in_memory` 现在把 execution-bound `DatabaseInfo` 原样传入 `_codeql_facts`，并在查询前后分别验证 private binding 与 canonical identity；不再把 `.path` 重新验证成无 binding 的 canonical database 后执行 lifecycle query。standalone manifest/CLI 路径保持原有显式数据库验证语义。

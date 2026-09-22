@@ -1,35 +1,81 @@
 {
+  "aggregate_status_counts": {
+    "completed": 21
+  },
   "analysis_mode": "formal",
-  "backend": "resource-lifecycle-production-bridge-v2",
-  "delivery_state": "implementation_verified_formal_full_blocked",
-  "dynamic_validation": false,
-  "entries_archive": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-rightapi-20260918_165304-entries",
-  "entries_plan_digest": "da8bbad891608bbe282a3439a2e96ecf9dc71d0690f3d4bb2535727306af6554",
+  "backend": "resource-lifecycle-production-bridge-v3",
+  "delivery_state": "formal_full_completed_acceptance_failed",
+  "delivery_state_at_commit": "ready_for_push",
+  "entries_archive": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-entries",
+  "entries_plan_digest": "d7c9780d4da861e4e7555b6bccb9d567d948fdc57daf4076b65066b843afb862",
   "format": "dosweb-lifecycle-e2e-run-v1",
-  "full_archive": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-rightapi-20260918_165304-full",
-  "full_plan_digest": "b40b547ea62ee842c9b5946fe9deb39262bef800a2182956665a1923e0bee73b",
+  "full_acceptance": {
+    "aggregate_completed_targets": 21,
+    "completed_targets": 21,
+    "format": "dosweb-poc33-acceptance-v1",
+    "layer": "poc33-real-provider-full",
+    "max_target_attempts": 16,
+    "plan_digest": "ba0ac9ba2337ff4140e993642b4150cb3aba10ef3fa39df40ad1399ecf2c7186",
+    "private_audit_mode": "0600",
+    "query_diagnostics": 0,
+    "retried_targets": 21,
+    "run_id": "lifecycle-e2e-poc33-api2cn-20260920_003322",
+    "selected_queries": 168,
+    "selection_digest": "8673566264dcf33b6c349b465692afdfbd0656199721920d5d3a8fba1ad34ea4",
+    "skipped_queries": 0,
+    "status": "completed",
+    "target_count": 21
+  },
+  "full_archive": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full",
+  "full_plan_digest": "ba0ac9ba2337ff4140e993642b4150cb3aba10ef3fa39df40ad1399ecf2c7186",
   "full_provider": {
     "allow_remote_llm": true,
-    "base_url": "https://rightapi.ai/grok/v1/",
+    "base_url": "https://api.api2cn.com/v1/",
     "max_retries": 5,
     "model": "grok-4.6",
     "timeout_seconds": 180
   },
-  "implementation_commit": "5f7b117cd6463748efeba38734a72d2bc4a8092c",
-  "input_manifest": "reports/lifecycle-e2e/input-manifest.json",
-  "oracle_consumed_by_analyzer": false,
-  "provider_probe": {
-    "http_status": 401,
-    "response_body_persisted": false
+  "implementation_commits": {
+    "delivery_commit": "pending",
+    "entries_freeze": "990cea2c4dbc7e1e873e0289fd4ee30aee3c7067",
+    "final_lifecycle_repair": "f35a37c3fdeb2fb49d470c4b2b6ad531c02fd8e2"
   },
+  "input_manifest": "reports/lifecycle-e2e/input-manifest.json",
+  "offline_evaluation": {
+    "directory": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-eval",
+    "dynamic_evidence_reused": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation",
+    "gate": {
+      "checks": {
+        "actionable_precision": false,
+        "finding_family_dedup": true,
+        "hard_negative_safety": true,
+        "infrastructure": true,
+        "ordinary_positive_recall": false,
+        "supported_chain_recall": false
+      },
+      "family_members": 132,
+      "finding_families": 126,
+      "format": "dosweb-poc33-rollout-gate-v1",
+      "rollout_178_target_full": false,
+      "run_id": "lifecycle-e2e-poc33-api2cn-20260920_003322",
+      "status": "failed"
+    },
+    "new_dynamic_validation_executed": false
+  },
+  "oracle_consumed_by_analyzer": false,
+  "provider_secret_persisted": false,
   "query_failure_policy": "fail_closed",
-  "run_id": "lifecycle-e2e-poc33-rightapi-20260918_165304",
+  "run_id": "lifecycle-e2e-poc33-api2cn-20260920_003322",
   "schema_version": "2.8",
+  "selection_digest": "8673566264dcf33b6c349b465692afdfbd0656199721920d5d3a8fba1ad34ea4",
   "tool_version": "0.7.0",
   "validation": {
-    "focused": "348 passed, 154 subtests passed",
-    "provider_client_loopback": "121 passed, 151 subtests passed",
-    "real_codeql_dispatch_fixture": "1 passed in 160.88s",
-    "resource_lifecycle": "522 passed, 24 skipped, 242 subtests passed"
+    "aggregate_validator": "21 completed, 0 malformed, 0 missing",
+    "archive_validator": "completed",
+    "batch_runner_cli": "34 passed, 7 subtests passed; 1 historical canonical-200 asset failure",
+    "compileall": "passed",
+    "diff_check": "passed",
+    "final_required_suite": "204 passed, 97 subtests passed",
+    "production_resource_batch": "127 passed, 37 subtests passed"
   }
 }

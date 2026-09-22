@@ -1,8 +1,8 @@
 {
   "canonical_manifest_sha256": "055854fc7556ea6143bc33575509a0069555851ff0ea16fece7779248cb4d514",
   "format": "dosweb-poc33-input-manifest-v1",
-  "implementation_commit": "5f7b117cd6463748efeba38734a72d2bc4a8092c",
-  "manifest_digest": "bbf831755e3c3437be0caf113d61913cfcaa66fa71d4efdcd5fa03ec8d82c2ff",
+  "implementation_commit": "990cea2c4dbc7e1e873e0289fd4ee30aee3c7067",
+  "manifest_digest": "90cacc7375dbfe05aefedb1641c5cb233ac4b77ca7612faaa684d777164f8acb",
   "oracle_separation": {
     "analyzer_inputs": "repository identity, source/database paths, fingerprints, configuration and canonical analysis scope",
     "evaluation_only": "truth status, expected endpoint/location, root cause and prior verdict",
@@ -459,9 +459,9 @@
       "record_id": "walmartlabs__concord-fnd3"
     }
   ],
-  "run_id": "lifecycle-e2e-poc33-rightapi-20260918_165304",
+  "run_id": "lifecycle-e2e-poc33-api2cn-20260920_003322",
   "schema_version": "2.8",
-  "selection_digest": "74626d85ecd801df16936b6ce4cf2cb03eeaed13739a4c0c7fba8cc5f55679ce",
+  "selection_digest": "8673566264dcf33b6c349b465692afdfbd0656199721920d5d3a8fba1ad34ea4",
   "tool_version": "0.7.0",
   "truth_manifest_sha256": "ee9163f231eb7a98c705aab647c6be1e72070e94d26bd0c93d5e041af9ba75e9"
 }
