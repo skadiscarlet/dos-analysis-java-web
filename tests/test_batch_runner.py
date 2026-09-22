@@ -215,7 +215,7 @@ class BatchRunnerTests(unittest.TestCase):
                 repo_root=root,
                 environ={},
                 refresh_completed=True,
-                max_attempts=2,
+                max_attempts=3,
             )
             record = second["targets"][plan.targets[0].target_id]
             self.assertEqual(first["targets"][plan.targets[0].target_id]["attempt"], 1)

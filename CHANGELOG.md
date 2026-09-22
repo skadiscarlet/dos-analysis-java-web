@@ -1,5 +1,6 @@
 ## [2026-09-18] Production resource lifecycle integration
 
+- 修复 `--refresh-completed` 在同一次 batch invocation 内反复重排已完成目标直至耗尽 `max_attempts`：每个 invocation 现在只为原始 completed target 授权一次 refresh；若该次执行失败，显式 `--retry-failed` 的既有结构化、有界 retry 语义保持不变。回归将 attempt 上限提高到 3，并确认仍只执行一次 refresh、最终 attempt 为 2。
 - 修复 production RC1 provider 丢失 private execution database binding：`analyze_codeql_database_in_memory` 现在把 execution-bound `DatabaseInfo` 原样传入 `_codeql_facts`，并在查询前后分别验证 private binding 与 canonical identity；不再把 `.path` 重新验证成无 binding 的 canonical database 后执行 lifecycle query。standalone manifest/CLI 路径保持原有显式数据库验证语义。
 - 为 CodeQL 结果发布后的 generation-directory release cleanup failure 增加结构化、有界恢复：仅当目标 `run.json` 的 error code/details 精确匹配该 publication cleanup 情况时，显式 `--retry-failed` 才可重试；selected query 执行、编译、解码、schema 及其他 `CODEQL_QUERY_FAILED` 继续不可重试。
 - production RC1 的两条 lifecycle queries 各自使用独立的正式 `_CodeqlQueryWorkspace` ownership/consume/cleanup 合同，再把经过 binding 校验的 payload snapshots 交给 in-memory adapter/solver；既不使用 direct `run_query` 的自动 publication release 路径，也不让第一条大型结果的 generation/tombstone ownership 进入第二条查询。standalone CLI 继续使用 direct 路径；query suite identity、顺序、digest provenance 和 private database binding 保持不变。

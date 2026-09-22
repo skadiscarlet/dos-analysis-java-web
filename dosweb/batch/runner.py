@@ -203,6 +203,10 @@ class BatchRunner:
         self._state: BatchState | None = None
         self._interrupt = threading.Event()
         self._interrupted_target_ids: set[str] = set()
+        # --refresh-completed authorizes one re-entry per target for this
+        # runner invocation. Once scheduled, an unchanged completed target
+        # must not be requeued repeatedly up to max_attempts.
+        self._refreshed_completed_target_ids: set[str] = set()
         self._signal_handlers: dict[int, Any] = {}
 
     def _request_interrupt(self) -> None:
@@ -438,7 +442,10 @@ class BatchRunner:
             return False
         if state == "completed":
             if self.refresh_completed:
-                return attempt < self.max_attempts
+                return (
+                    target.target_id not in self._refreshed_completed_target_ids
+                    and attempt < self.max_attempts
+                )
             # A state record alone is not enough to skip a target on resume.
             # Missing/mismatched artifacts are repaired by a bounded rerun.
             return not self._completed_artifacts_reusable(target) and attempt < self.max_attempts
@@ -610,6 +617,12 @@ class BatchRunner:
                     target for target in self.plan.targets
                     if self._eligible(target, self._state.targets[target.target_id])
                 ]
+                if self.refresh_completed:
+                    self._refreshed_completed_target_ids.update(
+                        target.target_id
+                        for target in targets
+                        if self._state.targets[target.target_id].get("state") == "completed"
+                    )
                 pending = deque(targets)
                 active: dict[object, BatchTargetPlan] = {}
                 with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="dosweb-batch") as pool:
