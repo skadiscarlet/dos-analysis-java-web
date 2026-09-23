@@ -8,7 +8,10 @@ from dosweb.errors import AnalyzerError
 from dosweb.flows import VerifiedFlow
 from dosweb.growth import VerifiedGrowthResult
 from dosweb.lifecycle import BoundDecision, GuardDecision, ReleaseDecision
-from dosweb.lifecycle.resource_properties import ResourceLifecycleDecision
+from dosweb.lifecycle.resource_properties import (
+    ResourceLifecycleDecision,
+    bounded_task_population_semantics,
+)
 
 AssertionName = Literal["assertion_1", "assertion_2"]
 AssertionStatus = Literal["matched", "refuted", "unknown", "not_applicable"]
@@ -21,6 +24,7 @@ class AssertionEvaluation:
     reason_codes: tuple[str, ...]
     evidence_ids: tuple[str, ...]
     unresolved_facts: tuple[str, ...]
+    assumptions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.assertion not in {"assertion_1", "assertion_2"}:
@@ -31,6 +35,7 @@ class AssertionEvaluation:
             ("reason_codes", self.reason_codes),
             ("evidence_ids", self.evidence_ids),
             ("unresolved_facts", self.unresolved_facts),
+            ("assumptions", self.assumptions),
         ):
             if not isinstance(values, tuple) or any(not isinstance(value, str) or not value for value in values):
                 raise AnalyzerError("ANALYSIS_ASSERTION_INVALID", f"{field} is invalid.")
@@ -95,6 +100,7 @@ def _result(
         tuple(sorted(set(reasons))),
         _ids(growth, flow, *decisions),
         tuple(sorted(set(unresolved))),
+        tuple(sorted({a for decision in decisions if status == "refuted" and isinstance(decision, ResourceLifecycleDecision) for a in decision.assumptions})),
     )
 
 
@@ -105,6 +111,51 @@ def _decision_status(decision: object | None) -> str | None:
 def _decision_ids(decision: object | None) -> tuple[str, ...]:
     identifier = getattr(decision, "decision_id", None) if decision is not None else None
     return (identifier,) if isinstance(identifier, str) and identifier else ()
+
+
+def _resource_lifecycle_refutation(
+    decision: ResourceLifecycleDecision | None,
+    growth: VerifiedGrowthResult,
+    flow: VerifiedFlow,
+) -> Literal["refute", "unknown"] | None:
+    """Consume a resource decision only when identity and supported semantics still hold.
+
+    Status ``refutes_relevant_growth`` is not enough: a decision bound to
+    another growth/flow/executor, a non-task dimension, or a mutated cut that
+    kept the old identifier must not be borrowed as a current-input bound.
+    """
+    if decision is None:
+        return None
+    if decision.status == "unresolved":
+        return "unknown"
+    if decision.status != "refutes_relevant_growth":
+        return None
+    try:
+        ResourceLifecycleDecision.from_dict(decision.to_dict())
+    except AnalyzerError:
+        return "unknown"
+    candidate = growth.candidate
+    if (
+        decision.matches_input(
+            entry_id=flow.entry_id,
+            growth_id=growth.growth_id,
+            path_id=flow.path_id,
+        )
+        and bounded_task_population_semantics(
+            status=decision.status,
+            dimension=decision.dimension,
+            scope=decision.scope,
+            cut=decision.cut,
+            upper_bound=decision.upper_bound,
+            assumptions=decision.assumptions,
+            property_id=decision.property_id,
+        )
+        and candidate is not None
+        and candidate.kind == "async_work_growth"
+        and candidate.resource_dimension == "tasks"
+    ):
+        return "refute"
+    return "unknown"
 
 
 def evaluate_assertion_1(
@@ -162,31 +213,45 @@ def evaluate_assertion_1(
         )
     if guard.status == "effective":
         return _result("assertion_1", "refuted", ("A1_EFFECTIVE_GUARD",), growth, flow, (), guard, bound)
-    if resource_lifecycle is not None:
-        if resource_lifecycle.status == "unresolved":
-            return _result(
-                "assertion_1",
-                "unknown",
-                ("A1_RESOURCE_LIFECYCLE_UNKNOWN",),
-                growth,
-                flow,
-                resource_lifecycle.unresolved_facts,
-                guard,
-                bound,
-                resource_lifecycle,
-            )
-        if resource_lifecycle.status == "refutes_relevant_growth":
-            return _result(
-                "assertion_1",
-                "refuted",
-                ("A1_BOUNDED_ACCEPTED_TASK_POPULATION",),
-                growth,
-                flow,
-                (),
-                guard,
-                bound,
-                resource_lifecycle,
-            )
+    resource_refutation = _resource_lifecycle_refutation(
+        resource_lifecycle, growth, flow
+    )
+    if resource_refutation == "unknown":
+        reasons = (
+            ("A1_RESOURCE_LIFECYCLE_UNKNOWN",)
+            if resource_lifecycle is not None
+            and resource_lifecycle.status == "unresolved"
+            else ("A1_RESOURCE_LIFECYCLE_BINDING_MISMATCH",)
+        )
+        unresolved = (
+            resource_lifecycle.unresolved_facts
+            if resource_lifecycle is not None
+            and resource_lifecycle.unresolved_facts
+            else _decision_ids(resource_lifecycle)
+        )
+        return _result(
+            "assertion_1",
+            "unknown",
+            reasons,
+            growth,
+            flow,
+            unresolved,
+            guard,
+            bound,
+            resource_lifecycle,
+        )
+    if resource_refutation == "refute":
+        return _result(
+            "assertion_1",
+            "refuted",
+            ("A1_BOUNDED_ACCEPTED_TASK_POPULATION",),
+            growth,
+            flow,
+            (),
+            guard,
+            bound,
+            resource_lifecycle,
+        )
     if bound.status == "unknown" or bound.unresolved_facts:
         return _result(
             "assertion_1", "unknown", ("A1_BOUND_UNKNOWN",), growth, flow,
@@ -254,31 +319,45 @@ def evaluate_assertion_2(
         return _result("assertion_2", "not_applicable", ("A2_NONESCAPING_GROWTH",), growth, flow, (), bound, release)
     if growth.candidate.escape_scope == "unknown":
         return _result("assertion_2", "unknown", ("A2_ESCAPE_SCOPE_UNKNOWN",), growth, flow, ("escape_scope",), bound, release)
-    if resource_lifecycle is not None:
-        if resource_lifecycle.status == "unresolved":
-            return _result(
-                "assertion_2",
-                "unknown",
-                ("A2_RESOURCE_LIFECYCLE_UNKNOWN",),
-                growth,
-                flow,
-                resource_lifecycle.unresolved_facts,
-                bound,
-                release,
-                resource_lifecycle,
-            )
-        if resource_lifecycle.status == "refutes_relevant_growth":
-            return _result(
-                "assertion_2",
-                "refuted",
-                ("A2_BOUNDED_ACCEPTED_TASK_POPULATION",),
-                growth,
-                flow,
-                (),
-                bound,
-                release,
-                resource_lifecycle,
-            )
+    resource_refutation = _resource_lifecycle_refutation(
+        resource_lifecycle, growth, flow
+    )
+    if resource_refutation == "unknown":
+        reasons = (
+            ("A2_RESOURCE_LIFECYCLE_UNKNOWN",)
+            if resource_lifecycle is not None
+            and resource_lifecycle.status == "unresolved"
+            else ("A2_RESOURCE_LIFECYCLE_BINDING_MISMATCH",)
+        )
+        unresolved = (
+            resource_lifecycle.unresolved_facts
+            if resource_lifecycle is not None
+            and resource_lifecycle.unresolved_facts
+            else _decision_ids(resource_lifecycle)
+        )
+        return _result(
+            "assertion_2",
+            "unknown",
+            reasons,
+            growth,
+            flow,
+            unresolved,
+            bound,
+            release,
+            resource_lifecycle,
+        )
+    if resource_refutation == "refute":
+        return _result(
+            "assertion_2",
+            "refuted",
+            ("A2_BOUNDED_ACCEPTED_TASK_POPULATION",),
+            growth,
+            flow,
+            (),
+            bound,
+            release,
+            resource_lifecycle,
+        )
     if bound.status == "unknown" or bound.unresolved_facts:
         return _result("assertion_2", "unknown", ("A2_BOUND_UNKNOWN",), growth, flow, _unresolved(growth, flow, bound, release), bound, release)
     if bound.status == "effective":

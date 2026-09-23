@@ -1,3 +1,13 @@
+## [2026-09-23] E2E semantic repair：统计、证据完整性与冻结结果兼容
+
+- 修正正式阳性family集合及precision口径：126个unknown不再当作阳性待复核，零阳性两precision为null；补充去重、集合外阳性、unknown review标签和具体finding匹配反例；历史hard-negative无匹配独立记录，不能伪称提取失败或有界。
+- 补齐资源decision的具体assumptions、entry/growth/path与canonical身份，消费者验证资源/执行器/维度/切面/绑定，拒绝跨对象借bound；具体假设贯通assertion/verdict/certificate/report，缺失必要假设拒绝。
+- 显式认证并重建旧unresolved/not_applicable非证明记录：先验旧artifact与内外ID、完整binding，再产生新内存视图并完整schema校验；严格from_dict不放宽，旧bounded和篡改/错绑仍拒绝，旧资产不改。conclude实现v9、lifecycle v17、report v2。
+- 更新两项旧proof-gate测试为完整canonical lifecycle record及认证字节边界fixture，保留原unknown断言与真实schema校验。最终可收集全仓1913passed/13同基线failed/60skipped/1095subtests，新增失败ID0；明确保留1个缺失全局skill的收集排除，不称全绿。
+- 独立认证693个公共产物，固定21/21下游回放132unknown不变，27条canonical finding身份变化显式映射；保留33全部记录、0/33正式召回、0/0/0阳性TP/FP/未复核。历史记录中的TP/FP/U=0/0/126为旧混用口径，现以unknown=126、unreviewed_positive=0分别报告。
+- 提供可复跑audit/replay/evaluation、S1-S6状态、源码/输入hash和紧凑证据；本轮研究状态partial、工具初验fail，性质真实消费0，历史backend精确调用量未知，未伪造full/off增益。
+- 来源记录包含同目标并发任务实现快照及本分支独立验证/兼容修复；不覆盖20260923或外层用户文件，不提交源码/DB备份、私有模型响应或大型raw evidence。新增CodeQL/LLM/目标执行均0；178-target暂停，交付后停止。
+
 ## [2026-09-22] PoC-33 lifecycle E2E acceptance
 
 - 完成固定 PoC-33 API2CN 验收归档与离线评价：entries/full 均 21/21 completed，168 selected queries、0 diagnostics/skipped，P0 aggregate 21 completed/0 malformed/0 missing；132 findings 去重为 126 families，全部 `static_unknown`，正式阳性与已知记录命中均为 0（0/33），TP/FP/U=0/0/126，rollout gate failed，178-target full 保持暂停。更新 33-row match ledger、126-row review queue、metrics、run manifest、STATUS/HANDOFF；不把 unknown/full-chain candidate 计为命中。

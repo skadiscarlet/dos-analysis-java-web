@@ -107,13 +107,13 @@ _IMPLEMENTATION_VERSIONS: Final = {
         if stage == "growth"
         else "production-v2.8-open-world-maturation-entries-v17"
         if stage == "entries"
-        else "production-v2.8-open-world-maturation-conclude-v6"
+        else "production-v2.8-open-world-maturation-conclude-v9"
         if stage == "conclude"
         else "production-v2.8-open-world-maturation-flows-v22"
         if stage == "flows"
-        else f"production-v2.8-open-world-maturation-{stage}-v16"
+        else f"production-v2.8-open-world-maturation-{stage}-v17"
         if stage == "lifecycle"
-        else f"production-v2.8-open-world-maturation-{stage}-v1"
+        else f"production-v2.8-open-world-maturation-{stage}-v2"
     )
     for stage in STAGES
 }
@@ -3997,15 +3997,59 @@ def make_conclude_executor() -> Executor:
         entries = _load_entries(context)
         growth = _load_verified_growth(context)
         flows = [verify_flow(FlowProof.from_dict(record), entries, growth) for record in _records(context, "flows", "flow_proofs.jsonl", "flow_proofs")]
-        lifecycle = {record["path_id"]: record for record in _records(context, "lifecycle", "lifecycle_results.jsonl", "lifecycle_results")}
-        resource_by_path = {
-            path_id: (
-                ResourceLifecycleDecision.from_dict(record["resource"])
-                if isinstance(record.get("resource"), Mapping)
-                else None
-            )
+        # Authenticate immutable producer bytes before the explicitly bounded
+        # legacy non-proof reconstruction. Validate the complete current-schema
+        # in-memory view afterward; never rewrite the frozen input or its ID.
+        lifecycle_records = read_jsonl_bytes_strict(
+            _upstream_bytes(context, "lifecycle", "lifecycle_results.jsonl"),
+            "lifecycle_results", source_name="lifecycle_results.jsonl",
+        )
+        from dosweb.artifacts.identifiers import stable_identifier
+        for record in lifecycle_records:
+            if (not isinstance(record.get("path_id"), str) or "resource" not in record
+                    or (record["resource"] is not None and not isinstance(record["resource"], Mapping))):
+                raise AnalyzerError("ARTIFACT_INVALID_RECORD", "Lifecycle path or resource shape is malformed.")
+            old_semantic = {key: value for key, value in record.items() if key != "lifecycle_result_id"}
+            if record.get("lifecycle_result_id") != stable_identifier("lifecycle", old_semantic):
+                raise AnalyzerError("ARTIFACT_INVALID_RECORD", "Original lifecycle result identity is malformed.")
+        lifecycle = {record["path_id"]: record for record in lifecycle_records}
+        resource_records = {
+            path_id: record.get("resource") if isinstance(record.get("resource"), Mapping) else None
             for path_id, record in lifecycle.items()
         }
+        from dosweb.lifecycle.resource_properties import load_resource_decision_for_context
+        binding_rows = (
+            _strict_records(context, "lifecycle", "resource_lifecycle_bindings.jsonl")
+            if any(record is not None for record in resource_records.values())
+            else []
+        )
+        binding_by_id = {record["binding_id"]: record for record in binding_rows}
+        if len(binding_by_id) != len(binding_rows):
+            raise AnalyzerError("ANALYSIS_RESOURCE_LIFECYCLE_INVALID", "Duplicate resource binding identity.")
+        resource_by_path = {}
+        for path_id, record in resource_records.items():
+            if record is None:
+                resource_by_path[path_id] = None
+                continue
+            binding = binding_by_id.get(record.get("binding_id"))
+            if binding is None:
+                raise AnalyzerError("ANALYSIS_RESOURCE_LIFECYCLE_INVALID", "Consumed resource binding is missing.")
+            carrier = lifecycle[path_id]
+            resource_by_path[path_id] = load_resource_decision_for_context(
+                record, binding,
+                entry_id=carrier.get("entry_id"), growth_id=carrier.get("growth_id"), path_id=path_id,
+            )
+        normalized_lifecycle_records = []
+        for record in lifecycle_records:
+            decision = resource_by_path[record["path_id"]]
+            normalized = {**record, "resource": decision.to_dict() if decision is not None else None}
+            # This is a derived in-memory view, not an input artifact carrying
+            # the old producer's identity. The original record stays untouched.
+            semantic = {key: value for key, value in normalized.items() if key != "lifecycle_result_id"}
+            normalized["lifecycle_result_id"] = stable_identifier("lifecycle", semantic)
+            normalized_lifecycle_records.append(normalized)
+        validate_records("lifecycle_results", normalized_lifecycle_records)
+        lifecycle = {record["path_id"]: record for record in normalized_lifecycle_records}
         coverage_records = [LifecycleCoverage.from_dict(record) for record in _strict_records(context, "lifecycle", "lifecycle_coverage.jsonl")]
         coverage_by_key = {
             (item.entry_id, item.growth_id, item.path_id, item.family): item.status
@@ -4395,7 +4439,7 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
     if config.allow_partial_codeql and values.get("command") != "entries":
         raise AnalyzerError("CONFIG_INVALID_VALUE", "Partial CodeQL execution is restricted to exploratory entries runs.")
     analysis_mode = "exploratory_entries" if config.allow_partial_codeql else "formal"
-    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "resource_lifecycle_backend": resource_backend_identity}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v1"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary, "resource_lifecycle_backend": resource_backend_identity})
+    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "resource_lifecycle_backend": resource_backend_identity}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v2-modeled-assumptions"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary, "resource_lifecycle_backend": resource_backend_identity})
     # DeepSeekClient is constructed lazily by the Growth executor, so exposing
     # the complete graph here does not perform provider work during factory
     # construction or pipeline preflight.

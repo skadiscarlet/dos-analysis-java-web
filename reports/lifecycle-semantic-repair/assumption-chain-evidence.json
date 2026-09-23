@@ -1,0 +1,48 @@
+{
+  "binding_id": "resource-binding:002d06da7a19dac46cc68403",
+  "certificate_assumptions": [
+    "MODELED_DEFAULT_CONFIGURATION",
+    "STATIC_EVIDENCE_COVERAGE_COMPLETE",
+    "a counts reserved or running tasks in the modeled executor",
+    "arbitrary_finite_repetitions_of_external_accept",
+    "derived invariants: 0 <= q <= K, 0 <= a <= W, q + a <= K + W",
+    "each external acceptance denotes a fresh task population member",
+    "proof is inductive for arbitrary finite repetitions, not one unrolling",
+    "q counts accepted tasks in the modeled executor queue",
+    "task phase changes do not create a second population member"
+  ],
+  "certificate_id": "certificate:11657b82079d4d69592fc07c",
+  "checks": {
+    "assertion_assumptions_preserved": true,
+    "certificate_assumptions_preserved": true,
+    "decision_assumptions_preserved": true,
+    "missing_required_assumptions_rejected": true,
+    "specific_assumptions_visible_in_report": true,
+    "verdict_assumptions_preserved": true
+  },
+  "cut": "arbitrary_finite_repetitions",
+  "dimension": "accepted_task_population",
+  "property_id": "resource-property-v1.2:1928d611071a270c6377bffc",
+  "required_assumptions": [
+    "a counts reserved or running tasks in the modeled executor",
+    "arbitrary_finite_repetitions_of_external_accept",
+    "derived invariants: 0 <= q <= K, 0 <= a <= W, q + a <= K + W",
+    "each external acceptance denotes a fresh task population member",
+    "proof is inductive for arbitrary finite repetitions, not one unrolling",
+    "q counts accepted tasks in the modeled executor queue",
+    "task phase changes do not create a second population member"
+  ],
+  "scope": "offline synthetic final-source property-to-report integrity test, not real-project recall",
+  "scope_value": "executor:executor",
+  "source_files_sha256": {
+    "dosweb/conclude/assertions.py": "6418efb1392dec60980c44eaf1d3796e1c2c3db7b89cdf638fce14a591827b8c",
+    "dosweb/conclude/verdicts.py": "822eae96e1fcf3b51821a0c91d0f5ac04be0fadb5ebbed0f6b14ca5782c64e89",
+    "dosweb/lifecycle/certificates.py": "2b960e26857d4678e935f6df5ce9aee8058bb80731672036a6be30dcc9b81e2e",
+    "dosweb/lifecycle/resource_properties.py": "3b11d7c19910d056ae39f62efc653cbf40f1dfce48a1888c4fd4723d46ccd087",
+    "dosweb/report/markdown.py": "b91cc773b42e683b43db9cedb39a077c9f3a08af44ca3909479fce5ddbf13ea4"
+  },
+  "source_stable": true,
+  "tested_source_commit": "3e2690ec55e14bd62fcea85e97d17cec2a71b43b",
+  "upper_bound": 5,
+  "verdict": "bounded_under_modeled_assumptions"
+}

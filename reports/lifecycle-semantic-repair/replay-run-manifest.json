@@ -1,0 +1,644 @@
+{
+  "codeql_queries_executed": 0,
+  "completed_projects": 21,
+  "elapsed_seconds": 1.770388965960592,
+  "fresh_full_scan": false,
+  "input_batch": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full",
+  "input_status_sha256": "8ebf3658ec39adffcc0331c7c6c755be82adef5c1aef9b0e2ae4be69a3e9b745",
+  "llm_calls": 0,
+  "mode": "authenticated_frozen_downstream_replay",
+  "project_total": 21,
+  "projects": [
+    {
+      "error": null,
+      "family_count": 11,
+      "finding_count": 11,
+      "frozen_run_sha256": "741ea0b1d351ed4b4212a18a6a8364a225557dd80fb000b2fb2c667b1b4e0302",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/008-apache__hertzbeat",
+      "produced_artifacts": {
+        "finding_families.jsonl": "fee5654756fd2f24546b5fb9498f2d6333dfd6e61aa658b53ee7738c2b13c825",
+        "lifecycle_certificates.jsonl": "683316f3e811376a7cf8fbf7ddca077650fa712bd97a3c90c81eacb5970be2eb",
+        "report.md": "907026c403c5dfb442db31a2d965ec89bae3fb21c2e505325585e7314f2b50fa",
+        "static_findings.jsonl": "f65c00400c816f307b2fcd2690579698d69fd0a3f56f2f6feb83f553fb32e5eb",
+        "summary.json": "545c0056323b276e3555bcb7c03603df76403ac257a65a9a01d40ed26f35e1d5"
+      },
+      "project_id": "apache__hertzbeat",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "c8b4a3d0318daeea4d45008ca58389bfcd2756c7a0793f4170b720fa82998bc7",
+        "flows": "827a945fde44c87760107c95dcde65399530537803d3e7cbb08a49d7805b282d",
+        "growth": "7def2c147ebb27aa134105e715872b5134b8ac90c405fa3c20e9297210efea2f",
+        "lifecycle": "4963f451f4a2152e180667dc44423912ef521dcba31ea948ffcbc66627506898"
+      },
+      "verdict_counts": {
+        "static_unknown": 11
+      }
+    },
+    {
+      "error": null,
+      "family_count": 0,
+      "finding_count": 0,
+      "frozen_run_sha256": "bca2fe2e71a8b110236c4809f9ceb65c3274903e11f560e7ce29cdf609dc041f",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/020-cicizz__jmqtt",
+      "produced_artifacts": {
+        "finding_families.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "lifecycle_certificates.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "report.md": "1e9aca65e34b27814048fcb5bd726a3129ec7c617d880e03f7077a26ee8cc1bd",
+        "static_findings.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "9b2156faa85027dd07ecd351c2ff545dd8902c37d954b3db43e08b0260d07f4f"
+      },
+      "project_id": "cicizz__jmqtt",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "18c107d1149378d23906c5e0a7b1f746cf101b755b9153812624a159d757c0fd",
+        "flows": "3075253f1f1c02e5d90a7379170aca286877a3c7c3108439f662a9e064dce1b2",
+        "growth": "d90c130efe9b09d4fae59e814fc5b82e807d3bbd2906016f87261bdec556d45e",
+        "lifecycle": "7483aa7d67032f749cf87b420d2c156e1080f29e4911b3466f626dc775f65689"
+      },
+      "verdict_counts": {}
+    },
+    {
+      "error": null,
+      "family_count": 6,
+      "finding_count": 6,
+      "frozen_run_sha256": "7c2570f091cca995e84b87ece7ab02c805cbe31fd08977181a155ae49a0df828",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/026-dependencytrack__dependency-track",
+      "produced_artifacts": {
+        "finding_families.jsonl": "92bad99c3fc3f89ff847edf2ff8667e97c9e9fc3dfbed20c4fad0fa7897e9ee7",
+        "lifecycle_certificates.jsonl": "0da2efe84d0ef67eda74ee3b95286831dc98176f3390bef5e86ed4e7411bff5c",
+        "report.md": "3926d12cfc420903e8c2c7c4c9071b951ba7c38239220a5f5a9009a34eb34def",
+        "static_findings.jsonl": "f9f6b5eb4796b090b82d384108dbb3ebe569fca91628f4df75aa304b04f7b0a1",
+        "summary.json": "c6f7d8ea6be95ced6a1b3bef466057c3dd68e9dfee10ca55707df663b8c49554"
+      },
+      "project_id": "dependencytrack__dependency-track",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "07d7f2aac8b4c1e8237796d98e6e65221ff559d63bd7ed303081e8a56865bee7",
+        "flows": "e0fd417b2372acf8093ee3006c516a8601fa2e39509b650141ce1631cff79f26",
+        "growth": "243646a981a2a8a2293b6c6412a352da3018bcace013ab248a6f9232d6484938",
+        "lifecycle": "e657129ac1c031eb11874cf33a57c1458ff586cd75f913582c63a14b88e8f747"
+      },
+      "verdict_counts": {
+        "static_unknown": 6
+      }
+    },
+    {
+      "error": null,
+      "family_count": 5,
+      "finding_count": 5,
+      "frozen_run_sha256": "5b542f382bd2999d8840573b3e6c9fc58e1d5f253ca3a057e32b7046aed29020",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/043-erupts__erupt",
+      "produced_artifacts": {
+        "finding_families.jsonl": "61b7e39e06812d3c185d85b6063bd1f01c292b9257a23954e6be07bc255e0ab2",
+        "lifecycle_certificates.jsonl": "886ff8124b532507fd4cc9e1ed0c09c102ee3a20092cbfc7d2ca896c3968c0ac",
+        "report.md": "bd77164c34fc851e877da6eedfe8f5e32d14ba7ce5c19316b7267d7c68817a0f",
+        "static_findings.jsonl": "8104c7e8ef6d02f270991f4fcc782b55d35406bd9ee5ade73fdc0a8596f4d14c",
+        "summary.json": "50fde021eade86f734ff07eb95125650c743c171ffc17209c6ee76e4769f0792"
+      },
+      "project_id": "erupts__erupt",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "f6acbd68d8b2d2975370f511202bed28a0064889cb0ddb631234a641c6ca3028",
+        "flows": "cb5cc3ef0776b26373268057cc24c06d5bf2efaae66da32d9df2ba49dbdc03ca",
+        "growth": "805ea346c0550e0847d85459ac015d13341add47d2e80684f01452dd50a5731f",
+        "lifecycle": "3625fb4126928acb7584fca2590bb08f4aa01c7cd67eae776ec270ac041e0c5b"
+      },
+      "verdict_counts": {
+        "static_unknown": 5
+      }
+    },
+    {
+      "error": null,
+      "family_count": 22,
+      "finding_count": 24,
+      "frozen_run_sha256": "1ded89f89c87083a6f3958085e98420fffa7f1bcfa18a23ee1b2bc3d46c7fceb",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/048-getrebuild__rebuild",
+      "produced_artifacts": {
+        "finding_families.jsonl": "bdf39bf2fb095b976e2fce4e7754965d74f7594e77757cbf686c1661a7823caa",
+        "lifecycle_certificates.jsonl": "6c7ea763d0d08a20a113c6719e90c5f88a61cdc7899ffe5f8859b97017156e80",
+        "report.md": "a323779c583be673bc4e9125ef2ff56ffb0ce943209372c7045ebfdd6355245b",
+        "static_findings.jsonl": "1a4fdcaf6f26ee9de36dcaaca3e5585e6fb46504f32d9b2c74e619f264e2f55c",
+        "summary.json": "832a9fe657284752d9d703c10a8cb36e20f6deb65d94790b6f529cf2e7167e9f"
+      },
+      "project_id": "getrebuild__rebuild",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "08b019065f375b1c9090449b163802e37cba0f1ff8f6bd8fdc131860945eb11a",
+        "flows": "54aeebd4fe9f374657ac983f65b7015ff644e735541bc2172132225f414e0d8e",
+        "growth": "6cdb5d94917ff96f26da93ed544dfcaa0ee2864c0824cd7f4e91e53089133a98",
+        "lifecycle": "ff08c7e882eccc7d480095757d4f5602d33617890de49f93474e782160e6ef82"
+      },
+      "verdict_counts": {
+        "static_unknown": 22
+      }
+    },
+    {
+      "error": null,
+      "family_count": 2,
+      "finding_count": 2,
+      "frozen_run_sha256": "399cf9f11fbb0c19f1b9785459fd6faa2b17e801492ec6549fe314a747b288b8",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/051-grobidorg__grobid",
+      "produced_artifacts": {
+        "finding_families.jsonl": "7df55764dfa9ef1b2a3d7600b912e814746e50e1996d8d81044a849063d989cc",
+        "lifecycle_certificates.jsonl": "e7c0105b56164ee8cd1ace97a8774d96b4cb4ffa2d3edace66ab9284437f0281",
+        "report.md": "940dc509b95bbc74309ae2317d21bd2bebe741ef8e94158701a0c79f5191b6c5",
+        "static_findings.jsonl": "abf4e7f9bb5a393123ae50e4fce5772eab943623883991a91f29c6f2a0f2f83c",
+        "summary.json": "a473cd1595210141b3ff8f82eeb6f40f46231e1d72023279b179e8ca58d1393b"
+      },
+      "project_id": "grobidorg__grobid",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "3a6abaa3fc7daef80ceaa152ab77b61c59e6963bd0e86a884abeb25f0068d4c2",
+        "flows": "d29f427483a995dfe8e21ff8db35de5b62eede222480d582b0e346edc44dad12",
+        "growth": "be95c45a927de54b478090102ce2fdbd429366785b2447c7ad7cdf775506cadc",
+        "lifecycle": "be1cbacd73e5d80d0c086087e569c694d30adf23aa3771dddbf4041f9388c9a9"
+      },
+      "verdict_counts": {
+        "static_unknown": 2
+      }
+    },
+    {
+      "error": null,
+      "family_count": 8,
+      "finding_count": 9,
+      "frozen_run_sha256": "d24790becaa4ca2e2bd79f04208a6cd821d093e2fff9b916a83450a3c4ca8873",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/068-jetlinks__jetlinks-community",
+      "produced_artifacts": {
+        "finding_families.jsonl": "f17be11a599449e01981ec7ccbd3035bb1230dae1cf55594a5cd4a057a474281",
+        "lifecycle_certificates.jsonl": "a21ad41808d28dfa5b684330c2f19f410d47764251b6852c1f6c5869a5794a7d",
+        "report.md": "77ef965a8e9dd731ca4327aa6676bc2b8b7c8b29aa0e299cd6c0d23bf2fe29a8",
+        "static_findings.jsonl": "a0af4ec6760d1388d719ea8e9d8936424fb6ae07f1910da796d9d640baf293f0",
+        "summary.json": "e587b3d249f8d277ddccadc95390d2ca20bf44284f0b08b3725213ae3d7bbfa9"
+      },
+      "project_id": "jetlinks__jetlinks-community",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "354e3634ab2a266e9ee565871500890b2cd6025799e4e5c005b574ec2563f012",
+        "flows": "3beef143923f3f3001e900ae3796d8a1f19075d51a8a2fe7bd0afbc2ef6d6e45",
+        "growth": "8f4fc1a69cf2289b382747e28fdbd5a7ad4dda262acaabe1e1accdb073f752da",
+        "lifecycle": "75e2cbbe6a3600250fb0e53c58e888a9e7c23b44c8e5b7a6ac93511292267ebf"
+      },
+      "verdict_counts": {
+        "static_unknown": 8
+      }
+    },
+    {
+      "error": null,
+      "family_count": 1,
+      "finding_count": 1,
+      "frozen_run_sha256": "5cd0d7cb4e2b4784022cb9d8910ca3dfce8091445c71557163ec8eb4106aaa7e",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/100-openzipkin__zipkin",
+      "produced_artifacts": {
+        "finding_families.jsonl": "dd79f1607f0fef9fe60abbefd2d06e64580551ef909e832767c02ee1e981c8a3",
+        "lifecycle_certificates.jsonl": "380f352d249a0ca5c68436b3fab023e8e930330fb14efb0741bccf7593c95f2e",
+        "report.md": "6e7c7bc34c0b30261a6b7bc33e288b7b1a56cac6c52a67afad590d71834cdd27",
+        "static_findings.jsonl": "6a4d604bcf5f10291334973dde0833d6780d349e185af5cbeb3ffe9d5f9a21ba",
+        "summary.json": "9ddc0b7b05317534337dac80f3d283e8d644f1f494ebd1feeb732e876e8a07fa"
+      },
+      "project_id": "openzipkin__zipkin",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "a52a543c4707e922e9a8ddcc9f186f3cad87ebb4a0024a3e1fe9bb72e5919c26",
+        "flows": "24ea6d96f0aaced77b2538fff677d5d657bfd2842b2c542439bf786d970140e5",
+        "growth": "0cda4ef0fd2c816bcbc3c55156aada5027ff26848d05d2af642181c1436291fd",
+        "lifecycle": "4b621ce25b2b525b8c49e91bfa1388b85fb4a48cbe430fae2634da8be4b25308"
+      },
+      "verdict_counts": {
+        "static_unknown": 1
+      }
+    },
+    {
+      "error": null,
+      "family_count": 1,
+      "finding_count": 1,
+      "frozen_run_sha256": "464320c58530e1530e1e1855a9cf15c7d839b0678bbb4254dec770d559d40f8c",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/104-powerjob__powerjob",
+      "produced_artifacts": {
+        "finding_families.jsonl": "c91f4202bc6a6e013d8e5c34c33566e15612edbb5379cf9ab64e98c31aba2f13",
+        "lifecycle_certificates.jsonl": "9be72cf9bf92bc8d655d274e952ea47c0e5849490018fbf059523acaf78f243a",
+        "report.md": "1b93dae1e6d0c74a7cf4b11173efdc56d0b38a9f2f5890abb26411598a983153",
+        "static_findings.jsonl": "827a27b2f8528ebae339cb96dd56b5c613860af5bd513c4bba2837ed5885956b",
+        "summary.json": "91071ad5bead0aec6f533b87f778c1688cbc72e01f0219616371608bc8bd2711"
+      },
+      "project_id": "powerjob__powerjob",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "66610af7817aba352f4c5d191d14b90fbc8e8cf17a7378dc2361d88f1c3bf29c",
+        "flows": "0d04a6c991555fdc3d6634ff2d584c1f1a173d32988054718908dd2fb81c760c",
+        "growth": "0d0ccf468b4d4be9329bbeac2a66f0c3bdf623206738f27cb407c917321ff1a4",
+        "lifecycle": "889a49f0ab08d07f860f906f4d43f35ab10424643991f80f069e77bbcf56bd3b"
+      },
+      "verdict_counts": {
+        "static_unknown": 1
+      }
+    },
+    {
+      "error": null,
+      "family_count": 0,
+      "finding_count": 0,
+      "frozen_run_sha256": "af0a2eec5311d785ae9d2b52d02db1fa4850ab54dae5a549dee10f9faf806c85",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/107-quickmsg__smqtt",
+      "produced_artifacts": {
+        "finding_families.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "lifecycle_certificates.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "report.md": "b5dd6a17e916beee59b1e50c6bfdc32b473cfa646daab42a51fad3a4b6fbd235",
+        "static_findings.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "aeb8224eb6e30c1ab14a2a646e1dcbe58011411a39775efc963868ab463b742d"
+      },
+      "project_id": "quickmsg__smqtt",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "38bb0a4f7e38e9d784b776b67e4ea6dcfeb6d0f1dec97fafc064856217497fbf",
+        "flows": "3075253f1f1c02e5d90a7379170aca286877a3c7c3108439f662a9e064dce1b2",
+        "growth": "5cc4ffd603750cbf365606f3d0df0afcdeb4523bd1f1a0f48efbe4288df51136",
+        "lifecycle": "0255269e3753ba82e1667484bca8dc267c8e7f4bbc16e4d1923ebad24fbd45e3"
+      },
+      "verdict_counts": {}
+    },
+    {
+      "error": null,
+      "family_count": 19,
+      "finding_count": 19,
+      "frozen_run_sha256": "4654d6ca8c64777f90c8572f630cb1ca08f52aa67fff7cfe616818341692f636",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/127-thingsboard__thingsboard",
+      "produced_artifacts": {
+        "finding_families.jsonl": "38ad5da9fbcd5b0a5fb2e1de11bedacf17af5f2b6d9b21bcc1e299ce7c342418",
+        "lifecycle_certificates.jsonl": "7ce8e10ec2c5889d7aceca7cbfa0010aef0938d04e8fda5a6a70bc37b8c8754f",
+        "report.md": "c9276927c1a7508185545acaf92e1d63876b23e3a3991341789681dd0cc63d27",
+        "static_findings.jsonl": "712e228c4d925151e15b090f4ebfaa2253f66616639b5b366d33f8ea2f6c7ad6",
+        "summary.json": "e90749cde886c52ca7bff4ef8fa0123ce7d03b58b40f246dda3fa87fe8f9598e"
+      },
+      "project_id": "thingsboard__thingsboard",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "6fc056c349d3692f391bf3974a61b3f2fe470de9fb516aa3253611e4872f4550",
+        "flows": "2ec312f0db19cdc4eb2abe63e3e11575ac9a3b9d40002c4b8eb5f9c03e49339c",
+        "growth": "3133dad79da4a04e71c2b469b8bf769d670b7c8e94ea0402c59bca2d609a27ea",
+        "lifecycle": "626d38ebb360dae9fcc83288336880ebdb055187a1b2ab563d301c87f06bd200"
+      },
+      "verdict_counts": {
+        "static_unknown": 19
+      }
+    },
+    {
+      "error": null,
+      "family_count": 13,
+      "finding_count": 15,
+      "frozen_run_sha256": "8c2dc60b260dbe1e53103e0e930fef1ad00b2e22082674ca17a2e465b87ba234",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/128-tianshiyeben__wgcloud",
+      "produced_artifacts": {
+        "finding_families.jsonl": "adf03cb1a0f36aff20d3146f36dce08199f87b81f0431c5eb8d2778c9fc65e07",
+        "lifecycle_certificates.jsonl": "9323e9450d876f65b7a883860c10211b710c14aeaae50c1505d28d13705ef470",
+        "report.md": "977f96b72dc7686242d7470cbd367acd770e055fc24a4a94415131e2b3d2d4cc",
+        "static_findings.jsonl": "bebfff651d78e3012cf6fda89f45407aa1dc23cd23402264ee858d9ee5ed6005",
+        "summary.json": "bf3595558e49c32ca595265d3260e661a10c516835baad527992050f00ca0f8a"
+      },
+      "project_id": "tianshiyeben__wgcloud",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "aa97ab8608b8a4c97cd3d2bd242269475c2b1466cf7f485332e894a1e0d3fe1e",
+        "flows": "e884a97c5aea1d9857390b11fe0f7b648e32b649f1cc42a25a0d5c6cb865375b",
+        "growth": "cd3d2df8a95d8ab0a1fddbf7d4162333b3b851817703880f98b9293fa89f75c6",
+        "lifecycle": "370099a354c2918a5065886f79e0d4a743ebd9262f69a2b6774d35cf98cfbab3"
+      },
+      "verdict_counts": {
+        "static_unknown": 13
+      }
+    },
+    {
+      "error": null,
+      "family_count": 12,
+      "finding_count": 12,
+      "frozen_run_sha256": "7c89010840af7f891036431bc91f66a5223d2e8de730b253a60e16e89974e2fa",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/131-walmartlabs__concord",
+      "produced_artifacts": {
+        "finding_families.jsonl": "27a6c1b0f0a3b94d57c69cb2f59f4c8e7bc3c623e2db78a098494d76029df027",
+        "lifecycle_certificates.jsonl": "6dd6fdb035a1a8774105ed8b81037c845b8c82709defd6ac5fbeff00c1335a49",
+        "report.md": "18ec6b04e84f15fc01f57b10ba434072d05518259a2c88be0f3dfbd26634afd4",
+        "static_findings.jsonl": "15de95c872044e36fa24596d6c53de5b333f0841f5d0a985c8e7a1b0093c8eae",
+        "summary.json": "f59008e7fe4a7c54c7aa14a633a8d0099a3f28a92c87897f5c63075012baf28d"
+      },
+      "project_id": "walmartlabs__concord",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "771a667ad89d34e1bf4f1384362c0ae1c4d3f1c003998cae26f7d2ac252d5c7a",
+        "flows": "3d5cae57f48448cdf766c38dc58413b709e4b1c4f26e77a2807b5052f248efb5",
+        "growth": "078f415a1f7aac9aa7fa82789493a504463a28bbde0b61415a1cee73f82a03ce",
+        "lifecycle": "c3a842afb8d1b29ad9bae1712c77572faf2c4ca49d9f8513b34f8457a51c17ef"
+      },
+      "verdict_counts": {
+        "static_unknown": 12
+      }
+    },
+    {
+      "error": null,
+      "family_count": 7,
+      "finding_count": 7,
+      "frozen_run_sha256": "d3fa3a3a8edb1df61272d435de7f5b220339bc0eefc41a5ac8b92d98897710ce",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/138-xuxueli__xxl-job",
+      "produced_artifacts": {
+        "finding_families.jsonl": "96b69f3ea876e40b1913fee2ffdefef74cacab4feffd813666851c9b74a3d445",
+        "lifecycle_certificates.jsonl": "9a7a40fea13accaac85409773a7ea65a939e81ece9711b2633f3baa704c4f953",
+        "report.md": "9266facad37c318fdbc537979509488a8aa503534934ee2d73ca9cdeb6c8618e",
+        "static_findings.jsonl": "0291dda0ed51da7273872de554b53385eb20d15329726dc723383b3dab402fdd",
+        "summary.json": "cf98099152e26f11fb398e8430f323fac79db18982324ec927b409c5d16230fb"
+      },
+      "project_id": "xuxueli__xxl-job",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "53d609e81cd734a582a3b502fc648d7d31f1444db455a1e327c7a6e6708c28d1",
+        "flows": "b8c4bc229487398727778ac42598d94a5954e967dda4c509bf362de1f594971a",
+        "growth": "9d7a97be87e2455fbc0af300a0fc6ff8a97ad7b03efa2ab09b98bdc7b2adc2ab",
+        "lifecycle": "205bbae4ef958cc6c2e95c7f6436a006c60cdd979765c5563c87985c8d95b45e"
+      },
+      "verdict_counts": {
+        "static_unknown": 7
+      }
+    },
+    {
+      "error": null,
+      "family_count": 2,
+      "finding_count": 2,
+      "frozen_run_sha256": "733bdc369ed1ebef818dab18b04fa41d34d4f5a6b78828a3cd8ca093404bbf5c",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/140-yangzongzhuan__ruoyi-vue-fast",
+      "produced_artifacts": {
+        "finding_families.jsonl": "bfc179fb5a3d6498ee172405ff242f5832a1f06f24e55859222b689273423b34",
+        "lifecycle_certificates.jsonl": "cdbaeaea9eb967c1c2d2133cbc8a17a369f6338758f33a3ece22ba7bf7a2cd0b",
+        "report.md": "7061472bdd1909c9c68cf80ce8c1778fc42107aeaeb43487be57a3808dcb8ab8",
+        "static_findings.jsonl": "217efc0dc6ee61b87fcfb9ac672ee07912c39afdc434b5d17d63d27dd45edb23",
+        "summary.json": "7f2b03f8a0aae96f8cb2d8154acd89428a072d351325ee1f11254aa7ec10b971"
+      },
+      "project_id": "yangzongzhuan__ruoyi-vue-fast",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "06c2b8d9f8d452c4fb8f3a9f17e3778160d6f532ad47933c26cff65e6c465a93",
+        "flows": "c7e4a17f8ecd5ff3299765c8ff389454a8cf2b16034692ae7421bb522c3246c9",
+        "growth": "d241026b05f3805212ca941e4ec0591db43f1ff1753fd85c84656340895cc3ca",
+        "lifecycle": "881b16c539cfd33dfc08785fd94df0b90c9a004c4630d12d956ef06f3bb74578"
+      },
+      "verdict_counts": {
+        "static_unknown": 2
+      }
+    },
+    {
+      "error": null,
+      "family_count": 3,
+      "finding_count": 3,
+      "frozen_run_sha256": "0af059f28f295d94eb97a62e4f1c03cc8950f3666ad3936ac7bc07271640729d",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/141-yiuman__citrus",
+      "produced_artifacts": {
+        "finding_families.jsonl": "6f9ed6c2558bad6ea2b22aa974545ec8810632de328a762f21daa5e2f26b0781",
+        "lifecycle_certificates.jsonl": "e0b7f5540f70066172b1bc0efd1253858cab42e29e975f0eb4df9dbe790e8d8a",
+        "report.md": "a3ffbf816abb543bd8b2adba0d8c05b0cd0ecf56e412a2f963ea6a076645ee61",
+        "static_findings.jsonl": "7eccec0523567987b7faeb15c245ff6eda744e40314220cc96db588a7c13a213",
+        "summary.json": "769a2fcb95dea6453692cf407f447061b2ce79e51942857089479d7477bc988b"
+      },
+      "project_id": "yiuman__citrus",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "774f69f7ab85b6d9a9be08f5d7ff075312c18c1d33ee4d6ea8d09bc9a99acfd0",
+        "flows": "c6b279c6996f1da5850f8b7a9e94d341944d7e61194f662262ae243ae8be7c7f",
+        "growth": "eaa13a9f7a5de9fffc6ca49f2a36a61faee4e011b4a8e097aef9f94c87c7d483",
+        "lifecycle": "ffe1c5d9a176eeb63816499bb10ab5c9480a1664ae793b210fe7dd8c1c383778"
+      },
+      "verdict_counts": {
+        "static_unknown": 3
+      }
+    },
+    {
+      "error": null,
+      "family_count": 1,
+      "finding_count": 1,
+      "frozen_run_sha256": "69ae11e44df0c4248efac43eb21befe055630954e0c2277c9bee9461569ef63f",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/201-apache__druid",
+      "produced_artifacts": {
+        "finding_families.jsonl": "06356e2458d9891178ae087565e294be1f8e8d30d753e39edf30f7f69374a6da",
+        "lifecycle_certificates.jsonl": "52710ebc1fabf2873cc132fcde69aa7fa5626e0b13ed798892ef812df4ff1466",
+        "report.md": "34c1096fe278ee3e3d80654f8403490f7636f4fb8a1472a4d7878b75bc83077e",
+        "static_findings.jsonl": "f779eb873b09a34ba54e4e907fb99501c5f6ec9ac9719a2958ef3d2d8eab8438",
+        "summary.json": "91c299182ab33a4067b4ea9b8c81fdae619b6b288f1c1472661fcf6d79c8e2ff"
+      },
+      "project_id": "apache__druid",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "bd4000d75000d38004d35b8197081b566986a6f73a7720a30625742b5b6fd525",
+        "flows": "0611aa2156daab653e6b95148891fae0ae80f6df64060bfbd36b80fcd16abdc6",
+        "growth": "4064e2c2617da62470b9dd47e2d56c33553a376fffb99fd5edc7a7680ab20180",
+        "lifecycle": "67cda61cd99144df734a2e6506fd757677b48bc70fe68a74cc73d003ea6a2abd"
+      },
+      "verdict_counts": {
+        "static_unknown": 1
+      }
+    },
+    {
+      "error": null,
+      "family_count": 0,
+      "finding_count": 0,
+      "frozen_run_sha256": "0e87029da3326506a0b5e71747945178075f413926a67264555d82e8b7676add",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/202-apache__skywalking",
+      "produced_artifacts": {
+        "finding_families.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "lifecycle_certificates.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "report.md": "01a0b8d251781de4518354c947d425defcb05f845402bc9472a2d94264635feb",
+        "static_findings.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "6af06dd87dd831ca385413cb6264b365cdeafa75bbd9d5d4b02e806388c72f40"
+      },
+      "project_id": "apache__skywalking",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "a8cdcbea14bbd2ca5b41d906b173b96f9ca4ef108c09b047cc7519d805e47fd0",
+        "flows": "3075253f1f1c02e5d90a7379170aca286877a3c7c3108439f662a9e064dce1b2",
+        "growth": "694ea869b3904255268183423c528c396ea047d6b9c63af2f5cdfe0e502e45f3",
+        "lifecycle": "be038c4c06cbd8392d429e8ebcb2e3a96827529101f5df5ecf99d9f75a35229d"
+      },
+      "verdict_counts": {}
+    },
+    {
+      "error": null,
+      "family_count": 2,
+      "finding_count": 2,
+      "frozen_run_sha256": "df674b093166c005e6c118a77bac7e2350ec88d7c2f6e639429e7900b7bcc272",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/203-apache__solr",
+      "produced_artifacts": {
+        "finding_families.jsonl": "331e773de487f844571f108e9b0f6b4d4b8fec37a7207988e12b9f1ad14274c1",
+        "lifecycle_certificates.jsonl": "ff47a9bb9400341a4f3e01474318ff2b95ddb4465477053edac6025df3a3bd0d",
+        "report.md": "2fa876c5a3e57b7ecee93cc55aa0e358f1a4c4ffd0d563144a211bc86bce6378",
+        "static_findings.jsonl": "ca921147174b8bd6394ca8e6842ac2ae9fca4fb5767194ed4dbeadcc4c420b56",
+        "summary.json": "8d162366340b3c2772e4ff4262d14af959158cf66d1abf491ae770075ab17420"
+      },
+      "project_id": "apache__solr",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "49a2dd821213d39bbf0549644ead0f89425f5bf6f69d671cfe5500f0d753d46b",
+        "flows": "e33c423df9c4f1035cff6b2286dd47cc489e918d54089fb847ee686eb866303d",
+        "growth": "7a26db836d7f3fb832cf510ad7b53fe1c6599a0ae31589eab6f57adca10815e1",
+        "lifecycle": "941d4918c2eeda19249bd1aef9e837d97b3ee07300052dafce3ca22e4d72adb2"
+      },
+      "verdict_counts": {
+        "static_unknown": 2
+      }
+    },
+    {
+      "error": null,
+      "family_count": 4,
+      "finding_count": 4,
+      "frozen_run_sha256": "b2d642f377c61235659d42f9c8bf1820e0fa0e912cc89a5d8c93cd6ac8506247",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/204-prestodb__presto",
+      "produced_artifacts": {
+        "finding_families.jsonl": "89a305857176d4782d8cdf1ae3ceee3690329b7513e14b0c61aff1d75e644bd2",
+        "lifecycle_certificates.jsonl": "e5465bc6bc9b4b785649073c6e67bcb96ed464cd6b21b67bb0802534afb1804f",
+        "report.md": "7cf56e820651a2ef4a9e70dc1b7aabbe182d96a4cf165a3b303cb7e8fce6f204",
+        "static_findings.jsonl": "b88b7b7f7df47ddff12426cfb21e1dea31c7c046989d6b38b8a2f7284a2f0ced",
+        "summary.json": "9713c186427a03b92ff82c72483567c441df509228bd96bda5aec186cc2b67b2"
+      },
+      "project_id": "prestodb__presto",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "c628a81ad136ef3b138134b915a5b7e93e9f213c951cec1d02a6e4652d6036e4",
+        "flows": "166851ee57380f22df42ccadacad247db1ad5d8740c220f8943ac5f84d405711",
+        "growth": "62f8e72afdb5ac4d2760a6fa77ae34406024bf4d06807fcab704defc196d21b7",
+        "lifecycle": "2123bec5739d09ced3ba59d2644f7fae13385e331c86b029dea11b1257067796"
+      },
+      "verdict_counts": {
+        "static_unknown": 4
+      }
+    },
+    {
+      "error": null,
+      "family_count": 7,
+      "finding_count": 8,
+      "frozen_run_sha256": "d23ca64ea01f9eb37dda9ed559c62587f0618c8a36cdcb3dbd0174e2e222bace",
+      "input_target": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/targets/205-dromara__datacompare",
+      "produced_artifacts": {
+        "finding_families.jsonl": "b37ce8f96b912e02271bba5f3cf494ae9e19a3e943e0897103a2fb9cd7d04b4f",
+        "lifecycle_certificates.jsonl": "621f5bdee9f0e44d0488b7fc991a2e430c6181d20fdc07918eabad0deb934af4",
+        "report.md": "2362be065db7312f406721897f662ff7185fb8ba054ba7eab505ffb228607858",
+        "static_findings.jsonl": "d5062be42b355b88233d2bf07201caeec58bc0c8a2a7d02a65bec29751919373",
+        "summary.json": "0710af21d664beb1677422eb89e05bbc7763e9940cf0bd3cb4abc95ffcc28821"
+      },
+      "project_id": "dromara__datacompare",
+      "status": "completed",
+      "upstream_output_hashes": {
+        "entries": "358401ebde274338739c8852aa55b8102d8e90a440f14b0d11eb993b24b7df52",
+        "flows": "67f23040b96490b8749b73508ed52eee72679225540cc86e2a394f92e06c29e9",
+        "growth": "276062189f3bbc0bec6aa4c6373c1b0c1f4a61b8c2e5e8410aa4121e7fea4a99",
+        "lifecycle": "e7906550e8cda4cb8c80ad5a50864c54fcd9c797daca532bc76ba04fbeef0fc4"
+      },
+      "verdict_counts": {
+        "static_unknown": 7
+      }
+    }
+  ],
+  "source_file_sha256": {
+    "dosweb/__init__.py": "8a3985a7ad2aa1d2ec5066e9737ea0df80b0150a4c9092ec4eeb80df86549ab9",
+    "dosweb/artifacts/__init__.py": "d289e1be8f55fb5c21f39a0e70cc79c077d9d25c7325dec64a77eae95ebd135c",
+    "dosweb/artifacts/identifiers.py": "5e7b0a7141d48508909d4c47619ae7c49e5f93e61e3554341b732b61a894554a",
+    "dosweb/artifacts/jsonl.py": "0c75bba372197278aa6f4e3f42ac94ccefd7bac407fcfceca5a5035ef5ee9bdf",
+    "dosweb/artifacts/metadata.py": "fb93a973cf3f55923046dc8d05820b1209814db433c882ac11dd346f7aed725f",
+    "dosweb/artifacts/schemas.py": "06c1924922e79c9047198df851c2792d7f2106521455a034fa8587514934b500",
+    "dosweb/batch/__init__.py": "cf80b3814a9a214eb74f158516c9f34d37e25ef878e40b97c886dd733b780ad0",
+    "dosweb/batch/aggregate.py": "f0171cc3fe0ad74041e86ab09340c8b8a9ea3c729eb0d369cbcf98c1290e4ef2",
+    "dosweb/batch/corpus.py": "5462d781ba0d9cd8b98ef88d7a4be3b0e262952834bd293cd4d4f609d8bb297c",
+    "dosweb/batch/models.py": "0d7c4cc753e56b94a658d6d2c727d9f6766826c6eff9fd7732e234a276473b26",
+    "dosweb/batch/plan.py": "bb58775927f6021389abf829b8d5eaa1ef5158f14b9e8a579ea7156712699987",
+    "dosweb/batch/runner.py": "fc647fbc0ef7afd4b62c81671c04162215037176a9e3a44234e383dbbca60b41",
+    "dosweb/batch/state.py": "27eeca22243b06f0c356db1c484d92d66cee02210e0a26c58ff95e1e3a12ed34",
+    "dosweb/benchmark/__init__.py": "d6b2fa7bab0ef8be9fee0e26647ec2527b2cc09611a76b92ba2dd343607e7e9e",
+    "dosweb/benchmark/candidates.py": "4bf00b37cd33bf8c5dc8feff1c5f910575178cf99e31d1f072e2ad99995338b9",
+    "dosweb/benchmark/disposition.py": "8e8584d2f4a0caf91b9343f4659d94ba81840849032ec32115330db636c178f2",
+    "dosweb/benchmark/entries.py": "f7b8398b34c12078b133afc4cf242dbc83d8196df711b9b40261725bf6a07223",
+    "dosweb/benchmark/evaluator.py": "8cbdb94c4b61fd7869a050bd0a24f8eb2c33cae5ae2ec78180cd996acf302bbd",
+    "dosweb/benchmark/matching.py": "e3434ed831ee510960df9508453e7ba4ff334d1e3a77802e99f3c2246cf3576e",
+    "dosweb/benchmark/poc33_demo.py": "24b8cac380ebc220a2cea42bc88db7a0e87245904b58e88b36f6c2741a56e218",
+    "dosweb/benchmark/truth.py": "9a734432cac9bf84beb4a740462b2d63aa68ffc0a491e6010e38567f818ba09f",
+    "dosweb/cli.py": "29c9abd168c1ca5e11e8175fee8a69be8940f6359de76f9e4ad99f25a7d275ff",
+    "dosweb/codeql/__init__.py": "4a4bba9ef00d0223c1bf9e659907ec47eda876bf20d3b20a5f3f95a84e32e9c5",
+    "dosweb/codeql/database.py": "3bd039169c942362d25ebd1debf88ad8eb0664600b88b98eb8374a67ba372fee",
+    "dosweb/codeql/decoder.py": "431cf6b92938c06b92fc73a24a117510f3364303d5c5e017e7b5bbedbce4241e",
+    "dosweb/codeql/native_builder.py": "da5765b971741a410b09cc5979940f59a1f2f45059650185e7f956dc28635ab5",
+    "dosweb/codeql/runner.py": "59163f3baf621dbf69ff16d9db637f3e1a6e4e3c0083ec0dab7a1eef2ba78a8f",
+    "dosweb/conclude/__init__.py": "a7685f7e0d3870ff4ed0f7c4157f24f2a22d67b9bb4d91f156de79bba8a55664",
+    "dosweb/conclude/assertions.py": "6418efb1392dec60980c44eaf1d3796e1c2c3db7b89cdf638fce14a591827b8c",
+    "dosweb/conclude/verdicts.py": "822eae96e1fcf3b51821a0c91d0f5ac04be0fadb5ebbed0f6b14ca5782c64e89",
+    "dosweb/config.py": "3ce9dcd31d18e725b1083a1bfa7bd53dfd36526b4d7bd81e719bf7ea952ea2a3",
+    "dosweb/configuration/__init__.py": "325fe1916e0201462722a93b3c57e578a61c01a6db7af074a7edaf6dd14d081e",
+    "dosweb/configuration/extract.py": "45ad91ad57075b801f0d29dfb3970c67e79d4205fb2e027eb4e4a0e501750e69",
+    "dosweb/configuration/models.py": "900a55f101f3ed3fad517d69b18ea34fc1d1b37ac4cace9cfb661fd81ec6cc26",
+    "dosweb/configuration/policy.py": "f351376fb58ee491b49218f0562872c759373c87237fddd8435d4a059a433d79",
+    "dosweb/entries/__init__.py": "c14e5cb7be80b84c81a49c0beb46f5814b60e128c07f1b139906f08c2c1df84a",
+    "dosweb/entries/coverage.py": "f0cdfced4a04965446fe789630c11d6259a28c735419a93e6d15477c4dce4fad",
+    "dosweb/entries/jaxrs_source.py": "adbfdadbbc242dc1688a85623364a601bb7ed30ae9c3bbd2eaa21769c070cae0",
+    "dosweb/entries/models.py": "4ad897673c37ae76d4deeb1093f86a775c8b9e6299a5647c7f3dfbbd54ad7346",
+    "dosweb/entries/normalize.py": "2ca2d113a097716c3b281ffa4b868bca798d4c8c9cc0d1a9786c6c039c0fb139",
+    "dosweb/entries/webxml.py": "0a9789772301289ac42c232d441ac8b789620864206af87413a3ae3d7cb30979",
+    "dosweb/errors.py": "2c5fd3688939eeb7e6b98f67af5250c520b68ef05315ed35a27f0fb4e4b91fc2",
+    "dosweb/filesystem.py": "deb876eb71eb87af10f996523a6b8816c87ff0b77ffa4bc09313ea65cf094209",
+    "dosweb/flows/__init__.py": "5591d2e5c169575f6595e2ea8723eaa09cc8494ebc2ae616cd2e09c63d566d55",
+    "dosweb/flows/models.py": "9d948f198dccbe05bd5facd209d72227c12ba036fbe5e3e7ba0c574813c6363a",
+    "dosweb/flows/verify.py": "4abb903cd94b09c7f211b30eb849e9e730cee6e3e07ec1cc32a7902f713af0a6",
+    "dosweb/growth/__init__.py": "38eda8f2d4874156e66e89816be8ef7fbc3a5c0a23146283bec9d23b766512b9",
+    "dosweb/growth/completeness.py": "d0eae45fe4ae71b7382908cd4dbde0d621421439247900bee4319bb56863241a",
+    "dosweb/growth/contracts.py": "345913b931c2831264165bc64aca8963424e6499778f68a0169e5c4eaf851918",
+    "dosweb/growth/evidence.py": "4d5242c37486c3230c89d94037d64a124ec3d80a2cb3a28051d0f43860bc5236",
+    "dosweb/growth/excerpts.py": "3015e9f35f081d58ef001db3fded4ac7766254013d21972df2b0d19c081cb806",
+    "dosweb/growth/models.py": "157be39825cadfa19d54a027579d3d639c98d4e466b1478f9c99104f023edc75",
+    "dosweb/growth/redaction.py": "2431d2b11c1eb8554469c958414830657332d88668f912f5ee0a6ba6c1703128",
+    "dosweb/growth/relevance.py": "322884cb243323d2d17a6c81063a34a3cc3608a2381615729ec680b522ffa07c",
+    "dosweb/growth/slices.py": "815e9404a4eca44825d99fb246406b93fc9b872df9ffa703d1d30bad39ca51c8",
+    "dosweb/growth/source_fallback.py": "f551085f4c075a2e1a476380b2b38c15539cbacda65da4c6098c7a2379cb7da4",
+    "dosweb/growth/verify.py": "837b493f8997187a12fe8cfe98fe5aff04fa13175d4210d1e40568094b3672cf",
+    "dosweb/lifecycle/__init__.py": "fd1b203c2ab45729938e754f49c843207133837dfbda7e8a189765d6a90ce28f",
+    "dosweb/lifecycle/bounds.py": "b2c3a0eef6325abd8857d66832f0dbcae875d0f98a333c0a09de18e47b586ecc",
+    "dosweb/lifecycle/certificates.py": "2b960e26857d4678e935f6df5ce9aee8058bb80731672036a6be30dcc9b81e2e",
+    "dosweb/lifecycle/evidence.py": "f51fb51850d9b0ab9a0baa7657f8460264dd5486532bb7b292be9761bf87a6f8",
+    "dosweb/lifecycle/framework_limits.py": "e7a61a31626c72018dbef4d512e75ff822871a84814f3f0917fbfc94f1329a7e",
+    "dosweb/lifecycle/guards.py": "db6d6bafffa671b1a4026e9c90a83ed63203356e0a1180037f67c7df902a6b6a",
+    "dosweb/lifecycle/releases.py": "954d65763bd4870cbec14909d9c1b0bceda63b51cb0cc19c82dd62c279181a19",
+    "dosweb/lifecycle/resource_properties.py": "3b11d7c19910d056ae39f62efc653cbf40f1dfce48a1888c4fd4723d46ccd087",
+    "dosweb/llm/__init__.py": "6230413a5d0c39984edc9ecd2d464c2ea31d4eaf5afef9c9b21c45d054de6919",
+    "dosweb/llm/cache.py": "42e18cdb2f76eefdbfc033850e120cb2efe4c7c8c1e94c7629330e33f5d9be90",
+    "dosweb/llm/client.py": "fd54c226aa0946cf0f49c8ee72648b6686dd41003cf0037586b88b5928cbaa73",
+    "dosweb/llm/deepseek.py": "102aa08764d62cc4a08bd0c20f820d2d6a496317bebeb586fc5e0a59f5a20591",
+    "dosweb/llm/prompts.py": "9df293ecb8d93272dc339d89c8539961402595165c0358ef376dc8d69c4f424d",
+    "dosweb/llm/schemas.py": "f0dd87ecf5dd99b82182fec977c9729feff60ecc8692d9dffd91f8abcc9207ae",
+    "dosweb/pipeline.py": "9260760dcdecb5f8f32431db11cddcde5a6b6e3bff7cbd138af2c69253dc8323",
+    "dosweb/production.py": "51edce6938a14fa5a75dce01ddf5a3bcc86f853ffe4c9441516bb329a554c518",
+    "dosweb/reachability/__init__.py": "f8b8e7333d3829e25a6f7a209a52f22efe7a01ea3ccbab1f230ac68668fc6696",
+    "dosweb/reachability/audit.py": "3b66a3554bc6070dba9e764d2b9d971fda2d8e5e8a9591577fb3b2a2b526e322",
+    "dosweb/reachability/extract.py": "7967d04cff4b149d6adc04472f6e497dbca714f1b5f304a7e0def6690a38cc5d",
+    "dosweb/reachability/models.py": "91264a8adb74bf0fd08c9efeddcd69b006609feb904469a6734d6bed997241ff",
+    "dosweb/reachability/verify.py": "d20c582961f68d1641df9b23751b4531f610dd45d48cf7bdf4b2b07ea59de9ca",
+    "dosweb/report/__init__.py": "e9b1d258ed8b48ba9f68dca56834711c2567be212f41cfc34283d1a376c6410a",
+    "dosweb/report/families.py": "5c25f22e00d9dd52418dcd0b550cf56ea8a3230d8815781f727f557c28559f27",
+    "dosweb/report/markdown.py": "b91cc773b42e683b43db9cedb39a077c9f3a08af44ca3909479fce5ddbf13ea4",
+    "dosweb/report/summary.py": "3a8e5b98a01537f10673a711bef6ed4ed35bd0849b845e730e66e9b3422348f0",
+    "dosweb/resource_lifecycle/__init__.py": "4f9156f0e7120cc461fe9f291559c359759c6521273cf88137b195b634ff5df7",
+    "dosweb/resource_lifecycle/adapters.py": "32a71a849ef6919d1eb60013a7bef8cdb288817d0fbcb9876f37acc81da6d31c",
+    "dosweb/resource_lifecycle/commands.py": "23cfc13b595eda5542011c9828a0a7be2f926546ba2375b2f7f6293bbee4fc91",
+    "dosweb/resource_lifecycle/contracts.py": "81b85626503054dddc00007dd618ddfdb2d224c8c38b162a1e68ad5580540363",
+    "dosweb/resource_lifecycle/evaluation.py": "5aa4b9779133f82d4e54684a2e5e5d8e236117adf0428e0021b867cdd6fe7d0b",
+    "dosweb/resource_lifecycle/events.py": "115bb231757a8411918129676c40363711f39e153ebf6a918f72dbbf3a9f4329",
+    "dosweb/resource_lifecycle/evidence.py": "eb650b4e5936f407de622ebf4e9c8774b1d64c55e6aa9ffee1c91ba35cde5fda",
+    "dosweb/resource_lifecycle/invariants.py": "61de602cc7fab051af87b27d965507de1541fdf207065bf04bece2ef6659561a",
+    "dosweb/resource_lifecycle/io.py": "bb24d09981af5d5c028da92151f1c52ba512cc2cf97c4df270bbeee7fc218424",
+    "dosweb/resource_lifecycle/models.py": "e9bbe708d7e728caa72f806057a3892ac97c671a210e5b1d37f1b54c911839ff",
+    "dosweb/resource_lifecycle/project.py": "3bc7e2bc0b820ca4c1fbd62318d5af33997a3f0281cdb46ae3c9e063921737e8",
+    "dosweb/resource_lifecycle/properties.py": "cf62afc5e0e1f595ed6f60f07b442319b94a7d729c86bd33fb33c03b7c091806",
+    "dosweb/resource_lifecycle/sharded_run.py": "813af88bb8675d45cbbf62be0dceb27c782a2b8a2ad60be106685c9e6290f13a",
+    "dosweb/resource_lifecycle/shards.py": "81a367078d706f314b6ed6131c23b739ba9d79d93efcbfd13bf7696e06a1f983",
+    "dosweb/resource_lifecycle/solver.py": "22fb5d3b1e0e8bf5bac627e910f1b4cd9f914e10b3ed170322982fe3dfdc6f8e",
+    "dosweb/resource_lifecycle/source_evaluation.py": "8bbe70576b9eb29165b8c97776d0407dd855e2ca7b247f2759e912c42ac0ca0d",
+    "dosweb/resource_lifecycle/summaries.py": "ac493715ce31e56372c74b9e9b4033f909ccf276f1fb2ab8c2a4827b0d94da9f",
+    "dosweb/top50/__init__.py": "d333071f431c9159282529637ad6bcc15c89d232d1b5fda07b41ff6076a028df",
+    "dosweb/top50/contracts.py": "dbce007b223a22c4882a316f0efdb756d4ae02d775392b18d383e4ea91fd7f01",
+    "dosweb/top50/selection.py": "e9c45314799bb41434708235df159fa60ae45fa32d7b58424ab82ee28ef81bfc"
+  },
+  "source_stable_during_replay": true,
+  "target_programs_executed": 0,
+  "tested_implementation_root": "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922",
+  "tested_source_commit": "3e2690ec55e14bd62fcea85e97d17cec2a71b43b",
+  "tested_source_content_sha256": "9a94aba5806d59805f39d1d8659a17d993c44b07f1a578f83d403c2f100c9eec",
+  "verdict_transitions": {
+    "static_unknown -> static_unknown": 132
+  }
+}

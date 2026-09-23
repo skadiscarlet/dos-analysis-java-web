@@ -176,6 +176,13 @@ def render_report(
         lines.append(
             "Limitations: none recorded beyond static-only analysis and modeled assumptions."
         )
+    if any(certificate.assumptions for certificate in certificates):
+        lines.extend(["", "## Modeled assumptions in lifecycle certificates", ""])
+        for certificate in sorted(certificates, key=lambda item: item.certificate_id):
+            if certificate.assumptions:
+                lines.append(f"### {certificate.certificate_id}")
+                lines.extend(f"- {assumption}" for assumption in certificate.assumptions)
+                lines.append("")
     return "\n".join(lines) + "\n"
 
 

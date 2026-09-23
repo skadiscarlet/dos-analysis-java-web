@@ -334,6 +334,24 @@ class ProductionFixtureE2ETests(unittest.TestCase):
 
 
 class ProductionProofGateE2ETests(unittest.TestCase):
+    @staticmethod
+    def _canonical_lifecycle_fixture(record):
+        from dosweb.artifacts.identifiers import stable_identifier
+        semantic = {
+            **record,
+            **{f"{name}_decision": record[name]["status"] for name in ("guard", "bound", "release")},
+            "resource": None,
+            "resource_decision": None,
+            "reason_codes": sorted({reason for name in ("guard", "bound", "release")
+                                    for reason in record[name]["reason_codes"]}),
+        }
+        return {"lifecycle_result_id": stable_identifier("lifecycle", semantic), **semantic}
+
+    @staticmethod
+    def _fixture_record_bytes(records):
+        from dosweb.artifacts.identifiers import canonical_json
+        return b"".join(canonical_json(record) + b"\n" for record in records)
+
     def test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry(self) -> None:
         helper = FlowVerificationTests()
         entry = EntryFact.from_raw({
@@ -401,6 +419,7 @@ class ProductionProofGateE2ETests(unittest.TestCase):
             "bound": production._decision_record(bound),  # noqa: SLF001
             "release": production._decision_record(release),  # noqa: SLF001
         }
+        lifecycle_record = self._canonical_lifecycle_fixture(lifecycle_record)
         lifecycle_coverage = [
             LifecycleCoverage(
                 entry.entry_id,
@@ -487,6 +506,13 @@ class ProductionProofGateE2ETests(unittest.TestCase):
                 production,
                 "_records",
                 side_effect=lambda _context, _stage, artifact, _schema: ordinary_records[artifact],
+            ),
+            # Stub the authenticated byte boundary, not schema validation.
+            # These fixtures now exercise complete canonical lifecycle records.
+            mock.patch.object(
+                production,
+                "_upstream_bytes",
+                side_effect=lambda _context, _stage, artifact: self._fixture_record_bytes(ordinary_records[artifact]),
             ),
             mock.patch.object(
                 production,
@@ -579,6 +605,7 @@ class ProductionProofGateE2ETests(unittest.TestCase):
             "bound": production._decision_record(bound),  # noqa: SLF001
             "release": production._decision_record(release),  # noqa: SLF001
         }
+        lifecycle_record = self._canonical_lifecycle_fixture(lifecycle_record)
         lifecycle_coverage = [
             LifecycleCoverage(
                 entry.entry_id,
@@ -654,6 +681,13 @@ class ProductionProofGateE2ETests(unittest.TestCase):
                 production,
                 "_records",
                 side_effect=lambda _context, _stage, artifact, _schema: ordinary_records[artifact],
+            ),
+            # Stub the authenticated byte boundary, not schema validation.
+            # These fixtures now exercise complete canonical lifecycle records.
+            mock.patch.object(
+                production,
+                "_upstream_bytes",
+                side_effect=lambda _context, _stage, artifact: self._fixture_record_bytes(ordinary_records[artifact]),
             ),
             mock.patch.object(
                 production,

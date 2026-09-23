@@ -1,0 +1,24 @@
+{
+  "author_provenance": "Snapshot of primary task task_99052663428444129f80 implementation; independent reviewer did not author or alter primary worktree.",
+  "base_commit": "3e2690ec55e14bd62fcea85e97d17cec2a71b43b",
+  "copied_paths_sha256": {
+    "dosweb/benchmark/poc33_demo.py": "24b8cac380ebc220a2cea42bc88db7a0e87245904b58e88b36f6c2741a56e218",
+    "dosweb/conclude/assertions.py": "6418efb1392dec60980c44eaf1d3796e1c2c3db7b89cdf638fce14a591827b8c",
+    "dosweb/conclude/verdicts.py": "822eae96e1fcf3b51821a0c91d0f5ac04be0fadb5ebbed0f6b14ca5782c64e89",
+    "dosweb/lifecycle/certificates.py": "2b960e26857d4678e935f6df5ce9aee8058bb80731672036a6be30dcc9b81e2e",
+    "dosweb/lifecycle/resource_properties.py": "a2f2770bff2a6778d83e26dc421ff11474e4c963ead67dbc708e800302a7b731",
+    "dosweb/production.py": "eb461482a673e9a7fad719c55b620576c2f9f88fa96cee6ea46f0a77816e891e",
+    "dosweb/report/markdown.py": "b91cc773b42e683b43db9cedb39a077c9f3a08af44ca3909479fce5ddbf13ea4",
+    "scripts/audit_lifecycle_semantic_repair.py": "128fe64ef50de38c8087bccd0ea2e3cbf17958ce1ed53a56468aae0df5971e44",
+    "scripts/replay_lifecycle_frozen_conclusions.py": "424dce3b620cb3c572d26cef85f5c8f31452b0c3deda52dbccf802fae1a1212d",
+    "tests/test_assertions.py": "9a9d4648196da133c62be5e88e20c3a1db58ad2d274d56049d349a1abac005ff",
+    "tests/test_poc33_demo_evaluator.py": "131552201e09e266f403ab3ac68c0fbe64169fa294301682cc5de905361582eb",
+    "tests/test_production.py": "675132a2a9dd97e140ae10a829b5e6f379bf24bf4b37288e19d166c16f739d4a",
+    "tests/test_resource_lifecycle_binding_consumer_isolation.py": "32d96139b92860e90163720e1f1dff8618e2f6a1998753bc9fc3fcc7efa56de7",
+    "tests/test_semantic_repair_assumption_chain.py": "4d68e1fd0588961e01cd1f138b58744a72f005949f164d1e15452d04a876d1cd",
+    "tests/test_semantic_repair_audit.py": "eadf8777b58ea6b2fe07e7e8cde2808d8896beda4903b9d5edb26071e3537fc8",
+    "tests/test_semantic_repair_metrics.py": "b5e9e5696e875ea8af82bb1e5ab55ebb7b44a62c57886df32db7909e88dd6762"
+  },
+  "role": "isolated S5 compatibility candidate, not delivery",
+  "source_worktree": "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260923"
+}

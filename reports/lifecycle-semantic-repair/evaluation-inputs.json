@@ -1,0 +1,22 @@
+{
+  "assembler_sha256": "0c1ad393d1fe1e937d92a96ed957defe669979b52c503f26ee609b44d44c58aa",
+  "audit": "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/final-frozen-audit-v1",
+  "batch": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full",
+  "dynamic": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation",
+  "historical_dynamic_evidence_only": true,
+  "identity_changed_findings": 27,
+  "input_hashes": {
+    "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/final-frozen-audit-v1/prerequisite-audit.json": "e7a76d63fdd75dad1349b8a50a4ce0c0edde80565217da9a633fe2cdcad1900d",
+    "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/independent-legacy-nonproof-replay-v3/finding-transitions.jsonl": "7ec9a232ddddfff0e4729fec2d925e40aadb29b2abcf75fc329f2519cb7c5355",
+    "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/independent-legacy-nonproof-replay-v3/run-manifest.json": "76b57d6f08a1a2094b758d8424235d5d1bd3803a1cc1c91e22a7778d7995338e",
+    "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/aggregate_status.jsonl": "8ebf3658ec39adffcc0331c7c6c755be82adef5c1aef9b0e2ae4be69a3e9b745",
+    "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-recall/truth_dispositions.jsonl": "1a45471508f0e00825cb8075b05df5d9b92b5407319d1e78ba10c5651a943d41",
+    "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/blocked_or_rejected.jsonl": "b1cbfd316e0266d905acac946f29d237b4ea4d9a2952e9beab50292c48053e2c",
+    "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/findings.jsonl": "b999d23db52c5d7a11eed56b5ffa393ac42c8cd227e3551ffa0ab25c9ebdc361"
+  },
+  "known_aliases_resolved": 33,
+  "known_records_preserved": 33,
+  "oracle_used_by_production": false,
+  "recall": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-recall",
+  "replay": "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/independent-legacy-nonproof-replay-v3"
+}

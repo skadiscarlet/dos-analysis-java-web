@@ -1,0 +1,455 @@
+{
+  "analysis_unknown_families": 126,
+  "analyzed_static_rows": 126,
+  "before_after_formal_match_gain": 0,
+  "blocked": 0,
+  "bounded_families": 0,
+  "bridge": {
+    "backend_gate_satisfied": 0,
+    "binding_records": 27,
+    "binding_status_counts": {
+      "not_applicable": 2,
+      "unresolved": 25
+    },
+    "binding_succeeded": 0,
+    "candidates_considered": 133,
+    "cross_states": [
+      {
+        "count": 94,
+        "flow_satisfied": false,
+        "growth_verified": false,
+        "kind_applicable": false
+      },
+      {
+        "count": 33,
+        "flow_satisfied": true,
+        "growth_verified": true,
+        "kind_applicable": false
+      },
+      {
+        "count": 6,
+        "flow_satisfied": false,
+        "growth_verified": false,
+        "kind_applicable": true
+      }
+    ],
+    "flow_premise_satisfied": 33,
+    "growth_verified": 33,
+    "historical_backend_executed": null,
+    "historical_backend_execution_status": "exact_call_count_not_in_authenticated_metadata",
+    "historical_binding_projects": 4,
+    "kind_and_dimension_applicable": 6,
+    "property_consumed_by_assertion": 0,
+    "property_produced": 0,
+    "skip_reasons": {
+      "RESOURCE_PROPERTY_DIMENSION_NOT_CONSUMED": 2,
+      "RESOURCE_PROPERTY_PREMISE_UNRESOLVED": 25
+    },
+    "typed_paths_checked": 133,
+    "unit": "formal_flow_path",
+    "verdict_affected": 0,
+    "verdict_affected_basis": "No property consumed and all 132 frozen before/after verdicts unchanged; not a full/off experiment."
+  },
+  "completed_targets": 21,
+  "confirmed_precision": null,
+  "conservative_precision_lower_bound": null,
+  "dynamic_case_class_counts": {
+    "eligible_positive": 6,
+    "hard_negative": 15,
+    "unscored": 3,
+    "weak_negative": 25
+  },
+  "dynamic_verdict_counts": {},
+  "eligible_positive": 6,
+  "eligible_positive_static_vulnerable": 0,
+  "execution_scope": "authenticated_frozen_downstream_replay",
+  "explicit_deferred": 4,
+  "false_positive_rate": "not_measured",
+  "families": 126,
+  "family_verdict_counts": {
+    "static_unknown": 126
+  },
+  "findings": 132,
+  "formal_completed": true,
+  "format": "dosweb-poc33-demo-evaluation-v2",
+  "fp": 0,
+  "fresh_full_scan": false,
+  "full_chain_finding": 20,
+  "gates": {
+    "S1": "pass",
+    "S2": "pass",
+    "S3": "partial",
+    "S4": "pass",
+    "S5": "pass",
+    "S6": "ready_for_push"
+  },
+  "hard_negative": 15,
+  "hard_negative_bounded_proof": {
+    "denominator": 15,
+    "numerator": 0,
+    "ratio": 0.0
+  },
+  "hard_negative_safety": {
+    "denominator": 15,
+    "numerator": 15,
+    "ratio": 1.0
+  },
+  "hard_negative_split": {
+    "analysis_unknown": 0,
+    "determined_bounded": 0,
+    "extraction_failure": 0,
+    "false_positive": 0,
+    "unmatched_static_evidence": 15
+  },
+  "hard_negative_static_vulnerable": 0,
+  "known_case_matches": 0,
+  "known_case_recall": {
+    "denominator": 33,
+    "numerator": 0,
+    "ratio": 0.0
+  },
+  "legacy_queue_metrics": {
+    "blocked": 0,
+    "fp": 0,
+    "interpretation": "historical finding-level dynamic outcomes, not formal predicted-positive precision",
+    "precision": null,
+    "queue": 126,
+    "tp": 0
+  },
+  "llm_calls_new": 0,
+  "not_reporting_positive_does_not_prove_bounded": true,
+  "novel_positive_families": 0,
+  "ordinary_positive_recall": {
+    "denominator": 6,
+    "numerator": 0,
+    "ratio": 0.0
+  },
+  "ordinary_positive_subset_exclusions": [
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:0635bf840461c1ec6de4fdfe",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:53e6eaee2ac09ca583a6b6a6",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "unscored",
+      "finding_id": "finding:55c30b3e267a8a3469453587",
+      "status": "confirmed_oom"
+    },
+    {
+      "case_class": "unscored",
+      "finding_id": "finding:899490a7bb8bfc450503722a",
+      "status": "confirmed_oom"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:c7b151299e9be069e35edaec",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:0b16a69f553a817ea0dfa1b6",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:2b24c7c3c9ae9ba75736a9d2",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:a57401298e0c50a348035ec5",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:c1f2ef7d504eafb345d5060e",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "unscored",
+      "finding_id": "finding:d6f95b30804b90b338c176ec",
+      "status": "confirmed_oom"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:4516ffcf0bc2f3dc6c860d5e",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:bf94964871710a2ac7c92b33",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:0223c9860325389cdf19cad0",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:611e2e357acc84f09644626d",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:cc45eddfaffbdb89241609b1",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:aaa302c66c56272d732b6c74",
+      "status": "observed_growth_not_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:8396360d5a3738d7801ce5f3",
+      "status": "inconclusive_probe"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:282bbafa29bdf1a422c2d041",
+      "status": "probe_semantics_failed"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:3c7314f655ebedab5ec1750f",
+      "status": "auth_blocked"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:8f6429bdaccd91684a8168e3",
+      "status": "effective_bound_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:339fea13558c42d536c92f56",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:7b12b159c906313644c08b23",
+      "status": "default_not_reachable"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:8a900917e745e4584c687fd0",
+      "status": "default_not_reachable"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:9432171e44335a50c3643772",
+      "status": "default_not_reachable"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:15069d5a0ab5eee07008db1f",
+      "status": "precondition_blocked"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:18b1db621f0b8051237452b0",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:1e0dfd29ac3a3fd160c47a1b",
+      "status": "effective_bound_confirmed"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:cfa05785fc90e332fdb7bfdd",
+      "status": "precondition_blocked"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:1d0f85cfc679e6d442d3a023",
+      "status": "precondition_blocked"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:2e9117d0a054f5cc5b2de390",
+      "status": "precondition_blocked"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:49941601a0c853d982654b62",
+      "status": "effective_bound_confirmed"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:982062686701b706554ee601",
+      "status": "default_not_reachable"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:6e5376e9f25c87a145132567",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:9c94e4ff741b2ce2d8c85226",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:04e17768affe13e249fee494",
+      "status": "effective_bound_confirmed"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:101d6a3da2dda87a3718e221",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:7e659e1ef750ab2415943d87",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:9b484172b010851896e95dd1",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:bb23c6782a28b8350dea0353",
+      "status": "default_not_reachable"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:e6c8881acf138aa4f2b3e814",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:ed3cac8e96f4a88fbe346e07",
+      "status": "not_reproduced_under_tested_bounds"
+    },
+    {
+      "case_class": "weak_negative",
+      "finding_id": "finding:295c64f1f635f1ae18908f0d",
+      "status": "probe_semantics_failed"
+    },
+    {
+      "case_class": "hard_negative",
+      "finding_id": "finding:52c859c5d6f033aa55609f48",
+      "status": "auth_blocked"
+    }
+  ],
+  "ordinary_positive_subset_members": [
+    "finding:1ac52b94de063b5e1698f6ce",
+    "finding:9bba50b0741f8889cfd33da3",
+    "finding:23447e80d5d8f0788305009f",
+    "finding:4a3faeface15f639d1263a45",
+    "finding:a89c30fc8f36289052262a02",
+    "finding:a4998388af22ed9058c2439d"
+  ],
+  "overall_tool_acceptance": "fail",
+  "paired_full_off_gain": null,
+  "paired_full_off_rerun": false,
+  "precision": null,
+  "precision_review_status": "not_evaluable_no_positive",
+  "precision_threshold": 0.8,
+  "predicted_positive_families": 0,
+  "predicted_positive_family_ids": [],
+  "queries_newly_executed": 0,
+  "query_diagnostics": 0,
+  "queue": 0,
+  "reviewed_false_positives": 0,
+  "reviewed_positive_fp": 0,
+  "reviewed_positive_tp": 0,
+  "reviewed_true_positives": 0,
+  "selected_queries": 168,
+  "selected_queries_semantics": "Inherited frozen entries-stage query selection, not new execution",
+  "semantic_repair_acceptance": "partial",
+  "skipped_queries": 0,
+  "static_verdict_counts": {
+    "static_unknown": 126
+  },
+  "supported_chain_recall": {
+    "denominator": 29,
+    "numerator": 20,
+    "ratio": 0.689655
+  },
+  "supported_subset_exclusions": [
+    {
+      "reason_codes": [
+        "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
+        "GROWTH_SINK_MATCHED"
+      ],
+      "record_id": "SMQTT-APP-STATIC-0002"
+    },
+    {
+      "reason_codes": [
+        "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
+        "GROWTH_SINK_MATCHED"
+      ],
+      "record_id": "SMQTT-APP-STATIC-0004"
+    },
+    {
+      "reason_codes": [
+        "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
+        "GROWTH_SINK_MATCHED"
+      ],
+      "record_id": "SMQTT-APP-STATIC-0003"
+    },
+    {
+      "reason_codes": [
+        "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
+        "GROWTH_SINK_MATCHED"
+      ],
+      "record_id": "SMQTT-APP-STATIC-0006"
+    }
+  ],
+  "supported_subset_members": [
+    "apache__druid-DRUID-APP-STATIC-0001",
+    "apache__druid-DRUID-APP-STATIC-0002",
+    "apache__hertzbeat-HERTZBEAT-DOS-0001",
+    "apache__skywalking-SKYWALKING-APP-STATIC-0002",
+    "apache__solr-SOLR-APP-STATIC-0001",
+    "prestodb__presto-PRESTO-APP-STATIC-0001",
+    "thingsboard__thingsboard-TB-APP-STATIC-0001",
+    "thingsboard__thingsboard-TB-APP-STATIC-0002",
+    "dependencytrack__dependency-track-DTRACK-APP-STATIC-0001",
+    "openzipkin__zipkin-ZIPKIN-APP-STATIC-0001",
+    "CITRUS-APP-STATIC-0001",
+    "DCMP-STATIC-0001",
+    "DCMP-STATIC-0002",
+    "POWERJOB-APP-STATIC-0002",
+    "RYVF-APP-STATIC-0001",
+    "XXL-JOB-APP-STATIC-0002",
+    "CITRUS-APP-STATIC-0002",
+    "ERUPT-APP-STATIC-0001",
+    "ERUPT-APP-STATIC-0002",
+    "JMQTT-APP-STATIC-0002",
+    "REBUILD-APP-STATIC-0002",
+    "REBUILD-APP-STATIC-0003",
+    "WGCLOUD-APP-STATIC-0002",
+    "XXL-JOB-APP-STATIC-0003",
+    "XXL-JOB-APP-STATIC-0004",
+    "grobidorg__grobid-GROBID-STATIC-001",
+    "grobidorg__grobid-GROBID-STATIC-002",
+    "jetlinks__jetlinks-community-JL-STAGEA-0001",
+    "walmartlabs__concord-fnd3"
+  ],
+  "target_programs_executed": 0,
+  "targets": 21,
+  "threshold_origin": "proposed_default",
+  "tp": 0,
+  "truth": 33,
+  "truth_status_counts": {
+    "entry_and_growth_linked": 7,
+    "entry_only": 2,
+    "full_chain_finding": 20,
+    "growth_only": 4
+  },
+  "unreviewed_positive": 0,
+  "unreviewed_positives": 0,
+  "unscored": 3,
+  "weak_negative": 25
+}

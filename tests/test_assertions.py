@@ -195,6 +195,13 @@ class AssertionTests(unittest.TestCase):
             scope="executor:executor",
             cut="arbitrary_finite_repetitions",
             upper_bound=5,
+            assumptions=(
+                "q counts accepted tasks in the modeled executor queue",
+                "proof is inductive for arbitrary finite repetitions, not one unrolling",
+            ),
+            entry_id=self.entry.entry_id,
+            growth_id=growth.growth_id,
+            path_id=flow.path_id,
         )
         result = evaluate_assertion_2(
             growth,
@@ -232,6 +239,10 @@ class AssertionTests(unittest.TestCase):
             scope=None,
             cut=None,
             upper_bound=None,
+            assumptions=(),
+            entry_id=self.entry.entry_id,
+            growth_id=growth.growth_id,
+            path_id=flow.path_id,
         )
         unknown = evaluate_assertion_2(
             growth,

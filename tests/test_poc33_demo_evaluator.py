@@ -229,16 +229,16 @@ class DemoMetricsTests(unittest.TestCase):
         self.assertEqual(1, metrics["query_diagnostics"])
         self.assertEqual(3, metrics["truth"])
         self.assertEqual(2, metrics["full_chain_finding"])
-        self.assertEqual(5, metrics["queue"])
+        self.assertEqual(5, metrics["legacy_queue_metrics"]["queue"])
         self.assertEqual(4, metrics["families"])
         self.assertEqual(1, metrics["eligible_positive"])
         self.assertEqual(2, metrics["hard_negative"])
         self.assertEqual(1, metrics["weak_negative"])
         self.assertEqual(1, metrics["unscored"])
-        self.assertEqual(2, metrics["tp"])
-        self.assertEqual(2, metrics["fp"])
+        self.assertEqual(2, metrics["legacy_queue_metrics"]["tp"])
+        self.assertEqual(2, metrics["legacy_queue_metrics"]["fp"])
         self.assertEqual(1, metrics["blocked"])
-        self.assertEqual(0.5, metrics["precision"])
+        self.assertEqual(0.5, metrics["legacy_queue_metrics"]["precision"])
         self.assertEqual(1, metrics["eligible_positive_static_vulnerable"])
         self.assertEqual(1, metrics["hard_negative_static_vulnerable"])
         self.assertEqual(
@@ -282,10 +282,10 @@ class DemoMetricsTests(unittest.TestCase):
         self.assertEqual(33, metrics["truth"])
         self.assertEqual(6, metrics["eligible_positive"])
         self.assertEqual(15, metrics["hard_negative"])
-        self.assertEqual(9, metrics["tp"])
-        self.assertEqual(29, metrics["fp"])
+        self.assertEqual(9, metrics["legacy_queue_metrics"]["tp"])
+        self.assertEqual(29, metrics["legacy_queue_metrics"]["fp"])
         self.assertEqual(11, metrics["blocked"])
-        self.assertEqual(0.236842, metrics["precision"])
+        self.assertEqual(0.236842, metrics["legacy_queue_metrics"]["precision"])
         self.assertEqual(49, len(case_rows))
 
 
@@ -322,8 +322,11 @@ class DemoEvaluatorIsolationTests(unittest.TestCase):
             ]))
             metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(metrics["queue"], 1)
-        self.assertEqual(metrics["tp"], 1)
+        self.assertEqual(metrics["queue"], 0)
+        self.assertEqual(metrics["tp"], 0)
+        self.assertIsNone(metrics["precision"])
+        self.assertEqual(metrics["analysis_unknown_families"], 1)
+        self.assertEqual(metrics["legacy_queue_metrics"]["tp"], 1)
 
     def test_production_modules_do_not_import_demo_oracle(self):
         root = Path(__file__).resolve().parents[1]

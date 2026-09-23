@@ -87,6 +87,7 @@ def _assertion_to_dict(assertion: AssertionEvaluation) -> dict[str, object]:
         "reason_codes": list(assertion.reason_codes),
         "evidence_ids": list(assertion.evidence_ids),
         "unresolved_facts": list(assertion.unresolved_facts),
+        **({"assumptions": list(assertion.assumptions)} if assertion.assumptions else {}),
     }
 
 
@@ -229,7 +230,9 @@ class LifecycleCertificate:
                     "ANALYSIS_CERTIFICATE_INVALID",
                     "Certificate resource lifecycle path is malformed.",
                 )
-            ResourceLifecycleDecision.from_dict(decision)
+            typed_decision = ResourceLifecycleDecision.from_dict(decision)
+            if not typed_decision.matches_input(entry_id=self.entry_id, growth_id=self.growth_id, path_id=path_id):
+                raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Resource decision belongs to another certificate context.")
             resource_paths.add(path_id)
         if not isinstance(self.assertions, tuple) or not self.assertions or any(
             not isinstance(item, Mapping) for item in self.assertions
@@ -244,6 +247,16 @@ class LifecycleCertificate:
             "suggested_follow_up_measurements",
         ):
             _strings(getattr(self, field), field)
+        if self.verdict == "bounded_under_modeled_assumptions":
+            resources = {item["decision"]["decision_id"]: ResourceLifecycleDecision.from_dict(item["decision"]) for item in self.resource_lifecycle_decisions}
+            for assertion in self.assertions:
+                if not any(str(reason).endswith("BOUNDED_ACCEPTED_TASK_POPULATION") for reason in assertion.get("reason_codes", [])):
+                    continue
+                consumed = [resources[eid] for eid in assertion.get("evidence_ids", []) if eid in resources]
+                expected = {a for decision in consumed for a in decision.assumptions}
+                actual = assertion.get("assumptions")
+                if not consumed or not isinstance(actual, (list, tuple)) or set(actual) != expected or not expected.issubset(self.assumptions):
+                    raise AnalyzerError("ANALYSIS_CERTIFICATE_INVALID", "Consumed lifecycle assumptions are missing or inconsistent in the certificate.")
         object.__setattr__(self, "attacker_inputs", tuple(_snapshot(item) for item in self.attacker_inputs))
         object.__setattr__(self, "resource_point", _snapshot(self.resource_point))
         object.__setattr__(self, "guard_decision", _snapshot(self.guard_decision))

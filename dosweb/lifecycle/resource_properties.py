@@ -17,7 +17,9 @@ from dosweb.resource_lifecycle.adapters import (
     extracted_to_dict,
 )
 
-_BACKEND_VERSION = "resource-lifecycle-production-bridge-v3"
+_BACKEND_VERSION = "resource-lifecycle-production-bridge-v4"
+_BOUNDED_DIMENSION = "accepted_task_population"
+_BOUNDED_CUT = "arbitrary_finite_repetitions"
 ResourceDecisionStatus = Literal[
     "refutes_relevant_growth", "unresolved", "not_applicable"
 ]
@@ -61,6 +63,64 @@ def _digest(value: object, field: str) -> str:
             f"Resource lifecycle {field} is malformed.",
         )
     return value
+
+
+def _is_identity_hash(value: str) -> bool:
+    return len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
+    )
+
+
+def _prefixed(value: object, prefix: str, field: str) -> str:
+    if not isinstance(value, str) or not value.startswith(prefix) or value == prefix:
+        raise AnalyzerError(
+            "ANALYSIS_RESOURCE_LIFECYCLE_INVALID",
+            f"Resource lifecycle {field} is malformed.",
+        )
+    return value
+
+
+def _assumption_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, list):
+        value = tuple(value)
+    if not isinstance(value, tuple) or any(
+        not isinstance(item, str) or not item for item in value
+    ):
+        raise AnalyzerError(
+            "ANALYSIS_RESOURCE_LIFECYCLE_INVALID",
+            "Resource lifecycle assumptions are malformed.",
+        )
+    return tuple(sorted(set(value)))
+
+
+def has_modeled_assumption_meaning(assumptions: tuple[str, ...]) -> bool:
+    """Identity hashes are not modeled assumption meaning."""
+    return bool(assumptions) and any(not _is_identity_hash(item) for item in assumptions)
+
+
+def bounded_task_population_semantics(
+    *,
+    status: object,
+    dimension: object,
+    scope: object,
+    cut: object,
+    upper_bound: object,
+    assumptions: tuple[str, ...],
+    property_id: object,
+) -> bool:
+    return (
+        status == "refutes_relevant_growth"
+        and dimension == _BOUNDED_DIMENSION
+        and cut == _BOUNDED_CUT
+        and isinstance(scope, str)
+        and scope.startswith("executor:")
+        and scope != "executor:"
+        and type(upper_bound) is int
+        and upper_bound > 0
+        and isinstance(property_id, str)
+        and bool(property_id)
+        and has_modeled_assumption_meaning(assumptions)
+    )
 
 
 @dataclass(frozen=True)
@@ -117,6 +177,10 @@ class ResourceLifecycleDecision:
     scope: str | None
     cut: str | None
     upper_bound: int | None
+    assumptions: tuple[str, ...]
+    entry_id: str
+    growth_id: str
+    path_id: str
 
     @classmethod
     def create(cls, **values: object) -> "ResourceLifecycleDecision":
@@ -130,19 +194,38 @@ class ResourceLifecycleDecision:
                 "ANALYSIS_RESOURCE_LIFECYCLE_INVALID",
                 "Resource lifecycle decision status is invalid.",
             )
+        assumptions = _assumption_tuple(values["assumptions"])
+        binding_id = _prefixed(values["binding_id"], "resource-binding:", "binding_id")
         semantic = {
             "status": status,
             "reason_codes": sorted(set(values["reason_codes"])),  # type: ignore[arg-type]
             "evidence_ids": sorted(set(values["evidence_ids"])),  # type: ignore[arg-type]
             "unresolved_facts": sorted(set(values["unresolved_facts"])),  # type: ignore[arg-type]
-            "binding_id": values["binding_id"],
+            "binding_id": binding_id,
             "property_id": values["property_id"],
             "result_sha256": _digest(values["result_sha256"], "result_sha256"),
             "dimension": values["dimension"],
             "scope": values["scope"],
             "cut": values["cut"],
             "upper_bound": values["upper_bound"],
+            "assumptions": list(assumptions),
+            "entry_id": _prefixed(values["entry_id"], "entry:", "entry_id"),
+            "growth_id": _prefixed(values["growth_id"], "growth:", "growth_id"),
+            "path_id": _prefixed(values["path_id"], "flow:", "path_id"),
         }
+        if status == "refutes_relevant_growth" and not bounded_task_population_semantics(
+            status=status,
+            dimension=semantic["dimension"],
+            scope=semantic["scope"],
+            cut=semantic["cut"],
+            upper_bound=semantic["upper_bound"],
+            assumptions=assumptions,
+            property_id=semantic["property_id"],
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_RESOURCE_LIFECYCLE_INVALID",
+                "Bounded resource lifecycle decision is missing modeled assumption meaning or supported task-population identity.",
+            )
         return cls(
             stable_identifier("resource-decision", semantic),
             status,  # type: ignore[arg-type]
@@ -156,6 +239,10 @@ class ResourceLifecycleDecision:
             semantic["scope"],  # type: ignore[arg-type]
             semantic["cut"],  # type: ignore[arg-type]
             semantic["upper_bound"],  # type: ignore[arg-type]
+            assumptions,
+            str(semantic["entry_id"]),
+            str(semantic["growth_id"]),
+            str(semantic["path_id"]),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -172,6 +259,10 @@ class ResourceLifecycleDecision:
             "scope": self.scope,
             "cut": self.cut,
             "upper_bound": self.upper_bound,
+            "assumptions": list(self.assumptions),
+            "entry_id": self.entry_id,
+            "growth_id": self.growth_id,
+            "path_id": self.path_id,
         }
 
     @classmethod
@@ -189,6 +280,10 @@ class ResourceLifecycleDecision:
                 scope=record["scope"],
                 cut=record["cut"],
                 upper_bound=record["upper_bound"],
+                assumptions=tuple(record["assumptions"]),  # type: ignore[arg-type]
+                entry_id=record["entry_id"],
+                growth_id=record["growth_id"],
+                path_id=record["path_id"],
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise AnalyzerError(
@@ -201,6 +296,114 @@ class ResourceLifecycleDecision:
                 "Resource lifecycle decision identifier is not canonical.",
             )
         return decision
+
+    def matches_input(
+        self, *, entry_id: str, growth_id: str, path_id: str
+    ) -> bool:
+        return (
+            self.entry_id == entry_id
+            and self.growth_id == growth_id
+            and self.path_id == path_id
+        )
+
+    def agrees_with_binding(self, record: Mapping[str, object]) -> bool:
+        assumptions = record.get("assumptions")
+        if not isinstance(assumptions, list):
+            return False
+        try:
+            normalized = _assumption_tuple(assumptions)
+        except AnalyzerError:
+            return False
+        return (
+            self.binding_id == record.get("binding_id")
+            and self.entry_id == record.get("entry_id")
+            and self.growth_id == record.get("growth_id")
+            and self.path_id == record.get("path_id")
+            and self.status == record.get("binding_status")
+            and self.property_id == record.get("property_id")
+            and self.dimension == record.get("property_dimension")
+            and self.scope == record.get("property_scope")
+            and self.cut == record.get("property_cut")
+            and self.upper_bound == record.get("upper_bound")
+            and self.result_sha256 == record.get("result_sha256")
+            and self.assumptions == normalized
+        )
+
+
+def validate_resource_binding(decision: ResourceLifecycleDecision, record: Mapping[str, object]) -> None:
+    """Authenticate the full binding and match it to the consumed decision.
+
+    The caller must separately authenticate the artifact against its producer
+    manifest. Rehashing a changed binding is not permission to retain an old
+    decision, and a canonical decision is not a substitute for its binding.
+    """
+    ResourceLifecycleDecision.from_dict(decision.to_dict())
+    if not isinstance(record, Mapping):
+        raise AnalyzerError("ANALYSIS_RESOURCE_LIFECYCLE_INVALID", "Consumed resource binding is absent.")
+    semantic = {k: v for k, v in record.items() if k != "binding_id"}
+    if record.get("binding_id") != stable_identifier("resource-binding", semantic) or not decision.agrees_with_binding(record):
+        raise AnalyzerError("ANALYSIS_RESOURCE_LIFECYCLE_INVALID", "Resource binding identity, assumptions, or input disagrees with its decision.")
+    if decision.status == "refutes_relevant_growth":
+        identities = ("analysis_unit_id", "resource_family_id", "instance_id", "task_binding_id", "executor_contract_id")
+        if any(not isinstance(record.get(k), str) or not record[k] for k in identities) or record.get("coverage_gaps") != [] or record.get("property_status") != "bounded" or decision.scope != f"executor:{record['executor_contract_id']}":
+            raise AnalyzerError("ANALYSIS_RESOURCE_LIFECYCLE_INVALID", "Bounded resource binding lacks its instance, executor, or modeled coverage.")
+
+
+def load_resource_decision_for_context(
+    record: Mapping[str, object],
+    binding: Mapping[str, object],
+    *,
+    entry_id: str,
+    growth_id: str,
+    path_id: str,
+) -> ResourceLifecycleDecision:
+    """Read a current decision or explicitly reconstruct a legacy non-proof.
+
+    Both input artifacts MUST already be authenticated against their producer
+    manifests by the caller. No input mapping or old producer ID is rewritten.
+    Strict ``from_dict`` remains unchanged: it never accepts legacy bounded
+    decisions. This compatibility path cannot introduce a property or bound.
+    The old lifecycle artifact and unchanged binding retain the provenance;
+    the reconstructed decision receives a new canonical, context-bound ID.
+    """
+    def invalid(message: str) -> AnalyzerError:
+        return AnalyzerError("ANALYSIS_RESOURCE_LIFECYCLE_INVALID", message)
+    if not isinstance(record, Mapping) or not isinstance(binding, Mapping):
+        raise invalid("Resource decision or authenticated binding is missing.")
+    legacy_fields = {
+        "decision_id", "status", "reason_codes", "evidence_ids", "unresolved_facts",
+        "binding_id", "property_id", "result_sha256", "dimension", "scope", "cut", "upper_bound",
+    }
+    if set(record) == legacy_fields:
+        # An exact old shape is required; a partially stripped current record
+        # is malformed, not eligible for a more permissive fallback.
+        semantic = {key: value for key, value in record.items() if key != "decision_id"}
+        if (
+            record.get("status") not in {"unresolved", "not_applicable"}
+            or any(record.get(key) is not None for key in ("property_id", "dimension", "scope", "cut", "upper_bound"))
+            or binding.get("assumptions") != []
+            or binding.get("property_status") is not None
+            or record.get("decision_id") != stable_identifier("resource-decision", semantic)
+        ):
+            raise invalid("Legacy resource decision is not an authenticated non-proof.")
+        for field in ("reason_codes", "evidence_ids", "unresolved_facts"):
+            values = record[field]
+            if (not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values)
+                    or values != sorted(set(values))):
+                raise invalid("Legacy resource decision evidence is malformed.")
+        decision = ResourceLifecycleDecision.create(
+            **semantic,
+            assumptions=(),
+            entry_id=entry_id,
+            growth_id=growth_id,
+            path_id=path_id,
+        )
+    else:
+        decision = ResourceLifecycleDecision.from_dict(record)
+    validate_resource_binding(decision, binding)
+    if not decision.matches_input(entry_id=entry_id, growth_id=growth_id, path_id=path_id):
+        raise invalid("Resource decision context does not match the authenticated lifecycle row.")
+    return decision
 
 
 @dataclass(frozen=True)
@@ -306,8 +509,8 @@ def _properties(
                 item
                 for item in values
                 if isinstance(item, Mapping)
-                and item.get("dimension") == "accepted_task_population"
-                and item.get("cut") == "arbitrary_finite_repetitions"
+                and item.get("dimension") == _BOUNDED_DIMENSION
+                and item.get("cut") == _BOUNDED_CUT
                 and item.get("scope") == f"executor:{executor_id}"
                 and item.get("executor_id") == executor_id
             ),
@@ -428,11 +631,24 @@ def bind_resource_lifecycle_property(
                     prop = properties[0]
                     gaps = prop.get("coverage_gaps")
                     upper = prop.get("upper_bound")
+                    raw_assumptions = prop.get("assumptions")
+                    try:
+                        assumptions = _assumption_tuple(
+                            raw_assumptions if raw_assumptions is not None else ()
+                        )
+                    except AnalyzerError:
+                        assumptions = ()
                     if (
                         prop.get("status") == "bounded"
-                        and isinstance(upper, int)
-                        and not isinstance(upper, bool)
-                        and upper > 0
+                        and bounded_task_population_semantics(
+                            status="refutes_relevant_growth",
+                            dimension=prop.get("dimension"),
+                            scope=prop.get("scope"),
+                            cut=prop.get("cut"),
+                            upper_bound=upper,
+                            assumptions=assumptions,
+                            property_id=prop.get("property_id"),
+                        )
                         and isinstance(gaps, list)
                         and not gaps
                     ):
@@ -442,7 +658,18 @@ def bind_resource_lifecycle_property(
                         )
                     else:
                         status = "unresolved"
-                        reason = "RESOURCE_PROPERTY_TASK_POPULATION_UNRESOLVED"
+                        reason = (
+                            "RESOURCE_PROPERTY_ASSUMPTIONS_MISSING"
+                            if (
+                                prop.get("status") == "bounded"
+                                and type(upper) is int
+                                and upper > 0
+                                and isinstance(gaps, list)
+                                and not gaps
+                                and not has_modeled_assumption_meaning(assumptions)
+                            )
+                            else "RESOURCE_PROPERTY_TASK_POPULATION_UNRESOLVED"
+                        )
     record = _record(
         entry=entry,
         result=result,
@@ -483,6 +710,10 @@ def bind_resource_lifecycle_property(
         scope=record["property_scope"],
         cut=record["property_cut"],
         upper_bound=record["upper_bound"],
+        assumptions=tuple(record["assumptions"]),
+        entry_id=record["entry_id"],
+        growth_id=record["growth_id"],
+        path_id=record["path_id"],
     )
     return ResourceLifecycleBindingDecision(record, decision)
 
@@ -576,6 +807,10 @@ def bind_resource_lifecycle_coverage_gap(
         scope=None,
         cut=None,
         upper_bound=None,
+        assumptions=(),
+        entry_id=record["entry_id"],
+        growth_id=record["growth_id"],
+        path_id=record["path_id"],
     )
     return ResourceLifecycleBindingDecision(record, decision)
 
@@ -587,4 +822,6 @@ __all__ = [
     "ResourceLifecycleDecision",
     "bind_resource_lifecycle_coverage_gap",
     "bind_resource_lifecycle_property",
+    "bounded_task_population_semantics",
+    "has_modeled_assumption_meaning",
 ]

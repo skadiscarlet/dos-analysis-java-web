@@ -342,6 +342,7 @@ def derive_verdict(
     modeled: set[str] = set()
     if verdict == "bounded_under_modeled_assumptions":
         assumptions.update(("MODELED_DEFAULT_CONFIGURATION", "STATIC_EVIDENCE_COVERAGE_COMPLETE"))
+        assumptions.update(a for assertion in applicable for a in assertion.assumptions)
         modeled.update(item for item in evidence if item.startswith(("guard:", "bound:", "release:")))
     return StaticVerdict(
         verdict=verdict,

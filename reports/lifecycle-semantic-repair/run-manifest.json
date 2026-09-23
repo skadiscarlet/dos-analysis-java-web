@@ -1,0 +1,253 @@
+{
+  "branch": "codex/lifecycle-semantic-repair-20260922",
+  "compatibility": "Only exact, authenticated legacy unresolved/not_applicable records with no property or bound may be reconstructed as a current in-memory view. Original producer artifacts/IDs remain unchanged; legacy bounded and malformed current records are rejected.",
+  "configuration_query_provenance": {
+    "configuration_and_query_identity": "Original project run/stage manifests referenced by SHA-256; no config/query content rewritten",
+    "identity_error_projects": 0,
+    "live_source_or_database_revalidated": false,
+    "public_artifacts_verified": 693,
+    "source": "Authenticated original per-project run.json/stage manifests listed in frozen-prerequisite-audit.json and replay-run-manifest.json",
+    "source_and_database_fingerprints": "frozen-prerequisite-audit.json:target_artifact_identity"
+  },
+  "date": "2026-09-23",
+  "delivery_csv_line_ending_normalization": [
+    {
+      "data_rows": 126,
+      "delivery_lf_sha256": "1d206ecc59a6d990d5349096ccbae5cec7fbdf84b6a0573ec07d09c1f0d30f64",
+      "original_crlf_sha256": "cd0562455ab6cd1942b62db203fe3c75ad34a01b8dc5cd7da9873210bf5c9799",
+      "parsed_values_identical": true,
+      "path": "reports/lifecycle-semantic-repair/analysis-unknown.csv"
+    },
+    {
+      "data_rows": 33,
+      "delivery_lf_sha256": "a5877fd1dc1b02e1cf8fe7b32504e294a2a6e6d498bb283f499f6d69cae80cf2",
+      "original_crlf_sha256": "a114a62b0b1a653f4d844ba5f157e31358f8429c2970a53181adc6945c67fdfd",
+      "parsed_values_identical": true,
+      "path": "reports/lifecycle-semantic-repair/audit-input-known-cases.csv"
+    },
+    {
+      "data_rows": 33,
+      "delivery_lf_sha256": "b5772a0acef032350d9402ed98ca2361eb9afe21c5b88dbab13b8fcd09178843",
+      "original_crlf_sha256": "b10eff4966608107260541f59644b3753b1f7d5c56d49f036ebd0e22f70dae77",
+      "parsed_values_identical": true,
+      "path": "reports/lifecycle-semantic-repair/known-case-matches.csv"
+    },
+    {
+      "data_rows": 0,
+      "delivery_lf_sha256": "e2bf8bbd93d5a0b47f47dffba292382b48c62f7dc02dc6646cdc93b8668ce659",
+      "original_crlf_sha256": "ef40f54f7c7fe1a104754096236bf223307d1345375dde67ee0e6b749fe2b385",
+      "parsed_values_identical": true,
+      "path": "reports/lifecycle-semantic-repair/positive-review.csv"
+    },
+    {
+      "data_rows": 132,
+      "delivery_lf_sha256": "9de6aa1ec405d4114cc12a54b79f6a92f4ce05d722bd7f98cdd0d4829d3c45f6",
+      "original_crlf_sha256": "e0de04e6aa4b3d2f82106d7ec317909b079f253c30cbd5204061de05359cdb04",
+      "parsed_values_identical": true,
+      "path": "reports/lifecycle-semantic-repair/prerequisite-status.csv"
+    }
+  ],
+  "delivery_file_hashes": {
+    "docs/execution/lifecycle-semantic-repair/GOAL.md": {
+      "bytes": 5907,
+      "sha256": "b3da3c1b411e21504c17cfa8f0bb5f861a0fa1a890d4fea58c993dd2b174e211"
+    },
+    "docs/execution/lifecycle-semantic-repair/HANDOFF.md": {
+      "bytes": 6581,
+      "sha256": "ea5560ba1c529bd144db956ce9259ae465d29364f5229393531664a598007ffb"
+    },
+    "docs/execution/lifecycle-semantic-repair/STATUS.md": {
+      "bytes": 1094,
+      "sha256": "5f305b6ea026b90337be6cc17135b08a312e8f7232f0ba54d144a76a82ab1b09"
+    },
+    "docs/execution/lifecycle-semantic-repair/rebuild_evaluation.py": {
+      "bytes": 10361,
+      "sha256": "0c1ad393d1fe1e937d92a96ed957defe669979b52c503f26ee609b44d44c58aa"
+    },
+    "reports/lifecycle-semantic-repair/analysis-unknown.csv": {
+      "bytes": 19691,
+      "sha256": "1d206ecc59a6d990d5349096ccbae5cec7fbdf84b6a0573ec07d09c1f0d30f64"
+    },
+    "reports/lifecycle-semantic-repair/assumption-chain-evidence.json": {
+      "bytes": 2523,
+      "sha256": "63f9e0663638317d5631fa4b2c138b7a5fb4a5b923d00fdc242044d7c3bdcfeb"
+    },
+    "reports/lifecycle-semantic-repair/audit-input-known-cases.csv": {
+      "bytes": 10285,
+      "sha256": "a5877fd1dc1b02e1cf8fe7b32504e294a2a6e6d498bb283f499f6d69cae80cf2"
+    },
+    "reports/lifecycle-semantic-repair/audit-input-provenance.json": {
+      "bytes": 832,
+      "sha256": "0fc27f4b771795c71bad1734f3f5a9febf1a761ce300d25c7ed79857d0fad04a"
+    },
+    "reports/lifecycle-semantic-repair/corrected-baseline-metrics.json": {
+      "bytes": 11172,
+      "sha256": "8ef4b610b1226379ce5c26d829ea4b8f71b31f9b5a391bf3b6e3839f752bdf37"
+    },
+    "reports/lifecycle-semantic-repair/evaluation-inputs.json": {
+      "bytes": 2540,
+      "sha256": "21eeaf36fab6f7fe25ae83f51ad0d25ac4f275f6806e8c27811403149dbdf0bd"
+    },
+    "reports/lifecycle-semantic-repair/evaluation.md": {
+      "bytes": 1507,
+      "sha256": "978f4da740f55390e0268470a55b634826a3b60c1ad214dfcd65501179504708"
+    },
+    "reports/lifecycle-semantic-repair/finding-transitions.jsonl": {
+      "bytes": 39144,
+      "sha256": "7ec9a232ddddfff0e4729fec2d925e40aadb29b2abcf75fc329f2519cb7c5355"
+    },
+    "reports/lifecycle-semantic-repair/frozen-prerequisite-audit.json": {
+      "bytes": 36833,
+      "sha256": "e7a76d63fdd75dad1349b8a50a4ce0c0edde80565217da9a633fe2cdcad1900d"
+    },
+    "reports/lifecycle-semantic-repair/known-case-matches.csv": {
+      "bytes": 45292,
+      "sha256": "b5772a0acef032350d9402ed98ca2361eb9afe21c5b88dbab13b8fcd09178843"
+    },
+    "reports/lifecycle-semantic-repair/legacy-compatibility-evidence.json": {
+      "bytes": 14546,
+      "sha256": "5d919e873287edf20dd81b827a53c1d68eeaf92d05887feab9f3025e7f634921"
+    },
+    "reports/lifecycle-semantic-repair/metrics.json": {
+      "bytes": 13155,
+      "sha256": "d4882d297b1c23838b8f121cae087c092c4a6c56c2ab131d2447e6ad9297a45b"
+    },
+    "reports/lifecycle-semantic-repair/positive-review.csv": {
+      "bytes": 33,
+      "sha256": "e2bf8bbd93d5a0b47f47dffba292382b48c62f7dc02dc6646cdc93b8668ce659"
+    },
+    "reports/lifecycle-semantic-repair/prerequisite-status.csv": {
+      "bytes": 624287,
+      "sha256": "9de6aa1ec405d4114cc12a54b79f6a92f4ce05d722bd7f98cdd0d4829d3c45f6"
+    },
+    "reports/lifecycle-semantic-repair/replay-run-manifest.json": {
+      "bytes": 40885,
+      "sha256": "76b57d6f08a1a2094b758d8424235d5d1bd3803a1cc1c91e22a7778d7995338e"
+    },
+    "reports/lifecycle-semantic-repair/selected-tests.log": {
+      "bytes": 571,
+      "sha256": "690e0c1d8fafb596da7e013ef48d9fb759c788fdee3a99c1322d90b23ca14829"
+    },
+    "reports/lifecycle-semantic-repair/source-provenance.json": {
+      "bytes": 2188,
+      "sha256": "f3b1b3b96fde759b5e7fac1bfd3046b3158db63de23621c9d5e1813d2293772a"
+    },
+    "reports/lifecycle-semantic-repair/summary.md": {
+      "bytes": 11360,
+      "sha256": "6c99ca1881136b03743bf1a6627c0a5c3f50ea842f6e3eca4bab90553e78076d"
+    },
+    "reports/lifecycle-semantic-repair/synthetic-assumptions-report.md": {
+      "bytes": 1915,
+      "sha256": "29f2541b9eb43a6c2bf29cb32895652c7f4bc5f7e975d92c1bb77bc02e323434"
+    },
+    "reports/lifecycle-semantic-repair/test-evidence.json": {
+      "bytes": 36844,
+      "sha256": "88eeb45b9defa488610505c245cb03339a99d284d9cd529bb96f74d148f5e372"
+    }
+  },
+  "delivery_markdown_normalization": {
+    "delivery_sha256": "29f2541b9eb43a6c2bf29cb32895652c7f4bc5f7e975d92c1bb77bc02e323434",
+    "operation": "Remove extra blank line at EOF only",
+    "original_sha256": "4d375af6fcd9c79b3299f9f9d213957fa505eca3620a0ebfd1b0c650024aefb8",
+    "path": "reports/lifecycle-semantic-repair/synthetic-assumptions-report.md"
+  },
+  "delivery_state_at_commit": "ready_for_push",
+  "execution": {
+    "budget_change": false,
+    "canonical_databases_modified": false,
+    "canonical_finding_id_changes": 27,
+    "codeql_queries_new": 0,
+    "completed_projects": 21,
+    "families": 126,
+    "findings": 132,
+    "fresh_full_scan": false,
+    "historical_backend_count_status": "exact_call_count_not_in_authenticated_metadata",
+    "historical_backend_executed": null,
+    "historical_count_is_not_new_execution": true,
+    "historical_entry_selected_query_count": 168,
+    "known_records": 33,
+    "mode": "authenticated_frozen_downstream_replay",
+    "model_calls_new": 0,
+    "original_frozen_artifacts_modified": false,
+    "paired_full_off_gain": null,
+    "paired_full_off_rerun": false,
+    "poc_or_stress_requests": 0,
+    "property_consumed_by_assertion": 0,
+    "property_produced": 0,
+    "target_programs_or_services_executed": 0,
+    "total_projects": 21,
+    "verdict_transitions": {
+      "static_unknown -> static_unknown": 132
+    }
+  },
+  "execution_task_id": "task_2ae65d0c4ec847ad819c",
+  "format": "lifecycle-semantic-repair-delivery-v1",
+  "frozen_inputs": {
+    "assembler_sha256": "0c1ad393d1fe1e937d92a96ed957defe669979b52c503f26ee609b44d44c58aa",
+    "audit": "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/final-frozen-audit-v1",
+    "batch": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full",
+    "dynamic": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation",
+    "historical_dynamic_evidence_only": true,
+    "identity_changed_findings": 27,
+    "input_hashes": {
+      "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/final-frozen-audit-v1/prerequisite-audit.json": "e7a76d63fdd75dad1349b8a50a4ce0c0edde80565217da9a633fe2cdcad1900d",
+      "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/independent-legacy-nonproof-replay-v3/finding-transitions.jsonl": "7ec9a232ddddfff0e4729fec2d925e40aadb29b2abcf75fc329f2519cb7c5355",
+      "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/independent-legacy-nonproof-replay-v3/run-manifest.json": "76b57d6f08a1a2094b758d8424235d5d1bd3803a1cc1c91e22a7778d7995338e",
+      "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-full/aggregate_status.jsonl": "8ebf3658ec39adffcc0331c7c6c755be82adef5c1aef9b0e2ae4be69a3e9b745",
+      "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-recall/truth_dispositions.jsonl": "1a45471508f0e00825cb8075b05df5d9b92b5407319d1e78ba10c5651a943d41",
+      "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/blocked_or_rejected.jsonl": "b1cbfd316e0266d905acac946f29d237b4ea4d9a2952e9beab50292c48053e2c",
+      "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-real-llm-full-v2-20260824_110233-dynamic-validation/findings.jsonl": "b999d23db52c5d7a11eed56b5ffa393ac42c8cd227e3551ffa0ab25c9ebdc361"
+    },
+    "known_aliases_resolved": 33,
+    "known_records_preserved": 33,
+    "oracle_used_by_production": false,
+    "recall": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-recall",
+    "replay": "/home/furina/new_tool/dos-analysis-web/.worktrees/lifecycle-semantic-repair-20260922/.verification/independent-legacy-nonproof-replay-v3"
+  },
+  "gates": {
+    "S1": "pass",
+    "S2": "pass",
+    "S3": "partial",
+    "S4": "pass",
+    "S5": "pass",
+    "S6": "ready_for_push"
+  },
+  "implementation_versions": {
+    "conclude": "production-v2.8-open-world-maturation-conclude-v9",
+    "entries": "production-v2.8-open-world-maturation-entries-v17",
+    "flows": "production-v2.8-open-world-maturation-flows-v22",
+    "growth": "production-v2.8-open-world-maturation-growth-v33",
+    "lifecycle": "production-v2.8-open-world-maturation-lifecycle-v17",
+    "report": "production-v2.8-open-world-maturation-report-v2"
+  },
+  "local_large_evidence_not_committed": {
+    "final_audit": ".verification/final-frozen-audit-v1",
+    "final_evaluation": ".verification/final-evaluation-v1",
+    "final_replay": ".verification/independent-legacy-nonproof-replay-v3",
+    "intermediate_failures_and_full_test_logs": "reports/lifecycle-semantic-repair-independent/"
+  },
+  "original_artifact_schema_version": "2.8",
+  "overall_tool_acceptance": "fail",
+  "project_id": "dos-analysis-web",
+  "replay_dosweb_content_sha256": "9a94aba5806d59805f39d1d8659a17d993c44b07f1a578f83d403c2f100c9eec",
+  "required_original_assets_for_real_reproduction": true,
+  "same_source_before_after_verification": true,
+  "secrets_or_private_llm_envelopes_read_or_committed": false,
+  "semantic_repair_acceptance": "partial",
+  "source_provenance_file": "source-provenance.json",
+  "stopping_rule": "Stop after ordinary task-branch push and remote SHA verification. Keep 178-target paused.",
+  "tested_source_commit": "3e2690ec55e14bd62fcea85e97d17cec2a71b43b",
+  "tested_source_content_sha256": "bbf32d6175cedea3d2439d2ead33c82417fef4169fde783e34edf94278226b7e",
+  "tested_source_hash_scope": "234 .py files under dosweb/, scripts/, tests/; exact per-file digests in test-evidence.json",
+  "tested_source_was_dirty": true,
+  "tests": {
+    "evidence": "test-evidence.json",
+    "final_collectable": "1913 passed, 13 baseline failures, 60 skipped, 1095 subtests passed",
+    "full_suite_all_green": false,
+    "known_collection_error_excluded": 1,
+    "new_failure_ids": [],
+    "pytest_exit_code": 1,
+    "selected_final_fixture_and_evidence": "35 passed, 4 skipped, 5 subtests passed",
+    "selected_production": "230 passed, 110 subtests passed"
+  }
+}

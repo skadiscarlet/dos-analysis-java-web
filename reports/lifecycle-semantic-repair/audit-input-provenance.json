@@ -1,0 +1,11 @@
+{
+  "line_endings": "LF; parsed values exactly equal to the CRLF input used by the recorded audit",
+  "operation": "evaluation-only canonical record-ID alias join; no analyzer input altered",
+  "output_sha256": "a5877fd1dc1b02e1cf8fe7b32504e294a2a6e6d498bb283f499f6d69cae80cf2",
+  "output_sha256_before_delivery_line_ending_normalization": "a114a62b0b1a653f4d844ba5f157e31358f8429c2970a53181adc6945c67fdfd",
+  "rows": 33,
+  "source_csv": "reports/lifecycle-e2e/known-case-matches.csv",
+  "source_csv_sha256": "059b14ccd7b6da15e49917ce8c92e15620b69aac228b48a6ef64ef3f931f724b",
+  "truth_dispositions": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/lifecycle-e2e-poc33-api2cn-20260920_003322-recall/truth_dispositions.jsonl",
+  "truth_sha256": "1a45471508f0e00825cb8075b05df5d9b92b5407319d1e78ba10c5651a943d41"
+}
