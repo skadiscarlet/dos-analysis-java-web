@@ -1,0 +1,25 @@
+{
+  "scope": "offline internal Growth record correctness; no growth detection/coverage expansion",
+  "baseline_red": {
+    "failed": 14,
+    "passed": 1,
+    "log": ".verification/independent-fse-qa/growth-record-red.log"
+  },
+  "patched_regression": {
+    "passed": 122,
+    "failed": 0,
+    "subtests_passed": 22,
+    "log": ".verification/independent-fse-qa/growth-record-green.log"
+  },
+  "semantics": [
+    "VerificationCheck requires an actual boolean and nonempty typed strings",
+    "from_dict rejects every malformed check instead of silently filtering it",
+    "valid Growth result canonical IDs and output schema unchanged"
+  ],
+  "source_hashes": {
+    "dosweb/growth/verify.py": "b37a669f9f3d5c2d0d10456f1ff095c2cc3b951eb6a15cc00d0ff23f5b3930de",
+    "tests/test_fse_growth_record_repair.py": "9b671d2105aa3b05fc47d307dda269e14fd68f4ebe5ae5b8cae4f85047fb6f24",
+    "tests/test_fse_independent_integration.py": "4b2d7cadcb327d30e1a1fb55597900ff1037ee1c6f5ce2a94ec0df169daeb2b0"
+  },
+  "real_recall_measured": false
+}

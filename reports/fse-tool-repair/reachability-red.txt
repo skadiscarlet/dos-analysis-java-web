@@ -1,0 +1,257 @@
+FFFFFF..FF                                                               [100%]
+=================================== FAILURES ===================================
+_ test_exact_handler_fact_survives_multiple_registered_routes[annotation-unauthenticated_annotation-complete] _
+
+kind = 'annotation', value = 'unauthenticated_annotation', coverage = 'complete'
+
+    @pytest.mark.parametrize("kind,value,coverage", [
+        ("annotation", "unauthenticated_annotation", "complete"),
+        ("servlet_constraint", "privileged_constraint", "complete"),
+        ("deployment_gate", "optional", "partial"),
+    ])
+    def test_exact_handler_fact_survives_multiple_registered_routes(kind, value, coverage):
+        entries = [_entry("entry:a", "GET /one"), _entry("entry:b", "POST /two"),
+                   _entry("entry:other", "GET /one", line=40)]
+        row = _row(kind=kind, value=value, coverage_status=coverage)
+        facts = bind_entry_security_rows([row], entries)
+>       assert {fact.entry_id for fact in facts} == {"entry:a", "entry:b"}
+E       AssertionError: assert set() == {'entry:a', 'entry:b'}
+E         
+E         Extra items in the right set:
+E         'entry:a'
+E         'entry:b'
+E         Use -v to get more diff
+
+tests/test_fse_reachability_repair.py:45: AssertionError
+_ test_exact_handler_fact_survives_multiple_registered_routes[servlet_constraint-privileged_constraint-complete] _
+
+kind = 'servlet_constraint', value = 'privileged_constraint'
+coverage = 'complete'
+
+    @pytest.mark.parametrize("kind,value,coverage", [
+        ("annotation", "unauthenticated_annotation", "complete"),
+        ("servlet_constraint", "privileged_constraint", "complete"),
+        ("deployment_gate", "optional", "partial"),
+    ])
+    def test_exact_handler_fact_survives_multiple_registered_routes(kind, value, coverage):
+        entries = [_entry("entry:a", "GET /one"), _entry("entry:b", "POST /two"),
+                   _entry("entry:other", "GET /one", line=40)]
+        row = _row(kind=kind, value=value, coverage_status=coverage)
+        facts = bind_entry_security_rows([row], entries)
+>       assert {fact.entry_id for fact in facts} == {"entry:a", "entry:b"}
+E       AssertionError: assert set() == {'entry:a', 'entry:b'}
+E         
+E         Extra items in the right set:
+E         'entry:a'
+E         'entry:b'
+E         Use -v to get more diff
+
+tests/test_fse_reachability_repair.py:45: AssertionError
+_ test_exact_handler_fact_survives_multiple_registered_routes[deployment_gate-optional-partial] _
+
+kind = 'deployment_gate', value = 'optional', coverage = 'partial'
+
+    @pytest.mark.parametrize("kind,value,coverage", [
+        ("annotation", "unauthenticated_annotation", "complete"),
+        ("servlet_constraint", "privileged_constraint", "complete"),
+        ("deployment_gate", "optional", "partial"),
+    ])
+    def test_exact_handler_fact_survives_multiple_registered_routes(kind, value, coverage):
+        entries = [_entry("entry:a", "GET /one"), _entry("entry:b", "POST /two"),
+                   _entry("entry:other", "GET /one", line=40)]
+        row = _row(kind=kind, value=value, coverage_status=coverage)
+        facts = bind_entry_security_rows([row], entries)
+>       assert {fact.entry_id for fact in facts} == {"entry:a", "entry:b"}
+E       AssertionError: assert set() == {'entry:a', 'entry:b'}
+E         
+E         Extra items in the right set:
+E         'entry:a'
+E         'entry:b'
+E         Use -v to get more diff
+
+tests/test_fse_reachability_repair.py:45: AssertionError
+_____ test_route_rules_preserve_explicit_http_method[GET /items-expected0] _____
+
+matcher = 'GET /items', expected = {'entry:get'}
+
+    @pytest.mark.parametrize("matcher,expected", [
+        ("GET /items", {"entry:get"}),
+        ("POST /items", {"entry:post"}),
+        ("GET /items/**", {"entry:get", "entry:child"}),
+        ("/items", {"entry:get", "entry:post", "entry:unspecified"}),
+    ])
+    def test_route_rules_preserve_explicit_http_method(matcher, expected):
+        entries = [_entry("entry:get", "GET /items"), _entry("entry:post", "POST /items"),
+                   _entry("entry:unspecified", "/items"), _entry("entry:child", "GET /items/one")]
+        facts = bind_entry_security_rows([
+            _row(kind="security_filter_chain", value="low_privilege_filter", route_or_event=matcher)
+        ], entries)
+>       assert {fact.entry_id for fact in facts} == expected
+E       AssertionError: assert {'entry:get',...:unspecified'} == {'entry:get'}
+E         
+E         Extra items in the left set:
+E         'entry:post'
+E         'entry:unspecified'
+E         Use -v to get more diff
+
+tests/test_fse_reachability_repair.py:62: AssertionError
+____ test_route_rules_preserve_explicit_http_method[POST /items-expected1] _____
+
+matcher = 'POST /items', expected = {'entry:post'}
+
+    @pytest.mark.parametrize("matcher,expected", [
+        ("GET /items", {"entry:get"}),
+        ("POST /items", {"entry:post"}),
+        ("GET /items/**", {"entry:get", "entry:child"}),
+        ("/items", {"entry:get", "entry:post", "entry:unspecified"}),
+    ])
+    def test_route_rules_preserve_explicit_http_method(matcher, expected):
+        entries = [_entry("entry:get", "GET /items"), _entry("entry:post", "POST /items"),
+                   _entry("entry:unspecified", "/items"), _entry("entry:child", "GET /items/one")]
+        facts = bind_entry_security_rows([
+            _row(kind="security_filter_chain", value="low_privilege_filter", route_or_event=matcher)
+        ], entries)
+>       assert {fact.entry_id for fact in facts} == expected
+E       AssertionError: assert {'entry:get',...:unspecified'} == {'entry:post'}
+E         
+E         Extra items in the left set:
+E         'entry:get'
+E         'entry:unspecified'
+E         Use -v to get more diff
+
+tests/test_fse_reachability_repair.py:62: AssertionError
+___ test_route_rules_preserve_explicit_http_method[GET /items/**-expected2] ____
+
+matcher = 'GET /items/**', expected = {'entry:child', 'entry:get'}
+
+    @pytest.mark.parametrize("matcher,expected", [
+        ("GET /items", {"entry:get"}),
+        ("POST /items", {"entry:post"}),
+        ("GET /items/**", {"entry:get", "entry:child"}),
+        ("/items", {"entry:get", "entry:post", "entry:unspecified"}),
+    ])
+    def test_route_rules_preserve_explicit_http_method(matcher, expected):
+        entries = [_entry("entry:get", "GET /items"), _entry("entry:post", "POST /items"),
+                   _entry("entry:unspecified", "/items"), _entry("entry:child", "GET /items/one")]
+        facts = bind_entry_security_rows([
+            _row(kind="security_filter_chain", value="low_privilege_filter", route_or_event=matcher)
+        ], entries)
+>       assert {fact.entry_id for fact in facts} == expected
+E       AssertionError: assert {'entry:child...:unspecified'} == {'entry:child', 'entry:get'}
+E         
+E         Extra items in the left set:
+E         'entry:post'
+E         'entry:unspecified'
+E         Use -v to get more diff
+
+tests/test_fse_reachability_repair.py:62: AssertionError
+_ test_production_entries_preserve_handler_auth_and_explicit_gate_for_route_aliases[False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-372/test_production_entries_preser0')
+partial_gate = False
+
+    @pytest.mark.parametrize("partial_gate", [False, True])
+    def test_production_entries_preserve_handler_auth_and_explicit_gate_for_route_aliases(tmp_path: Path, partial_gate: bool):
+        database = tmp_path / "database"
+        source = tmp_path / "source"
+        database.mkdir(); source.mkdir()
+        (source / "pom.xml").write_text("<project><dependencies><dependency>org.springframework</dependency></dependencies></project>")
+        info = DatabaseInfo(database, source, "d" * 64)
+        entries = [[
+            "spring_mvc", "http", "fixture.Api.handle", "src/Api.java", 20,
+            "annotation_mapping", "fixture.Api", "src/Api.java", 18,
+            route, "unknown", "body", "String", "request_body", "in_handler", "complete", "spring_annotation_mapping"
+        ] for route in ("GET /one", "POST /two")]
+        security_rows = [_row()]
+        if partial_gate:
+            security_rows.append(_row(kind="deployment_gate", value="optional", coverage_status="partial", fact_start_line=17))
+    
+        def fake_run(query, _database, output_dir, **_kwargs):
+            if query.name == "SpringMvcEntries.ql":
+                columns, rows = ENTRY_COLUMNS, entries
+            elif query.name == "EntrySecurity.ql":
+                columns, rows = SECURITY_COLUMNS, [[r[c] for c in SECURITY_COLUMNS] for r in security_rows]
+            elif query.name == "EntryInterpositions.ql":
+                columns, rows = INTERPOSITION_COLUMNS, []
+            else:
+                columns, rows = ENTRY_COLUMNS, []
+            decoded = output_dir / (query.stem + ".json")
+            decoded.write_text(json.dumps({"#select": {"columns": list(columns), "tuples": rows}}))
+            return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+    
+        output = tmp_path / "output"
+        pipeline = build_production_pipeline({
+            "command": "entries", "database": database, "output": output,
+            "source_checkout": source, "analysis_source_root": source,
+        }, environ={}, validate_database_fn=lambda *_a, **_kw: info, run_query_fn=fake_run)
+        assert pipeline.run("entries")["status"] == "completed"
+        normalized = [json.loads(line) for line in (output / "entry_facts.jsonl").read_text().splitlines()]
+        facts = tuple(EntrySecurityFact.from_dict(json.loads(line)) for line in (output / "entry_security_facts.jsonl").read_text().splitlines())
+        assert len(normalized) == 2
+        for entry in normalized:
+            local = tuple(fact for fact in facts if fact.entry_id == entry["entry_id"])
+            auth = derive_auth_contract_from_facts(entry["entry_id"], local)
+>           assert auth is not None
+E           assert None is not None
+
+tests/test_fse_reachability_repair.py:117: AssertionError
+_ test_production_entries_preserve_handler_auth_and_explicit_gate_for_route_aliases[True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-372/test_production_entries_preser1')
+partial_gate = True
+
+    @pytest.mark.parametrize("partial_gate", [False, True])
+    def test_production_entries_preserve_handler_auth_and_explicit_gate_for_route_aliases(tmp_path: Path, partial_gate: bool):
+        database = tmp_path / "database"
+        source = tmp_path / "source"
+        database.mkdir(); source.mkdir()
+        (source / "pom.xml").write_text("<project><dependencies><dependency>org.springframework</dependency></dependencies></project>")
+        info = DatabaseInfo(database, source, "d" * 64)
+        entries = [[
+            "spring_mvc", "http", "fixture.Api.handle", "src/Api.java", 20,
+            "annotation_mapping", "fixture.Api", "src/Api.java", 18,
+            route, "unknown", "body", "String", "request_body", "in_handler", "complete", "spring_annotation_mapping"
+        ] for route in ("GET /one", "POST /two")]
+        security_rows = [_row()]
+        if partial_gate:
+            security_rows.append(_row(kind="deployment_gate", value="optional", coverage_status="partial", fact_start_line=17))
+    
+        def fake_run(query, _database, output_dir, **_kwargs):
+            if query.name == "SpringMvcEntries.ql":
+                columns, rows = ENTRY_COLUMNS, entries
+            elif query.name == "EntrySecurity.ql":
+                columns, rows = SECURITY_COLUMNS, [[r[c] for c in SECURITY_COLUMNS] for r in security_rows]
+            elif query.name == "EntryInterpositions.ql":
+                columns, rows = INTERPOSITION_COLUMNS, []
+            else:
+                columns, rows = ENTRY_COLUMNS, []
+            decoded = output_dir / (query.stem + ".json")
+            decoded.write_text(json.dumps({"#select": {"columns": list(columns), "tuples": rows}}))
+            return QueryResult(query.name, query, query, decoded, "a" * 64, "b" * 64)
+    
+        output = tmp_path / "output"
+        pipeline = build_production_pipeline({
+            "command": "entries", "database": database, "output": output,
+            "source_checkout": source, "analysis_source_root": source,
+        }, environ={}, validate_database_fn=lambda *_a, **_kw: info, run_query_fn=fake_run)
+        assert pipeline.run("entries")["status"] == "completed"
+        normalized = [json.loads(line) for line in (output / "entry_facts.jsonl").read_text().splitlines()]
+        facts = tuple(EntrySecurityFact.from_dict(json.loads(line)) for line in (output / "entry_security_facts.jsonl").read_text().splitlines())
+        assert len(normalized) == 2
+        for entry in normalized:
+            local = tuple(fact for fact in facts if fact.entry_id == entry["entry_id"])
+            auth = derive_auth_contract_from_facts(entry["entry_id"], local)
+>           assert auth is not None
+E           assert None is not None
+
+tests/test_fse_reachability_repair.py:117: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_fse_reachability_repair.py::test_exact_handler_fact_survives_multiple_registered_routes[annotation-unauthenticated_annotation-complete]
+FAILED tests/test_fse_reachability_repair.py::test_exact_handler_fact_survives_multiple_registered_routes[servlet_constraint-privileged_constraint-complete]
+FAILED tests/test_fse_reachability_repair.py::test_exact_handler_fact_survives_multiple_registered_routes[deployment_gate-optional-partial]
+FAILED tests/test_fse_reachability_repair.py::test_route_rules_preserve_explicit_http_method[GET /items-expected0]
+FAILED tests/test_fse_reachability_repair.py::test_route_rules_preserve_explicit_http_method[POST /items-expected1]
+FAILED tests/test_fse_reachability_repair.py::test_route_rules_preserve_explicit_http_method[GET /items/**-expected2]
+FAILED tests/test_fse_reachability_repair.py::test_production_entries_preserve_handler_auth_and_explicit_gate_for_route_aliases[False]
+FAILED tests/test_fse_reachability_repair.py::test_production_entries_preserve_handler_auth_and_explicit_gate_for_route_aliases[True]
+8 failed, 2 passed in 0.87s

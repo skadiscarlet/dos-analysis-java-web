@@ -12,6 +12,8 @@ from dosweb.codeql.database import DatabaseInfo
 
 from dosweb.batch.models import CanonicalCorpus, CorpusTarget, TargetCapability, TargetIdentity
 
+from tests.support.offline_assets import require_java_web_200_assets
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -47,6 +49,7 @@ class BatchCliTests(unittest.TestCase):
         return CanonicalCorpus(1, "canonical", "java-web-200", total, "a" * 64, tuple(targets), Path("local.json"))
 
     def test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested(self) -> None:
+        require_java_web_200_assets(ROOT)
         manifest = ROOT / "intel/applications/java_web_200_targets.json"
         raw = json.loads(manifest.read_text(encoding="utf-8"))
         fingerprint_by_source = {
@@ -97,6 +100,28 @@ class BatchCliTests(unittest.TestCase):
             self.assertEqual("deepseek-v4-flash", plan["provider"]["model"])
             self.assertEqual("codeql-local", plan["provider"]["codeql_binary"])
             self.assertNotIn("DEEPSEEK_API_KEY", json.dumps(plan))
+
+    def test_synthetic_full_plan_preserves_explicit_manifest_without_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "plan"
+            manifest = Path(tmp) / "requested-manifest.json"
+            seen = []
+            def loader(path, **_kwargs):
+                seen.append(Path(path))
+                return self.corpus(200)
+            def forbidden_factory(*_args, **_kwargs):
+                raise AssertionError("plan-only must not execute the analyzer")
+            status = RUN.main([
+                "full", "--plan-only", "--run-id", "synthetic-200",
+                "--manifest", str(manifest), "--output", str(output),
+                "--allow-remote-llm", "--model", "fixture-model",
+                "--base-url", "https://example.invalid/",
+            ], corpus_loader=loader, pipeline_factory=forbidden_factory, environ={})
+            self.assertEqual(0, status)
+            self.assertEqual([manifest], seen)
+            plan = json.loads((output / "batch_plan.json").read_text())
+            self.assertEqual(200, len(plan["targets"]))
+            self.assertEqual("fixture-model", plan["provider"]["model"])
 
     def test_full_plan_only_cannot_gain_late_remote_authorization(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

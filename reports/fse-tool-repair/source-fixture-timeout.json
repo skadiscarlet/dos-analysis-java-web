@@ -1,0 +1,27 @@
+{
+  "process_id": "proc_c691267415114e32bf8b",
+  "status": "timed_out",
+  "exit_code": -15,
+  "budget_seconds": 240,
+  "scope": "self-owned fixed SourcePairs static compilation/extraction only; no target Java execution",
+  "database_build_successful": true,
+  "source_evaluation_completed": false,
+  "claims_12_cases_passed": false,
+  "claims_real_recall_gain": false,
+  "original_fixture_hashes": {
+    "source-cases.json": "67fd397d9e4ab43c0a3cc9559563ddea71012621b08bda96f9d9e03236060cbe",
+    "src/main/java/fixture/lifecyclev11/SourcePairs.java": "51b05e675a6a54d4ca1dd1284a2eda4c50b4a30232eb6b63294a0622af8044e8"
+  },
+  "analyzed_copy_hashes": {
+    "source-cases.json": "67fd397d9e4ab43c0a3cc9559563ddea71012621b08bda96f9d9e03236060cbe",
+    "src/main/java/fixture/lifecyclev11/SourcePairs.java": "51b05e675a6a54d4ca1dd1284a2eda4c50b4a30232eb6b63294a0622af8044e8"
+  },
+  "output_files": [
+    "codeql/01-resource_lifecycle/.generations/ResourceLifecycleFacts-0c5ce6cd422a41b3b72de0c31f0afc04/ResourceLifecycleFacts.bqrs",
+    "codeql/01-resource_lifecycle/.generations/ResourceLifecycleFacts-0c5ce6cd422a41b3b72de0c31f0afc04/ResourceLifecycleFacts.json",
+    "codeql/02-resource_lifecycle_task_relations/.generations/.ResourceLifecycleTaskRelations.pending.d2adada2b027447d837880a3d78f7799/ResourceLifecycleTaskRelations.bqrs"
+  ],
+  "setup_failure_retained": "real-source-summary.json",
+  "retry_policy": "No further automatic retries; no provenance guard relaxed.",
+  "matching_compiler_processes": []
+}

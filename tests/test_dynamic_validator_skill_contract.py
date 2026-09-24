@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for the user-level Java Web DoS validation skills."""
+"""Regression tests for the project-local Java Web DoS validation skill metadata."""
 
 from __future__ import annotations
 
@@ -10,16 +10,17 @@ import unittest
 from pathlib import Path
 
 
-CODEX_SKILLS = Path("/home/furina/.codex/skills")
-AGGREGATOR_PATH = (
-    CODEX_SKILLS
-    / "java-web-dos-dynamic-validator"
-    / "scripts"
-    / "aggregate_dynamic_validation.py"
+from tests.support.skill_paths import (
+    aggregator_script_path, discover_skills_root, missing_skills_reason,
 )
+
+CODEX_SKILLS = discover_skills_root()
+AGGREGATOR_PATH = aggregator_script_path()
 
 
 def load_aggregator():
+    if AGGREGATOR_PATH is None:
+        return None
     spec = importlib.util.spec_from_file_location("dynamic_validation_aggregator", AGGREGATOR_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load {AGGREGATOR_PATH}")
@@ -31,6 +32,7 @@ def load_aggregator():
 AGGREGATOR = load_aggregator()
 
 
+@unittest.skipUnless(AGGREGATOR is not None, missing_skills_reason())
 class DynamicValidationAggregatorTests(unittest.TestCase):
     def result(self, case_id: str = "case-1", **overrides: object) -> dict:
         record: dict[str, object] = {
@@ -292,6 +294,7 @@ class DynamicValidationAggregatorTests(unittest.TestCase):
             self.assertIn("failure round", summary["result_errors"][0]["error"])
 
 
+@unittest.skipUnless(CODEX_SKILLS is not None, missing_skills_reason())
 class SkillTextContractTests(unittest.TestCase):
     def read_skill(self, name: str) -> str:
         return (CODEX_SKILLS / name / "SKILL.md").read_text(encoding="utf-8")

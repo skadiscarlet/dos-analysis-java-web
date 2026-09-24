@@ -22,6 +22,23 @@ class VerificationCheck:
     passed: bool
     reason_code: str | None = None
 
+    def __post_init__(self) -> None:
+        # Python truthiness is not the serialized proof contract: notably,
+        # the string "false" and integer 1 must never count as a passed check.
+        if (
+            not isinstance(self.name, str)
+            or not self.name
+            or not isinstance(self.passed, bool)
+            or (
+                self.reason_code is not None
+                and (not isinstance(self.reason_code, str) or not self.reason_code)
+            )
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_GROWTH_VERIFICATION_INVALID",
+                "Growth verification check is malformed.",
+            )
+
     def to_dict(self) -> dict[str, object]:
         return {"name": self.name, "passed": self.passed, "reason_code": self.reason_code}
 
@@ -105,7 +122,19 @@ class VerifiedGrowthResult:
         reasons = record["reason_codes"]; checks = record["checks"]
         if not isinstance(reasons, list) or not isinstance(checks, list):
             raise AnalyzerError("ANALYSIS_GROWTH_VERIFICATION_INVALID", "Growth verification record is malformed.")
-        parsed = tuple(VerificationCheck(item["name"], item["passed"], item["reason_code"]) for item in checks if isinstance(item, Mapping) and set(item) == {"name", "passed", "reason_code"})
+        if any(
+            not isinstance(item, Mapping)
+            or set(item) != {"name", "passed", "reason_code"}
+            for item in checks
+        ):
+            raise AnalyzerError(
+                "ANALYSIS_GROWTH_VERIFICATION_INVALID",
+                "Growth verification checks are malformed.",
+            )
+        parsed = tuple(
+            VerificationCheck(item["name"], item["passed"], item["reason_code"])
+            for item in checks
+        )
         result = cls(cast(str, record["verified_growth_id"]), cast(str, record["growth_id"]), cast(str, record["slice_id"]), cast(VerificationStatus, record["status"]), tuple(reasons), parsed, candidate)
         expected = stable_identifier("verified_growth", {"growth_id": result.growth_id, "slice_id": result.slice_id, "status": result.status, "reason_codes": list(result.reason_codes), "checks": [item.to_dict() for item in result.checks]})
         if result.verified_growth_id != expected: raise AnalyzerError("ANALYSIS_GROWTH_VERIFICATION_INVALID", "Growth verification identifier is not canonical.")

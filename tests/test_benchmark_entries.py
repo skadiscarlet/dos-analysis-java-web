@@ -8,6 +8,8 @@ from dosweb.benchmark.entries import _CURRENT_ENTRY_ARTIFACTS, _safe_artifact, e
 from dosweb.benchmark.matching import match_entry_case, normalize_route
 
 
+from tests.support.offline_assets import require_poc29_entries_archive
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -47,7 +49,7 @@ class BenchmarkEntryDiagnosticsTests(unittest.TestCase):
         return {"repository": "owner/repo", "entry": entry}
 
     def test_real_entries_archive_reads_completed_stage_without_p0_artifacts(self):
-        target = ROOT / "build/poc29-entries-poc29-entries-20260803-a/targets/010-openzipkin__zipkin"
+        target = require_poc29_entries_archive(ROOT)
         entries, gaps, error = extract_entries_from_target(
             target,
             target_id="target:b33ff3794549c3f1f8238930",

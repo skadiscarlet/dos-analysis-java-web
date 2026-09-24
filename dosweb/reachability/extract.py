@@ -171,6 +171,14 @@ def _route_path(route: str) -> str:
 def _route_matches(matcher: str, route: str) -> bool:
     if matcher in {"", "dynamic_matcher", "*"}:
         return False
+    # A method-qualified rule must not authorize a different method (or an
+    # entry whose method is unknown). Path-only matchers retain their scope.
+    methods = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+    matcher_parts, route_parts = matcher.strip().split(None, 1), route.strip().split(None, 1)
+    matcher_method = matcher_parts[0] if len(matcher_parts) == 2 and matcher_parts[0] in methods else None
+    route_method = route_parts[0] if len(route_parts) == 2 and route_parts[0] in methods else None
+    if matcher_method is not None and route_method != matcher_method:
+        return False
     expected, actual = _route_path(matcher), _route_path(route)
     if expected.endswith("/**"):
         prefix = expected[:-3].rstrip("/")
@@ -215,7 +223,13 @@ def bind_entry_security_rows(
                     and handler.get("start_line") == handler_line
                 ):
                     candidates.append(entry)
-            if len(candidates) != 1:
+            # Typed method annotations/constraints and deployment gates apply
+            # to the method, not just one of its registered route aliases.
+            # Dynamic/untyped matchers must not gain that authority.
+            handler_scoped = route == "" and row.get("kind") in {
+                "annotation", "servlet_constraint", "deployment_gate",
+            }
+            if not handler_scoped and len(candidates) != 1:
                 continue
         if not candidates:
             continue

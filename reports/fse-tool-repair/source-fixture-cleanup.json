@@ -1,0 +1,7 @@
+{
+  "scope": "only this attempt-generated temporary selector query retained outside production query pack",
+  "source": "dosweb/codeql/pack/dosweb/ResourceLifecycle/.ResourceLifecycleTaskRelations.dosweb.9r_dffql.ql",
+  "retained": ".verification/independent-fse-qa/retained-generated-query.ql",
+  "sha256": "facf5dd7a76296af7e1987582613ff7e2834a79a19c22bfa787724fdf42a89bd",
+  "status": "moved_owned_generated_temporary_file"
+}

@@ -10,6 +10,8 @@ from dosweb.batch.corpus import _fingerprint, load_canonical_corpus
 from dosweb.errors import AnalyzerError
 
 
+from tests.support.offline_assets import require_java_web_205_assets
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "generate_java_web_205_inventory", ROOT / "scripts/generate_java_web_205_inventory.py"
@@ -109,6 +111,7 @@ class JavaWeb205InventoryTests(unittest.TestCase):
         self.assertTrue(active["batch_ready"])
 
     def test_default_loader_accepts_tracked_ready_manifest(self) -> None:
+        require_java_web_205_assets(ROOT)
         corpus = load_canonical_corpus(repo_root=ROOT)
         self.assertEqual(205, corpus.total)
         self.assertEqual(205, len(corpus.targets))

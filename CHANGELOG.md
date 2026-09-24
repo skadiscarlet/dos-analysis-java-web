@@ -1,3 +1,12 @@
+## [2026-09-24] FSE 最小工具修复：证据绑定、记录完整性、离线可运行性
+
+- 保留同精确handler多route上的类型化认证/部署事实；规则匹配校验显式HTTP方法，partial/conflict/dynamic证据不扩权。
+- Growth VerificationCheck严格验证bool/string，from_dict拒绝畸形检查项而非过滤；只收紧内部记录，不增加检测能力或放宽coverage。entries身份v18、growth v34，旧缓存强制失效测试覆盖。
+- 新增47项受控生产串联/证书/缓存/类型/可移植性回归；修复项目skill迁移collection错误，普通单元测试使用临时小fixture，真实历史资产缺失明确skip，损坏/unsafe资产保持失败。
+- 冻结最终全仓1980passed/0failed/66skipped/1100subtests；原13失败为7passed+6缺失历史资产skip，不称原集成全通过。241个Python源码hash在最终测试前后一致。
+- 冻结下游21/21，132findings/126families全部unknown不变。未重测真实33召回或full/off，研究仍unvalidated、真实工具验收fail；不将合成效果算入真实收益。
+- 精简计划、交接、实际日志与hash在docs/execution/fse-tool-repair及reports/fse-tool-repair。自有固定toy源码静态验收另行记录，不运行目标程序/服务/PoC/压力负载/新目标或远端分析器模型，不扩展178-target。
+
 ## [2026-09-23] E2E semantic repair：统计、证据完整性与冻结结果兼容
 
 - 修正正式阳性family集合及precision口径：126个unknown不再当作阳性待复核，零阳性两precision为null；补充去重、集合外阳性、unknown review标签和具体finding匹配反例；历史hard-negative无匹配独立记录，不能伪称提取失败或有界。

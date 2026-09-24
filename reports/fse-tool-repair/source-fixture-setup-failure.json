@@ -1,0 +1,12 @@
+{
+  "command_status": 5,
+  "fixture_hashes_before": {
+    "source-cases.json": "67fd397d9e4ab43c0a3cc9559563ddea71012621b08bda96f9d9e03236060cbe",
+    "src/main/java/fixture/lifecyclev11/SourcePairs.java": "51b05e675a6a54d4ca1dd1284a2eda4c50b4a30232eb6b63294a0622af8044e8"
+  },
+  "fixture_hashes_after": {
+    "source-cases.json": "67fd397d9e4ab43c0a3cc9559563ddea71012621b08bda96f9d9e03236060cbe",
+    "src/main/java/fixture/lifecyclev11/SourcePairs.java": "51b05e675a6a54d4ca1dd1284a2eda4c50b4a30232eb6b63294a0622af8044e8"
+  },
+  "scope": "actual CodeQL extraction and paired solver modes on 12 repository-owned fixed toy SourcePairs; not third-party detection or 33-record evaluation"
+}

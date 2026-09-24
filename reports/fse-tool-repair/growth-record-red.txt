@@ -1,0 +1,198 @@
+FFFFFFFFFFFFFF.                                                          [100%]
+=================================== FAILURES ===================================
+______________ test_verification_check_requires_actual_boolean[0] ______________
+
+passed = 0
+
+    @pytest.mark.parametrize("passed", [0, 1, "false", None])
+    def test_verification_check_requires_actual_boolean(passed):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:14: Failed
+______________ test_verification_check_requires_actual_boolean[1] ______________
+
+passed = 1
+
+    @pytest.mark.parametrize("passed", [0, 1, "false", None])
+    def test_verification_check_requires_actual_boolean(passed):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:14: Failed
+____________ test_verification_check_requires_actual_boolean[false] ____________
+
+passed = 'false'
+
+    @pytest.mark.parametrize("passed", [0, 1, "false", None])
+    def test_verification_check_requires_actual_boolean(passed):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:14: Failed
+____________ test_verification_check_requires_actual_boolean[None] _____________
+
+passed = None
+
+    @pytest.mark.parametrize("passed", [0, 1, "false", None])
+    def test_verification_check_requires_actual_boolean(passed):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:14: Failed
+________ test_verification_check_requires_nonempty_typed_strings[-None] ________
+
+name = '', reason = None
+
+    @pytest.mark.parametrize("name,reason", [("", None), (None, None), ("resource_growth", ""), ("resource_growth", 1)])
+    def test_verification_check_requires_nonempty_typed_strings(name, reason):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:20: Failed
+______ test_verification_check_requires_nonempty_typed_strings[None-None] ______
+
+name = None, reason = None
+
+    @pytest.mark.parametrize("name,reason", [("", None), (None, None), ("resource_growth", ""), ("resource_growth", 1)])
+    def test_verification_check_requires_nonempty_typed_strings(name, reason):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:20: Failed
+__ test_verification_check_requires_nonempty_typed_strings[resource_growth-] ___
+
+name = 'resource_growth', reason = ''
+
+    @pytest.mark.parametrize("name,reason", [("", None), (None, None), ("resource_growth", ""), ("resource_growth", 1)])
+    def test_verification_check_requires_nonempty_typed_strings(name, reason):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:20: Failed
+__ test_verification_check_requires_nonempty_typed_strings[resource_growth-1] __
+
+name = 'resource_growth', reason = 1
+
+    @pytest.mark.parametrize("name,reason", [("", None), (None, None), ("resource_growth", ""), ("resource_growth", 1)])
+    def test_verification_check_requires_nonempty_typed_strings(name, reason):
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:20: Failed
+________ test_malformed_checks_are_rejected_not_silently_filtered[None] ________
+
+malformed = None
+
+    @pytest.mark.parametrize("malformed", [None, {}, {"name": "ignored", "passed": False},
+        {"name": "ignored", "passed": False, "reason_code": "INCOMPLETE", "extra": True}])
+    def test_malformed_checks_are_rejected_not_silently_filtered(malformed):
+        original = _verified(_growth())
+        record = original.to_dict()
+        record["checks"].append(malformed)
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:30: Failed
+_____ test_malformed_checks_are_rejected_not_silently_filtered[malformed1] _____
+
+malformed = {}
+
+    @pytest.mark.parametrize("malformed", [None, {}, {"name": "ignored", "passed": False},
+        {"name": "ignored", "passed": False, "reason_code": "INCOMPLETE", "extra": True}])
+    def test_malformed_checks_are_rejected_not_silently_filtered(malformed):
+        original = _verified(_growth())
+        record = original.to_dict()
+        record["checks"].append(malformed)
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:30: Failed
+_____ test_malformed_checks_are_rejected_not_silently_filtered[malformed2] _____
+
+malformed = {'name': 'ignored', 'passed': False}
+
+    @pytest.mark.parametrize("malformed", [None, {}, {"name": "ignored", "passed": False},
+        {"name": "ignored", "passed": False, "reason_code": "INCOMPLETE", "extra": True}])
+    def test_malformed_checks_are_rejected_not_silently_filtered(malformed):
+        original = _verified(_growth())
+        record = original.to_dict()
+        record["checks"].append(malformed)
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:30: Failed
+_____ test_malformed_checks_are_rejected_not_silently_filtered[malformed3] _____
+
+malformed = {'extra': True, 'name': 'ignored', 'passed': False, 'reason_code': 'INCOMPLETE'}
+
+    @pytest.mark.parametrize("malformed", [None, {}, {"name": "ignored", "passed": False},
+        {"name": "ignored", "passed": False, "reason_code": "INCOMPLETE", "extra": True}])
+    def test_malformed_checks_are_rejected_not_silently_filtered(malformed):
+        original = _verified(_growth())
+        record = original.to_dict()
+        record["checks"].append(malformed)
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:30: Failed
+__________ test_rehashed_truthy_nonboolean_cannot_become_verified[1] ___________
+
+passed = 1
+
+    @pytest.mark.parametrize("passed", [1, "false"])
+    def test_rehashed_truthy_nonboolean_cannot_become_verified(passed):
+        original = _verified(_growth())
+        record = original.to_dict()
+        record["checks"][0]["passed"] = passed
+        semantic = {key: value for key, value in record.items() if key != "verified_growth_id"}
+        record["verified_growth_id"] = stable_identifier("verified_growth", semantic)
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:41: Failed
+________ test_rehashed_truthy_nonboolean_cannot_become_verified[false] _________
+
+passed = 'false'
+
+    @pytest.mark.parametrize("passed", [1, "false"])
+    def test_rehashed_truthy_nonboolean_cannot_become_verified(passed):
+        original = _verified(_growth())
+        record = original.to_dict()
+        record["checks"][0]["passed"] = passed
+        semantic = {key: value for key, value in record.items() if key != "verified_growth_id"}
+        record["verified_growth_id"] = stable_identifier("verified_growth", semantic)
+>       with pytest.raises(AnalyzerError, match="check"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_fse_growth_record_repair.py:41: Failed
+=========================== short test summary info ============================
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_actual_boolean[0]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_actual_boolean[1]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_actual_boolean[false]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_actual_boolean[None]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_nonempty_typed_strings[-None]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_nonempty_typed_strings[None-None]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_nonempty_typed_strings[resource_growth-]
+FAILED tests/test_fse_growth_record_repair.py::test_verification_check_requires_nonempty_typed_strings[resource_growth-1]
+FAILED tests/test_fse_growth_record_repair.py::test_malformed_checks_are_rejected_not_silently_filtered[None]
+FAILED tests/test_fse_growth_record_repair.py::test_malformed_checks_are_rejected_not_silently_filtered[malformed1]
+FAILED tests/test_fse_growth_record_repair.py::test_malformed_checks_are_rejected_not_silently_filtered[malformed2]
+FAILED tests/test_fse_growth_record_repair.py::test_malformed_checks_are_rejected_not_silently_filtered[malformed3]
+FAILED tests/test_fse_growth_record_repair.py::test_rehashed_truthy_nonboolean_cannot_become_verified[1]
+FAILED tests/test_fse_growth_record_repair.py::test_rehashed_truthy_nonboolean_cannot_become_verified[false]
+14 failed, 1 passed in 0.29s

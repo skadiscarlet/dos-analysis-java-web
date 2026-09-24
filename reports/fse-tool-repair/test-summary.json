@@ -1,0 +1,459 @@
+{
+  "base_commit": "98997bbb7fba3e9287d54654cd197fa644ec56be",
+  "branch": "codex/fse-tool-repair-20260924",
+  "scope": "generic analyzer correctness and controlled/frozen regressions; not fresh target discovery",
+  "implementation_versions": {
+    "entries": "v18",
+    "growth": "v34"
+  },
+  "final_suite": {
+    "passed": 1980,
+    "failed": 0,
+    "collection_errors": 0,
+    "skipped": 66,
+    "warnings": 9,
+    "subtests_passed": 1100,
+    "command": "DOSWEB_RUN_CODEQL_FIXTURES=0 DOSWEB_RUN_DEEPSEEK_INTEGRATION=0 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider --junitxml=.verification/full-suite-final.xml",
+    "excluded_files": [],
+    "source_stability": {
+      "stable": true,
+      "source_hash": "4716a41d3127ffd3ce1c464b06b95f8e1df9481c085c2a0fb7da30fe9b969bb6",
+      "file_count": 241,
+      "changed": []
+    },
+    "skip_details": [
+      {
+        "class": "tests.integration.test_deepseek_online.DeepSeekOnlineTests",
+        "test": "test_public_fixture_returns_growth_contract",
+        "reason": "Set the explicit integration guard, API key, and pinned fixed-fixture checkout guards."
+      },
+      {
+        "class": "tests.test_batch_cli.BatchCliTests",
+        "test": "test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested",
+        "reason": "optional historical source/database asset missing: /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/frameworks/applications/1024-lab__smart-admin"
+      },
+      {
+        "class": "tests.test_benchmark_entries.BenchmarkEntryDiagnosticsTests",
+        "test": "test_real_entries_archive_reads_completed_stage_without_p0_artifacts",
+        "reason": "PoC-29 entries archive missing: build/poc29-entries-poc29-entries-20260803-a/targets/010-openzipkin__zipkin"
+      },
+      {
+        "class": "tests.test_benchmark_truth.BenchmarkTruthTests",
+        "test": "test_full_plan_succeeds_with_strict_source_overrides",
+        "reason": "PoC-29 truth collection missing: results/applications_dynamic_validation/binary_truth_collection.json"
+      },
+      {
+        "class": "tests.test_benchmark_truth.BenchmarkTruthTests",
+        "test": "test_real_truth_is_29_cases_and_18_repositories_with_assets",
+        "reason": "PoC-29 truth collection missing: results/applications_dynamic_validation/binary_truth_collection.json"
+      },
+      {
+        "class": "tests.test_benchmark_truth.BenchmarkTruthTests",
+        "test": "test_source_override_manifest_loads_strict_provider_bindings",
+        "reason": "source override checkout missing: build/poc29-full-sources/apache__druid-c2d15dfc"
+      },
+      {
+        "class": "tests.test_codeql_adapter.CodeqlAdapterTests",
+        "test": "test_real_codeql_timestamp_metadata_is_accepted",
+        "reason": "Repository real CodeQL database fixture is unavailable."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_component_filter_with_dependency_framework_types_is_a_default_entry",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_entry_security_query_extracts_typed_auth_without_inventing_deployment",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_filter_registration_interposition_is_partial_until_cfg_proven",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_local_generated_grpc_streaming_service_registration_is_complete",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_registered_entries_and_dynamic_gaps_against_temporary_databases",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_source_defined_jaxrs_helper_registration_normalizes_route",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_entry_queries.CodeqlEntryQueryFixtureTests",
+        "test": "test_spel_source_defaults_publish_modeled_entries_and_keep_runtime_gaps",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_fixed_allocation_in_attacker_controlled_loop_emits_multiplicity_driver",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_fixed_allocation_in_unmodeled_loop_is_partial_not_a_hard_negative",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_g1_through_g4_against_temporary_databases",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_growth_queries_use_the_exact_shared_table_contract",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_http_session_attribute_write_is_partial_session_growth",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_mixed_image_dimensions_keep_the_attacker_controlled_row_after_normalization",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_multidimensional_array_enumerates_the_attacker_controlled_second_dimension",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_only_strict_canonical_unconditional_loop_proves_multiplicity",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_real_direct_allocation_rows_mature_only_through_real_flow_proofs",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_growth_queries.CodeqlGrowthQueryTests",
+        "test": "test_real_exact_container_and_async_rows_mature_through_shared_loop_flows",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_citrus_default_routes_emit_only_partial_prehandler_and_session_associations",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_direct_byte_allocation_bound_domain_covers_absence_and_numeric_clamp",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_fixture_semantics",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_framework_limits_emit_complete_growth_anchored_bound_rows",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_jmqtt_qos2_dispatch_emits_only_partial_association",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_netty_full_request_string_is_shared_by_flow_and_lifecycle_domains",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_netty_json_switch_dispatch_remains_partial_through_service_growth",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_route_alias_and_unrelated_handler_share_one_proof_carrying_path",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_solr_form_parser_prehandler_emits_only_partial_association",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_source_input_stream_handler_and_byte_array_output_copy",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_source_stream_to_bounded_parser_output_copy_is_exact_partial",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_codeql_lifecycle_queries.CodeqlLifecycleFixtureTests",
+        "test": "test_spring_request_body_string_is_shared_by_flow_and_lifecycle_domains",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_java_web_205_inventory.JavaWeb205InventoryTests",
+        "test": "test_default_loader_accepts_tracked_ready_manifest",
+        "reason": "optional historical source/database asset missing: /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/frameworks/applications/1024-lab__smart-admin"
+      },
+      {
+        "class": "tests.test_production_e2e.ProductionFixtureE2ETests",
+        "test": "test_mqtt_registration_repeatability_and_static_unknown_are_audited",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available."
+      },
+      {
+        "class": "tests.test_production_e2e.ProductionFixtureE2ETests",
+        "test": "test_netty_registration_finite_bound_and_uninstalled_negative",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available."
+      },
+      {
+        "class": "tests.test_production_e2e.ProductionFixtureE2ETests",
+        "test": "test_real_database_real_queries_real_client_cover_p0_scenarios_and_resume",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available."
+      },
+      {
+        "class": "tests.test_production_e2e.ProductionFixtureE2ETests",
+        "test": "test_servlet_allocation_and_release_paths_produce_certificates",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_async_solver",
+        "test": "test_cached_source_facts_analyze_and_replay",
+        "reason": "requires a recorded real Task 3 CodeQL facts path"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_callable_and_allocation_identities_are_precise",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_java_source_to_resource_state_results",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_real_codeql_database_runs_through_all_three_cli_commands",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_retained_values_and_holder_scopes_are_precise",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_same_site_dispatch_and_invariant_share_program_point_identity",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_fresh_review_gaps_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_source_relations_are_extracted_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_task_cfg_success_exception_and_executor_gaps_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_task_terminals_are_conservative_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_unsupported_executor_policies_emit_bound_coverage_gaps_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_unsupported_task_forms_emit_bound_coverage_gaps_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_codeql.ResourceLifecycleCodeqlFixtureTests",
+        "test": "test_v1_1_wrapper_summary_effects_are_extracted_from_java",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_evidence_compaction",
+        "test": "test_real_source_evidence_fits_reader_and_replays",
+        "reason": "Requires retained real SourcePairs facts via DOSWEB_G8_CACHED_FACTS"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_population",
+        "test": "test_cached_raw_source_relations_publish_reviewable_population_equations",
+        "reason": "requires cached raw CodeQL facts re-adapted by the current adapter"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_properties_source.MultiResourceSourceTests",
+        "test": "test_compiled_multiple_families_cli_evaluation_relocated_replay",
+        "reason": "real CodeQL opt-in"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_rc1_exceptions.WrapperExceptionSourceTests",
+        "test": "test_rejection_returns_through_caller_cleanup_and_preserves_holders",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with CodeQL and javac."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_rc1_ingestion",
+        "test": "test_real_callable_inventory_keeps_empty_and_external_call_methods",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 for real static extraction."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_rc1_loops.RealSourceLoopTests",
+        "test": "test_complete_iteration_has_zero_exit_obligation_and_peak_one",
+        "reason": "requires opt-in real CodeQL extraction"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_rc1_loops.RealSourceLoopTests",
+        "test": "test_exclusive_close_stays_open_and_semantic_replay_is_stable",
+        "reason": "requires opt-in real CodeQL extraction"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_rc1_loops.RealSourceLoopTests",
+        "test": "test_retained_iteration_does_not_gain_finite_bound",
+        "reason": "requires opt-in real CodeQL extraction"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_review_safety",
+        "test": "test_repeated_submission_from_java_through_both_queries",
+        "reason": "opt-in CodeQL fixture"
+      },
+      {
+        "class": "tests.test_resource_lifecycle_source_evaluation.ResourceLifecycleSourceEvaluationCodeqlTests",
+        "test": "test_twelve_source_variants_preserve_oracle_and_wrapper_exceptions",
+        "reason": "Set DOSWEB_RUN_CODEQL_FIXTURES=1 with codeql and javac available."
+      },
+      {
+        "class": "tests.test_resource_lifecycle_task4_locations",
+        "test": "test_cached_source_child_proof_includes_actual_terminal_program_point",
+        "reason": "requires recorded real SourcePairs facts"
+      },
+      {
+        "class": "tests.test_webxml_entries.WebXmlServletEntryTests",
+        "test": "test_real_solr_source_descriptor_integration",
+        "reason": "Solr source checkout unavailable"
+      }
+    ]
+  },
+  "prior_failure_outcomes": [
+    {
+      "nodeid": "tests/test_auth_contract_v4.py::test_auth_v4_cache_is_cold_and_auth_identities_are_rotated",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_complete_database_manifest_builds_batch_corpus",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_corpus_revalidates_database_source_and_fingerprint",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_database_override_requires_safe_relative_path_and_is_recorded",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_entries_plan_uses_all_ready_targets_and_ready_only_is_diagnostic",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_full_plan_succeeds_with_strict_source_overrides",
+      "final": "skipped_missing_optional_assets"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_full_plan_succeeds_without_commit_provenance",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_generated_inventory_builds_runnable_18_target_plan",
+      "final": "passed"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_real_truth_is_29_cases_and_18_repositories_with_assets",
+      "final": "skipped_missing_optional_assets"
+    },
+    {
+      "nodeid": "tests/test_benchmark_truth.py::BenchmarkTruthTests::test_source_override_manifest_loads_strict_provider_bindings",
+      "final": "skipped_missing_optional_assets"
+    },
+    {
+      "nodeid": "tests/test_benchmark_entries.py::BenchmarkEntryDiagnosticsTests::test_real_entries_archive_reads_completed_stage_without_p0_artifacts",
+      "final": "skipped_missing_optional_assets"
+    },
+    {
+      "nodeid": "tests/test_batch_cli.py::BatchCliTests::test_full_plan_only_builds_historical_canonical_200_when_explicitly_requested",
+      "final": "skipped_missing_optional_assets"
+    },
+    {
+      "nodeid": "tests/test_java_web_205_inventory.py::JavaWeb205InventoryTests::test_default_loader_accepts_tracked_ready_manifest",
+      "final": "skipped_missing_optional_assets"
+    }
+  ],
+  "new_fse_regression_cases": 47,
+  "red_green": {
+    "reachability": {
+      "before_failed": 8,
+      "before_passed": 2
+    },
+    "growth_record": {
+      "before_failed": 14,
+      "before_passed": 1
+    },
+    "independent_binding": {
+      "before_failed": 2,
+      "before_passed": 3,
+      "after_passed": 5
+    }
+  },
+  "frozen_downstream": {
+    "completed_projects": 21,
+    "total_projects": 21,
+    "findings": 132,
+    "families": 126,
+    "transitions": {
+      "static_unknown -> static_unknown": 132
+    },
+    "fresh_full_scan": false,
+    "real_recall_remeasured": false
+  },
+  "research_status": {
+    "status": "unvalidated",
+    "tool_real_acceptance": "fail",
+    "last_measured_known_hits": 0,
+    "fixed_known_denominator": 33,
+    "fresh_recall_measurement": false,
+    "real_full_off_ablation": "not_run"
+  },
+  "invalid_intermediate_run": {
+    "log": ".verification/full-suite-v1.log",
+    "source_stable": false,
+    "used_as_final_evidence": false
+  },
+  "external_execution": {
+    "target_programs": 0,
+    "target_services": 0,
+    "poc_or_stress_requests": 0,
+    "new_target_scans": 0,
+    "remote_analyzer_model_calls": 0,
+    "source_fixture_static_validation": "independent QA fixed self-owned fixtures; reported separately"
+  }
+}

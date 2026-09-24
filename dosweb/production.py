@@ -103,9 +103,9 @@ from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
-        "production-v2.8-open-world-maturation-growth-v33"
+        "production-v2.8-open-world-maturation-growth-v34"
         if stage == "growth"
-        else "production-v2.8-open-world-maturation-entries-v17"
+        else "production-v2.8-open-world-maturation-entries-v18"
         if stage == "entries"
         else "production-v2.8-open-world-maturation-conclude-v9"
         if stage == "conclude"

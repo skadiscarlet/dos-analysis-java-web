@@ -17,6 +17,11 @@ from dosweb.benchmark.truth import (
 )
 
 
+from tests.support.offline_assets import (
+    require_poc29_truth_assets, require_poc29_source_override_checkouts,
+    write_synthetic_poc29_truth,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 _SPEC = importlib.util.spec_from_file_location("evaluate_poc29", ROOT / "scripts/evaluate_java_web_dos_benchmark.py")
 assert _SPEC and _SPEC.loader
@@ -25,6 +30,17 @@ _SPEC.loader.exec_module(_EVALUATOR)
 
 
 class BenchmarkTruthTests(unittest.TestCase):
+    def setUp(self):
+        synthetic_methods = ['test_complete_database_manifest_builds_batch_corpus', 'test_corpus_revalidates_database_source_and_fingerprint', 'test_database_override_requires_safe_relative_path_and_is_recorded', 'test_entries_plan_uses_all_ready_targets_and_ready_only_is_diagnostic', 'test_full_plan_succeeds_without_commit_provenance', 'test_generated_inventory_builds_runnable_18_target_plan']
+        if self._testMethodName in synthetic_methods:
+            temporary = tempfile.TemporaryDirectory()
+            self.addCleanup(temporary.cleanup)
+            self.synthetic_root = Path(temporary.name)
+            write_synthetic_poc29_truth(self.synthetic_root)
+            patcher = mock.patch.object(_EVALUATOR, "ROOT", self.synthetic_root)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_explicit_repository_normalization(self):
         self.assertEqual(
             normalize_repo("DependencyTrack/dependency-track"),
@@ -61,6 +77,7 @@ class BenchmarkTruthTests(unittest.TestCase):
                 resolve_asset_directory(root, "frameworks/applications", "grobidorg__grobid")
 
     def test_real_truth_is_29_cases_and_18_repositories_with_assets(self):
+        require_poc29_truth_assets(ROOT)
         root = Path(__file__).parents[1]
         rows, validation, manifest = normalize_truth(
             root / "results/applications_dynamic_validation/binary_truth_collection.json",
@@ -80,7 +97,7 @@ class BenchmarkTruthTests(unittest.TestCase):
         self.assertTrue(all(project["database_marker"]["sha256"] for project in manifest["projects"]))
 
     def test_complete_database_manifest_builds_batch_corpus(self):
-        root = Path(__file__).parents[1]
+        root = self.synthetic_root
         _, validation, manifest = normalize_truth(
             root / "results/applications_dynamic_validation/binary_truth_collection.json",
             repo_root=root,
@@ -91,7 +108,7 @@ class BenchmarkTruthTests(unittest.TestCase):
         self.assertTrue(all(target.database_fingerprint for target in corpus.targets))
 
     def test_generated_inventory_builds_runnable_18_target_plan(self):
-        root = Path(__file__).parents[1]
+        root = self.synthetic_root
         _, validation, manifest = normalize_truth(
             root / "results/applications_dynamic_validation/binary_truth_collection.json",
             repo_root=root,
@@ -104,25 +121,26 @@ class BenchmarkTruthTests(unittest.TestCase):
         self.assertTrue(all(target.initial_state == "queued" for target in plan.targets))
 
     def test_database_override_requires_safe_relative_path_and_is_recorded(self):
-        root = Path(__file__).parents[1]
+        root = self.synthetic_root
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "overrides.json"
-            path.write_text(json.dumps({"cicizz/jmqtt": "databases/applications/cicizz__jmqtt-db"}), encoding="utf-8")
+            path.write_text(json.dumps({"fixture01/app": "databases/applications/fixture01__app-db"}), encoding="utf-8")
             overrides = load_database_overrides(path, root)
             _, validation, manifest = normalize_truth(
                 root / "results/applications_dynamic_validation/binary_truth_collection.json",
                 repo_root=root,
                 database_overrides=overrides,
             )
-            row = next(project for project in manifest["projects"] if project["name"] == "cicizz/jmqtt")
+            row = next(project for project in manifest["projects"] if project["name"] == "fixture01/app")
             self.assertEqual(row["database_origin"], "override")
-            self.assertEqual(row["codeql_path"], overrides["cicizz/jmqtt"])
+            self.assertEqual(row["codeql_path"], overrides["fixture01/app"])
             self.assertTrue(validation["valid"])
-            path.write_text(json.dumps({"cicizz/jmqtt": "../escape"}), encoding="utf-8")
+            path.write_text(json.dumps({"fixture01/app": "../escape"}), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_database_overrides(path, root)
 
     def test_source_override_manifest_loads_strict_provider_bindings(self):
+        require_poc29_source_override_checkouts(ROOT)
         overrides = load_source_overrides(ROOT / "config/poc29_full_source_overrides.json", ROOT)
         self.assertEqual(8, len(overrides))
         self.assertEqual(
@@ -132,7 +150,7 @@ class BenchmarkTruthTests(unittest.TestCase):
         self.assertRegex(overrides["apache/skywalking"]["analysis_tree_sha256"], r"^[0-9a-f]{64}$")
 
     def test_corpus_revalidates_database_source_and_fingerprint(self):
-        root = Path(__file__).parents[1]
+        root = self.synthetic_root
         _, _, manifest = normalize_truth(
             root / "results/applications_dynamic_validation/binary_truth_collection.json",
             repo_root=root,
@@ -180,6 +198,8 @@ class BenchmarkTruthTests(unittest.TestCase):
             self.assertTrue(all(target["initial_state"] == "queued" for target in plan["targets"]))
 
     def test_full_plan_succeeds_with_strict_source_overrides(self):
+        require_poc29_truth_assets(ROOT)
+        require_poc29_source_override_checkouts(ROOT)
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "full"
             overrides = ROOT / "config/poc29_full_source_overrides.json"

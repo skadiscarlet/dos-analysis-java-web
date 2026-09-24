@@ -1,0 +1,56 @@
+s.................................. [  1%]
+................................................. [  4%]
+....................................................s.... [  6%]
+............................................s............................................ [ 11%]
+.....s...ss...................................................................................................s [ 16%]
+............................sssss [ 18%]
+ss.................................. [ 20%]
+............................................................................ [ 23%]
+..ssssssssss......ssssssssssss.............................. [ 26%]
+.................................................... [ 29%]
+................................ [ 30%]
+................................................................................................... [ 35%]
+....................................... [ 37%]
+............................................................... [ 40%]
+........................................................................ [ 44%]
+......................................................................................s........................................................................................... [ 52%]
+............................................................................................... [ 57%]
+......................................................... [ 60%]
+............................................... [ 62%]
+.........ssss......................................s........ [ 65%]
+.............................................................................................ssssssssss [ 70%]
+ss..................s.................................... [ 73%]
+.....................s............................ss........s..........sss.........................................................................................................s......... [ 82%]
+...........................................................s........ [ 85%]
+....................s................................................. [ 89%]
+........................................................................ [ 92%]
+................................................ [ 95%]
+........................................................... [ 98%]
+.......................................s                       [100%]
+=============================== warnings summary ===============================
+tests/test_deepseek_client.py::DeepSeekClientTests::test_at_fork_child_closes_inherited_real_flock_descriptor
+  /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/tests/test_deepseek_client.py:1154: DeprecationWarning: This process (pid=1795094) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_deepseek_client.py::DeepSeekClientTests::test_inherited_locked_thread_lock_is_reset_after_fork
+  /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/tests/test_deepseek_client.py:771: DeprecationWarning: This process (pid=1795094) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[capacity]
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/tests/test_llm_cache_paths.py:838: DeprecationWarning: This process (pid=1795094) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-capacity]
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/tests/test_llm_cache_paths.py:963: DeprecationWarning: This process (pid=1795094) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[duplicate]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[entry]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[temporary]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/fse-tool-repair-20260924/tests/test_llm_cache_paths.py:1492: DeprecationWarning: This process (pid=1795094) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1980 passed, 66 skipped, 9 warnings, 1100 subtests passed in 103.26s (0:01:43)
