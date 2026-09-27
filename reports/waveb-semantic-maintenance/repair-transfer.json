@@ -1,0 +1,183 @@
+{
+  "base_commit": "a5f0e7c08d05ff72083e719d4296c058fba6e5a8",
+  "original": "/home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925",
+  "paths": [
+    {
+      "path": "codeql/dosweb/Entries/EntrySecurity.ql",
+      "before_sha256": "747ed80541f74480a09c6a610b469904e16c06cf8986923a1b07e3c720c8fd5c",
+      "original_sha256": "747ed80541f74480a09c6a610b469904e16c06cf8986923a1b07e3c720c8fd5c",
+      "after_sha256": "d95b35ce5d2cd078625244c7cd497224a31842a4b619ffc374ce7570bf8d5458"
+    },
+    {
+      "path": "codeql/dosweb/Entries/SpringMvcFieldRegistration.qll",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "8a4589d1ac14d8050bde14c8732b4901826d835edd5b71dd2e903a82fa21ecbd"
+    },
+    {
+      "path": "codeql/dosweb/Entries/SpringSecurityFallback.qll",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "87c3d6c544030c5a5258bdfb7121b18081993e18e5c80925366db872c2b7ddcc"
+    },
+    {
+      "path": "codeql/dosweb/Lifecycle/LifecycleCoverage.ql",
+      "before_sha256": "9c200efb360a0634cec1798ca4fde4d7de30be929e4c73077b202c4d78d2b445",
+      "original_sha256": "9c200efb360a0634cec1798ca4fde4d7de30be929e4c73077b202c4d78d2b445",
+      "after_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46"
+    },
+    {
+      "path": "codeql/dosweb/Lifecycle/RequestReadAllDomain.qll",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "a2d6deebb46d82d9fa68bce8bacbcaf9ae6fe51f43c6fae4a6012343b0db2d1c"
+    },
+    {
+      "path": "dosweb/codeql/pack/dosweb/Entries/EntrySecurity.ql",
+      "before_sha256": "747ed80541f74480a09c6a610b469904e16c06cf8986923a1b07e3c720c8fd5c",
+      "original_sha256": "747ed80541f74480a09c6a610b469904e16c06cf8986923a1b07e3c720c8fd5c",
+      "after_sha256": "d95b35ce5d2cd078625244c7cd497224a31842a4b619ffc374ce7570bf8d5458"
+    },
+    {
+      "path": "dosweb/codeql/pack/dosweb/Entries/SpringMvcFieldRegistration.qll",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "8a4589d1ac14d8050bde14c8732b4901826d835edd5b71dd2e903a82fa21ecbd"
+    },
+    {
+      "path": "dosweb/codeql/pack/dosweb/Entries/SpringSecurityFallback.qll",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "87c3d6c544030c5a5258bdfb7121b18081993e18e5c80925366db872c2b7ddcc"
+    },
+    {
+      "path": "dosweb/codeql/pack/dosweb/Lifecycle/LifecycleCoverage.ql",
+      "before_sha256": "9c200efb360a0634cec1798ca4fde4d7de30be929e4c73077b202c4d78d2b445",
+      "original_sha256": "9c200efb360a0634cec1798ca4fde4d7de30be929e4c73077b202c4d78d2b445",
+      "after_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46"
+    },
+    {
+      "path": "dosweb/codeql/pack/dosweb/Lifecycle/RequestReadAllDomain.qll",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "a2d6deebb46d82d9fa68bce8bacbcaf9ae6fe51f43c6fae4a6012343b0db2d1c"
+    },
+    {
+      "path": "dosweb/production.py",
+      "before_sha256": "08f945ec90fb691793cc1f3d4ac7f4809ec23d389e089057cc9d34e549f3f698",
+      "original_sha256": "08f945ec90fb691793cc1f3d4ac7f4809ec23d389e089057cc9d34e549f3f698",
+      "after_sha256": "1e90370ca8aadd05d726aa3ede84b5cfd8c2d4cd5e3775f119c7b40d8da17637"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/fixture/semantics/MaterializationFixture.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "7a7ba38c673c8bf99e147c25cbf573533b14afe8f5d1680039fb5edabaf5173b"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServlet.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "30408b3d391bfbee4609966b6b69d101b2d21ca23a343c10efceacc5ee0ad786"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequest.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "e20502ac7631edf07367903ddef5b7b18098ee1e36a0edd77190e6b815009148"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequestWrapper.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "024878db557eeedb04378a8ee012e9fccf2ba63906d0d3d1350c287762926e3d"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletResponse.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "7366ef4715728083c498a8b91dd59525058414524130824f8978fc474b11cb2d"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/util/StreamUtils.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "747c95ae4f974a47b57033e81e313bca662464ce74df17fde05717584b47dc6b"
+    },
+    {
+      "path": "tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/web/bind/annotation/PostMapping.java",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "b9f42015253cbfe73fa8d45bdba736a7ae70a7925036e95732eb05b699c82b74"
+    },
+    {
+      "path": "tests/support/mock_deepseek.py",
+      "before_sha256": "9105c2d8f5302b9964d10a61965cb7039e5be1cfc478ea8f559de4a5292155aa",
+      "original_sha256": "9105c2d8f5302b9964d10a61965cb7039e5be1cfc478ea8f559de4a5292155aa",
+      "after_sha256": "d717fb8369a2a78746ee8c3fb4dfb1b28602a7ed05b567148c2464bb2ed88e86"
+    },
+    {
+      "path": "tests/test_production.py",
+      "before_sha256": "7604e1b1f13417faef11add7cad2e5f8c834a1dcc6b2b2d7efbba5c1c4e5025b",
+      "original_sha256": "7604e1b1f13417faef11add7cad2e5f8c834a1dcc6b2b2d7efbba5c1c4e5025b",
+      "after_sha256": "ee5510868c8aa70c14a0de46c6f4fde2a829d2381a3a5ba0bb94fbe74d27d6bf"
+    },
+    {
+      "path": "tests/test_semantic_materialization_coverage.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "bbf02543bb8f22e1fa459147277b82d6750489a8b8ab6db8e0ef496fb72d7948"
+    },
+    {
+      "path": "tests/test_waveb_auth_semantics.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "e4588763fc6a2991ef87abad28658704fe2b09bc7a0801fe22cca4376415e00f"
+    },
+    {
+      "path": "tests/test_waveb_coverage_conflicts.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "5dc6d42a7ee6da7dc88f5de893e3c0c46eeef406dad531ffda62330b4f4dbd48"
+    },
+    {
+      "path": "tests/test_waveb_custom_matcher.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "1115e3153d04ffbbe88fd35feaac1a1735be77ba43ee0a7a75f773c94fd12968"
+    },
+    {
+      "path": "tests/test_waveb_mvc_field_semantics.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "e0cb160e4227c7264ad39793787b94c7081966184aac493d8a83eef11c9a1ce9"
+    },
+    {
+      "path": "tests/test_waveb_refutation_coverage.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "2605e80305a19bd138bdd4a294e29c52be1dbdfc0bc770153407a51f98d66e38"
+    },
+    {
+      "path": "tests/test_waveb_registration_escape.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "be6807e505c80508ddfdae9758a0f536decab15ea76cad267ba0fb09a369b4e0"
+    },
+    {
+      "path": "tests/test_waveb_scripted_provider_contract.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "fd1255cdb3a15de13b8573f50551321d8d277b49ac9cca9d11bc4df1551cd34c"
+    },
+    {
+      "path": "tests/test_waveb_stage_invalidation.py",
+      "before_sha256": null,
+      "original_sha256": null,
+      "after_sha256": "72d47404ff478ed09a4342eca970e7045d01724c1909ba4aa2ec6891c8aa90aa"
+    }
+  ],
+  "patch_sha256": "49fe4bcdf9ca67ed9e5c4beef4b3dd3216ead7d8775b3b654f37cfdf046f400e",
+  "git_apply_check_exit": 0,
+  "applied": true
+}

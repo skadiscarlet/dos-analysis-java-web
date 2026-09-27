@@ -6,6 +6,8 @@
  */
 
 import java
+import SpringSecurityFallback
+import SpringMvcFieldRegistration
 
 // Exact independent decoder contract:
 // "handler_fqn", "handler_file", "handler_start_line", "route_or_event",
@@ -278,6 +280,7 @@ predicate staticSecurityRule(
   MethodCall matcher, MethodCall rule, string route, string value,
   string coverageStatus, string coverageNote
 ) {
+  not SpringSecurityOrderedRules::managedRule(matcher) and
   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
   springSecurityDslCall(matcher) and springSecurityDslCall(rule) and
   matcher.getArgument(0) instanceof CompileTimeConstantExpr and
@@ -342,6 +345,7 @@ predicate propertyGetterDefaultString(
 predicate propertyBackedPermitAllRule(
   MethodCall matcher, MethodCall rule, Field sourceField, string route
 ) {
+  not SpringSecurityOrderedRules::managedRule(matcher) and
   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
   springSecurityDslCall(matcher) and springSecurityDslCall(rule) and
   matcher.getArgument(0) instanceof MethodCall and
@@ -352,6 +356,7 @@ predicate propertyBackedPermitAllRule(
 }
 
 predicate dynamicSecurityRule(MethodCall matcher, string coverageNote) {
+  not SpringSecurityOrderedRules::managedRule(matcher) and
   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
   springSecurityDslCall(matcher) and
   not matcher.getArgument(0) instanceof CompileTimeConstantExpr and
@@ -651,12 +656,16 @@ predicate springMvcSecurityPreHandle(RefType interceptorType, Method preHandle) 
 predicate springMvcAddSecurityInterceptor(
   MethodCall addInterceptor, RefType interceptorType, Method preHandle
 ) {
+  SpringMvcFieldBindings::registrationSemanticsKnown(addInterceptor) and
   addInterceptor.getMethod().hasQualifiedName(
     "org.springframework.web.servlet.config.annotation",
     "InterceptorRegistry", "addInterceptor"
   ) and
-  addInterceptor.getArgument(0) instanceof ClassInstanceExpr and
-  interceptorType = addInterceptor.getArgument(0).(ClassInstanceExpr).getConstructedType() and
+  (
+    addInterceptor.getArgument(0) instanceof ClassInstanceExpr and
+    interceptorType = addInterceptor.getArgument(0).(ClassInstanceExpr).getConstructedType()
+    or SpringMvcFieldBindings::target(addInterceptor, interceptorType)
+  ) and
   springMvcSecurityPreHandle(interceptorType, preHandle)
 }
 
@@ -1086,6 +1095,36 @@ predicate authRow(
   string factFile, int factLine, string kind, string value,
   string coverageStatus, string coverageNote
 ) {
+  exists(MethodCall exclusion, MethodCall add, Method owner, CompileTimeConstantExpr pattern |
+    add.getMethod().hasQualifiedName(
+      "org.springframework.web.servlet.config.annotation", "InterceptorRegistry", "addInterceptor"
+    ) and
+    exclusion.getMethod().hasQualifiedName(
+      "org.springframework.web.servlet.config.annotation", "InterceptorRegistration", "excludePathPatterns"
+    ) and SpringMvcFieldBindings::rootedRegistrationCall(exclusion, add) and
+    not SpringMvcFieldBindings::registrationSemanticsKnown(add) and
+    pattern = exclusion.getAnArgument() and routeOrEvent = pattern.getStringValue() and
+    owner = add.getEnclosingCallable() and owner.fromSource() and
+    handlerFqn = owner.getDeclaringType().getQualifiedName() + "." + owner.getName() and
+    handlerFile = owner.getLocation().getFile().getRelativePath() and
+    handlerLine = owner.getLocation().getStartLine() and
+    factFile = exclusion.getLocation().getFile().getRelativePath() and
+    factLine = exclusion.getLocation().getStartLine() and
+    kind = "dependency_coverage" and value = "mvc_interceptor_registration_unmodeled" and
+    coverageStatus = "partial" and coverageNote = "mvc_interceptor_matching_strategy_or_registration_unresolved"
+  ) or
+
+  exists(Method mapped, MethodCall evidence |
+    springMvcHandlerRoute(mapped, routeOrEvent) and
+    SpringSecurityOrderedRules::routeFact(routeOrEvent, evidence, value, coverageStatus, coverageNote) and
+    handlerFqn = mapped.getDeclaringType().getQualifiedName() + "." + mapped.getName() and
+    handlerFile = mapped.getLocation().getFile().getRelativePath() and
+    handlerLine = mapped.getLocation().getStartLine() and
+    factFile = evidence.getLocation().getFile().getRelativePath() and
+    factLine = evidence.getLocation().getStartLine() and
+    kind = "security_filter_chain"
+  ) or
+
   exists(Method method, Annotation annotation |
     method.fromSource() and
     annotationAuth(method, annotation, value, coverageStatus, coverageNote) and

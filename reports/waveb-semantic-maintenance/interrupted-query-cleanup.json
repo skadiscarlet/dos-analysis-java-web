@@ -1,0 +1,8 @@
+{
+  "original_path": "codeql/dosweb/Entries/.EntrySecurity.dosweb.14x4a6t2.ql",
+  "retained_path": ".verification/takeover/retained-interrupted-query.ql",
+  "sha256": "39603eeb8d5aaa0fcc0cd61a893c1cff796e38ffd1877c962788dc8ecb3dadfc",
+  "not_tracked_in_baseline": true,
+  "live_query_processes": [],
+  "scope": "Only temporary selector query left by this task interrupted compile; no user files deleted"
+}

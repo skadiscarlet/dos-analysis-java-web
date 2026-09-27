@@ -1,0 +1,29 @@
+{
+  "source_run": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-final-closure-20260927-wave-b-v3-full",
+  "recall_run": "/home/furina/new_tool/dos-analysis-web/results/java_web_dos_batch/poc33-final-closure-20260927-wave-b-v3-recall",
+  "recall_summary": {
+    "format": "dosweb-poc33-recall-oracle-v2",
+    "full_chain_finding_count": 10,
+    "generated_at": "20260927_095752",
+    "static_vulnerable_count": 5,
+    "status_counts": {
+      "ambiguous_truth_match": 0,
+      "asset_missing": 0,
+      "association_missing": 0,
+      "entry_and_growth_linked": 1,
+      "entry_only": 0,
+      "flow_partial": 0,
+      "full_chain_finding": 10,
+      "growth_only": 0,
+      "lifecycle_unknown": 0,
+      "stage_failed": 22,
+      "unsupported_scope": 0
+    },
+    "total": 33
+  },
+  "artifacts_sha256": {
+    "summary.json": "75fcfe01859e814a6c45d9053a4f11169c24aa977df961c20eb7259c9139b1d8",
+    "truth_dispositions.jsonl": "97da718f4082235c5361da89e902ca992f6640151b973840446ada0892aaab6c"
+  },
+  "limits": "Historical Wave B only; not this repair execution; excluded project rows remain unmatched; no new target scan."
+}

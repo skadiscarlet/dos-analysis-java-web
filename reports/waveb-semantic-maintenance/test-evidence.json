@@ -1,0 +1,214 @@
+{
+  "scope": "self-owned static-source and no-network regression; no fresh corpus recall",
+  "runs": {
+    "auth-red": {
+      "junit": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "1 failed, 5 deselected in 24.78s",
+      "junit_sha256": "c445110b61b8ae0f6f046e6f6829866aad4543f53bd92a4c6ed768327d7902cb",
+      "log_sha256": "fb2575e775a779ba79cb617839f1c378814752a37d7c53313e16db6f0be2158b"
+    },
+    "auth-inherited-red": {
+      "junit": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "1 failed, 6 deselected in 21.99s",
+      "junit_sha256": "e7beee8edb7fffc5ef6f2b741a384e63b72b33555b38fbc5fe0df65cd58549e8",
+      "log_sha256": "1359cfd4a73b516c297f8703021c78d3461f2906038e7ab415cc6628c3157f93"
+    },
+    "mvc-red": {
+      "junit": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "1 failed, 5 deselected in 20.92s",
+      "junit_sha256": "433741fe70df11ff40c19578cdbcf47ab0275dab5f54a520eea214583219bcb2",
+      "log_sha256": "0bb62c37f2ca6682c9b8f9cf8f1f0fb1cad9f407d0464699789bfff53ecb8259"
+    },
+    "auth-mvc-hardened": {
+      "junit": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "16 passed in 458.95s (0:07:38)",
+      "junit_sha256": "e1f8ff15e735c073bf0937cbadc1c49356b8f0160e80f7659c80dd3417d8b4e9",
+      "log_sha256": "76f9c6b2c17cd8adafd47a687561832ba71d84842af3336f67b59bd661742a28"
+    },
+    "registration-escape-green": {
+      "junit": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "1 passed in 38.95s",
+      "junit_sha256": "d8b1e48e823d01695781b49527edffa6be498fc9cf7d26578331c694e23a50bc",
+      "log_sha256": "7ae0e7de7cf2280a26c6b25d36adbb461109d9a0542fc1112284b4a29345ccfe"
+    },
+    "materialization-integrated": {
+      "junit": {
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "14 passed in 100.74s (0:01:40)",
+      "junit_sha256": "537d28c4c9cda63485d5acba2168e7124272c10b6798ea1372bfccc2412d58cc",
+      "log_sha256": "239933b3e7d8e2214ef202cd42b7849880adcc39b23d1ac3fc1fb3804bcb5fec"
+    },
+    "coverage-red-v2": {
+      "junit": {
+        "tests": 7,
+        "failures": 6,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "6 failed, 1 passed in 3.00s",
+      "junit_sha256": "372f2501a302a09858843a3db8f2ecc24da1e847dec3c78842c6fb34ce7315fc",
+      "log_sha256": "63726f5a5791d96515438e2d96c73a186d0926fdad65ea3fec953f1bd8449a0c"
+    },
+    "coverage-green-v2": {
+      "junit": {
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "16 passed in 5.69s",
+      "junit_sha256": "78b534a5d3db3105979021f87ea55af039711d41941e292ecc7b3af345bf84e0",
+      "log_sha256": "28f19ad2f511659196b5421e55ddc09195af373a6a848a2eb18b9dcb95021e84"
+    },
+    "production-regression": {
+      "junit": {
+        "tests": 132,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "102 passed, 30 subtests passed in 12.47s",
+      "junit_sha256": "f42f0c87bbde5d2c50a3bd2401754ce1fc49f95461a560c021d4f94f923af2e9",
+      "log_sha256": "676c735c8e8a42d1cb36b29f3765c923f11c8f22bb043821b803d596b5ac4e33"
+    },
+    "scripted-fixture-red": {
+      "junit": {
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "2 failed in 0.37s",
+      "junit_sha256": "5531c44fc3ef692971056d9cb0a4ee4873c849202bb2abbaa890062a85461236",
+      "log_sha256": "b822b75d93363099106ebc79316498c06c79ff201cde938acf1cb112f45b18ea"
+    },
+    "scripted-fixture-green": {
+      "junit": {
+        "tests": 125,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "125 passed in 5.40s",
+      "junit_sha256": "2f7c2ad20a70e66147ba4be18963f1fee698ac7583de2bae40db201755f5735e",
+      "log_sha256": "7ef5550201e7165ff87bf4593bda82b497c6fdd129b5a93d6344a34651bd7dd6"
+    },
+    "delivery-full-suite": {
+      "junit": {
+        "tests": 3295,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 124
+      },
+      "log_summary": "2071 passed, 124 skipped, 9 warnings, 1100 subtests passed in 113.72s (0:01:53)",
+      "junit_sha256": "610d2c2ff532f4b4e2002fe02daaa96152a5fd0fb19d893ad855c7e4ac55383a",
+      "log_sha256": "ac8188a9dd95d0e735121a1f34684c70d4c405fd454be458947db07868e4ebcb"
+    },
+    "refutation-coverage-red": {
+      "junit": {
+        "tests": 4,
+        "failures": 3,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "3 failed, 1 passed in 0.54s",
+      "junit_sha256": "6534f540e35b496c1b1efbc9ee164c6963ac3c16879026f3a78c8958395eb8d9",
+      "log_sha256": "6dc134fb0ca863e9b99c74d0e527980e9bd37ee2b389a448ae8ff5d642039c21"
+    },
+    "refutation-coverage-green": {
+      "junit": {
+        "tests": 205,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 4
+      },
+      "log_summary": "151 passed, 4 skipped, 50 subtests passed in 15.45s",
+      "junit_sha256": "53d4ded8feee2e135a3c2e4672906421d5ef007f1cd98cba6dc1faee4a4bcfdc",
+      "log_sha256": "44c4c686b62eeacbcd3b7c9f5bbdface9b10aef6ad7c9a49df69b7ea2d330275"
+    },
+    "final-verified-suite": {
+      "junit": {
+        "tests": 3300,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 124
+      },
+      "log_summary": "2076 passed, 124 skipped, 9 warnings, 1100 subtests passed in 116.15s (0:01:56)",
+      "junit_sha256": "a1ba5a2434692337da9e75399ae03705852267676f049035d004c4d2ebac48b3",
+      "log_sha256": "1ef70a851e2233810785b68dc5e11ec8ba82662cf573377bd7dda985d295831a"
+    },
+    "native-complete-final": {
+      "junit": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "log_summary": "1 passed, 2 subtests passed in 452.68s (0:07:32)",
+      "junit_sha256": "b6bb3736e866e8f23606219e23610e5f60cc20fcf2070f0b69856fc5157bbec0",
+      "log_sha256": "4815a9fd46989ede8c1e7262d8e2a0c4bf749a42a91acacba99832a53b7bc86d"
+    },
+    "original-applied-regression": {
+      "junit": {
+        "tests": 207,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 4
+      },
+      "log_summary": "153 passed, 4 skipped, 50 subtests passed in 12.32s",
+      "junit_sha256": "dfd49b4ac35528cbfda75b6ef90ccc8822cd31a5b3b0036422309865ccfb4fa8",
+      "log_sha256": "fabcc6267a1ca93d5d4b0e075d30406c5fc44cfb380f23ee40cccd437b91b006"
+    }
+  },
+  "native_pipeline_status": "passed_all_original_assertions",
+  "new_target_program_executions": 0,
+  "source_tests_query_and_javac_real": true,
+  "final_default_suite": "final-verified-suite",
+  "implementation_versions": {
+    "entries": "v22",
+    "growth": "v45",
+    "flows": "v25",
+    "lifecycle": "v21",
+    "conclude": "v10"
+  },
+  "scope_notes": [
+    "New source-backed tests compile self-owned Java and execute the production CodeQL query; they do not execute Java target programs.",
+    "Native end-to-end uses actual CodeQL and actual production client with scripted local transport, not a remote LLM.",
+    "The same-source authenticated resume changed only conclude/report and preserved raw incomplete-scan records.",
+    "Historical measured corpus recall remains 5/33; this repair does not include Wave B v4 or 21-project recall."
+  ],
+  "actual_remote_model_calls": 0,
+  "native_fresh_run": "native-complete-final",
+  "native_local_transport": "ScriptedDeepSeekTransport; actual network calls disabled",
+  "application_status": "verified_applied_to_original_worktree",
+  "final_source_count": 533
+}

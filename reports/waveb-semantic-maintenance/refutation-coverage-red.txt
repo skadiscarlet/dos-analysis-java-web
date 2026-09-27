@@ -1,0 +1,106 @@
+FFF.                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan[families0] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe28fb93230>
+families = ('guard',)
+
+    @pytest.mark.parametrize('families', [('guard',), ('bound',), ('guard','bound')])
+    def test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan(monkeypatch, families):
+        with_incomplete_scan(monkeypatch, families)
+        # Preserves both original assertions: wrong Entry stays unknown; the exact
+        # Entry with a verified bound remains bounded under modeled assumptions.
+>       existing.ProductionProofGateE2ETests().test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry()
+
+tests/test_waveb_refutation_coverage.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_production_e2e.py:548: in test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry
+    self.assertEqual(
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:885: in assertEqual
+    assertion_func(first, second, msg=msg)
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:1251: in assertMultiLineEqual
+    self.fail(self._formatMessage(msg, standardMsg))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.test_production_e2e.ProductionProofGateE2ETests testMethod=runTest>
+msg = "'static_unknown' != 'bounded_under_modeled_assumptions'\n- static_unknown\n+ bounded_under_modeled_assumptions\n"
+
+    def fail(self, msg=None):
+        """Fail immediately, with the given message."""
+>       raise self.failureException(msg)
+E       AssertionError: 'static_unknown' != 'bounded_under_modeled_assumptions'
+E       - static_unknown
+E       + bounded_under_modeled_assumptions
+
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:715: AssertionError
+_ test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan[families1] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe28fac2630>
+families = ('bound',)
+
+    @pytest.mark.parametrize('families', [('guard',), ('bound',), ('guard','bound')])
+    def test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan(monkeypatch, families):
+        with_incomplete_scan(monkeypatch, families)
+        # Preserves both original assertions: wrong Entry stays unknown; the exact
+        # Entry with a verified bound remains bounded under modeled assumptions.
+>       existing.ProductionProofGateE2ETests().test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry()
+
+tests/test_waveb_refutation_coverage.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_production_e2e.py:548: in test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry
+    self.assertEqual(
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:885: in assertEqual
+    assertion_func(first, second, msg=msg)
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:1251: in assertMultiLineEqual
+    self.fail(self._formatMessage(msg, standardMsg))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.test_production_e2e.ProductionProofGateE2ETests testMethod=runTest>
+msg = "'static_unknown' != 'bounded_under_modeled_assumptions'\n- static_unknown\n+ bounded_under_modeled_assumptions\n"
+
+    def fail(self, msg=None):
+        """Fail immediately, with the given message."""
+>       raise self.failureException(msg)
+E       AssertionError: 'static_unknown' != 'bounded_under_modeled_assumptions'
+E       - static_unknown
+E       + bounded_under_modeled_assumptions
+
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:715: AssertionError
+_ test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan[families2] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe28fac7920>
+families = ('guard', 'bound')
+
+    @pytest.mark.parametrize('families', [('guard',), ('bound',), ('guard','bound')])
+    def test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan(monkeypatch, families):
+        with_incomplete_scan(monkeypatch, families)
+        # Preserves both original assertions: wrong Entry stays unknown; the exact
+        # Entry with a verified bound remains bounded under modeled assumptions.
+>       existing.ProductionProofGateE2ETests().test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry()
+
+tests/test_waveb_refutation_coverage.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_production_e2e.py:548: in test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry
+    self.assertEqual(
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:885: in assertEqual
+    assertion_func(first, second, msg=msg)
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:1251: in assertMultiLineEqual
+    self.fail(self._formatMessage(msg, standardMsg))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.test_production_e2e.ProductionProofGateE2ETests testMethod=runTest>
+msg = "'static_unknown' != 'bounded_under_modeled_assumptions'\n- static_unknown\n+ bounded_under_modeled_assumptions\n"
+
+    def fail(self, msg=None):
+        """Fail immediately, with the given message."""
+>       raise self.failureException(msg)
+E       AssertionError: 'static_unknown' != 'bounded_under_modeled_assumptions'
+E       - static_unknown
+E       + bounded_under_modeled_assumptions
+
+../../../../.pyenv/versions/3.12.9/lib/python3.12/unittest/case.py:715: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_waveb_refutation_coverage.py::test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan[families0]
+FAILED tests/test_waveb_refutation_coverage.py::test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan[families1]
+FAILED tests/test_waveb_refutation_coverage.py::test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan[families2]
+3 failed, 1 passed in 0.54s

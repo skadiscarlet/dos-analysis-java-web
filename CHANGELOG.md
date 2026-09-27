@@ -1,3 +1,11 @@
+## 2026-09-27 — Wave B 静态语义与源码回归修复
+
+- 在原本地源码快照上修复 Spring Security 单链有序 fallback 和 MVC 精确字段注册；未知链、动态/条件注册、自定义 PathMatcher 及 Registration 逃逸保留 partial，不将 anyRequest 全局解释为低权限。
+- 对已识别的精确请求 read-all 和受控 wrapper 构造器补齐局部 Lifecycle 扫描域；不支持的调用者限制、有限流、控制流、来源和释放证据仍未知。生产端同 anchor 的 partial 不能再被 complete 行吞掉。
+- entries 实现身份 v22、lifecycle v21、conclude v10；增加真实 Java/CodeQL 正反例、缓存失效与生产回归。修正只用于测试的 scripted transport 对新必需事实引用的遗漏，未放宽生产 Growth 契约。
+- 区分“存在已验证的有效防护反证”与“额外防护候选扫描完整性”：保留 raw partial，不再让扫描缺口推翻已经有效且严格绑定的 refuted assertion；matched/unknown、Entry/Growth/Flow 和候选相关缺口门槛不变。真实自有源码运行中的 /wrapper-guard 验证了此项修复，未修改原端到端判定断言。
+- 本轮新代码、实际验证范围及历史 Wave B 5/33 与本轮未重测的区分，见 `reports/waveb-semantic-maintenance/summary.md`。原本地 agent 的 132 项源码修改保留并单独标记来源，不计为本轮新增贡献。
+
 ## [2026-09-27] Wave B 通用 Entry、Flow、Growth 与安全语义闭环
 
 - 按用户指定将默认 Responses provider 切换为 APIBasis `https://apibasis.com/v1/` / `grok-4.6`，provider/cache/audit identity 为 `apibasis_responses`；RightAPI 与 API2CN 保留为显式、身份隔离的 fallback，APIBasis 使用标准 strict `text.format`，不继承 API2CN 顶层 `response_format` 兼容字段。新凭据仅原子写入 gitignored、owner-only `config/local_secrets.json`（0600）。带生产 User-Agent 的 source-free `/models` 与 `/responses` 均为 HTTP 200；large-request、high-cardinality、empty-attacker correction、Auth 四类 prompt 各 fresh 3 次共 12/12 通过 raw envelope、raw JSON、schema、alias ownership、static-evidence 与 semantic validators，响应正文/request ID 未持久化。旧 provider/cache/stage 不 resume；provider blocker 解除后只能创建 fresh immutable Wave B v3，不能把 canary 当作 Wave B/Wave C 结果。

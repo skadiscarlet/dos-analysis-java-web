@@ -1,0 +1,215 @@
+{
+  "retained_output": "/home/furina/new_tool/dos-analysis-web/.worktrees/waveb-semantic-maintenance-20260927/.verification/takeover/native-tmp/tmpu2bih8gi/output",
+  "selected": [
+    {
+      "route": "/wrapper-depth3",
+      "verdict": "static_vulnerable",
+      "assertions": [
+        {
+          "assertion": "assertion_1",
+          "evidence_ids": [
+            "entry:6d772a9f8cda457c3b840685",
+            "fact:c2a1ddbea4d29e1e92de4696",
+            "flow:52e36506dd9bfc90b4447eec",
+            "growth:01441adb6779a2a8fe34f107",
+            "verified_flow:f1d6573fac0641d1c814aaf2",
+            "verified_growth:59abc7da57fbabaa7dcf896b"
+          ],
+          "reason_codes": [
+            "A1_FLOW_PROVEN",
+            "A1_GROWTH_VERIFIED",
+            "A1_NO_EFFECTIVE_BOUND",
+            "A1_NO_EFFECTIVE_GUARD"
+          ],
+          "status": "matched",
+          "unresolved_facts": []
+        },
+        {
+          "assertion": "assertion_2",
+          "evidence_ids": [
+            "entry:6d772a9f8cda457c3b840685",
+            "fact:c2a1ddbea4d29e1e92de4696",
+            "flow:52e36506dd9bfc90b4447eec",
+            "growth:01441adb6779a2a8fe34f107",
+            "verified_flow:f1d6573fac0641d1c814aaf2",
+            "verified_growth:59abc7da57fbabaa7dcf896b"
+          ],
+          "reason_codes": [
+            "A2_NONPERSISTENT_DEMAND"
+          ],
+          "status": "not_applicable",
+          "unresolved_facts": []
+        }
+      ],
+      "proof_gate": null,
+      "reason_codes": [
+        "A1_FLOW_PROVEN",
+        "A1_GROWTH_VERIFIED",
+        "A1_NO_EFFECTIVE_BOUND",
+        "A1_NO_EFFECTIVE_GUARD",
+        "A2_NONPERSISTENT_DEMAND",
+        "BOUND_ABSENT",
+        "GUARD_ABSENT",
+        "RELEASE_ABSENT",
+        "VERDICT_ASSERTION_MATCHED"
+      ]
+    },
+    {
+      "route": "/post-guard",
+      "verdict": "static_unknown",
+      "assertions": [
+        {
+          "assertion": "assertion_1",
+          "evidence_ids": [
+            "entry:daa5ab0595646449b5980e89",
+            "fact:62888b5a451cea088db35219",
+            "flow:66b5e83872df104658115d77",
+            "growth:108256683721f2bb46d2065e",
+            "verified_flow:df5a60ead8a117bb0d0d19f7",
+            "verified_growth:3c7c3716fdefde4aa8fd1f1d"
+          ],
+          "reason_codes": [
+            "A1_GUARD_UNKNOWN"
+          ],
+          "status": "unknown",
+          "unresolved_facts": [
+            "bound_coverage",
+            "guard_coverage"
+          ]
+        },
+        {
+          "assertion": "assertion_2",
+          "evidence_ids": [
+            "entry:daa5ab0595646449b5980e89",
+            "fact:62888b5a451cea088db35219",
+            "flow:66b5e83872df104658115d77",
+            "growth:108256683721f2bb46d2065e",
+            "verified_flow:df5a60ead8a117bb0d0d19f7",
+            "verified_growth:3c7c3716fdefde4aa8fd1f1d"
+          ],
+          "reason_codes": [
+            "A2_NONPERSISTENT_DEMAND"
+          ],
+          "status": "not_applicable",
+          "unresolved_facts": []
+        }
+      ],
+      "proof_gate": null,
+      "reason_codes": [
+        "A1_GUARD_UNKNOWN",
+        "A2_NONPERSISTENT_DEMAND",
+        "BOUND_COVERAGE_UNKNOWN",
+        "GUARD_COVERAGE_UNKNOWN",
+        "RELEASE_COVERAGE_UNKNOWN",
+        "VERDICT_ASSERTION_1_LIFECYCLE_COVERAGE_INCOMPLETE",
+        "VERDICT_UNRESOLVED_EVIDENCE"
+      ]
+    },
+    {
+      "route": "/post-guard",
+      "verdict": "static_vulnerable",
+      "assertions": [
+        {
+          "assertion": "assertion_1",
+          "evidence_ids": [
+            "entry:daa5ab0595646449b5980e89",
+            "fact:473bc75a0c242cb42f8b3c16",
+            "flow:8d34668a7b8752944ce21e4e",
+            "growth:24627e26527254de6a025278",
+            "verified_flow:1e5703bd171048f02a430ca3",
+            "verified_growth:78b7191848f30c3ff46720ed"
+          ],
+          "reason_codes": [
+            "A1_FLOW_PROVEN",
+            "A1_GROWTH_VERIFIED",
+            "A1_NO_EFFECTIVE_BOUND",
+            "A1_NO_EFFECTIVE_GUARD"
+          ],
+          "status": "matched",
+          "unresolved_facts": []
+        },
+        {
+          "assertion": "assertion_2",
+          "evidence_ids": [
+            "entry:daa5ab0595646449b5980e89",
+            "fact:473bc75a0c242cb42f8b3c16",
+            "flow:8d34668a7b8752944ce21e4e",
+            "growth:24627e26527254de6a025278",
+            "verified_flow:1e5703bd171048f02a430ca3",
+            "verified_growth:78b7191848f30c3ff46720ed"
+          ],
+          "reason_codes": [
+            "A2_NONPERSISTENT_DEMAND"
+          ],
+          "status": "not_applicable",
+          "unresolved_facts": []
+        }
+      ],
+      "proof_gate": null,
+      "reason_codes": [
+        "A1_FLOW_PROVEN",
+        "A1_GROWTH_VERIFIED",
+        "A1_NO_EFFECTIVE_BOUND",
+        "A1_NO_EFFECTIVE_GUARD",
+        "A2_NONPERSISTENT_DEMAND",
+        "BOUND_ABSENT",
+        "GUARD_ABSENT",
+        "RELEASE_ABSENT",
+        "VERDICT_ASSERTION_MATCHED"
+      ]
+    },
+    {
+      "route": "/wrapper-guard",
+      "verdict": "static_unknown",
+      "assertions": [
+        {
+          "assertion": "assertion_1",
+          "evidence_ids": [
+            "entry:f23cc2c55cd25f71a699383f",
+            "fact:8ab2ac09e19ea545deac146f",
+            "flow:eb95e20b8835e15734014679",
+            "growth:e1151d10506879904c3d575b",
+            "guard:0acb4652b7ed5d9cd9ef6102",
+            "one_wrapper_shared_source_guard_cfg_witness",
+            "verified_flow:5f450da7f4b32d24b4631c5e",
+            "verified_growth:561a0f16fa48482e0b72cea1"
+          ],
+          "reason_codes": [
+            "A1_EFFECTIVE_GUARD"
+          ],
+          "status": "refuted",
+          "unresolved_facts": []
+        },
+        {
+          "assertion": "assertion_2",
+          "evidence_ids": [
+            "entry:f23cc2c55cd25f71a699383f",
+            "fact:8ab2ac09e19ea545deac146f",
+            "flow:eb95e20b8835e15734014679",
+            "growth:e1151d10506879904c3d575b",
+            "verified_flow:5f450da7f4b32d24b4631c5e",
+            "verified_growth:561a0f16fa48482e0b72cea1"
+          ],
+          "reason_codes": [
+            "A2_NONPERSISTENT_DEMAND"
+          ],
+          "status": "not_applicable",
+          "unresolved_facts": []
+        }
+      ],
+      "proof_gate": null,
+      "reason_codes": [
+        "A1_EFFECTIVE_GUARD",
+        "A2_NONPERSISTENT_DEMAND",
+        "BOUND_ABSENT",
+        "RELEASE_ABSENT",
+        "VERDICT_ASSERTIONS_REFUTED",
+        "VERDICT_ASSERTION_1_LIFECYCLE_COVERAGE_INCOMPLETE"
+      ]
+    }
+  ],
+  "all_verdicts": {
+    "static_unknown": 12,
+    "static_vulnerable": 5
+  }
+}

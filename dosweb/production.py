@@ -56,6 +56,7 @@ from dosweb.entries.coverage import registration_coverage_pattern_id
 from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
 from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
 from dosweb.errors import AnalyzerError
+from dosweb.conclude.assertions import AssertionEvaluation
 from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_descriptor_coverage
 from dosweb.flows.models import FlowProof, expression_binds_demand, normalize_flow_rows
 from dosweb.flows.verify import VerifiedFlow, verify_flow
@@ -107,13 +108,13 @@ _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
         "production-v2.8-open-world-maturation-growth-v45"
         if stage == "growth"
-        else "production-v2.8-open-world-maturation-entries-v21"
+        else "production-v2.8-open-world-maturation-entries-v22"
         if stage == "entries"
-        else "production-v2.8-open-world-maturation-conclude-v9"
+        else "production-v2.8-open-world-maturation-conclude-v10"
         if stage == "conclude"
         else "production-v2.8-open-world-maturation-flows-v25"
         if stage == "flows"
-        else f"production-v2.8-open-world-maturation-{stage}-v20"
+        else f"production-v2.8-open-world-maturation-{stage}-v21"
         if stage == "lifecycle"
         else f"production-v2.8-open-world-maturation-{stage}-v2"
     )
@@ -3876,7 +3877,27 @@ def make_lifecycle_executor(
                 # A candidate row alone never proves no-match coverage. Only the
                 # explicit modeled-domain query may make a candidate-free family
                 # complete, and it is tied to this exact Growth anchor.
-                if complete:
+                # A line anchor can contain several expressions. Without a
+                # stronger resource identity, an explicit same-anchor gap cannot
+                # be erased by a complete row for its neighbour (or by one
+                # complete candidate). Keep this decision order-independent.
+                incomplete_modeled = [
+                    item for item in modeled
+                    if item.get("coverage_status") != "complete"
+                ]
+                incomplete_local = [
+                    candidate for candidate in local
+                    if candidate.coverage_status != "complete"
+                ]
+                if incomplete_modeled:
+                    status = "partial"
+                    reason = sorted(
+                        str(item.get("coverage_note") or "LIFECYCLE_CFG_OR_RESOURCE_ALIAS_UNPROVEN")
+                        for item in incomplete_modeled
+                    )[0]
+                elif incomplete_local:
+                    status, reason = "partial", "LIFECYCLE_CANDIDATE_PARTIAL"
+                elif complete:
                     status, reason = "complete", "LIFECYCLE_SAME_CALLABLE_RESOURCE_WITNESS"
                 elif any(item.get("coverage_status") == "complete" for item in modeled):
                     status = "complete"
@@ -4081,6 +4102,38 @@ def _conclusion_amplification_classes(
     return {pair: by_growth.get(pair[1], "unknown") for pair in eligible_pairs}
 
 
+def _verified_candidate_refutes_assertion(
+    evaluation: AssertionEvaluation,
+    guard: GuardDecision,
+    bound: BoundDecision,
+    release: ReleaseDecision,
+) -> bool:
+    """An already verified counterexample discharges a growth assertion.
+
+    This does not certify that discovering *other* protections is complete.
+    Keep raw scan gaps intact and never grant this exception to a matched or
+    unknown assertion. Entry/Growth/Flow and candidate-relevant gates remain
+    independently mandatory in the final proof gate.
+    """
+    if evaluation.status != "refuted" or evaluation.unresolved_facts:
+        return False
+    supported = {
+        ("assertion_1", "A1_EFFECTIVE_GUARD"): guard,
+        ("assertion_1", "A1_EFFECTIVE_BOUND"): bound,
+        ("assertion_2", "A2_EFFECTIVE_BOUND"): bound,
+        ("assertion_2", "A2_EFFECTIVE_SYNCHRONOUS_RELEASE"): release,
+    }
+    if len(evaluation.reason_codes) != 1:
+        return False
+    decision = supported.get((evaluation.assertion, evaluation.reason_codes[0]))
+    if decision is None or decision.status != "effective" or decision.unresolved_facts:
+        return False
+    if decision is release and release.classification == "potential_async":
+        return False
+    evidence = set(decision.evidence_ids) | set(decision.candidate_ids)
+    return bool(evidence) and evidence.issubset(evaluation.evidence_ids)
+
+
 def make_conclude_executor() -> Executor:
     def execute(context: StageContext) -> StageOutput:
         entries = _load_entries(context)
@@ -4244,6 +4297,7 @@ def make_conclude_executor() -> Executor:
                 flow_proven=bool(proven) and len(proven) == len(ordered),
                 assertion_1_lifecycle_complete=all(
                     assertion_1.status == "not_applicable"
+                    or _verified_candidate_refutes_assertion(assertion_1, guard, bound, release)
                     or (
                         resource_by_path[flow.path_id] is not None
                         and resource_by_path[flow.path_id].status
@@ -4257,6 +4311,7 @@ def make_conclude_executor() -> Executor:
                 ),
                 assertion_2_lifecycle_complete=all(
                     assertion_2.status == "not_applicable"
+                    or _verified_candidate_refutes_assertion(assertion_2, guard, bound, release)
                     or (
                         resource_by_path[flow.path_id] is not None
                         and resource_by_path[flow.path_id].status

@@ -160,6 +160,17 @@ def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
             semantic["value_space"]["fact_id"],
             semantic["retention"]["fact_id"],
             semantic["amplification"]["fact_id"],
+            # The strict production contract now requires these same-flow
+            # citations as well. The scripted provider must not omit available
+            # evidence; no production schema or verification gate is changed.
+            *[
+                fact["fact_id"] for fact in facts
+                if isinstance(fact, dict)
+                and fact.get("kind") in {
+                    "known_limit_location", "field_identity", "escape_scope", "loop_multiplicity",
+                }
+                and fact.get("value_ref") == flows[0]["fact_id"]
+            ],
         ],
         "contract_status": "dos_relevant",
         "rejection_reason": "none",

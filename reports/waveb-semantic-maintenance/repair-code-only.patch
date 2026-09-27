@@ -1,0 +1,2115 @@
+diff --git a/codeql/dosweb/Entries/EntrySecurity.ql b/codeql/dosweb/Entries/EntrySecurity.ql
+index 892bb8e..5d52d6e 100644
+--- a/codeql/dosweb/Entries/EntrySecurity.ql
++++ b/codeql/dosweb/Entries/EntrySecurity.ql
+@@ -6,6 +6,8 @@
+  */
+ 
+ import java
++import SpringSecurityFallback
++import SpringMvcFieldRegistration
+ 
+ // Exact independent decoder contract:
+ // "handler_fqn", "handler_file", "handler_start_line", "route_or_event",
+@@ -278,6 +280,7 @@ predicate staticSecurityRule(
+   MethodCall matcher, MethodCall rule, string route, string value,
+   string coverageStatus, string coverageNote
+ ) {
++  not SpringSecurityOrderedRules::managedRule(matcher) and
+   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
+   springSecurityDslCall(matcher) and springSecurityDslCall(rule) and
+   matcher.getArgument(0) instanceof CompileTimeConstantExpr and
+@@ -342,6 +345,7 @@ predicate propertyGetterDefaultString(
+ predicate propertyBackedPermitAllRule(
+   MethodCall matcher, MethodCall rule, Field sourceField, string route
+ ) {
++  not SpringSecurityOrderedRules::managedRule(matcher) and
+   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
+   springSecurityDslCall(matcher) and springSecurityDslCall(rule) and
+   matcher.getArgument(0) instanceof MethodCall and
+@@ -352,6 +356,7 @@ predicate propertyBackedPermitAllRule(
+ }
+ 
+ predicate dynamicSecurityRule(MethodCall matcher, string coverageNote) {
++  not SpringSecurityOrderedRules::managedRule(matcher) and
+   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
+   springSecurityDslCall(matcher) and
+   not matcher.getArgument(0) instanceof CompileTimeConstantExpr and
+@@ -651,12 +656,16 @@ predicate springMvcSecurityPreHandle(RefType interceptorType, Method preHandle)
+ predicate springMvcAddSecurityInterceptor(
+   MethodCall addInterceptor, RefType interceptorType, Method preHandle
+ ) {
++  SpringMvcFieldBindings::registrationSemanticsKnown(addInterceptor) and
+   addInterceptor.getMethod().hasQualifiedName(
+     "org.springframework.web.servlet.config.annotation",
+     "InterceptorRegistry", "addInterceptor"
+   ) and
+-  addInterceptor.getArgument(0) instanceof ClassInstanceExpr and
+-  interceptorType = addInterceptor.getArgument(0).(ClassInstanceExpr).getConstructedType() and
++  (
++    addInterceptor.getArgument(0) instanceof ClassInstanceExpr and
++    interceptorType = addInterceptor.getArgument(0).(ClassInstanceExpr).getConstructedType()
++    or SpringMvcFieldBindings::target(addInterceptor, interceptorType)
++  ) and
+   springMvcSecurityPreHandle(interceptorType, preHandle)
+ }
+ 
+@@ -1086,6 +1095,36 @@ predicate authRow(
+   string factFile, int factLine, string kind, string value,
+   string coverageStatus, string coverageNote
+ ) {
++  exists(MethodCall exclusion, MethodCall add, Method owner, CompileTimeConstantExpr pattern |
++    add.getMethod().hasQualifiedName(
++      "org.springframework.web.servlet.config.annotation", "InterceptorRegistry", "addInterceptor"
++    ) and
++    exclusion.getMethod().hasQualifiedName(
++      "org.springframework.web.servlet.config.annotation", "InterceptorRegistration", "excludePathPatterns"
++    ) and SpringMvcFieldBindings::rootedRegistrationCall(exclusion, add) and
++    not SpringMvcFieldBindings::registrationSemanticsKnown(add) and
++    pattern = exclusion.getAnArgument() and routeOrEvent = pattern.getStringValue() and
++    owner = add.getEnclosingCallable() and owner.fromSource() and
++    handlerFqn = owner.getDeclaringType().getQualifiedName() + "." + owner.getName() and
++    handlerFile = owner.getLocation().getFile().getRelativePath() and
++    handlerLine = owner.getLocation().getStartLine() and
++    factFile = exclusion.getLocation().getFile().getRelativePath() and
++    factLine = exclusion.getLocation().getStartLine() and
++    kind = "dependency_coverage" and value = "mvc_interceptor_registration_unmodeled" and
++    coverageStatus = "partial" and coverageNote = "mvc_interceptor_matching_strategy_or_registration_unresolved"
++  ) or
++
++  exists(Method mapped, MethodCall evidence |
++    springMvcHandlerRoute(mapped, routeOrEvent) and
++    SpringSecurityOrderedRules::routeFact(routeOrEvent, evidence, value, coverageStatus, coverageNote) and
++    handlerFqn = mapped.getDeclaringType().getQualifiedName() + "." + mapped.getName() and
++    handlerFile = mapped.getLocation().getFile().getRelativePath() and
++    handlerLine = mapped.getLocation().getStartLine() and
++    factFile = evidence.getLocation().getFile().getRelativePath() and
++    factLine = evidence.getLocation().getStartLine() and
++    kind = "security_filter_chain"
++  ) or
++
+   exists(Method method, Annotation annotation |
+     method.fromSource() and
+     annotationAuth(method, annotation, value, coverageStatus, coverageNote) and
+diff --git a/codeql/dosweb/Entries/SpringMvcFieldRegistration.qll b/codeql/dosweb/Entries/SpringMvcFieldRegistration.qll
+new file mode 100644
+index 0000000..1a8d108
+--- /dev/null
++++ b/codeql/dosweb/Entries/SpringMvcFieldRegistration.qll
+@@ -0,0 +1,106 @@
++/** Exact same-instance MVC field registrations; ambiguous DI stays unresolved. */
++import java
++
++module SpringMvcFieldBindings {
++  /** Traverse the complete fluent instance, including calls after an
++   * exclusion. An unknown matcher/setter invalidates default path semantics. */
++  predicate rootedRegistrationCall(MethodCall call, MethodCall add) {
++    call = add
++    or exists(MethodCall previous |
++      previous = call.getQualifier() and rootedRegistrationCall(previous, add)
++    )
++  }
++
++  predicate registrationSemanticsKnown(MethodCall add) {
++    exists(Method owner, ExprStmt statement, MethodCall tail |
++      owner = add.getEnclosingCallable() and
++      statement = owner.getBody().getAStmt() and statement.getExpr() = tail and
++      rootedRegistrationCall(tail, add) and
++      not exists(MethodCall changed |
++        rootedRegistrationCall(changed, add) and changed != add and
++        not (
++          changed.getMethod().getDeclaringType().hasQualifiedName(
++            "org.springframework.web.servlet.config.annotation", "InterceptorRegistration"
++          ) and changed.getMethod().getName() = ["addPathPatterns", "excludePathPatterns", "order"]
++        )
++      )
++    )
++  }
++
++  private predicate conditional(RefType type) {
++    exists(Annotation annotation |
++      annotation = type.getAnAnnotation() and
++      (annotation.getType().getName() = "Profile" or
++       annotation.getType().getName().matches("Conditional%") or
++       annotation.getType().getName() = "Scope")
++    )
++  }
++
++  private predicate classAnnotated(RefType type, string pkg, string name) {
++    exists(Annotation annotation |
++      annotation = type.getAnAnnotation() and annotation.getType().hasQualifiedName(pkg, name)
++    )
++  }
++
++  private predicate noWrites(Field field) {
++    not exists(AssignExpr assignment |
++      assignment.getDest().(FieldAccess).getField() = field and
++      // The extractor represents a declaration initializer as an assignment.
++      // Accept that exact AST value only; a later write has a distinct source.
++      not assignment.getSource() = field.getInitializer()
++    )
++  }
++
++  private predicate exactAutowiredType(Field field, RefType type) {
++    not exists(field.getInitializer()) and noWrites(field) and
++    type = field.getType() and type instanceof Class and type.(Class).isFinal() and
++    not type.(Class).isAbstract() and type.fromSource() and
++    classAnnotated(type, "org.springframework.stereotype", "Component") and
++    not conditional(type) and
++    not exists(Field state | state.getDeclaringType() = type and not state.isStatic()) and
++    exists(Annotation injected |
++      injected = field.getAnAnnotation() and injected.getType().hasQualifiedName(
++        "org.springframework.beans.factory.annotation", "Autowired"
++      ) and not injected.getBooleanValue("required") = false and
++      not exists(Annotation other | other = field.getAnAnnotation() and other != injected)
++    ) and
++    not exists(Method factory, Annotation bean |
++      factory.fromSource() and bean = factory.getAnAnnotation() and
++      bean.getType().hasQualifiedName("org.springframework.context.annotation", "Bean") and
++      factory.getReturnType().(RefType).getASupertype*() = type
++    ) and
++    not exists(RefType factory |
++      factory.fromSource() and factory.getASupertype*().hasQualifiedName(
++        "org.springframework.beans.factory", "FactoryBean"
++      )
++    )
++  }
++
++  predicate target(MethodCall addInterceptor, RefType type) {
++    exists(FieldAccess access, Field field, Method owner, ExprStmt statement |
++      access = addInterceptor.getArgument(0) and field = access.getField() and
++      not field.isStatic() and field.isPrivate() and
++      (not exists(access.getQualifier()) or access.getQualifier() instanceof ThisAccess) and
++      owner = addInterceptor.getEnclosingCallable() and owner.fromSource() and
++      field.getDeclaringType() = owner.getDeclaringType() and
++      owner.getName() = "addInterceptors" and owner.getNumberOfParameters() = 1 and
++      owner.getDeclaringType().getASupertype*().hasQualifiedName(
++        "org.springframework.web.servlet.config.annotation", "WebMvcConfigurer"
++      ) and
++      classAnnotated(owner.getDeclaringType(), "org.springframework.context.annotation", "Configuration") and
++      not conditional(owner.getDeclaringType()) and
++      not exists(Annotation a |
++        a = owner.getAnAnnotation() and
++        (a.getType().getName() = "Profile" or a.getType().getName().matches("Conditional%"))
++      ) and
++      addInterceptor.getQualifier().(VarAccess).getVariable() = owner.getParameter(0) and
++      owner.getBody().getNumStmt() = 1 and statement = owner.getBody().getStmt(0) and
++      addInterceptor.getParent*() = statement and
++      (
++        field.isFinal() and noWrites(field) and
++        type = field.getInitializer().(ClassInstanceExpr).getConstructedType()
++        or exactAutowiredType(field, type)
++      )
++    )
++  }
++}
+diff --git a/codeql/dosweb/Entries/SpringSecurityFallback.qll b/codeql/dosweb/Entries/SpringSecurityFallback.qll
+new file mode 100644
+index 0000000..b3be403
+--- /dev/null
++++ b/codeql/dosweb/Entries/SpringSecurityFallback.qll
+@@ -0,0 +1,185 @@
++/** Ordered fallback semantics for a deliberately closed single-chain DSL.
++ * Unsupported/conditional/multiple-chain configurations produce partial facts.
++ * This module never treats anyRequest as a global unauthenticated/low-role rule.
++ */
++import java
++
++module SpringSecurityOrderedRules {
++  private predicate dslCall(MethodCall call) {
++    call.getMethod().getDeclaringType().getPackage().getName().matches(
++      "org.springframework.security.config.annotation.web.configurers%"
++    )
++    or call.getMethod().getDeclaringType().getSourceDeclaration().hasQualifiedName(
++      "org.springframework.security.config.annotation.web", "AbstractRequestMatcherRegistry"
++    )
++  }
++
++  predicate authorization(LambdaExpr lambda, MethodCall configure, Method owner) {
++    configure.getMethod().getDeclaringType().hasQualifiedName(
++      "org.springframework.security.config.annotation.web.builders", "HttpSecurity"
++    ) and configure.getMethod().getName() = "authorizeHttpRequests" and
++    configure.getNumArgument() = 1 and lambda = configure.getArgument(0) and
++    owner = configure.getEnclosingCallable() and owner.fromSource() and
++    exists(MethodCall anyRule |
++      anyRule.getEnclosingCallable() = lambda.asMethod() and dslCall(anyRule) and
++      anyRule.getMethod().getName() = "anyRequest"
++    )
++  }
++
++  /** Suppress the old unordered pattern rows only inside a managed fallback
++   * lambda, including unsupported ones: a partial fact must not leak a grant. */
++  predicate managedRule(MethodCall rule) {
++    exists(LambdaExpr lambda, MethodCall configure, Method owner |
++      authorization(lambda, configure, owner) and
++      rule.getEnclosingCallable() = lambda.asMethod()
++    )
++  }
++
++  private predicate annotated(Element element, string pkg, string name) {
++    exists(Annotation a |
++      (a = element.(Method).getAnAnnotation() or
++       a = element.(RefType).getAnAnnotation()) and a.getType().hasQualifiedName(pkg, name)
++    )
++  }
++
++  private predicate conditional(Element element) {
++    exists(Annotation a |
++      (a = element.(Method).getAnAnnotation() or
++       a = element.(RefType).getAnAnnotation()) and
++      (a.getType().getName() = "Profile" or a.getType().getName().matches("Conditional%"))
++    )
++  }
++
++  private predicate filterChainMethod(Method method) {
++    method.fromSource() and method.getReturnType().(RefType).getASupertype*()
++      .hasQualifiedName("org.springframework.security.web", "SecurityFilterChain") and
++    annotated(method, "org.springframework.context.annotation", "Bean")
++  }
++
++  bindingset[pattern]
++  private predicate supportedPattern(string pattern) {
++    pattern.regexpMatch("/[A-Za-z0-9/_.-]*") or
++    pattern = "/**" or
++    pattern.regexpMatch("/[A-Za-z0-9/_.-]+/\\*\\*")
++  }
++
++  private predicate matcher(MethodCall call) {
++    dslCall(call) and (
++      call.getMethod().getName() = "anyRequest" and call.getNumArgument() = 0
++      or call.getMethod().getName() = "requestMatchers" and call.getNumArgument() > 0 and
++         forall(Expr argument | argument = call.getAnArgument() |
++           argument instanceof CompileTimeConstantExpr and
++           supportedPattern(argument.(CompileTimeConstantExpr).getStringValue())
++         )
++    )
++  }
++
++  private predicate decision(MethodCall call, string value) {
++    dslCall(call) and (
++      call.getMethod().getName() = "permitAll" and call.getNumArgument() = 0 and
++      value = "unauthenticated_filter"
++      or call.getMethod().getName() = "authenticated" and call.getNumArgument() = 0 and
++         value = "low_privilege_filter"
++      or call.getMethod().getName() = "hasRole" and call.getNumArgument() = 1 and
++         call.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ADMIN" and
++         value = "privileged_filter"
++      or call.getMethod().getName() = "hasAuthority" and call.getNumArgument() = 1 and
++         call.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ROLE_ADMIN" and
++         value = "privileged_filter"
++    )
++  }
++
++  private predicate registryChain(Expr expression, Parameter registry) {
++    expression.(VarAccess).getVariable() = registry
++    or exists(MethodCall rule, MethodCall match |
++      expression = rule and decision(rule, _) and match = rule.getQualifier() and
++      matcher(match) and registryChain(match.getQualifier(), registry)
++    )
++  }
++
++  private predicate nestedRule(MethodCall later, MethodCall earlier) {
++    later = earlier
++    or exists(MethodCall match, MethodCall previous |
++      match = later.getQualifier() and matcher(match) and
++      previous = match.getQualifier() and nestedRule(previous, earlier)
++    )
++  }
++
++  private predicate tailRule(LambdaExpr lambda, MethodCall tail) {
++    lambda.asMethod().getNumberOfParameters() = 1 and
++    lambda.asMethod().getBody().getNumStmt() = 1 and
++    (tail = lambda.getExprBody() or
++     tail = lambda.asMethod().getBody().getStmt(0).(ExprStmt).getExpr() or
++     tail = lambda.asMethod().getBody().getStmt(0).(ReturnStmt).getExpr())
++  }
++
++  private predicate completeChain(
++    LambdaExpr lambda, MethodCall configure, Method owner, MethodCall tail
++  ) {
++    authorization(lambda, configure, owner) and filterChainMethod(owner) and
++    annotated(owner.getDeclaringType(), "org.springframework.context.annotation", "Configuration") and
++    annotated(owner.getDeclaringType(),
++      "org.springframework.security.config.annotation.web.configuration", "EnableWebSecurity") and
++    not conditional(owner) and not conditional(owner.getDeclaringType()) and
++    not exists(Method other | other != owner and filterChainMethod(other)) and
++    owner.getNumberOfParameters() = 1 and
++    owner.getParameter(0).getType().(RefType).hasQualifiedName(
++      "org.springframework.security.config.annotation.web.builders", "HttpSecurity"
++    ) and
++    configure.getQualifier().(VarAccess).getVariable() = owner.getParameter(0) and
++    owner.getBody().getNumStmt() = 2 and
++    owner.getBody().getStmt(0).(ExprStmt).getExpr() = configure and
++    exists(MethodCall build |
++      owner.getBody().getStmt(1).(ReturnStmt).getExpr() = build and
++      build.getMethod().getName() = "build" and build.getNumArgument() = 0 and
++      build.getQualifier().(VarAccess).getVariable() = owner.getParameter(0)
++    ) and tailRule(lambda, tail) and
++    registryChain(tail, lambda.asMethod().getParameter(0)) and
++    tail.getQualifier().(MethodCall).getMethod().getName() = "anyRequest" and
++    not exists(MethodCall other |
++      other.getEnclosingCallable() = lambda.asMethod() and
++      other.getMethod().getName() = "anyRequest" and other != tail.getQualifier()
++    )
++  }
++
++  bindingset[pattern, route]
++  private predicate pathMatches(string pattern, string route) {
++    pattern = route or pattern = "/**"
++    or exists(string prefix |
++      pattern = prefix + "/**" and
++      (route = prefix or route.substring(0, prefix.length() + 1) = prefix + "/")
++    )
++  }
++
++  bindingset[match, route]
++  private predicate matchesRoute(MethodCall match, string route) {
++    match.getMethod().getName() = "anyRequest"
++    or exists(CompileTimeConstantExpr argument |
++      argument = match.getAnArgument() and pathMatches(argument.getStringValue(), route)
++    )
++  }
++
++  /** route supplied by a source-backed mapped handler in EntrySecurity. */
++  bindingset[route]
++  predicate routeFact(
++    string route, MethodCall evidence, string value, string coverage, string note
++  ) {
++    exists(LambdaExpr lambda, MethodCall configure, Method owner, MethodCall tail |
++      completeChain(lambda, configure, owner, tail) and
++      route.regexpMatch("/[A-Za-z0-9/_.-]*") and
++      nestedRule(tail, evidence) and decision(evidence, value) and
++      matchesRoute(evidence.getQualifier().(MethodCall), route) and
++      not exists(MethodCall earlier |
++        earlier != evidence and nestedRule(evidence, earlier) and
++        decision(earlier, _) and matchesRoute(earlier.getQualifier().(MethodCall), route)
++      ) and coverage = "complete" and note = "spring_security_ordered_single_chain"
++    )
++    or exists(LambdaExpr lambda, Method owner |
++      authorization(lambda, evidence, owner) and
++      (not exists(MethodCall tail | completeChain(lambda, evidence, owner, tail)) or
++       not route.regexpMatch("/[A-Za-z0-9/_.-]*")) and
++      value = "security_matcher_unknown" and coverage = "partial" and
++      note = "spring_security_ordered_chain_scope_or_shape_unresolved"
++    )
++  }
++}
+diff --git a/codeql/dosweb/Lifecycle/LifecycleCoverage.ql b/codeql/dosweb/Lifecycle/LifecycleCoverage.ql
+index 288157e..c63bf9b 100644
+--- a/codeql/dosweb/Lifecycle/LifecycleCoverage.ql
++++ b/codeql/dosweb/Lifecycle/LifecycleCoverage.ql
+@@ -10,6 +10,7 @@ import dosweb.Flows.EntryGrowthDomain
+ import dosweb.Growth.RequestMaterializationDomain
+ import FiniteQueueDomain
+ import FrameworkLimitDomain
++import RequestReadAllDomain
+ 
+ // Bound coverage includes direct ByteBuffer demand (including exact numeric
+ // clamps) plus exact StreamReadConstraints, HttpObjectAggregator,
+@@ -399,6 +400,8 @@ predicate unresolvedFiniteQueueOffer(Element growth) {
+ }
+ 
+ predicate guardModeledDomain(Element growth) {
++  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
++  or
+   exists(Expr allocation |
+     growth = allocation and
+     EntryGrowthPathDomain::directAllocationSite(allocation)
+@@ -424,6 +427,8 @@ predicate guardModeledDomain(Element growth) {
+ }
+ 
+ predicate boundModeledDomain(Element growth) {
++  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
++  or
+   directByteAllocationModeledDomain(growth)
+   or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+     growth = helper and
+@@ -445,6 +450,8 @@ predicate boundModeledDomain(Element growth) {
+ }
+ 
+ predicate releaseModeledDomain(Element growth) {
++  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
++  or
+   exists(Expr allocation |
+     growth = allocation and
+     EntryGrowthPathDomain::directAllocationSite(allocation)
+@@ -482,12 +489,24 @@ where
+       not reflectiveLifecycleDispatch(growth) and
+       not unmodeledLifecycleDispatch(growth, familyValue) and
+       not familyModeledDomain(growth, familyValue) and
+-      statusValue = "partial" and noteValue = "lifecycle_family_api_domain_unmodeled"
++      statusValue = "partial" and
++      (
++        growth instanceof MethodCall and readAllMaterialization(growth.(MethodCall)) and
++        noteValue = "request_read_all_stream_or_control_not_modeled"
++        or not (growth instanceof MethodCall and readAllMaterialization(growth.(MethodCall))) and
++        noteValue = "lifecycle_family_api_domain_unmodeled"
++      )
+       or
+       not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and
+       not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and
+       familyModeledDomain(growth, familyValue) and
+-      statusValue = "complete" and noteValue = "same_callable_modeled_domain_scanned"
++      statusValue = "complete" and
++      (
++        growth instanceof MethodCall and requestReadAllLocalDomain(growth.(MethodCall)) and
++        noteValue = "request_read_all_same_callable_domain_scanned"
++        or not (growth instanceof MethodCall and requestReadAllLocalDomain(growth.(MethodCall))) and
++        noteValue = "same_callable_modeled_domain_scanned"
++      )
+     )
+   )
+ select
+diff --git a/codeql/dosweb/Lifecycle/RequestReadAllDomain.qll b/codeql/dosweb/Lifecycle/RequestReadAllDomain.qll
+new file mode 100644
+index 0000000..c8e46ef
+--- /dev/null
++++ b/codeql/dosweb/Lifecycle/RequestReadAllDomain.qll
+@@ -0,0 +1,135 @@
++/** Exact local byte-materialization scan domain; never a whole-server bound. */
++import java
++import dosweb.Growth.LoopAmplification
++import dosweb.Growth.RequestMaterializationDomain
++
++/** Reuse the supported API names, but reject length-limited overloads and
++ * source-defined readAllBytes overrides whose behavior is not the JDK API. */
++predicate exactReadAllStreamInput(MethodCall call, Expr input) {
++  call.getMethod().hasQualifiedName("java.io", "InputStream", "readAllBytes") and
++  call.getNumArgument() = 0 and input = call.getQualifier()
++  or
++  call.getMethod().hasQualifiedName("cn.hutool.core.io", "IoUtil", "readBytes") and
++  call.getNumArgument() = 1 and input = call.getArgument(0)
++  or
++  call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray") and
++  call.getNumArgument() = 1 and input = call.getArgument(0)
++  or
++  call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray") and
++  call.getNumArgument() = 1 and input = call.getArgument(0)
++}
++
++/** The stream expression must be the exact getter of the unchanged request
++ * parameter. In particular, a wrapper/cap/local unrelated stream is not that
++ * stream merely because its class is an InputStream. */
++predicate exactReadAllRequest(
++  MethodCall call, MethodCall getter, Parameter request
++) {
++  exactReadAllStreamInput(call, getter) and
++  getter.getEnclosingCallable() = call.getEnclosingCallable() and
++  request.getCallable() = call.getEnclosingCallable() and
++  request.getType().(RefType).hasQualifiedName(
++    ["javax.servlet.http", "jakarta.servlet.http"], "HttpServletRequest"
++  ) and
++  getter.getMethod().hasQualifiedName(
++    ["javax.servlet.http", "jakarta.servlet.http", "javax.servlet", "jakarta.servlet"],
++    ["HttpServletRequest", "ServletRequest"], "getInputStream"
++  ) and getter.getNumArgument() = 0 and
++  getter.getQualifier().(VarAccess).getVariable() = request and
++  not exists(request.getAnAssignedValue()) and
++  (
++    exists(Method method |
++      method = call.getEnclosingCallable() and p0AttackerParameter(method, request)
++    )
++    or requestWrapperConstructorStream(getter, request)
++  )
++}
++
++/** Unsupported control or hidden computation must keep local coverage open.
++ * This is deliberately a closed syntax subset, not an absence heuristic for
++ * methods named guard/bound/close. */
++predicate readAllHasUnmodeledControl(Callable owner) {
++  exists(Stmt control |
++    control.getEnclosingCallable() = owner and
++    (control instanceof IfStmt or control instanceof LoopStmt or
++     control instanceof SwitchStmt or control instanceof TryStmt or
++     control instanceof SynchronizedStmt or control instanceof ThrowStmt or
++     control instanceof AssertStmt)
++  )
++  or exists(ConditionalExpr conditional | conditional.getEnclosingCallable() = owner)
++  or exists(LambdaExpr lambda | lambda.getEnclosingCallable() = owner)
++}
++
++predicate readAllMappedMethod(Method method) {
++  exists(Annotation mapping |
++    mapping = method.getAnAnnotation() and
++    mapping.getType().hasQualifiedName(
++      "org.springframework.web.bind.annotation",
++      ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping"]
++    )
++  )
++  or method.getName() = ["service", "doGet", "doPost", "doPut", "doDelete", "doPatch"] and
++     method.getDeclaringType().getASupertype*().hasQualifiedName(
++       ["javax.servlet.http", "jakarta.servlet.http"], "HttpServlet"
++     )
++}
++
++/** A constructor is admitted only through direct, straight-line, unchanged
++ * request forwarding at every source call site. A guard in a caller cannot
++ * disappear just because the materialization sits in its callee constructor. */
++predicate readAllPlainWrapperCall(ClassInstanceExpr call, Constructor target) {
++  call.getConstructor() = target and call.getNumArgument() = 1 and
++  exists(Method caller, Parameter parameter |
++    caller = call.getEnclosingCallable() and readAllMappedMethod(caller) and
++    parameter = caller.getParameter(0) and caller.getNumberOfParameters() = 1 and
++    httpServletRequestParameter(parameter) and
++    not exists(parameter.getAnAssignedValue()) and
++    call.getArgument(0).(VarAccess).getVariable() = parameter and
++    not readAllHasUnmodeledControl(caller) and
++    not exists(MethodCall other | other.getEnclosingCallable() = caller) and
++    not exists(ConstructorCall other |
++      other.getEnclosingCallable() = caller and other != call
++    )
++  )
++}
++
++predicate readAllOwnerAdmitted(Callable owner) {
++  owner instanceof Method and readAllMappedMethod(owner.(Method))
++  or exists(Constructor target |
++    owner = target and httpServletRequestWrapperType(target.getDeclaringType()) and
++    exists(ClassInstanceExpr call | readAllPlainWrapperCall(call, target)) and
++    not exists(ConstructorCall other |
++      other.getConstructor() = target and
++      not (other instanceof ClassInstanceExpr and
++           readAllPlainWrapperCall(other.(ClassInstanceExpr), target))
++    )
++  )
++}
++
++/** Only the known read-all/getter computation, local storage, and an exact
++ * Servlet wrapper super call are closed. Extra calls/allocations stay partial.
++ * Closing the stream is intentionally not accepted as a heap-byte reduction. */
++predicate requestReadAllLocalDomain(MethodCall call) {
++  exists(MethodCall getter, Parameter request, Callable owner |
++    exactReadAllRequest(call, getter, request) and
++    owner = call.getEnclosingCallable() and readAllOwnerAdmitted(owner) and
++    not exists(Parameter other |
++      other.getCallable() = owner and other != request and httpServletRequestParameter(other)
++    ) and
++    not readAllHasUnmodeledControl(owner) and
++    not exists(MethodCall other |
++      other.getEnclosingCallable() = owner and other != call and other != getter
++    ) and
++    not exists(ArrayCreationExpr allocation | allocation.getEnclosingCallable() = owner) and
++    not exists(ConstructorCall other |
++      other.getEnclosingCallable() = owner and
++      not (
++        other.callsSuper() and
++        other.getConstructor().getDeclaringType().hasQualifiedName(
++          ["javax.servlet.http", "jakarta.servlet.http"], "HttpServletRequestWrapper"
++        ) and other.getNumArgument() = 1 and
++        other.getArgument(0).(VarAccess).getVariable() = request
++      )
++    )
++  )
++}
+diff --git a/dosweb/codeql/pack/dosweb/Entries/EntrySecurity.ql b/dosweb/codeql/pack/dosweb/Entries/EntrySecurity.ql
+index 892bb8e..5d52d6e 100644
+--- a/dosweb/codeql/pack/dosweb/Entries/EntrySecurity.ql
++++ b/dosweb/codeql/pack/dosweb/Entries/EntrySecurity.ql
+@@ -6,6 +6,8 @@
+  */
+ 
+ import java
++import SpringSecurityFallback
++import SpringMvcFieldRegistration
+ 
+ // Exact independent decoder contract:
+ // "handler_fqn", "handler_file", "handler_start_line", "route_or_event",
+@@ -278,6 +280,7 @@ predicate staticSecurityRule(
+   MethodCall matcher, MethodCall rule, string route, string value,
+   string coverageStatus, string coverageNote
+ ) {
++  not SpringSecurityOrderedRules::managedRule(matcher) and
+   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
+   springSecurityDslCall(matcher) and springSecurityDslCall(rule) and
+   matcher.getArgument(0) instanceof CompileTimeConstantExpr and
+@@ -342,6 +345,7 @@ predicate propertyGetterDefaultString(
+ predicate propertyBackedPermitAllRule(
+   MethodCall matcher, MethodCall rule, Field sourceField, string route
+ ) {
++  not SpringSecurityOrderedRules::managedRule(matcher) and
+   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
+   springSecurityDslCall(matcher) and springSecurityDslCall(rule) and
+   matcher.getArgument(0) instanceof MethodCall and
+@@ -352,6 +356,7 @@ predicate propertyBackedPermitAllRule(
+ }
+ 
+ predicate dynamicSecurityRule(MethodCall matcher, string coverageNote) {
++  not SpringSecurityOrderedRules::managedRule(matcher) and
+   matcher.getMethod().getName() = ["requestMatchers", "antMatchers", "mvcMatchers"] and
+   springSecurityDslCall(matcher) and
+   not matcher.getArgument(0) instanceof CompileTimeConstantExpr and
+@@ -651,12 +656,16 @@ predicate springMvcSecurityPreHandle(RefType interceptorType, Method preHandle)
+ predicate springMvcAddSecurityInterceptor(
+   MethodCall addInterceptor, RefType interceptorType, Method preHandle
+ ) {
++  SpringMvcFieldBindings::registrationSemanticsKnown(addInterceptor) and
+   addInterceptor.getMethod().hasQualifiedName(
+     "org.springframework.web.servlet.config.annotation",
+     "InterceptorRegistry", "addInterceptor"
+   ) and
+-  addInterceptor.getArgument(0) instanceof ClassInstanceExpr and
+-  interceptorType = addInterceptor.getArgument(0).(ClassInstanceExpr).getConstructedType() and
++  (
++    addInterceptor.getArgument(0) instanceof ClassInstanceExpr and
++    interceptorType = addInterceptor.getArgument(0).(ClassInstanceExpr).getConstructedType()
++    or SpringMvcFieldBindings::target(addInterceptor, interceptorType)
++  ) and
+   springMvcSecurityPreHandle(interceptorType, preHandle)
+ }
+ 
+@@ -1086,6 +1095,36 @@ predicate authRow(
+   string factFile, int factLine, string kind, string value,
+   string coverageStatus, string coverageNote
+ ) {
++  exists(MethodCall exclusion, MethodCall add, Method owner, CompileTimeConstantExpr pattern |
++    add.getMethod().hasQualifiedName(
++      "org.springframework.web.servlet.config.annotation", "InterceptorRegistry", "addInterceptor"
++    ) and
++    exclusion.getMethod().hasQualifiedName(
++      "org.springframework.web.servlet.config.annotation", "InterceptorRegistration", "excludePathPatterns"
++    ) and SpringMvcFieldBindings::rootedRegistrationCall(exclusion, add) and
++    not SpringMvcFieldBindings::registrationSemanticsKnown(add) and
++    pattern = exclusion.getAnArgument() and routeOrEvent = pattern.getStringValue() and
++    owner = add.getEnclosingCallable() and owner.fromSource() and
++    handlerFqn = owner.getDeclaringType().getQualifiedName() + "." + owner.getName() and
++    handlerFile = owner.getLocation().getFile().getRelativePath() and
++    handlerLine = owner.getLocation().getStartLine() and
++    factFile = exclusion.getLocation().getFile().getRelativePath() and
++    factLine = exclusion.getLocation().getStartLine() and
++    kind = "dependency_coverage" and value = "mvc_interceptor_registration_unmodeled" and
++    coverageStatus = "partial" and coverageNote = "mvc_interceptor_matching_strategy_or_registration_unresolved"
++  ) or
++
++  exists(Method mapped, MethodCall evidence |
++    springMvcHandlerRoute(mapped, routeOrEvent) and
++    SpringSecurityOrderedRules::routeFact(routeOrEvent, evidence, value, coverageStatus, coverageNote) and
++    handlerFqn = mapped.getDeclaringType().getQualifiedName() + "." + mapped.getName() and
++    handlerFile = mapped.getLocation().getFile().getRelativePath() and
++    handlerLine = mapped.getLocation().getStartLine() and
++    factFile = evidence.getLocation().getFile().getRelativePath() and
++    factLine = evidence.getLocation().getStartLine() and
++    kind = "security_filter_chain"
++  ) or
++
+   exists(Method method, Annotation annotation |
+     method.fromSource() and
+     annotationAuth(method, annotation, value, coverageStatus, coverageNote) and
+diff --git a/dosweb/codeql/pack/dosweb/Entries/SpringMvcFieldRegistration.qll b/dosweb/codeql/pack/dosweb/Entries/SpringMvcFieldRegistration.qll
+new file mode 100644
+index 0000000..1a8d108
+--- /dev/null
++++ b/dosweb/codeql/pack/dosweb/Entries/SpringMvcFieldRegistration.qll
+@@ -0,0 +1,106 @@
++/** Exact same-instance MVC field registrations; ambiguous DI stays unresolved. */
++import java
++
++module SpringMvcFieldBindings {
++  /** Traverse the complete fluent instance, including calls after an
++   * exclusion. An unknown matcher/setter invalidates default path semantics. */
++  predicate rootedRegistrationCall(MethodCall call, MethodCall add) {
++    call = add
++    or exists(MethodCall previous |
++      previous = call.getQualifier() and rootedRegistrationCall(previous, add)
++    )
++  }
++
++  predicate registrationSemanticsKnown(MethodCall add) {
++    exists(Method owner, ExprStmt statement, MethodCall tail |
++      owner = add.getEnclosingCallable() and
++      statement = owner.getBody().getAStmt() and statement.getExpr() = tail and
++      rootedRegistrationCall(tail, add) and
++      not exists(MethodCall changed |
++        rootedRegistrationCall(changed, add) and changed != add and
++        not (
++          changed.getMethod().getDeclaringType().hasQualifiedName(
++            "org.springframework.web.servlet.config.annotation", "InterceptorRegistration"
++          ) and changed.getMethod().getName() = ["addPathPatterns", "excludePathPatterns", "order"]
++        )
++      )
++    )
++  }
++
++  private predicate conditional(RefType type) {
++    exists(Annotation annotation |
++      annotation = type.getAnAnnotation() and
++      (annotation.getType().getName() = "Profile" or
++       annotation.getType().getName().matches("Conditional%") or
++       annotation.getType().getName() = "Scope")
++    )
++  }
++
++  private predicate classAnnotated(RefType type, string pkg, string name) {
++    exists(Annotation annotation |
++      annotation = type.getAnAnnotation() and annotation.getType().hasQualifiedName(pkg, name)
++    )
++  }
++
++  private predicate noWrites(Field field) {
++    not exists(AssignExpr assignment |
++      assignment.getDest().(FieldAccess).getField() = field and
++      // The extractor represents a declaration initializer as an assignment.
++      // Accept that exact AST value only; a later write has a distinct source.
++      not assignment.getSource() = field.getInitializer()
++    )
++  }
++
++  private predicate exactAutowiredType(Field field, RefType type) {
++    not exists(field.getInitializer()) and noWrites(field) and
++    type = field.getType() and type instanceof Class and type.(Class).isFinal() and
++    not type.(Class).isAbstract() and type.fromSource() and
++    classAnnotated(type, "org.springframework.stereotype", "Component") and
++    not conditional(type) and
++    not exists(Field state | state.getDeclaringType() = type and not state.isStatic()) and
++    exists(Annotation injected |
++      injected = field.getAnAnnotation() and injected.getType().hasQualifiedName(
++        "org.springframework.beans.factory.annotation", "Autowired"
++      ) and not injected.getBooleanValue("required") = false and
++      not exists(Annotation other | other = field.getAnAnnotation() and other != injected)
++    ) and
++    not exists(Method factory, Annotation bean |
++      factory.fromSource() and bean = factory.getAnAnnotation() and
++      bean.getType().hasQualifiedName("org.springframework.context.annotation", "Bean") and
++      factory.getReturnType().(RefType).getASupertype*() = type
++    ) and
++    not exists(RefType factory |
++      factory.fromSource() and factory.getASupertype*().hasQualifiedName(
++        "org.springframework.beans.factory", "FactoryBean"
++      )
++    )
++  }
++
++  predicate target(MethodCall addInterceptor, RefType type) {
++    exists(FieldAccess access, Field field, Method owner, ExprStmt statement |
++      access = addInterceptor.getArgument(0) and field = access.getField() and
++      not field.isStatic() and field.isPrivate() and
++      (not exists(access.getQualifier()) or access.getQualifier() instanceof ThisAccess) and
++      owner = addInterceptor.getEnclosingCallable() and owner.fromSource() and
++      field.getDeclaringType() = owner.getDeclaringType() and
++      owner.getName() = "addInterceptors" and owner.getNumberOfParameters() = 1 and
++      owner.getDeclaringType().getASupertype*().hasQualifiedName(
++        "org.springframework.web.servlet.config.annotation", "WebMvcConfigurer"
++      ) and
++      classAnnotated(owner.getDeclaringType(), "org.springframework.context.annotation", "Configuration") and
++      not conditional(owner.getDeclaringType()) and
++      not exists(Annotation a |
++        a = owner.getAnAnnotation() and
++        (a.getType().getName() = "Profile" or a.getType().getName().matches("Conditional%"))
++      ) and
++      addInterceptor.getQualifier().(VarAccess).getVariable() = owner.getParameter(0) and
++      owner.getBody().getNumStmt() = 1 and statement = owner.getBody().getStmt(0) and
++      addInterceptor.getParent*() = statement and
++      (
++        field.isFinal() and noWrites(field) and
++        type = field.getInitializer().(ClassInstanceExpr).getConstructedType()
++        or exactAutowiredType(field, type)
++      )
++    )
++  }
++}
+diff --git a/dosweb/codeql/pack/dosweb/Entries/SpringSecurityFallback.qll b/dosweb/codeql/pack/dosweb/Entries/SpringSecurityFallback.qll
+new file mode 100644
+index 0000000..b3be403
+--- /dev/null
++++ b/dosweb/codeql/pack/dosweb/Entries/SpringSecurityFallback.qll
+@@ -0,0 +1,185 @@
++/** Ordered fallback semantics for a deliberately closed single-chain DSL.
++ * Unsupported/conditional/multiple-chain configurations produce partial facts.
++ * This module never treats anyRequest as a global unauthenticated/low-role rule.
++ */
++import java
++
++module SpringSecurityOrderedRules {
++  private predicate dslCall(MethodCall call) {
++    call.getMethod().getDeclaringType().getPackage().getName().matches(
++      "org.springframework.security.config.annotation.web.configurers%"
++    )
++    or call.getMethod().getDeclaringType().getSourceDeclaration().hasQualifiedName(
++      "org.springframework.security.config.annotation.web", "AbstractRequestMatcherRegistry"
++    )
++  }
++
++  predicate authorization(LambdaExpr lambda, MethodCall configure, Method owner) {
++    configure.getMethod().getDeclaringType().hasQualifiedName(
++      "org.springframework.security.config.annotation.web.builders", "HttpSecurity"
++    ) and configure.getMethod().getName() = "authorizeHttpRequests" and
++    configure.getNumArgument() = 1 and lambda = configure.getArgument(0) and
++    owner = configure.getEnclosingCallable() and owner.fromSource() and
++    exists(MethodCall anyRule |
++      anyRule.getEnclosingCallable() = lambda.asMethod() and dslCall(anyRule) and
++      anyRule.getMethod().getName() = "anyRequest"
++    )
++  }
++
++  /** Suppress the old unordered pattern rows only inside a managed fallback
++   * lambda, including unsupported ones: a partial fact must not leak a grant. */
++  predicate managedRule(MethodCall rule) {
++    exists(LambdaExpr lambda, MethodCall configure, Method owner |
++      authorization(lambda, configure, owner) and
++      rule.getEnclosingCallable() = lambda.asMethod()
++    )
++  }
++
++  private predicate annotated(Element element, string pkg, string name) {
++    exists(Annotation a |
++      (a = element.(Method).getAnAnnotation() or
++       a = element.(RefType).getAnAnnotation()) and a.getType().hasQualifiedName(pkg, name)
++    )
++  }
++
++  private predicate conditional(Element element) {
++    exists(Annotation a |
++      (a = element.(Method).getAnAnnotation() or
++       a = element.(RefType).getAnAnnotation()) and
++      (a.getType().getName() = "Profile" or a.getType().getName().matches("Conditional%"))
++    )
++  }
++
++  private predicate filterChainMethod(Method method) {
++    method.fromSource() and method.getReturnType().(RefType).getASupertype*()
++      .hasQualifiedName("org.springframework.security.web", "SecurityFilterChain") and
++    annotated(method, "org.springframework.context.annotation", "Bean")
++  }
++
++  bindingset[pattern]
++  private predicate supportedPattern(string pattern) {
++    pattern.regexpMatch("/[A-Za-z0-9/_.-]*") or
++    pattern = "/**" or
++    pattern.regexpMatch("/[A-Za-z0-9/_.-]+/\\*\\*")
++  }
++
++  private predicate matcher(MethodCall call) {
++    dslCall(call) and (
++      call.getMethod().getName() = "anyRequest" and call.getNumArgument() = 0
++      or call.getMethod().getName() = "requestMatchers" and call.getNumArgument() > 0 and
++         forall(Expr argument | argument = call.getAnArgument() |
++           argument instanceof CompileTimeConstantExpr and
++           supportedPattern(argument.(CompileTimeConstantExpr).getStringValue())
++         )
++    )
++  }
++
++  private predicate decision(MethodCall call, string value) {
++    dslCall(call) and (
++      call.getMethod().getName() = "permitAll" and call.getNumArgument() = 0 and
++      value = "unauthenticated_filter"
++      or call.getMethod().getName() = "authenticated" and call.getNumArgument() = 0 and
++         value = "low_privilege_filter"
++      or call.getMethod().getName() = "hasRole" and call.getNumArgument() = 1 and
++         call.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ADMIN" and
++         value = "privileged_filter"
++      or call.getMethod().getName() = "hasAuthority" and call.getNumArgument() = 1 and
++         call.getArgument(0).(CompileTimeConstantExpr).getStringValue() = "ROLE_ADMIN" and
++         value = "privileged_filter"
++    )
++  }
++
++  private predicate registryChain(Expr expression, Parameter registry) {
++    expression.(VarAccess).getVariable() = registry
++    or exists(MethodCall rule, MethodCall match |
++      expression = rule and decision(rule, _) and match = rule.getQualifier() and
++      matcher(match) and registryChain(match.getQualifier(), registry)
++    )
++  }
++
++  private predicate nestedRule(MethodCall later, MethodCall earlier) {
++    later = earlier
++    or exists(MethodCall match, MethodCall previous |
++      match = later.getQualifier() and matcher(match) and
++      previous = match.getQualifier() and nestedRule(previous, earlier)
++    )
++  }
++
++  private predicate tailRule(LambdaExpr lambda, MethodCall tail) {
++    lambda.asMethod().getNumberOfParameters() = 1 and
++    lambda.asMethod().getBody().getNumStmt() = 1 and
++    (tail = lambda.getExprBody() or
++     tail = lambda.asMethod().getBody().getStmt(0).(ExprStmt).getExpr() or
++     tail = lambda.asMethod().getBody().getStmt(0).(ReturnStmt).getExpr())
++  }
++
++  private predicate completeChain(
++    LambdaExpr lambda, MethodCall configure, Method owner, MethodCall tail
++  ) {
++    authorization(lambda, configure, owner) and filterChainMethod(owner) and
++    annotated(owner.getDeclaringType(), "org.springframework.context.annotation", "Configuration") and
++    annotated(owner.getDeclaringType(),
++      "org.springframework.security.config.annotation.web.configuration", "EnableWebSecurity") and
++    not conditional(owner) and not conditional(owner.getDeclaringType()) and
++    not exists(Method other | other != owner and filterChainMethod(other)) and
++    owner.getNumberOfParameters() = 1 and
++    owner.getParameter(0).getType().(RefType).hasQualifiedName(
++      "org.springframework.security.config.annotation.web.builders", "HttpSecurity"
++    ) and
++    configure.getQualifier().(VarAccess).getVariable() = owner.getParameter(0) and
++    owner.getBody().getNumStmt() = 2 and
++    owner.getBody().getStmt(0).(ExprStmt).getExpr() = configure and
++    exists(MethodCall build |
++      owner.getBody().getStmt(1).(ReturnStmt).getExpr() = build and
++      build.getMethod().getName() = "build" and build.getNumArgument() = 0 and
++      build.getQualifier().(VarAccess).getVariable() = owner.getParameter(0)
++    ) and tailRule(lambda, tail) and
++    registryChain(tail, lambda.asMethod().getParameter(0)) and
++    tail.getQualifier().(MethodCall).getMethod().getName() = "anyRequest" and
++    not exists(MethodCall other |
++      other.getEnclosingCallable() = lambda.asMethod() and
++      other.getMethod().getName() = "anyRequest" and other != tail.getQualifier()
++    )
++  }
++
++  bindingset[pattern, route]
++  private predicate pathMatches(string pattern, string route) {
++    pattern = route or pattern = "/**"
++    or exists(string prefix |
++      pattern = prefix + "/**" and
++      (route = prefix or route.substring(0, prefix.length() + 1) = prefix + "/")
++    )
++  }
++
++  bindingset[match, route]
++  private predicate matchesRoute(MethodCall match, string route) {
++    match.getMethod().getName() = "anyRequest"
++    or exists(CompileTimeConstantExpr argument |
++      argument = match.getAnArgument() and pathMatches(argument.getStringValue(), route)
++    )
++  }
++
++  /** route supplied by a source-backed mapped handler in EntrySecurity. */
++  bindingset[route]
++  predicate routeFact(
++    string route, MethodCall evidence, string value, string coverage, string note
++  ) {
++    exists(LambdaExpr lambda, MethodCall configure, Method owner, MethodCall tail |
++      completeChain(lambda, configure, owner, tail) and
++      route.regexpMatch("/[A-Za-z0-9/_.-]*") and
++      nestedRule(tail, evidence) and decision(evidence, value) and
++      matchesRoute(evidence.getQualifier().(MethodCall), route) and
++      not exists(MethodCall earlier |
++        earlier != evidence and nestedRule(evidence, earlier) and
++        decision(earlier, _) and matchesRoute(earlier.getQualifier().(MethodCall), route)
++      ) and coverage = "complete" and note = "spring_security_ordered_single_chain"
++    )
++    or exists(LambdaExpr lambda, Method owner |
++      authorization(lambda, evidence, owner) and
++      (not exists(MethodCall tail | completeChain(lambda, evidence, owner, tail)) or
++       not route.regexpMatch("/[A-Za-z0-9/_.-]*")) and
++      value = "security_matcher_unknown" and coverage = "partial" and
++      note = "spring_security_ordered_chain_scope_or_shape_unresolved"
++    )
++  }
++}
+diff --git a/dosweb/codeql/pack/dosweb/Lifecycle/LifecycleCoverage.ql b/dosweb/codeql/pack/dosweb/Lifecycle/LifecycleCoverage.ql
+index 288157e..c63bf9b 100644
+--- a/dosweb/codeql/pack/dosweb/Lifecycle/LifecycleCoverage.ql
++++ b/dosweb/codeql/pack/dosweb/Lifecycle/LifecycleCoverage.ql
+@@ -10,6 +10,7 @@ import dosweb.Flows.EntryGrowthDomain
+ import dosweb.Growth.RequestMaterializationDomain
+ import FiniteQueueDomain
+ import FrameworkLimitDomain
++import RequestReadAllDomain
+ 
+ // Bound coverage includes direct ByteBuffer demand (including exact numeric
+ // clamps) plus exact StreamReadConstraints, HttpObjectAggregator,
+@@ -399,6 +400,8 @@ predicate unresolvedFiniteQueueOffer(Element growth) {
+ }
+ 
+ predicate guardModeledDomain(Element growth) {
++  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
++  or
+   exists(Expr allocation |
+     growth = allocation and
+     EntryGrowthPathDomain::directAllocationSite(allocation)
+@@ -424,6 +427,8 @@ predicate guardModeledDomain(Element growth) {
+ }
+ 
+ predicate boundModeledDomain(Element growth) {
++  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
++  or
+   directByteAllocationModeledDomain(growth)
+   or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+     growth = helper and
+@@ -445,6 +450,8 @@ predicate boundModeledDomain(Element growth) {
+ }
+ 
+ predicate releaseModeledDomain(Element growth) {
++  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
++  or
+   exists(Expr allocation |
+     growth = allocation and
+     EntryGrowthPathDomain::directAllocationSite(allocation)
+@@ -482,12 +489,24 @@ where
+       not reflectiveLifecycleDispatch(growth) and
+       not unmodeledLifecycleDispatch(growth, familyValue) and
+       not familyModeledDomain(growth, familyValue) and
+-      statusValue = "partial" and noteValue = "lifecycle_family_api_domain_unmodeled"
++      statusValue = "partial" and
++      (
++        growth instanceof MethodCall and readAllMaterialization(growth.(MethodCall)) and
++        noteValue = "request_read_all_stream_or_control_not_modeled"
++        or not (growth instanceof MethodCall and readAllMaterialization(growth.(MethodCall))) and
++        noteValue = "lifecycle_family_api_domain_unmodeled"
++      )
+       or
+       not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and
+       not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and
+       familyModeledDomain(growth, familyValue) and
+-      statusValue = "complete" and noteValue = "same_callable_modeled_domain_scanned"
++      statusValue = "complete" and
++      (
++        growth instanceof MethodCall and requestReadAllLocalDomain(growth.(MethodCall)) and
++        noteValue = "request_read_all_same_callable_domain_scanned"
++        or not (growth instanceof MethodCall and requestReadAllLocalDomain(growth.(MethodCall))) and
++        noteValue = "same_callable_modeled_domain_scanned"
++      )
+     )
+   )
+ select
+diff --git a/dosweb/codeql/pack/dosweb/Lifecycle/RequestReadAllDomain.qll b/dosweb/codeql/pack/dosweb/Lifecycle/RequestReadAllDomain.qll
+new file mode 100644
+index 0000000..c8e46ef
+--- /dev/null
++++ b/dosweb/codeql/pack/dosweb/Lifecycle/RequestReadAllDomain.qll
+@@ -0,0 +1,135 @@
++/** Exact local byte-materialization scan domain; never a whole-server bound. */
++import java
++import dosweb.Growth.LoopAmplification
++import dosweb.Growth.RequestMaterializationDomain
++
++/** Reuse the supported API names, but reject length-limited overloads and
++ * source-defined readAllBytes overrides whose behavior is not the JDK API. */
++predicate exactReadAllStreamInput(MethodCall call, Expr input) {
++  call.getMethod().hasQualifiedName("java.io", "InputStream", "readAllBytes") and
++  call.getNumArgument() = 0 and input = call.getQualifier()
++  or
++  call.getMethod().hasQualifiedName("cn.hutool.core.io", "IoUtil", "readBytes") and
++  call.getNumArgument() = 1 and input = call.getArgument(0)
++  or
++  call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray") and
++  call.getNumArgument() = 1 and input = call.getArgument(0)
++  or
++  call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray") and
++  call.getNumArgument() = 1 and input = call.getArgument(0)
++}
++
++/** The stream expression must be the exact getter of the unchanged request
++ * parameter. In particular, a wrapper/cap/local unrelated stream is not that
++ * stream merely because its class is an InputStream. */
++predicate exactReadAllRequest(
++  MethodCall call, MethodCall getter, Parameter request
++) {
++  exactReadAllStreamInput(call, getter) and
++  getter.getEnclosingCallable() = call.getEnclosingCallable() and
++  request.getCallable() = call.getEnclosingCallable() and
++  request.getType().(RefType).hasQualifiedName(
++    ["javax.servlet.http", "jakarta.servlet.http"], "HttpServletRequest"
++  ) and
++  getter.getMethod().hasQualifiedName(
++    ["javax.servlet.http", "jakarta.servlet.http", "javax.servlet", "jakarta.servlet"],
++    ["HttpServletRequest", "ServletRequest"], "getInputStream"
++  ) and getter.getNumArgument() = 0 and
++  getter.getQualifier().(VarAccess).getVariable() = request and
++  not exists(request.getAnAssignedValue()) and
++  (
++    exists(Method method |
++      method = call.getEnclosingCallable() and p0AttackerParameter(method, request)
++    )
++    or requestWrapperConstructorStream(getter, request)
++  )
++}
++
++/** Unsupported control or hidden computation must keep local coverage open.
++ * This is deliberately a closed syntax subset, not an absence heuristic for
++ * methods named guard/bound/close. */
++predicate readAllHasUnmodeledControl(Callable owner) {
++  exists(Stmt control |
++    control.getEnclosingCallable() = owner and
++    (control instanceof IfStmt or control instanceof LoopStmt or
++     control instanceof SwitchStmt or control instanceof TryStmt or
++     control instanceof SynchronizedStmt or control instanceof ThrowStmt or
++     control instanceof AssertStmt)
++  )
++  or exists(ConditionalExpr conditional | conditional.getEnclosingCallable() = owner)
++  or exists(LambdaExpr lambda | lambda.getEnclosingCallable() = owner)
++}
++
++predicate readAllMappedMethod(Method method) {
++  exists(Annotation mapping |
++    mapping = method.getAnAnnotation() and
++    mapping.getType().hasQualifiedName(
++      "org.springframework.web.bind.annotation",
++      ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping"]
++    )
++  )
++  or method.getName() = ["service", "doGet", "doPost", "doPut", "doDelete", "doPatch"] and
++     method.getDeclaringType().getASupertype*().hasQualifiedName(
++       ["javax.servlet.http", "jakarta.servlet.http"], "HttpServlet"
++     )
++}
++
++/** A constructor is admitted only through direct, straight-line, unchanged
++ * request forwarding at every source call site. A guard in a caller cannot
++ * disappear just because the materialization sits in its callee constructor. */
++predicate readAllPlainWrapperCall(ClassInstanceExpr call, Constructor target) {
++  call.getConstructor() = target and call.getNumArgument() = 1 and
++  exists(Method caller, Parameter parameter |
++    caller = call.getEnclosingCallable() and readAllMappedMethod(caller) and
++    parameter = caller.getParameter(0) and caller.getNumberOfParameters() = 1 and
++    httpServletRequestParameter(parameter) and
++    not exists(parameter.getAnAssignedValue()) and
++    call.getArgument(0).(VarAccess).getVariable() = parameter and
++    not readAllHasUnmodeledControl(caller) and
++    not exists(MethodCall other | other.getEnclosingCallable() = caller) and
++    not exists(ConstructorCall other |
++      other.getEnclosingCallable() = caller and other != call
++    )
++  )
++}
++
++predicate readAllOwnerAdmitted(Callable owner) {
++  owner instanceof Method and readAllMappedMethod(owner.(Method))
++  or exists(Constructor target |
++    owner = target and httpServletRequestWrapperType(target.getDeclaringType()) and
++    exists(ClassInstanceExpr call | readAllPlainWrapperCall(call, target)) and
++    not exists(ConstructorCall other |
++      other.getConstructor() = target and
++      not (other instanceof ClassInstanceExpr and
++           readAllPlainWrapperCall(other.(ClassInstanceExpr), target))
++    )
++  )
++}
++
++/** Only the known read-all/getter computation, local storage, and an exact
++ * Servlet wrapper super call are closed. Extra calls/allocations stay partial.
++ * Closing the stream is intentionally not accepted as a heap-byte reduction. */
++predicate requestReadAllLocalDomain(MethodCall call) {
++  exists(MethodCall getter, Parameter request, Callable owner |
++    exactReadAllRequest(call, getter, request) and
++    owner = call.getEnclosingCallable() and readAllOwnerAdmitted(owner) and
++    not exists(Parameter other |
++      other.getCallable() = owner and other != request and httpServletRequestParameter(other)
++    ) and
++    not readAllHasUnmodeledControl(owner) and
++    not exists(MethodCall other |
++      other.getEnclosingCallable() = owner and other != call and other != getter
++    ) and
++    not exists(ArrayCreationExpr allocation | allocation.getEnclosingCallable() = owner) and
++    not exists(ConstructorCall other |
++      other.getEnclosingCallable() = owner and
++      not (
++        other.callsSuper() and
++        other.getConstructor().getDeclaringType().hasQualifiedName(
++          ["javax.servlet.http", "jakarta.servlet.http"], "HttpServletRequestWrapper"
++        ) and other.getNumArgument() = 1 and
++        other.getArgument(0).(VarAccess).getVariable() = request
++      )
++    )
++  )
++}
+diff --git a/dosweb/production.py b/dosweb/production.py
+index f52f4e6..d51b69d 100644
+--- a/dosweb/production.py
++++ b/dosweb/production.py
+@@ -56,6 +56,7 @@ from dosweb.entries.coverage import registration_coverage_pattern_id
+ from dosweb.entries.jaxrs_source import augment_source_backed_jaxrs_entries
+ from dosweb.entries.normalize import normalize_entry_rows, normalize_framework_coverage, normalize_gap_entry_rows
+ from dosweb.errors import AnalyzerError
++from dosweb.conclude.assertions import AssertionEvaluation
+ from dosweb.entries.webxml import resolve_webxml_servlet_candidates, validate_descriptor_coverage
+ from dosweb.flows.models import FlowProof, expression_binds_demand, normalize_flow_rows
+ from dosweb.flows.verify import VerifiedFlow, verify_flow
+@@ -107,13 +108,13 @@ _IMPLEMENTATION_VERSIONS: Final = {
+     stage: (
+         "production-v2.8-open-world-maturation-growth-v45"
+         if stage == "growth"
+-        else "production-v2.8-open-world-maturation-entries-v21"
++        else "production-v2.8-open-world-maturation-entries-v22"
+         if stage == "entries"
+-        else "production-v2.8-open-world-maturation-conclude-v9"
++        else "production-v2.8-open-world-maturation-conclude-v10"
+         if stage == "conclude"
+         else "production-v2.8-open-world-maturation-flows-v25"
+         if stage == "flows"
+-        else f"production-v2.8-open-world-maturation-{stage}-v20"
++        else f"production-v2.8-open-world-maturation-{stage}-v21"
+         if stage == "lifecycle"
+         else f"production-v2.8-open-world-maturation-{stage}-v2"
+     )
+@@ -3876,7 +3877,27 @@ def make_lifecycle_executor(
+                 # A candidate row alone never proves no-match coverage. Only the
+                 # explicit modeled-domain query may make a candidate-free family
+                 # complete, and it is tied to this exact Growth anchor.
+-                if complete:
++                # A line anchor can contain several expressions. Without a
++                # stronger resource identity, an explicit same-anchor gap cannot
++                # be erased by a complete row for its neighbour (or by one
++                # complete candidate). Keep this decision order-independent.
++                incomplete_modeled = [
++                    item for item in modeled
++                    if item.get("coverage_status") != "complete"
++                ]
++                incomplete_local = [
++                    candidate for candidate in local
++                    if candidate.coverage_status != "complete"
++                ]
++                if incomplete_modeled:
++                    status = "partial"
++                    reason = sorted(
++                        str(item.get("coverage_note") or "LIFECYCLE_CFG_OR_RESOURCE_ALIAS_UNPROVEN")
++                        for item in incomplete_modeled
++                    )[0]
++                elif incomplete_local:
++                    status, reason = "partial", "LIFECYCLE_CANDIDATE_PARTIAL"
++                elif complete:
+                     status, reason = "complete", "LIFECYCLE_SAME_CALLABLE_RESOURCE_WITNESS"
+                 elif any(item.get("coverage_status") == "complete" for item in modeled):
+                     status = "complete"
+@@ -4081,6 +4102,38 @@ def _conclusion_amplification_classes(
+     return {pair: by_growth.get(pair[1], "unknown") for pair in eligible_pairs}
+ 
+ 
++def _verified_candidate_refutes_assertion(
++    evaluation: AssertionEvaluation,
++    guard: GuardDecision,
++    bound: BoundDecision,
++    release: ReleaseDecision,
++) -> bool:
++    """An already verified counterexample discharges a growth assertion.
++
++    This does not certify that discovering *other* protections is complete.
++    Keep raw scan gaps intact and never grant this exception to a matched or
++    unknown assertion. Entry/Growth/Flow and candidate-relevant gates remain
++    independently mandatory in the final proof gate.
++    """
++    if evaluation.status != "refuted" or evaluation.unresolved_facts:
++        return False
++    supported = {
++        ("assertion_1", "A1_EFFECTIVE_GUARD"): guard,
++        ("assertion_1", "A1_EFFECTIVE_BOUND"): bound,
++        ("assertion_2", "A2_EFFECTIVE_BOUND"): bound,
++        ("assertion_2", "A2_EFFECTIVE_SYNCHRONOUS_RELEASE"): release,
++    }
++    if len(evaluation.reason_codes) != 1:
++        return False
++    decision = supported.get((evaluation.assertion, evaluation.reason_codes[0]))
++    if decision is None or decision.status != "effective" or decision.unresolved_facts:
++        return False
++    if decision is release and release.classification == "potential_async":
++        return False
++    evidence = set(decision.evidence_ids) | set(decision.candidate_ids)
++    return bool(evidence) and evidence.issubset(evaluation.evidence_ids)
++
++
+ def make_conclude_executor() -> Executor:
+     def execute(context: StageContext) -> StageOutput:
+         entries = _load_entries(context)
+@@ -4244,6 +4297,7 @@ def make_conclude_executor() -> Executor:
+                 flow_proven=bool(proven) and len(proven) == len(ordered),
+                 assertion_1_lifecycle_complete=all(
+                     assertion_1.status == "not_applicable"
++                    or _verified_candidate_refutes_assertion(assertion_1, guard, bound, release)
+                     or (
+                         resource_by_path[flow.path_id] is not None
+                         and resource_by_path[flow.path_id].status
+@@ -4257,6 +4311,7 @@ def make_conclude_executor() -> Executor:
+                 ),
+                 assertion_2_lifecycle_complete=all(
+                     assertion_2.status == "not_applicable"
++                    or _verified_candidate_refutes_assertion(assertion_2, guard, bound, release)
+                     or (
+                         resource_by_path[flow.path_id] is not None
+                         and resource_by_path[flow.path_id].status
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/fixture/semantics/MaterializationFixture.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/fixture/semantics/MaterializationFixture.java
+new file mode 100644
+index 0000000..4ce6e65
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/fixture/semantics/MaterializationFixture.java
+@@ -0,0 +1,97 @@
++package fixture.semantics;
++import java.io.*;
++import javax.servlet.http.*;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.util.StreamUtils;
++
++public class MaterializationFixture {
++    @PostMapping("/plain")
++    public byte[] plain(HttpServletRequest request) throws IOException {
++        return request.getInputStream().readAllBytes(); // CASE:spring-plain
++    }
++    @PostMapping("/library")
++    public byte[] library(HttpServletRequest request) throws IOException {
++        return StreamUtils.copyToByteArray(request.getInputStream()); // CASE:spring-library
++    }
++    @PostMapping("/wrapped")
++    public Object wrapper(HttpServletRequest request) throws IOException {
++        return new BodyWrapper(request);
++    }
++    @PostMapping("/conditional")
++    public byte[] conditional(HttpServletRequest request) throws IOException {
++        if (request.getContentLengthLong() > 1024) return new byte[0];
++        return request.getInputStream().readAllBytes(); // CASE:conditional
++    }
++    @PostMapping("/helper")
++    public byte[] helper(HttpServletRequest request) throws IOException {
++        check(request);
++        return request.getInputStream().readAllBytes(); // CASE:helper
++    }
++    private static void check(HttpServletRequest request) throws IOException {
++        if (request.getContentLengthLong() > 1024) throw new IOException();
++    }
++    @PostMapping("/limited")
++    public byte[] limited(HttpServletRequest request) throws IOException {
++        return new LimitedStream(request.getInputStream()).readAllBytes(); // CASE:limited
++    }
++    @PostMapping("/local")
++    public byte[] local(HttpServletRequest request) throws IOException {
++        ByteArrayInputStream local = new ByteArrayInputStream(new byte[8]);
++        return local.readAllBytes(); // CASE:local
++    }
++    @PostMapping("/caller-guarded-wrapper")
++    public Object callerGuardedWrapper(HttpServletRequest request) throws IOException {
++        if (request.getContentLengthLong() > 1024) return null;
++        return new CallerGuardedWrapper(request);
++    }
++    @PostMapping("/guarded-wrapper")
++    public Object guardedWrapper(HttpServletRequest request) throws IOException {
++        return new GuardedWrapper(request);
++    }
++    @PostMapping("/closed")
++    public byte[] closed(HttpServletRequest request) throws IOException {
++        byte[] body = request.getInputStream().readAllBytes(); // CASE:closed
++        request.getInputStream().close();
++        return body;
++    }
++    @PostMapping("/reassigned")
++    public byte[] reassigned(HttpServletRequest request, HttpServletRequest other) throws IOException {
++        request = other;
++        return request.getInputStream().readAllBytes(); // CASE:reassigned
++    }
++}
++class BodyWrapper extends HttpServletRequestWrapper {
++    final byte[] body;
++    BodyWrapper(HttpServletRequest request) throws IOException {
++        super(request);
++        body = request.getInputStream().readAllBytes(); // CASE:wrapper
++    }
++}
++class GuardedWrapper extends HttpServletRequestWrapper {
++    final byte[] body;
++    GuardedWrapper(HttpServletRequest request) throws IOException {
++        super(request);
++        if (request.getContentLengthLong() > 1024) throw new IOException();
++        body = request.getInputStream().readAllBytes(); // CASE:guarded-wrapper
++    }
++}
++class LimitedStream extends FilterInputStream {
++    LimitedStream(InputStream input) { super(input); }
++    @Override public byte[] readAllBytes() throws IOException { return new byte[1]; }
++}
++
++class PlainServlet extends HttpServlet {
++    @Override public void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
++        byte[] body = request.getInputStream().readAllBytes(); // CASE:plain
++    }
++    @Override public void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
++        byte[] body = StreamUtils.copyToByteArray(request.getInputStream()); // CASE:library
++    }
++}
++class CallerGuardedWrapper extends HttpServletRequestWrapper {
++    final byte[] body;
++    CallerGuardedWrapper(HttpServletRequest request) throws IOException {
++        super(request);
++        body = request.getInputStream().readAllBytes(); // CASE:caller-guarded-wrapper
++    }
++}
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServlet.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServlet.java
+new file mode 100644
+index 0000000..87991b4
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServlet.java
+@@ -0,0 +1,5 @@
++package javax.servlet.http;
++public class HttpServlet {
++    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {}
++    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {}
++}
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequest.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequest.java
+new file mode 100644
+index 0000000..830188a
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequest.java
+@@ -0,0 +1,6 @@
++package javax.servlet.http;
++import java.io.InputStream;
++public interface HttpServletRequest {
++    InputStream getInputStream() throws java.io.IOException;
++    long getContentLengthLong();
++}
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequestWrapper.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequestWrapper.java
+new file mode 100644
+index 0000000..c36a401
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletRequestWrapper.java
+@@ -0,0 +1,8 @@
++package javax.servlet.http;
++import java.io.InputStream;
++public class HttpServletRequestWrapper implements HttpServletRequest {
++    private final HttpServletRequest delegate;
++    public HttpServletRequestWrapper(HttpServletRequest delegate) { this.delegate = delegate; }
++    public InputStream getInputStream() throws java.io.IOException { return delegate.getInputStream(); }
++    public long getContentLengthLong() { return delegate.getContentLengthLong(); }
++}
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletResponse.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletResponse.java
+new file mode 100644
+index 0000000..b381261
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/javax/servlet/http/HttpServletResponse.java
+@@ -0,0 +1,2 @@
++package javax.servlet.http;
++public interface HttpServletResponse {}
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/util/StreamUtils.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/util/StreamUtils.java
+new file mode 100644
+index 0000000..5e4eb5d
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/util/StreamUtils.java
+@@ -0,0 +1,5 @@
++package org.springframework.util;
++import java.io.*;
++public final class StreamUtils {
++    public static byte[] copyToByteArray(InputStream input) throws IOException { return input.readAllBytes(); }
++}
+diff --git a/tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/web/bind/annotation/PostMapping.java b/tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/web/bind/annotation/PostMapping.java
+new file mode 100644
+index 0000000..d9562a9
+--- /dev/null
++++ b/tests/fixtures/semantic_materialization_coverage/src/main/java/org/springframework/web/bind/annotation/PostMapping.java
+@@ -0,0 +1,4 @@
++package org.springframework.web.bind.annotation;
++import java.lang.annotation.*;
++@Retention(RetentionPolicy.RUNTIME) @Target(ElementType.METHOD)
++public @interface PostMapping { String value(); }
+diff --git a/tests/support/mock_deepseek.py b/tests/support/mock_deepseek.py
+index 511b3b2..404799c 100644
+--- a/tests/support/mock_deepseek.py
++++ b/tests/support/mock_deepseek.py
+@@ -160,6 +160,17 @@ def growth_yes_from_slice(request: dict[str, object]) -> dict[str, object]:
+             semantic["value_space"]["fact_id"],
+             semantic["retention"]["fact_id"],
+             semantic["amplification"]["fact_id"],
++            # The strict production contract now requires these same-flow
++            # citations as well. The scripted provider must not omit available
++            # evidence; no production schema or verification gate is changed.
++            *[
++                fact["fact_id"] for fact in facts
++                if isinstance(fact, dict)
++                and fact.get("kind") in {
++                    "known_limit_location", "field_identity", "escape_scope", "loop_multiplicity",
++                }
++                and fact.get("value_ref") == flows[0]["fact_id"]
++            ],
+         ],
+         "contract_status": "dos_relevant",
+         "rejection_reason": "none",
+diff --git a/tests/test_production.py b/tests/test_production.py
+index 63db0a1..93146b9 100644
+--- a/tests/test_production.py
++++ b/tests/test_production.py
+@@ -6136,7 +6136,7 @@ public class ServiceApplication extends Application<Object> {
+         )
+         self.assertEqual(  # noqa: SLF001
+             production._IMPLEMENTATION_VERSIONS["entries"],
+-            "production-v2.8-open-world-maturation-entries-v21",
++            "production-v2.8-open-world-maturation-entries-v22",
+         )
+         self.assertEqual(  # noqa: SLF001
+             production._IMPLEMENTATION_VERSIONS["growth"],
+@@ -6144,11 +6144,11 @@ public class ServiceApplication extends Application<Object> {
+         )
+         self.assertEqual(  # noqa: SLF001
+             production._IMPLEMENTATION_VERSIONS["lifecycle"],
+-            "production-v2.8-open-world-maturation-lifecycle-v20",
++            "production-v2.8-open-world-maturation-lifecycle-v21",
+         )
+         self.assertEqual(  # noqa: SLF001
+             production._IMPLEMENTATION_VERSIONS["conclude"],
+-            "production-v2.8-open-world-maturation-conclude-v9",
++            "production-v2.8-open-world-maturation-conclude-v10",
+         )
+ 
+     def test_growth_v31_stage_manifest_cannot_resume_under_v32(self) -> None:
+@@ -6185,7 +6185,7 @@ public class ServiceApplication extends Application<Object> {
+     def test_candidate_link_schema_hardening_invalidates_pre_fix_conclude_resume(self) -> None:
+         self.assertEqual(  # noqa: SLF001
+             production._IMPLEMENTATION_VERSIONS["conclude"],
+-            "production-v2.8-open-world-maturation-conclude-v9",
++            "production-v2.8-open-world-maturation-conclude-v10",
+         )
+ 
+     def test_only_formal_eligible_candidate_is_gap_free_for_positive_gate(self) -> None:
+diff --git a/tests/test_semantic_materialization_coverage.py b/tests/test_semantic_materialization_coverage.py
+new file mode 100644
+index 0000000..620d5e1
+--- /dev/null
++++ b/tests/test_semantic_materialization_coverage.py
+@@ -0,0 +1,85 @@
++"""Real production CodeQL on repository-owned Java; no target execution."""
++from __future__ import annotations
++import hashlib
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import time
++
++import pytest
++from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query, validate_database
++from tests.test_codeql_hsweb_entry_security import _codeql_wrapper
++
++ROOT = Path(__file__).resolve().parents[1]
++FIXTURE = ROOT / "tests/fixtures/semantic_materialization_coverage/src/main/java"
++RUN = os.environ.get("DOSWEB_RUN_CODEQL_FIXTURES") == "1"
++pytestmark = pytest.mark.skipif(not RUN, reason="explicit self-owned CodeQL fixture opt-in")
++
++@pytest.fixture(scope="module")
++def extracted():
++    codeql, javac = shutil.which("codeql"), shutil.which("javac")
++    assert codeql and javac, "requested real-source validation requires CodeQL and javac"
++    selected = os.environ.get("DOSWEB_SEMANTIC_QA_OUTPUT")
++    holder = None
++    if selected:
++        output = Path(selected).resolve(); output.mkdir(parents=True, exist_ok=False)
++    else:
++        holder = tempfile.TemporaryDirectory(prefix="dosweb-semantic-source-")
++        output = Path(holder.name)
++    source = output / "source"
++    shutil.copytree(FIXTURE, source)
++    original = {str(p.relative_to(FIXTURE)): hashlib.sha256(p.read_bytes()).hexdigest() for p in FIXTURE.rglob("*.java")}
++    classes = output / "classes"; classes.mkdir()
++    db = output / "database"
++    command = [codeql, "database", "create", str(db), "--language=java", f"--source-root={source}",
++        f"--command={javac} -d {classes} " + " ".join(str(p.relative_to(source)) for p in sorted(source.rglob("*.java")))]
++    started = time.monotonic()
++    compiled = subprocess.run(command, cwd=source, text=True, capture_output=True, timeout=180)
++    (output / "database-build.txt").write_text(compiled.stdout + compiled.stderr)
++    assert compiled.returncode == 0, compiled.stderr[-4000:]
++    database = validate_database(db)
++    manifest = {"source_hashes": original, "queries": [], "source_kind": "real_source_codeql", "target_program_executed": False}
++    rows = {}
++    wrapper = _codeql_wrapper(output)
++    for relative, kind in (
++        ("Growth/InputMaterialization.ql", "growth"),
++        ("Lifecycle/LifecycleCoverage.ql", "lifecycle_coverage"),
++        ("Lifecycle/SynchronousReleaseCandidates.ql", "release"),
++    ):
++        query = ROOT / "dosweb/codeql/pack/dosweb" / relative
++        t = time.monotonic()
++        result = run_query(query, database, output / query.stem, codeql_binary=str(wrapper), timeout_seconds=600)
++        rows[kind] = decode_bqrs_json(kind, json.loads(result.decoded_path.read_text()), DecodeSource(database.source_root, result.query_sha256))
++        manifest["queries"].append({"query": relative, "sha256":result.query_sha256,"seconds":time.monotonic()-t,"rows":len(rows[kind])})
++        (output / (kind + ".json")).write_text(json.dumps(rows[kind], indent=2))
++        (output / "run-manifest.json").write_text(json.dumps(manifest,indent=2))
++    assert original == {str(p.relative_to(FIXTURE)):hashlib.sha256(p.read_bytes()).hexdigest() for p in FIXTURE.rglob("*.java")}
++    lines=(source/"fixture/semantics/MaterializationFixture.java").read_text().splitlines()
++    anchors={line.split("CASE:",1)[1].strip():i for i,line in enumerate(lines,1) if "CASE:" in line}
++    manifest["seconds"]=time.monotonic()-started
++    (output/"run-manifest.json").write_text(json.dumps(manifest,indent=2))
++    yield rows, anchors
++    if holder: holder.cleanup()
++
++@pytest.mark.parametrize("case", ["plain", "library", "wrapper"])
++def test_exact_straight_line_request_read_has_scanned_local_families(extracted,case):
++    rows, anchors = extracted
++    growth=[r for r in rows['growth'] if r['site_start_line']==anchors[case] and r['site_file'].endswith('MaterializationFixture.java')]
++    assert growth and all(r['coverage_status']=='complete' for r in growth)
++    coverage=[r for r in rows['lifecycle_coverage'] if r['anchor_start_line']==anchors[case] and r['anchor_file'].endswith('MaterializationFixture.java')]
++    assert len(coverage)==3 and {r['family'] for r in coverage}=={'guard','bound','release'}
++    assert all(r['coverage_status']=='complete' for r in coverage), coverage
++
++@pytest.mark.parametrize("case", ["conditional", "helper", "limited", "local", "guarded-wrapper", "closed", "reassigned", "spring-plain", "spring-library", "caller-guarded-wrapper"])
++def test_unmodeled_control_stream_or_effect_does_not_gain_complete_coverage(extracted,case):
++    rows, anchors = extracted
++    coverage=[r for r in rows['lifecycle_coverage'] if r['anchor_start_line']==anchors[case] and r['anchor_file'].endswith('MaterializationFixture.java')]
++    assert coverage, case
++    assert all(r['coverage_status']=='partial' for r in coverage), coverage
++
++def test_closing_request_stream_does_not_release_materialized_heap_bytes(extracted):
++    rows, anchors = extracted
++    assert not [r for r in rows['release'] if r['anchor_start_line']==anchors['closed'] and r['anchor_file'].endswith('MaterializationFixture.java')]
+diff --git a/tests/test_waveb_auth_semantics.py b/tests/test_waveb_auth_semantics.py
+new file mode 100644
+index 0000000..a9131b9
+--- /dev/null
++++ b/tests/test_waveb_auth_semantics.py
+@@ -0,0 +1,150 @@
++"""Actual Java extraction tests of ordered, scoped Spring authorization.
++
++Small source-defined API stubs model the DSL contract, not a running service.
++No target source, credentials, remote models, or Java execution is involved.
++"""
++from __future__ import annotations
++
++import json
++import os
++import shutil
++from pathlib import Path
++
++import pytest
++from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query
++from dosweb.reachability.extract import bind_entry_security_rows
++from dosweb.reachability.models import AuthContract, EntrySecurityFact
++from dosweb.reachability.verify import derive_auth_contract_from_facts, verify_auth_contract
++from tests.support.fixture_database import fixture_database
++from tests.test_codeql_hsweb_entry_security import _codeql_wrapper
++
++ROOT = Path(__file__).resolve().parents[1]
++STUBS = {
++    'org/springframework/context/annotation/Configuration.java': 'package org.springframework.context.annotation; public @interface Configuration {}',
++    'org/springframework/context/annotation/Bean.java': 'package org.springframework.context.annotation; public @interface Bean {}',
++    'org/springframework/context/annotation/Profile.java': 'package org.springframework.context.annotation; public @interface Profile { String[] value(); }',
++    'org/springframework/security/config/annotation/web/configuration/EnableWebSecurity.java': 'package org.springframework.security.config.annotation.web.configuration; public @interface EnableWebSecurity {}',
++    'org/springframework/security/web/SecurityFilterChain.java': 'package org.springframework.security.web; public interface SecurityFilterChain {}',
++    'org/springframework/security/config/Customizer.java': 'package org.springframework.security.config; public interface Customizer<T> { void customize(T value); }',
++    'org/springframework/security/config/annotation/web/configurers/Registry.java': '''package org.springframework.security.config.annotation.web.configurers;
++public class Registry {
++ public Registry requestMatchers(String... patterns) { return this; }
++ public Registry anyRequest() { return this; }
++ public Registry authenticated() { return this; }
++ public Registry permitAll() { return this; }
++ public Registry hasRole(String role) { return this; }
++ public Registry denyAll() { return this; }
++}''',
++    'org/springframework/security/config/annotation/web/builders/HttpSecurity.java': '''package org.springframework.security.config.annotation.web.builders;
++import org.springframework.security.config.Customizer;
++import org.springframework.security.config.annotation.web.configurers.Registry;
++import org.springframework.security.web.SecurityFilterChain;
++public class HttpSecurity {
++ public HttpSecurity authorizeHttpRequests(Customizer<Registry> rules) { return this; }
++ public HttpSecurity securityMatcher(String path) { return this; }
++ public SecurityFilterChain build() { return null; }
++}''',
++    'org/springframework/web/bind/annotation/GetMapping.java': 'package org.springframework.web.bind.annotation; public @interface GetMapping { String[] value(); String[] path() default {}; }',
++    'fixture/auth/Routes.java': '''package fixture.auth;
++import org.springframework.web.bind.annotation.GetMapping;
++public class Routes {
++ @GetMapping("/open/a") public void open() {}
++ @GetMapping("/private/a") public void restricted() {}
++ @GetMapping("/admin/a") public void admin() {}
++}''',
++}
++
++
++def configuration(variant: str) -> str:
++    chain = 'r.requestMatchers("/open/**").permitAll().requestMatchers("/admin/**").hasRole("ADMIN").anyRequest().authenticated()'
++    if variant == 'first_match':
++        chain = 'r.requestMatchers("/**").authenticated().requestMatchers("/open/**").permitAll().anyRequest().authenticated()'
++    if variant == 'dynamic':
++        chain = 'r.requestMatchers(System.getProperty("test.pattern")).permitAll().anyRequest().authenticated()'
++    prefix = 'http.securityMatcher("/limited/**");' if variant == 'scoped' else ''
++    conditional = '@org.springframework.context.annotation.Profile("test")' if variant == 'conditional' else ''
++    extra = '@Bean public SecurityFilterChain second(HttpSecurity http) { return http.build(); }' if variant == 'multiple' else ''
++    return '''package fixture.auth;
++import org.springframework.context.annotation.*;
++import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
++import org.springframework.security.config.annotation.web.builders.HttpSecurity;
++import org.springframework.security.web.SecurityFilterChain;
++@Configuration @EnableWebSecurity
++public class SecurityConfiguration {
++ @Bean CONDITIONAL
++ public SecurityFilterChain chain(HttpSecurity http) {
++   PREFIX
++   http.authorizeHttpRequests(r -> CHAIN);
++   return http.build();
++ }
++ EXTRA
++}'''.replace('CONDITIONAL', conditional).replace('PREFIX', prefix).replace('CHAIN', chain).replace('EXTRA', extra)
++
++
++def extract_rows(tmp_path: Path, variant: str) -> list[dict[str, object]]:
++    source = tmp_path / 'source'
++    files = {**STUBS, 'fixture/auth/SecurityConfiguration.java': configuration(variant)}
++    if variant == 'inherited':
++        # Match the documented split: matcher methods inherited from the base
++        # registry; terminal authorization methods return the registry.
++        files.update({
++            'org/springframework/security/config/annotation/web/AbstractRequestMatcherRegistry.java': """package org.springframework.security.config.annotation.web;
++public abstract class AbstractRequestMatcherRegistry<C> {
++ protected abstract C chain();
++ public C requestMatchers(String... patterns) { return chain(); }
++ public C anyRequest() { return chain(); }
++}""",
++            'org/springframework/security/config/annotation/web/configurers/Registry.java': """package org.springframework.security.config.annotation.web.configurers;
++import org.springframework.security.config.annotation.web.AbstractRequestMatcherRegistry;
++public class Registry extends AbstractRequestMatcherRegistry<AuthorizedUrl> {
++ protected AuthorizedUrl chain() { return new AuthorizedUrl(this); }
++}""",
++            'org/springframework/security/config/annotation/web/configurers/AuthorizedUrl.java': """package org.springframework.security.config.annotation.web.configurers;
++public class AuthorizedUrl {
++ private final Registry registry;
++ public AuthorizedUrl(Registry registry) { this.registry = registry; }
++ public Registry permitAll() { return registry; }
++ public Registry authenticated() { return registry; }
++ public Registry hasRole(String role) { return registry; }
++}""",
++        })
++    for name, text in files.items():
++        p = source / name
++        p.parent.mkdir(parents=True, exist_ok=True)
++        p.write_text(text + '\n', encoding='utf-8')
++    database = fixture_database(str(source))
++    # Override is test-only and used for the frozen-source RED comparison.
++    query = Path(os.environ.get('DOSWEB_AUTH_QUERY_UNDER_TEST', str(ROOT / 'codeql/dosweb/Entries/EntrySecurity.ql')))
++    result = run_query(query, database, tmp_path / 'query', codeql_binary=str(_codeql_wrapper(tmp_path)))
++    rows = decode_bqrs_json('entry_security', json.loads(result.decoded_path.read_text()), DecodeSource(database.source_root, result.query_sha256))
++    evidence = os.environ.get('DOSWEB_AUTH_TEST_EVIDENCE')
++    if evidence:
++        out = Path(evidence)
++        out.mkdir(parents=True, exist_ok=True)
++        (out / (variant + '.json')).write_text(json.dumps({'query_sha256': result.query_sha256, 'rows': rows}, indent=2) + '\n')
++    return rows
++
++
++@pytest.mark.skipif(os.environ.get('DOSWEB_RUN_CODEQL_FIXTURES') != '1' or not shutil.which('codeql') or not shutil.which('javac'), reason='Explicit self-owned Java/CodeQL fixture opt-in required')
++@pytest.mark.parametrize('variant', ['simple', 'first_match', 'inherited', 'scoped', 'dynamic', 'conditional', 'multiple'])
++def test_scoped_ordered_authorization_from_real_java(tmp_path: Path, variant: str) -> None:
++    rows = extract_rows(tmp_path, variant)
++    selected = [r for r in rows if str(r.get('coverage_note', '')).startswith('spring_security_ordered_')]
++    assert selected, 'Fallback must have concrete evidence, not silently disappear'
++    if variant in {'simple', 'first_match', 'inherited'}:
++        complete = [r for r in selected if r['coverage_status'] == 'complete']
++        expected = {'/open/a': 'unauthenticated_filter', '/private/a': 'low_privilege_filter', '/admin/a': 'privileged_filter'}
++        if variant == 'first_match':
++            expected = dict.fromkeys(expected, 'low_privilege_filter')
++        assert {r['route_or_event']: r['value'] for r in complete} == expected
++        for route, value in expected.items():
++            relevant = [r for r in selected if r['route_or_event'] == route]
++            assert len(relevant) == 1
++            entry = {'entry_id': 'entry:fixture', 'route_or_event': route, 'handler': {'callable': relevant[0]['handler_fqn'], 'file': relevant[0]['handler_file'], 'start_line': relevant[0]['handler_start_line']}}
++            facts = bind_entry_security_rows(rows, [entry])
++            contract = derive_auth_contract_from_facts('entry:fixture', facts)
++            assert contract is not None, 'Legacy pattern rows must not conflict with first-match evidence'
++            assert contract.auth_context == {'unauthenticated_filter':'unauthenticated','low_privilege_filter':'low_privilege','privileged_filter':'privileged'}[value]
++    else:
++        assert all(r['coverage_status'] == 'partial' for r in selected)
++        assert not [r for r in rows if r.get('kind') == 'security_filter_chain' and r.get('coverage_status') == 'complete'], 'Unsupported chain cannot leak legacy complete rows'
+diff --git a/tests/test_waveb_coverage_conflicts.py b/tests/test_waveb_coverage_conflicts.py
+new file mode 100644
+index 0000000..481faeb
+--- /dev/null
++++ b/tests/test_waveb_coverage_conflicts.py
+@@ -0,0 +1,39 @@
++"""A partial row at a colliding line anchor must survive production selection."""
++import json
++import pytest
++import dosweb.production as production
++from tests.test_fse_offline_e2e import run_synthetic_case
++
++
++@pytest.mark.parametrize('family', ['guard', 'bound', 'release'])
++@pytest.mark.parametrize('gap_first', [False, True])
++def test_partial_domain_row_cannot_be_overruled_by_complete_row(tmp_path, monkeypatch, family, gap_first):
++    original = production._run_codeql_family
++    def add_gap(*args, **kwargs):
++        rows = original(*args, **kwargs)
++        if args[2] == 'lifecycle':
++            row = next(r for r in rows if r.get('query_name') == 'lifecycle_coverage' and r['family'] == family)
++            partial = {**row, 'coverage_status': 'partial', 'coverage_note': 'synthetic_same_line_unmodeled_resource'}
++            rows = [partial, *rows] if gap_first else [*rows, partial]
++        return rows
++    monkeypatch.setattr(production, '_run_codeql_family', add_gap)
++    # Isolate the Guard/Bound/Release consumer, with no independent task-population proof.
++    result, output, *_ = run_synthetic_case(tmp_path, 'off')
++    assert result['status'] == 'completed'
++    coverage = [json.loads(l) for l in (output/'lifecycle_coverage.jsonl').read_text().splitlines()]
++    assert next(r for r in coverage if r['family'] == family)['status'] == 'partial'
++    finding = json.loads((output/'static_findings.jsonl').read_text())
++    assert finding['verdict'] == 'static_unknown'
++
++
++def test_unrelated_anchor_gap_does_not_pollute_current_resource(tmp_path, monkeypatch):
++    original = production._run_codeql_family
++    def add_gap(*args, **kwargs):
++        rows = original(*args, **kwargs)
++        if args[2] == 'lifecycle':
++            row = next(r for r in rows if r.get('query_name') == 'lifecycle_coverage')
++            rows = [*rows, {**row, 'anchor_start_line':999, 'coverage_status':'partial', 'coverage_note':'unrelated_fixture_anchor'}]
++        return rows
++    monkeypatch.setattr(production,'_run_codeql_family',add_gap)
++    _, output, *_ = run_synthetic_case(tmp_path,'full')
++    assert json.loads((output/'static_findings.jsonl').read_text())['verdict'] == 'bounded_under_modeled_assumptions'
+diff --git a/tests/test_waveb_custom_matcher.py b/tests/test_waveb_custom_matcher.py
+new file mode 100644
+index 0000000..4def000
+--- /dev/null
++++ b/tests/test_waveb_custom_matcher.py
+@@ -0,0 +1,34 @@
++"""Do not lend default exclusion semantics to a custom PathMatcher."""
++import json
++import os
++import shutil
++from pathlib import Path
++import pytest
++from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query
++from tests.support.fixture_database import fixture_database
++from tests.test_codeql_hsweb_entry_security import _codeql_wrapper
++from tests.test_waveb_mvc_field_semantics import source_tree
++
++ROOT = Path(__file__).resolve().parents[1]
++
++@pytest.mark.skipif(os.environ.get('DOSWEB_RUN_CODEQL_FIXTURES') != '1' or not shutil.which('codeql') or not shutil.which('javac'), reason='Explicit self-owned Java/CodeQL fixture opt-in required')
++@pytest.mark.parametrize('after', [False, True])
++def test_custom_matcher_before_or_after_exclusion_retains_unknown(tmp_path, after):
++    source = source_tree(tmp_path, 'initialized')
++    p = source/'fixture/field/FieldRegistration.java';text=p.read_text()
++    old = 'registry.addInterceptor(gate).excludePathPatterns("/open/**")'
++    new = old + '.pathMatcher(new NeverMatcher())' if after else 'registry.addInterceptor(gate).pathMatcher(new NeverMatcher()).excludePathPatterns("/open/**")'
++    assert old in text
++    p.write_text(text.replace(old,new)+'''\nclass NeverMatcher implements org.springframework.util.PathMatcher {
++ public boolean match(String pattern, String path) { return false; }
++}\n''')
++    p=source/'org/springframework/util/PathMatcher.java';p.parent.mkdir(parents=True,exist_ok=True)
++    p.write_text('package org.springframework.util; public interface PathMatcher { boolean match(String pattern,String path); }\n')
++    p=source/'org/springframework/web/servlet/config/annotation/InterceptorRegistration.java';text=p.read_text();i=text.rindex('}')
++    p.write_text(text[:i]+'public InterceptorRegistration pathMatcher(org.springframework.util.PathMatcher matcher) { return this; }\n'+text[i:])
++    database=fixture_database(str(source))
++    result=run_query(ROOT/'codeql/dosweb/Entries/EntrySecurity.ql',database,tmp_path/'query',codeql_binary=str(_codeql_wrapper(tmp_path)),timeout_seconds=600)
++    rows=decode_bqrs_json('entry_security',json.loads(result.decoded_path.read_text()),DecodeSource(database.source_root,result.query_sha256))
++    local=[r for r in rows if r['route_or_event']=='/open/**']
++    assert local and all(r['coverage_status']=='partial' for r in local)
++    assert not [r for r in local if r['value']=='unauthenticated_filter']
+diff --git a/tests/test_waveb_mvc_field_semantics.py b/tests/test_waveb_mvc_field_semantics.py
+new file mode 100644
+index 0000000..65f60ad
+--- /dev/null
++++ b/tests/test_waveb_mvc_field_semantics.py
+@@ -0,0 +1,83 @@
++"""Static source regressions for exact MVC field-registration ownership."""
++from __future__ import annotations
++import json
++import os
++import shutil
++from pathlib import Path
++import pytest
++from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query
++from tests.support.fixture_database import fixture_database
++from tests.test_codeql_hsweb_entry_security import _codeql_wrapper
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def source_tree(root: Path, variant: str) -> Path:
++    source = root / 'source'
++    fixture = ROOT / 'tests/fixtures/spring_mvc_interceptor_security/src/main/java'
++    for p in fixture.rglob('*.java'):
++        if p.parts[-3:-1] == ('fixture', 'interceptor'):
++            continue
++        target = source / p.relative_to(fixture)
++        target.parent.mkdir(parents=True, exist_ok=True)
++        target.write_bytes(p.read_bytes())
++    stubs = {
++        'org/springframework/context/annotation/Configuration.java': 'package org.springframework.context.annotation; public @interface Configuration {}',
++        'org/springframework/stereotype/Component.java': 'package org.springframework.stereotype; public @interface Component {}',
++        'org/springframework/beans/factory/annotation/Autowired.java': 'package org.springframework.beans.factory.annotation; public @interface Autowired { boolean required() default true; }',
++    }
++    field = 'private final TokenGate gate = new TokenGate();'
++    extra = ''
++    statement = 'registry.addInterceptor(gate).excludePathPatterns("/open/**");'
++    if variant == 'injected':
++        field = '@Autowired private TokenGate gate;'
++    elif variant == 'ambiguous':
++        field = '@Autowired private HandlerInterceptor gate;'
++    elif variant == 'reassigned':
++        field = 'private TokenGate gate = new TokenGate();'
++        extra = 'public void replace(TokenGate other) { gate = other; }'
++    elif variant == 'conditional':
++        statement = 'if (Boolean.getBoolean("test.enabled")) { ' + statement + ' }'
++    elif variant == 'other_instance':
++        statement = 'registry.addInterceptor(new FieldRegistration().gate).excludePathPatterns("/open/**");'
++    text = '''package fixture.field;
++import javax.servlet.http.*;
++import org.springframework.web.servlet.HandlerInterceptor;
++import org.springframework.web.servlet.config.annotation.*;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.stereotype.Component;
++import org.springframework.beans.factory.annotation.Autowired;
++@Component final class TokenGate implements HandlerInterceptor {
++ public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
++   if (request.getHeader("session") == null) { response.sendError(401); return false; }
++   return true;
++ }
++}
++@Configuration public class FieldRegistration implements WebMvcConfigurer {
++ FIELD
++ public void addInterceptors(InterceptorRegistry registry) { STATEMENT }
++ EXTRA
++}'''.replace('FIELD',field).replace('STATEMENT',statement).replace('EXTRA',extra)
++    stubs['fixture/field/FieldRegistration.java'] = text
++    for name, content in stubs.items():
++        p = source / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content+'\n')
++    return source
++
++
++@pytest.mark.skipif(os.environ.get('DOSWEB_RUN_CODEQL_FIXTURES') != '1' or not shutil.which('codeql') or not shutil.which('javac'), reason='Explicit self-owned Java/CodeQL fixture opt-in required')
++@pytest.mark.parametrize('variant', ['initialized', 'injected', 'ambiguous', 'reassigned', 'conditional', 'other_instance'])
++def test_mvc_field_registration_from_real_java(tmp_path: Path, variant: str) -> None:
++    source = source_tree(tmp_path, variant)
++    database = fixture_database(str(source))
++    query = Path(os.environ.get('DOSWEB_AUTH_QUERY_UNDER_TEST', str(ROOT/'codeql/dosweb/Entries/EntrySecurity.ql')))
++    result = run_query(query, database, tmp_path/'query', codeql_binary=str(_codeql_wrapper(tmp_path)))
++    rows = decode_bqrs_json('entry_security',json.loads(result.decoded_path.read_text()),DecodeSource(database.source_root,result.query_sha256))
++    evidence = os.environ.get('DOSWEB_AUTH_TEST_EVIDENCE')
++    if evidence:
++        p=Path(evidence);p.mkdir(parents=True,exist_ok=True)
++        (p/('field-'+variant+'.json')).write_text(json.dumps({'query_sha256':result.query_sha256,'rows':rows},indent=2)+'\n')
++    complete=[r for r in rows if r['route_or_event']=='/open/**' and r['value']=='unauthenticated_filter' and r['coverage_status']=='complete']
++    if variant in {'initialized','injected'}:
++        assert len(complete)==1, 'Statically unique same-instance registration must retain its exclusion evidence'
++    else:
++        assert not complete, 'Unproven instance/conditional registration must not create a public fact'
+diff --git a/tests/test_waveb_refutation_coverage.py b/tests/test_waveb_refutation_coverage.py
+new file mode 100644
+index 0000000..b6756cc
+--- /dev/null
++++ b/tests/test_waveb_refutation_coverage.py
+@@ -0,0 +1,42 @@
++"""An existing verified refutation is not a proof of absence of all bounds.
++
++Reuse the canonical production boundary tests; do not fabricate a new verdict.
++Only vary the coverage of discovering additional candidates.
++"""
++from unittest import mock
++import pytest
++import dosweb.production as production
++import tests.test_production_e2e as existing
++
++
++def with_incomplete_scan(monkeypatch, families):
++    make = production.make_conclude_executor
++    def wrapped_factory():
++        execute = make()
++        def wrapped(context):
++            original_records = production._strict_records
++            def records(context, stage, artifact):
++                rows = original_records(context, stage, artifact)
++                if artifact == 'lifecycle_coverage.jsonl':
++                    from dosweb.lifecycle import LifecycleCoverage
++                    return [LifecycleCoverage(r['entry_id'],r['growth_id'],r['path_id'],r['family'],
++                        'partial' if r['family'] in families else r['status'],
++                        'additional_candidate_scan_incomplete' if r['family'] in families else r['reason']).to_dict() for r in rows]
++                return rows
++            with mock.patch.object(production,'_strict_records',side_effect=records):
++                return execute(context)
++        return wrapped
++    monkeypatch.setattr(production,'make_conclude_executor',wrapped_factory)
++
++
++@pytest.mark.parametrize('families', [('guard',), ('bound',), ('guard','bound')])
++def test_verified_refutation_still_requires_exact_entry_but_not_complete_absence_scan(monkeypatch, families):
++    with_incomplete_scan(monkeypatch, families)
++    # Preserves both original assertions: wrong Entry stays unknown; the exact
++    # Entry with a verified bound remains bounded under modeled assumptions.
++    existing.ProductionProofGateE2ETests().test_other_supported_pattern_of_same_registration_kind_cannot_complete_entry()
++
++
++def test_independent_refutation_does_not_erase_candidate_relevant_gap(monkeypatch):
++    with_incomplete_scan(monkeypatch, ('guard','bound','release'))
++    existing.ProductionProofGateE2ETests().test_gap_eligible_effective_bound_is_still_static_unknown()
+diff --git a/tests/test_waveb_registration_escape.py b/tests/test_waveb_registration_escape.py
+new file mode 100644
+index 0000000..16fc007
+--- /dev/null
++++ b/tests/test_waveb_registration_escape.py
+@@ -0,0 +1,40 @@
++"""Static-only control: an escaping registration is not a closed default matcher."""
++import json
++import os
++import shutil
++from pathlib import Path
++import pytest
++from dosweb.codeql import DecodeSource, decode_bqrs_json, run_query
++from tests.support.fixture_database import fixture_database
++from tests.test_codeql_hsweb_entry_security import _codeql_wrapper
++import tests.test_waveb_mvc_field_semantics as helper
++ROOT=Path(__file__).resolve().parents[1]
++
++@pytest.mark.skipif(os.environ.get('DOSWEB_RUN_CODEQL_FIXTURES') != '1' or not shutil.which('codeql') or not shutil.which('javac'), reason='Explicit self-owned Java/CodeQL fixture opt-in required')
++
++def test_registration_passed_to_unknown_helper_cannot_keep_public_exclusion(tmp_path):
++    source=helper.source_tree(tmp_path,'initialized')
++    p=source/'fixture/field/FieldRegistration.java';s=p.read_text()
++    old='registry.addInterceptor(gate).excludePathPatterns("/open/**");'
++    assert old in s
++    s=s.replace(old,'customize(registry.addInterceptor(gate).excludePathPatterns("/open/**"));')
++    i=s.rindex('}')
++    s=s[:i]+''' private static void customize(InterceptorRegistration registration) {
++      registration.pathMatcher(new NeverMatcher());
++    }
++'''+s[i:]+'''\nclass NeverMatcher implements org.springframework.util.PathMatcher {
++ public boolean match(String pattern,String path) { return false; }
++}\n'''
++    p.write_text(s)
++    p=source/'org/springframework/util/PathMatcher.java';p.parent.mkdir(parents=True,exist_ok=True)
++    p.write_text('package org.springframework.util; public interface PathMatcher { boolean match(String pattern,String path); }\n')
++    p=source/'org/springframework/web/servlet/config/annotation/InterceptorRegistration.java';s=p.read_text();i=s.rindex('}')
++    p.write_text(s[:i]+' public InterceptorRegistration pathMatcher(org.springframework.util.PathMatcher matcher) { return this; }\n'+s[i:])
++    database=fixture_database(str(source))
++    result=run_query(Path(os.environ.get('DOSWEB_AUTH_QUERY_UNDER_TEST', str(ROOT/'codeql/dosweb/Entries/EntrySecurity.ql'))),database,tmp_path/'query',codeql_binary=str(_codeql_wrapper(tmp_path)),timeout_seconds=600)
++    rows=decode_bqrs_json('entry_security',json.loads(result.decoded_path.read_text()),DecodeSource(database.source_root,result.query_sha256))
++    complete=[r for r in rows if r.get('route_or_event')=='/open/**' and r.get('value')=='unauthenticated_filter' and r.get('coverage_status')=='complete']
++    (tmp_path/'escaped-registration.json').write_text(json.dumps({'query_sha256':result.query_sha256,'unexpected_complete':complete},indent=2))
++    local=[r for r in rows if r.get('route_or_event')=='/open/**']
++    assert local and all(r['coverage_status']=='partial' for r in local)
++    assert not complete, 'Passing the registration to another method leaves its matcher mutation unresolved'
+diff --git a/tests/test_waveb_scripted_provider_contract.py b/tests/test_waveb_scripted_provider_contract.py
+new file mode 100644
+index 0000000..ced4f3a
+--- /dev/null
++++ b/tests/test_waveb_scripted_provider_contract.py
+@@ -0,0 +1,18 @@
++"""The no-network fixture provider must obey the current production contract."""
++import json
++import pytest
++from dosweb.growth.contracts import bind_provider_growth_contract, validate_contract_static_semantics, validate_provider_growth_contract
++from dosweb.llm.prompts import build_provider_payload
++from tests.support.mock_deepseek import growth_yes_from_slice
++from tests.test_growth_contract_v5 import _large_single_request_slice
++
++@pytest.mark.parametrize('kind', ['input_materialization','allocation'])
++def test_scripted_complete_request_fact_set_preserves_mandatory_citations(kind):
++    slice_ = _large_single_request_slice(sink_kind=kind)
++    payload = build_provider_payload(slice_)
++    request = {'input':[{'content':[{'text':payload.messages[1]['content']}]}]}
++    answer = growth_yes_from_slice(request)
++    contract = bind_provider_growth_contract(validate_provider_growth_contract(answer),slice_,payload.fact_alias_to_original)
++    assert validate_contract_static_semantics(contract,slice_) is contract
++    cited = set(contract.required_static_evidence)
++    assert any(f.kind=='known_limit_location' and f.fact_id in cited for f in slice_.payload.static_facts)
+diff --git a/tests/test_waveb_stage_invalidation.py b/tests/test_waveb_stage_invalidation.py
+new file mode 100644
+index 0000000..c56777a
+--- /dev/null
++++ b/tests/test_waveb_stage_invalidation.py
+@@ -0,0 +1,24 @@
++"""The semantic repair cannot resume an older Auth/coverage stage."""
++import pytest
++import dosweb.production as production
++import tests.test_production as production_helpers
++from dosweb.pipeline import STAGES
++
++@pytest.mark.parametrize('stage,old', [
++    ('entries', 'production-v2.8-open-world-maturation-entries-v21'),
++    ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v20'),
++    ('conclude', 'production-v2.8-open-world-maturation-conclude-v9'),
++])
++def test_pre_repair_cache_invalidates_changed_stage_and_downstream(tmp_path, monkeypatch, stage, old):
++    helper = production_helpers.ProductionFactoryTests()
++    calls = []
++    values = helper._values(tmp_path, allow_remote_llm=True)
++    versions = {**production._IMPLEMENTATION_VERSIONS, stage: old}
++    with monkeypatch.context() as context:
++        context.setattr(production, '_IMPLEMENTATION_VERSIONS', versions)
++        stale = production.build_production_pipeline(values, environ={'DEEPSEEK_API_KEY':'fixture-not-a-key'}, stage_executors=helper._fake_executors(calls))
++        assert stale.run('analyze')['status'] == 'completed'
++    calls.clear()
++    current = production.build_production_pipeline({**values,'resume':True}, environ={'DEEPSEEK_API_KEY':'fixture-not-a-key'}, stage_executors=helper._fake_executors(calls))
++    assert current.run('analyze')['status'] == 'completed'
++    assert calls == list(STAGES)[list(STAGES).index(stage):]

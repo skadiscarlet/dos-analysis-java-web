@@ -6136,7 +6136,7 @@ public class ServiceApplication extends Application<Object> {
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["entries"],
-            "production-v2.8-open-world-maturation-entries-v21",
+            "production-v2.8-open-world-maturation-entries-v22",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["growth"],
@@ -6144,11 +6144,11 @@ public class ServiceApplication extends Application<Object> {
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["lifecycle"],
-            "production-v2.8-open-world-maturation-lifecycle-v20",
+            "production-v2.8-open-world-maturation-lifecycle-v21",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],
-            "production-v2.8-open-world-maturation-conclude-v9",
+            "production-v2.8-open-world-maturation-conclude-v10",
         )
 
     def test_growth_v31_stage_manifest_cannot_resume_under_v32(self) -> None:
@@ -6185,7 +6185,7 @@ public class ServiceApplication extends Application<Object> {
     def test_candidate_link_schema_hardening_invalidates_pre_fix_conclude_resume(self) -> None:
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],
-            "production-v2.8-open-world-maturation-conclude-v9",
+            "production-v2.8-open-world-maturation-conclude-v10",
         )
 
     def test_only_formal_eligible_candidate_is_gap_free_for_positive_gate(self) -> None:

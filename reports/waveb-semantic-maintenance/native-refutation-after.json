@@ -1,0 +1,26 @@
+{
+  "run_status": "completed",
+  "verdict_counts": {
+    "static_unknown": 11,
+    "static_vulnerable": 5,
+    "bounded_under_modeled_assumptions": 1
+  },
+  "stage_changes": [
+    "conclude",
+    "report"
+  ],
+  "scripted_model_calls": 0,
+  "fresh_source_extraction": "retained earlier same-input native pipeline, not rerun",
+  "scope": "self-owned Java fixture; latest conclude/report recomputed from authenticated source/CodeQL stages",
+  "query_pack_hash_before": null,
+  "query_pack_hash_after": null,
+  "wrapper_guard": [
+    "bounded_under_modeled_assumptions"
+  ],
+  "outputs": {
+    "run.json": "30127b69d69a293749a6ab790b749cb4143b81196c6d6e429423a60e20e8f57a",
+    "static_findings.jsonl": "2dd8b323122a4ab74c728fa6c92e04694dc232659c5824933395d2784377a672",
+    "lifecycle_certificates.jsonl": "0364457c20271d502acfb130a64769fcad09fc7b6c6bc658a46bdc0e3ad89d8a",
+    "report.md": "8b9af83ed1c4aa9f11802fcd282b2709d777ffa8967049a98adf268be8352f18"
+  }
+}

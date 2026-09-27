@@ -10,6 +10,7 @@ import dosweb.Flows.EntryGrowthDomain
 import dosweb.Growth.RequestMaterializationDomain
 import FiniteQueueDomain
 import FrameworkLimitDomain
+import RequestReadAllDomain
 
 // Bound coverage includes direct ByteBuffer demand (including exact numeric
 // clamps) plus exact StreamReadConstraints, HttpObjectAggregator,
@@ -399,6 +400,8 @@ predicate unresolvedFiniteQueueOffer(Element growth) {
 }
 
 predicate guardModeledDomain(Element growth) {
+  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
+  or
   exists(Expr allocation |
     growth = allocation and
     EntryGrowthPathDomain::directAllocationSite(allocation)
@@ -424,6 +427,8 @@ predicate guardModeledDomain(Element growth) {
 }
 
 predicate boundModeledDomain(Element growth) {
+  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
+  or
   directByteAllocationModeledDomain(growth)
   or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
     growth = helper and
@@ -445,6 +450,8 @@ predicate boundModeledDomain(Element growth) {
 }
 
 predicate releaseModeledDomain(Element growth) {
+  exists(MethodCall call | growth = call and requestReadAllLocalDomain(call))
+  or
   exists(Expr allocation |
     growth = allocation and
     EntryGrowthPathDomain::directAllocationSite(allocation)
@@ -482,12 +489,24 @@ where
       not reflectiveLifecycleDispatch(growth) and
       not unmodeledLifecycleDispatch(growth, familyValue) and
       not familyModeledDomain(growth, familyValue) and
-      statusValue = "partial" and noteValue = "lifecycle_family_api_domain_unmodeled"
+      statusValue = "partial" and
+      (
+        growth instanceof MethodCall and readAllMaterialization(growth.(MethodCall)) and
+        noteValue = "request_read_all_stream_or_control_not_modeled"
+        or not (growth instanceof MethodCall and readAllMaterialization(growth.(MethodCall))) and
+        noteValue = "lifecycle_family_api_domain_unmodeled"
+      )
       or
       not reflectiveLifecycleDispatch(growth) and not unmodeledLifecycleDispatch(growth, familyValue) and
       not (familyValue = "bound" and unresolvedFiniteQueueOffer(growth)) and
       familyModeledDomain(growth, familyValue) and
-      statusValue = "complete" and noteValue = "same_callable_modeled_domain_scanned"
+      statusValue = "complete" and
+      (
+        growth instanceof MethodCall and requestReadAllLocalDomain(growth.(MethodCall)) and
+        noteValue = "request_read_all_same_callable_domain_scanned"
+        or not (growth instanceof MethodCall and requestReadAllLocalDomain(growth.(MethodCall))) and
+        noteValue = "same_callable_modeled_domain_scanned"
+      )
     )
   )
 select

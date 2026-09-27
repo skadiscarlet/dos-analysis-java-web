@@ -1,0 +1,54 @@
+s.................................. [  1%]
+................................................. [  3%]
+......................................................... [  6%]
+.s................................................s...................................... [ 10%]
+...........s...ss................................................................................................ [ 15%]
+...s...............sssss.........ssssssss....ssssssss.......................... [ 19%]
+......................................................................................ssssssssssssssssss......ssssssssssssssssss............. [ 25%]
+......................................... [ 27%]
+......................................................... [ 30%]
+............................................................................ [ 33%]
+................................................................................................... [ 38%]
+................................................................... [ 41%]
+........................................................................ [ 44%]
+............................................................................................................... [ 49%]
+.........s............................................................................................................................................................. [ 56%]
+........................................................ [ 59%]
+......................................................................................ssss...................... [ 64%]
+................s................................................... [ 67%]
+..................................................ssssssssssss..................s.. [ 71%]
+.......................................................s................ [ 74%]
+............ss........s..........sss................................................................................. [ 80%]
+........................s........................................... [ 83%]
+.........................s............................s............... [ 86%]
+........................................................................ [ 89%]
+........................ssssssssssssss.............................................................................. [ 94%]
+............................................................... [ 97%]
+........sssssss.......ssssssss....s..............s             [100%]
+=============================== warnings summary ===============================
+tests/test_deepseek_client.py::DeepSeekClientTests::test_at_fork_child_closes_inherited_real_flock_descriptor
+  /home/furina/new_tool/dos-analysis-web/.worktrees/waveb-semantic-maintenance-20260927/tests/test_deepseek_client.py:1375: DeprecationWarning: This process (pid=3138514) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_deepseek_client.py::DeepSeekClientTests::test_inherited_locked_thread_lock_is_reset_after_fork
+  /home/furina/new_tool/dos-analysis-web/.worktrees/waveb-semantic-maintenance-20260927/tests/test_deepseek_client.py:991: DeprecationWarning: This process (pid=3138514) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[capacity]
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/waveb-semantic-maintenance-20260927/tests/test_llm_cache_paths.py:838: DeprecationWarning: This process (pid=3138514) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-capacity]
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/waveb-semantic-maintenance-20260927/tests/test_llm_cache_paths.py:963: DeprecationWarning: This process (pid=3138514) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[duplicate]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[entry]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[temporary]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/waveb-semantic-maintenance-20260927/tests/test_llm_cache_paths.py:1492: DeprecationWarning: This process (pid=3138514) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2076 passed, 124 skipped, 9 warnings, 1100 subtests passed in 116.15s (0:01:56)
