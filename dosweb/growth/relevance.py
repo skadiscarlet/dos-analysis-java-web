@@ -57,6 +57,12 @@ _SERVER_CONTROLLED_ALLOCATION_NOTES = frozenset(
         "direct_allocation:server_controlled_fixed_size",
     }
 )
+_DERIVED_DIMENSION_NOTE = (
+    "derived_dimension_materialization:uncapped_after_derivation"
+)
+_DERIVED_DIMENSION_FLOW_REASON = (
+    "unique_bounded_call_path_derived_dimension_dataflow"
+)
 
 
 @dataclass(frozen=True)
@@ -263,6 +269,7 @@ def evaluate_candidate_relevance(
                     "recognized_armeria_request_aggregation",
                     "request_stream_origin_proven",
                     "recognized_request_wrapper_string_materialization",
+                    "servlet_request_body_helper_then_structured_parser",
                 )
             )
         )
@@ -292,8 +299,13 @@ def evaluate_candidate_relevance(
         )
 
     if candidate.kind == "direct_allocation":
-        request_sized = "request_derived_size" in note_text or _demand_matches_entry(
-            entry, candidate
+        request_sized = (
+            "request_derived_size" in note_text
+            or _demand_matches_entry(entry, candidate)
+            or (
+                _DERIVED_DIMENSION_NOTE in notes
+                and _DERIVED_DIMENSION_FLOW_REASON in link.reason_codes
+            )
         )
         if request_sized and not association_partial:
             return _partial_or_eligible(

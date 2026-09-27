@@ -101,6 +101,49 @@ class GrowthRelevanceTests(unittest.TestCase):
         self.assertEqual("large_single_request", self._decision(complete).amplification_class)
         self.assertEqual("dos_relevant_partial", self._decision(partial).status)
 
+    def test_uncapped_derived_dimension_requires_complete_dataflow_link(self) -> None:
+        candidate = self._candidate(
+            kind="direct_allocation",
+            operation="fixture.Writer.encode",
+            demand_name="derivedWidth",
+            demand_role="size",
+            escape_scope="request",
+            notes=("derived_dimension_materialization:uncapped_after_derivation",),
+        )
+        proven = CandidateEntryLink.create(
+            candidate.growth_id,
+            self.entry.entry_id,
+            "complete",
+            (candidate.growth_id, self.entry.entry_id),
+            ("unique_bounded_call_path_derived_dimension_dataflow",),
+        )
+        callgraph_only = CandidateEntryLink.create(
+            candidate.growth_id,
+            self.entry.entry_id,
+            "complete",
+            (candidate.growth_id, self.entry.entry_id),
+            ("same_handler_callgraph",),
+        )
+
+        proven_decision = evaluate_candidate_relevance(
+            self.entry, candidate, (proven,)
+        )
+        callgraph_decision = evaluate_candidate_relevance(
+            self.entry, candidate, (callgraph_only,)
+        )
+
+        self.assertEqual("contract_eligible", proven_decision.status)
+        self.assertEqual("large_single_request", proven_decision.amplification_class)
+        self.assertIn(
+            "RELEVANCE_ATTACKER_SIZED_ALLOCATION",
+            proven_decision.reason_codes,
+        )
+        self.assertEqual("unresolved", callgraph_decision.status)
+        self.assertIn(
+            "RELEVANCE_ALLOCATION_SIZE_ORIGIN_UNKNOWN",
+            callgraph_decision.reason_codes,
+        )
+
     def test_server_sized_array_is_rejected(self) -> None:
         candidate = self._candidate(
             kind="direct_allocation",
@@ -283,6 +326,37 @@ class GrowthRelevanceTests(unittest.TestCase):
                     notes=(note,),
                 )
                 self.assertEqual("contract_eligible", self._decision(candidate).status)
+
+    def test_servlet_body_helper_then_structured_parser_is_request_materialization(self) -> None:
+        candidate = self._candidate(
+            kind="input_materialization",
+            operation="fixture.ServletUtils.getRequestString",
+            demand_name="request",
+            demand_role="size",
+            escape_scope="request",
+            notes=("servlet_request_body_helper_then_structured_parser",),
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertEqual("contract_eligible", decision.status)
+        self.assertEqual("large_single_request", decision.amplification_class)
+        self.assertIn("RELEVANCE_REQUEST_MATERIALIZATION", decision.reason_codes)
+
+    def test_unrecognized_request_helper_note_remains_unresolved(self) -> None:
+        candidate = self._candidate(
+            kind="input_materialization",
+            operation="fixture.ServletUtils.getRequestString",
+            demand_name="request",
+            demand_role="size",
+            escape_scope="request",
+            notes=("servlet_request_metadata_helper_then_structured_parser",),
+        )
+
+        decision = self._decision(candidate)
+
+        self.assertEqual("unresolved", decision.status)
+        self.assertIn("RELEVANCE_MATERIALIZATION_ORIGIN_UNKNOWN", decision.reason_codes)
 
     def test_server_file_read_is_rejected(self) -> None:
         candidate = self._candidate(

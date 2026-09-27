@@ -6,8 +6,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequestWrapper;
 import javax.servlet.http.HttpSession;
 
 @RestController
@@ -16,16 +19,38 @@ class CitrusAuthenticateController {
     void authenticate(HttpServletRequest request) {}
 }
 
-class CitrusRequestWrapperFilter {
-    void doFilterInternal(HttpServletRequest request) {
+@Component
+class CitrusRequestWrapperFilter extends OncePerRequestFilter {
+    @Override
+    protected void doFilterInternal(HttpServletRequest request) {
         new RequestWrapper(request);
     }
 
-    static class RequestWrapper {
+    static class RequestWrapper extends HttpServletRequestWrapper {
         private final byte[] body;
 
         RequestWrapper(HttpServletRequest request) {
+            super(request);
             body = IoUtil.readBytes(request.getInputStream());
+        }
+    }
+}
+
+@Component
+class SkippableRequestWrapperFilter extends OncePerRequestFilter {
+    @Override
+    protected void doFilterInternal(HttpServletRequest request) {
+        new SkippedWrapper(request);
+    }
+
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return true;
+    }
+
+    static class SkippedWrapper extends HttpServletRequestWrapper {
+        SkippedWrapper(HttpServletRequest request) {
+            super(request);
+            IoUtil.readBytes(request.getInputStream());
         }
     }
 }

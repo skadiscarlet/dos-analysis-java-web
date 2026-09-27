@@ -62,6 +62,52 @@ def test_responses_request_has_only_strict_responses_fields() -> None:
     }
 
 
+def test_api2cn_responses_request_adds_compatible_top_level_strict_schema() -> None:
+    body = _responses_request(
+        "deepseek-v4.1-flash",
+        [
+            {"role": "system", "content": "rule"},
+            {"role": "user", "content": "facts"},
+        ],
+        0,
+        provider_id="api2cn_responses",
+    )
+
+    assert body["text"]["format"] == {
+        "type": "json_schema",
+        "name": "growth_contract",
+        "strict": True,
+        "schema": llm_schemas.GROWTH_CONTRACT_JSON_SCHEMA,
+    }
+    assert body["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "growth_contract",
+            "strict": True,
+            "schema": llm_schemas.GROWTH_CONTRACT_JSON_SCHEMA,
+        },
+    }
+    assert body["max_output_tokens"] == 8192
+    assert "thinking" not in body and "reasoning" not in body
+
+
+def test_apibasis_responses_request_uses_standard_text_format_only() -> None:
+    body = _responses_request(
+        "grok-4.6",
+        [
+            {"role": "system", "content": "rule"},
+            {"role": "user", "content": "facts"},
+        ],
+        0,
+        provider_id="apibasis_responses",
+    )
+
+    assert body["text"]["format"]["type"] == "json_schema"
+    assert body["text"]["format"]["strict"] is True
+    assert "response_format" not in body
+    assert "max_output_tokens" not in body
+
+
 def test_auth_responses_request_uses_its_own_strict_json_schema() -> None:
     body = _responses_request(
         "grok-4.6",

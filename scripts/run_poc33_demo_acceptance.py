@@ -25,8 +25,14 @@ from dosweb.batch.corpus import load_canonical_corpus
 from dosweb.batch.models import CanonicalCorpus
 from dosweb.batch.plan import build_batch_plan, load_batch_plan, publish_batch_plan
 from dosweb.batch.state import BatchState
-from dosweb.config import DEFAULT_BASE_URL, DEFAULT_MODEL, resolve_api_key
+from dosweb.config import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL,
+    SUPPORTED_MODELS,
+    resolve_api_key,
+)
 from dosweb.errors import AnalyzerError
+from dosweb.llm.deepseek import validate_provider_endpoint
 from dosweb.pipeline import TOOL_VERSION
 
 
@@ -420,6 +426,8 @@ def validate_full_archive(
     *,
     run_id: str,
     max_target_attempts: int = _REAL_PROVIDER_MAX_TARGET_ATTEMPTS,
+    expected_base_url: str = DEFAULT_BASE_URL,
+    expected_model: str = DEFAULT_MODEL,
 ) -> dict[str, object]:
     """Require 21 formal, fail-closed targets with owner-only private audits."""
     if not _RUN_ID.fullmatch(run_id):
@@ -432,6 +440,9 @@ def validate_full_archive(
         raise ValueError("max_target_attempts is invalid")
     if root.is_symlink() or not root.is_dir():
         raise ValueError("full archive is not a directory")
+    expected_base_url = validate_provider_endpoint(expected_base_url)
+    if expected_model not in SUPPORTED_MODELS:
+        raise ValueError("expected_model is unsupported")
     plan = load_batch_plan(root / "batch_plan.json")
     if (
         plan.run_id != run_id
@@ -440,8 +451,8 @@ def validate_full_archive(
         or plan.query_failure_policy != "fail_closed"
         or dict(plan.provider) != {
             "allow_remote_llm": True,
-            "model": DEFAULT_MODEL,
-            "base_url": DEFAULT_BASE_URL,
+            "model": expected_model,
+            "base_url": expected_base_url,
             "timeout_seconds": _REAL_PROVIDER_TIMEOUT_SECONDS,
             "max_retries": _REAL_PROVIDER_MAX_RETRIES,
         }
@@ -673,10 +684,10 @@ def _validate_family_dedup(path: Path) -> dict[str, object]:
 
 
 def _gate_blockers(metrics: Mapping[str, object]) -> tuple[dict[str, object], dict[str, object]]:
-    supported = metrics.get("supported_chain_recall")
+    known_case = metrics.get("known_case_recall")
     positive = metrics.get("ordinary_positive_recall")
     negative = metrics.get("hard_negative_safety")
-    supported_map = supported if isinstance(supported, Mapping) else {}
+    known_case_map = known_case if isinstance(known_case, Mapping) else {}
     positive_map = positive if isinstance(positive, Mapping) else {}
     negative_map = negative if isinstance(negative, Mapping) else {}
     precision = metrics.get("precision")
@@ -689,11 +700,13 @@ def _gate_blockers(metrics: Mapping[str, object]) -> tuple[dict[str, object], di
             and metrics.get("query_diagnostics") == 0
             and metrics.get("skipped_queries") == 0
         ),
-        "supported_chain_recall": (
+        "known_case_recall": (
             metrics.get("truth") == 33
-            and metrics.get("explicit_deferred") == 4
-            and supported_map.get("numerator") == 29
-            and supported_map.get("denominator") == 29
+            and metrics.get("full_chain_finding") == 33
+            and metrics.get("explicit_deferred") == 0
+            and metrics.get("known_case_matches") == 33
+            and known_case_map.get("numerator") == 33
+            and known_case_map.get("denominator") == 33
         ),
         "ordinary_positive_recall": (
             metrics.get("eligible_positive") == 6
@@ -715,7 +728,7 @@ def _gate_blockers(metrics: Mapping[str, object]) -> tuple[dict[str, object], di
     }
     stage_for_check = {
         "infrastructure": "entry",
-        "supported_chain_recall": "association",
+        "known_case_recall": "conclude",
         "ordinary_positive_recall": "reach",
         "hard_negative_safety": "bound",
         "actionable_precision": "conclude",
@@ -737,13 +750,13 @@ def _gate_blockers(metrics: Mapping[str, object]) -> tuple[dict[str, object], di
             by_stage[stage_for_check[check]].append(check)
     total = sum(len(values) for values in by_stage.values())
     gate = {
-        "format": "dosweb-poc33-rollout-gate-v1",
+        "format": "dosweb-poc33-rollout-gate-v2",
         "status": "passed" if total == 0 else "failed",
         "rollout_178_target_full": total == 0,
         "checks": checks,
     }
     matrix = {
-        "format": "dosweb-poc33-blocker-matrix-v1",
+        "format": "dosweb-poc33-blocker-matrix-v2",
         "total_blockers": total,
         "by_stage": by_stage,
     }
@@ -769,6 +782,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--truth-manifest", type=Path)
     parser.add_argument("--dynamic", type=Path)
     parser.add_argument("--allow-remote-llm", action="store_true")
+    parser.add_argument("--base-url")
+    parser.add_argument("--model")
     parser.add_argument("--max-workers", type=int)
     return parser
 
@@ -1073,13 +1088,15 @@ def main(
                 or archive_acceptance.get("status") != "completed"
             ):
                 raise ValueError("full acceptance manifest is invalid")
+            plan = load_batch_plan(full / "batch_plan.json")
             validate_full_archive(
                 full,
                 run_id=arguments.run_id,
                 max_target_attempts=archive_attempt_limit,
+                expected_base_url=str(plan.provider.get("base_url", "")),
+                expected_model=str(plan.provider.get("model", "")),
             )
             validate_p0_aggregate(full, run_id=arguments.run_id)
-            plan = load_batch_plan(full / "batch_plan.json")
             selection = _read_object(full / "selection.json")
             truth_manifest = _manifest_path(
                 arguments.truth_manifest,
@@ -1228,6 +1245,12 @@ def main(
                 selection,
                 manifest_path=canonical_manifest,
             )
+            provider_base_url = validate_provider_endpoint(
+                arguments.base_url or DEFAULT_BASE_URL
+            )
+            provider_model = arguments.model or DEFAULT_MODEL
+            if provider_model not in SUPPORTED_MODELS:
+                raise ValueError("--model is unsupported")
             output = results_root / f"{arguments.run_id}-full"
             _new_output_directory(output)
             plan = build_batch_plan(
@@ -1237,8 +1260,8 @@ def main(
                 output_root=_plan_output_root(output, repo_root),
                 provider_settings={
                     "allow_remote_llm": True,
-                    "model": DEFAULT_MODEL,
-                    "base_url": DEFAULT_BASE_URL,
+                    "model": provider_model,
+                    "base_url": provider_base_url,
                     "timeout_seconds": _REAL_PROVIDER_TIMEOUT_SECONDS,
                     "max_retries": _REAL_PROVIDER_MAX_RETRIES,
                 },
@@ -1288,7 +1311,12 @@ def main(
             )
             if returncode != 0:
                 return returncode or 1
-            gate = validate_full_archive(output, run_id=arguments.run_id)
+            gate = validate_full_archive(
+                output,
+                run_id=arguments.run_id,
+                expected_base_url=provider_base_url,
+                expected_model=provider_model,
+            )
             aggregate_command = [
                 sys.executable,
                 str(REPO_ROOT / "scripts/aggregate_java_web_dos_batch.py"),

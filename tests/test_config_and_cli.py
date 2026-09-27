@@ -4,7 +4,13 @@ import unittest
 from pathlib import Path
 
 from dosweb.cli import main, parse_cli_values
-from dosweb.config import DEFAULT_BASE_URL, DEFAULT_MODEL, load_config, resolve_api_key
+from dosweb.config import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL,
+    load_config,
+    model_response_matches,
+    resolve_api_key,
+)
 from dosweb.errors import AnalyzerError
 
 
@@ -17,7 +23,7 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(result.llm.base_url, DEFAULT_BASE_URL)
         self.assertEqual(result.llm.model, DEFAULT_MODEL)
-        self.assertEqual(DEFAULT_BASE_URL, "https://api.api2cn.com/v1/")
+        self.assertEqual(DEFAULT_BASE_URL, "https://apibasis.com/v1/")
         self.assertEqual(DEFAULT_MODEL, "grok-4.6")
 
     def test_local_secrets_file_provides_the_api_key_without_environment(self):
@@ -81,7 +87,7 @@ class ConfigTests(unittest.TestCase):
             config = Path(tmp) / "config.yml"
             config.write_text(
                 "llm:\n"
-                "  model: grok-4.6\n"
+                "  model: deepseek-v4.1-flash\n"
                 "  base_url: https://yaml.example/\n"
                 "  timeout_seconds: 41\n",
                 encoding="utf-8",
@@ -90,7 +96,7 @@ class ConfigTests(unittest.TestCase):
                 cli_values={
                     "database": Path("db"),
                     "output": Path("out"),
-                    "model": "grok-4.6",
+                    "model": "deepseek-v4.1-flash",
                     "base_url": None,
                     "timeout_seconds": None,
                     "max_retries": None,
@@ -105,7 +111,7 @@ class ConfigTests(unittest.TestCase):
                     "DEEPSEEK_BASE_URL": "https://env.example/",
                 },
             )
-        self.assertEqual(result.llm.model, "grok-4.6")
+        self.assertEqual(result.llm.model, "deepseek-v4.1-flash")
         self.assertEqual(result.llm.base_url, "https://yaml.example/")
         self.assertEqual(result.llm.timeout_seconds, 41)
         self.assertEqual(result.llm.api_key, "test-secret")
@@ -295,6 +301,27 @@ class ConfigTests(unittest.TestCase):
                 environ={"DEEPSEEK_API_KEY": "test-secret"},
             )
         self.assertEqual(raised.exception.code, "CONFIG_UNSUPPORTED_MODEL")
+
+    def test_authorized_api2cn_catalog_model_is_exactly_bound(self):
+        result = load_config(
+            cli_values={
+                "database": Path("db"),
+                "output": Path("out"),
+                "model": "deepseek-v4.1-flash",
+                "base_url": "https://api.api2cn.com/v1/",
+            },
+            config_path=None,
+            environ={"DEEPSEEK_API_KEY": "test-secret"},
+        )
+        self.assertEqual(result.llm.model, "deepseek-v4.1-flash")
+        self.assertTrue(
+            model_response_matches("deepseek-v4.1-flash", "deepseek-v4.1-flash")
+        )
+        self.assertFalse(
+            model_response_matches(
+                "deepseek-v4.1-flash", "deepseek-v4.1-flash-build"
+            )
+        )
 
     def test_disabled_remote_llm_allows_a_missing_environment_key(self):
         with tempfile.TemporaryDirectory() as tmp:

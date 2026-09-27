@@ -477,16 +477,16 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             "jmqtt_async_processor_qos2_dispatch_requires_path_coverage",
         )
 
-    def test_citrus_default_routes_emit_only_partial_prehandler_and_session_associations(
+    def test_component_once_filter_emits_complete_flow_without_project_specific_association(
         self,
     ) -> None:
         source_root = _ROOT / "tests" / "fixtures" / "spring" / "src" / "main" / "java"
         fixture = source_root / "fixture" / "spring" / "CitrusFixture.java"
         lines = fixture.read_text(encoding="utf-8").splitlines()
-        authenticate_line = next(
+        filter_line = next(
             number
             for number, line in enumerate(lines, 1)
-            if "void authenticate(HttpServletRequest request)" in line
+            if "protected void doFilterInternal(HttpServletRequest request)" in line
         )
         read_line = next(
             number
@@ -509,21 +509,39 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             associations = self._rows(
                 "Flows/EntryToGrowthAssociations.ql", database, temporary
             )
+            flows = self._rows("Flows/EntryToGrowth.ql", database, temporary)
 
-        auth_matches = [
+        filter_associations = [
             row
             for row in associations
             if row.get("source_file", "").endswith("CitrusFixture.java")
-            and row.get("source_start_line") == authenticate_line
+            and row.get("source_start_line") == filter_line
             and row.get("sink_start_line") == read_line
         ]
-        self.assertEqual(len(auth_matches), 1, auth_matches)
-        self.assertEqual(auth_matches[0]["attacker_target"], "size")
-        self.assertEqual(auth_matches[0]["confidence"], "partial")
-        self.assertEqual(auth_matches[0]["coverage_status"], "partial")
-        self.assertEqual(
-            auth_matches[0]["coverage_note"],
+        filter_flows = [
+            row
+            for row in flows
+            if row.get("source_file", "").endswith("CitrusFixture.java")
+            and row.get("source_start_line") == filter_line
+            and row.get("sink_start_line") == read_line
+        ]
+        self.assertEqual(len(filter_associations), 1, filter_associations)
+        self.assertEqual(len(filter_flows), 1, filter_flows)
+        for row in filter_associations + filter_flows:
+            self.assertEqual(row["attacker_target"], "size")
+            self.assertEqual(row["confidence"], "proven")
+            self.assertEqual(row["coverage_status"], "complete")
+            self.assertEqual(
+                row["coverage_note"],
+                "unique_bounded_call_path_global_dataflow",
+            )
+        query_source = (
+            _ROOT / "codeql/dosweb/Flows/EntryToGrowthAssociations.ql"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("citrusAuthenticationPrehandler", query_source)
+        self.assertNotIn(
             "citrus_component_request_wrapper_prehandler_requires_path_coverage",
+            query_source,
         )
 
         captcha_matches = [
@@ -853,6 +871,21 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
                 "keyStream.toByteArray()",
             )
         }
+        partial_image_line = next(
+            number
+            for number, line in enumerate(lines, 1)
+            if "new BufferedImage(Math.min(width, 1024), height" in line
+        )
+        full_image_line = next(
+            number
+            for number, line in enumerate(lines, 1)
+            if line.strip() == "new BufferedImage("
+        )
+        all_anchor_lines = {
+            *anchors.values(),
+            partial_image_line,
+            full_image_line,
+        }
         unrelated_anchors = {
             marker: next(
                 number for number, line in enumerate(lines, 1) if marker in line
@@ -899,50 +932,69 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
         )
         self.assertEqual(
             {row["anchor_start_line"] for row in fixture_bounds},
-            set(anchors.values()),
+            all_anchor_lines,
             fixture_bounds,
         )
-        self.assertEqual(len(fixture_bounds), 7, fixture_bounds)
+        self.assertEqual(len(fixture_bounds), 10, fixture_bounds)
         expected_bound_rows = {
-            anchors["ByteBuffer.allocate(jacksonSize)"]: (
+            (anchors["ByteBuffer.allocate(jacksonSize)"],
                 "jackson_stream_read_constraints_literal",
                 "1024",
                 "json",
             ),
-            anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"]: (
+            (anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"],
                 "numeric_min_literal",
                 "1024",
                 "any",
             ),
-            anchors["ByteBuffer.allocate(Math.min(requestedSize, 0x400))"]: (
+            (anchors["ByteBuffer.allocate(Math.min(requestedSize, 0x400))"],
                 "numeric_min_literal",
                 "1024",
                 "any",
             ),
-            anchors["ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"]: (
+            (anchors["ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"],
                 "numeric_min_literal",
                 "1024",
                 "any",
             ),
-            anchors["ByteBuffer.allocate(message.content().readableBytes())"]: (
+            (anchors["ByteBuffer.allocate(message.content().readableBytes())"],
                 "netty_http_object_aggregator_literal",
                 "1024",
                 "aggregated_http",
             ),
-            anchors["ByteBuffer.allocate(request.size())"]: (
+            (anchors["ByteBuffer.allocate(request.size())"],
                 "servlet_multipart_config_literal",
                 "1024",
                 "multipart",
             ),
-            anchors["keyStream.toByteArray()"]: (
+            (anchors["keyStream.toByteArray()"],
                 "solr_formdata_upload_limit_literal",
                 "1024",
                 "form_urlencoded",
             ),
+            (
+                partial_image_line,
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            (
+                full_image_line,
+                "numeric_min_literal",
+                "1024",
+                "any",
+            ),
+            (
+                full_image_line,
+                "numeric_min_literal",
+                "2048",
+                "any",
+            ),
         }
         self.assertEqual(
             {
-                row["anchor_start_line"]: (
+                (
+                    row["anchor_start_line"],
                     row["evidence"],
                     row["configuration_value"],
                     row["request_encoding"],
@@ -985,7 +1037,7 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             row for row in fixture_bounds
             if row["evidence"] == "numeric_min_literal"
         ]
-        self.assertEqual(len(clamp_bounds), 3, clamp_bounds)
+        self.assertEqual(len(clamp_bounds), 6, clamp_bounds)
         self.assertEqual(
             {
                 anchors["ByteBuffer.allocate(Math.min(requestedSize, 1024))"],
@@ -993,32 +1045,56 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
                 anchors[
                     "ByteBuffer.allocate(Math.min(requestedSize, 0b10000000000))"
                 ],
+                partial_image_line,
+                full_image_line,
             },
             {row["anchor_start_line"] for row in clamp_bounds},
         )
         self.assertTrue(
             all(
                 row["behavior"] == "clamp"
-                and row["coverage_note"] == "same_expression_numeric_clamp"
                 and row["phase"] == "inside_growth"
-                and row["configuration_value"] == "1024"
                 and row["coverage_status"] == "complete"
-                and row["covers_flow"] is True
-                and row["product_bound"] is True
                 for row in clamp_bounds
             ),
             clamp_bounds,
         )
+        partial_image = [
+            row
+            for row in clamp_bounds
+            if row["anchor_start_line"] == partial_image_line
+        ]
+        self.assertEqual(len(partial_image), 1, partial_image)
+        self.assertEqual(
+            partial_image[0]["coverage_note"],
+            "allocation_dimension_product_partially_clamped",
+        )
+        self.assertFalse(partial_image[0]["covers_flow"], partial_image)
+        self.assertFalse(partial_image[0]["product_bound"], partial_image)
+        complete_clamps = [
+            row
+            for row in clamp_bounds
+            if row["anchor_start_line"] != partial_image_line
+        ]
+        self.assertTrue(
+            all(
+                row["coverage_note"] == "all_allocation_dimensions_numeric_clamped"
+                and row["covers_flow"] is True
+                and row["product_bound"] is True
+                for row in complete_clamps
+            ),
+            complete_clamps,
+        )
         bound_coverage = [
             row for row in coverage
             if row.get("anchor_file", "").endswith("FrameworkLimitFixture.java")
-            and row.get("anchor_start_line") in anchors.values()
+            and row.get("anchor_start_line") in all_anchor_lines
             and row.get("family") == "bound"
         ]
-        self.assertEqual(len(bound_coverage), 7, bound_coverage)
+        self.assertEqual(len(bound_coverage), 9, bound_coverage)
         self.assertEqual(
             {row["anchor_start_line"] for row in bound_coverage},
-            set(anchors.values()),
+            all_anchor_lines,
             bound_coverage,
         )
         self.assertTrue(
@@ -1029,6 +1105,176 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
             ),
             bound_coverage,
         )
+
+    def test_request_helper_and_derived_materializer_have_complete_lifecycle_domains(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "entry_growth_domains" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "flow" / "EntryGrowthDomainFixture.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+
+        def marker_line(marker: str) -> int:
+            return next(
+                number
+                for number, line in enumerate(lines, 1)
+                if marker in line
+            )
+
+        helper_line = marker_line("helper-parser-positive")
+        derived_line = marker_line("derived-flow-positive")
+        forbidden_lines = {
+            marker_line("metadata-helper-negative"),
+            marker_line("unparsed-helper-negative"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(
+                source_root, temporary, "request-derived-lifecycle-domain"
+            )
+            coverage = self._rows(
+                "Lifecycle/LifecycleCoverage.ql", database, temporary
+            )
+
+        fixture_rows = [
+            row
+            for row in coverage
+            if row["anchor_file"].endswith("EntryGrowthDomainFixture.java")
+        ]
+        for anchor_line in (helper_line, derived_line):
+            with self.subTest(anchor_line=anchor_line):
+                anchored = [
+                    row
+                    for row in fixture_rows
+                    if row["anchor_start_line"] == anchor_line
+                ]
+                self.assertEqual(
+                    {"guard", "bound", "release"},
+                    {row["family"] for row in anchored},
+                    anchored,
+                )
+                self.assertTrue(
+                    all(row["coverage_status"] == "complete" for row in anchored),
+                    anchored,
+                )
+        self.assertTrue(
+            forbidden_lines.isdisjoint(
+                {row["anchor_start_line"] for row in fixture_rows}
+            ),
+            fixture_rows,
+        )
+
+    def test_request_body_metadata_presence_helper_is_not_a_body_guard_gap(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "entry_growth_domains" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "flow" / "EntryGrowthDomainFixture.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+
+        def marker_line(marker: str) -> int:
+            return next(
+                number
+                for number, line in enumerate(lines, 1)
+                if marker in line
+            )
+
+        metadata_line = marker_line("metadata-presence-helper-growth")
+        body_line = marker_line("body-size-helper-growth")
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(
+                source_root, temporary, "request-metadata-presence-guard-domain"
+            )
+            coverage = self._rows(
+                "Lifecycle/LifecycleCoverage.ql", database, temporary
+            )
+
+        metadata_rows = [
+            row
+            for row in coverage
+            if row["anchor_file"].endswith("EntryGrowthDomainFixture.java")
+            and row["anchor_start_line"] == metadata_line
+        ]
+        body_rows = [
+            row
+            for row in coverage
+            if row["anchor_file"].endswith("EntryGrowthDomainFixture.java")
+            and row["anchor_start_line"] == body_line
+        ]
+        self.assertEqual(
+            {"guard", "bound", "release"},
+            {row["family"] for row in metadata_rows},
+            metadata_rows,
+        )
+        self.assertTrue(
+            all(
+                row["coverage_status"] == "complete"
+                and row["coverage_note"] == "same_callable_modeled_domain_scanned"
+                for row in metadata_rows
+            ),
+            metadata_rows,
+        )
+        self.assertIn(
+            {
+                "family": "guard",
+                "coverage_status": "partial",
+                "coverage_note": "reflection_or_custom_dispatch_not_modeled",
+            },
+            [
+                {
+                    "family": row["family"],
+                    "coverage_status": row["coverage_status"],
+                    "coverage_note": row["coverage_note"],
+                }
+                for row in body_rows
+            ],
+            body_rows,
+        )
+
+    def test_persistent_container_mutations_have_complete_lifecycle_domains(self) -> None:
+        source_root = (
+            _ROOT / "tests" / "fixtures" / "binding_cardinality" / "src" / "main" / "java"
+        )
+        fixture = source_root / "fixture" / "binding" / "BindingCardinalityController.java"
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+        growth_lines = {
+            next(
+                number
+                for number, line in enumerate(lines, 1)
+                if marker in line
+            )
+            for marker in ("implicit-getter-growth", "dense-plus-two-growth")
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            database = self._database(
+                source_root, temporary, "persistent-container-lifecycle-domain"
+            )
+            coverage = self._rows(
+                "Lifecycle/LifecycleCoverage.ql", database, temporary
+            )
+
+        for growth_line in growth_lines:
+            with self.subTest(growth_line=growth_line):
+                anchored = [
+                    row
+                    for row in coverage
+                    if row["anchor_file"].endswith("BindingCardinalityController.java")
+                    and row["anchor_start_line"] == growth_line
+                ]
+                self.assertEqual(
+                    {"guard", "bound", "release"},
+                    {row["family"] for row in anchored},
+                    anchored,
+                )
+                self.assertTrue(
+                    all(
+                        row["coverage_status"] == "complete"
+                        and row["coverage_note"]
+                        == "same_callable_modeled_domain_scanned"
+                        for row in anchored
+                    ),
+                    anchored,
+                )
 
     def test_direct_byte_allocation_bound_domain_covers_absence_and_numeric_clamp(self) -> None:
         source_root = (
@@ -1063,6 +1309,14 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
                 "ByteBuffer.allocate(Math.min(-1, 1024))",
             )
         }
+        partial_image_line = next(
+            number for number, line in enumerate(lines, 1)
+            if "new BufferedImage(Math.min(width, 1024), height" in line
+        )
+        full_image_line = next(
+            number for number, line in enumerate(lines, 1)
+            if line.strip() == "new BufferedImage("
+        )
         with tempfile.TemporaryDirectory() as tmp:
             temporary = Path(tmp)
             database = self._database(source_root, temporary, "direct-allocation-bound-domain")
@@ -1109,6 +1363,32 @@ class CodeqlLifecycleFixtureTests(unittest.TestCase):
         self.assertTrue(
             all(row["coverage_status"] == "complete" for row in bound_coverage.values()),
             bound_coverage,
+        )
+        partial_image = [
+            row for row in fixture_bounds
+            if row["anchor_start_line"] == partial_image_line
+        ]
+        self.assertEqual(1, len(partial_image), partial_image)
+        self.assertFalse(partial_image[0]["product_bound"], partial_image)
+        self.assertFalse(partial_image[0]["covers_flow"], partial_image)
+        self.assertEqual(
+            "allocation_dimension_product_partially_clamped",
+            partial_image[0]["coverage_note"],
+        )
+        full_image = [
+            row for row in fixture_bounds
+            if row["anchor_start_line"] == full_image_line
+        ]
+        self.assertEqual(2, len(full_image), full_image)
+        self.assertTrue(
+            all(
+                row["product_bound"] is True
+                and row["covers_flow"] is True
+                and row["coverage_note"]
+                == "all_allocation_dimensions_numeric_clamped"
+                for row in full_image
+            ),
+            full_image,
         )
 
     def test_fixture_semantics(self) -> None:

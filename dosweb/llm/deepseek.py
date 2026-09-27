@@ -30,17 +30,20 @@ from dosweb.growth.contracts import (
     bind_provider_growth_contract,
     parse_growth_contract_json,
     validate_contract_static_evidence,
+    validate_contract_static_semantics,
     validate_provider_growth_contract,
 )
 from dosweb.growth.models import BoundedSlice, GrowthContract
 from dosweb.llm.cache import (
     AUTH_CACHE_FORMAT,
     MAX_RAW_RESPONSE_BYTES,
+    PROVIDER_ID,
     ContractCache,
     GrowthCacheSnapshot,
-    PROVIDER_ID,
     cache_identity,
     canonical_base_url,
+    provider_id_for_base_url,
+    responses_request_profile,
 )
 from dosweb.llm.prompts import build_auth_correction_messages, build_auth_messages, build_growth_correction_payload, build_growth_messages, build_provider_payload
 from dosweb.llm.schemas import (
@@ -104,7 +107,13 @@ _PII_PATTERNS = (
 _SLICE_CREDENTIAL_PATTERNS = (*_RESPONSE_CREDENTIAL_PATTERNS, *_PII_PATTERNS)
 _GITHUB_SOURCE_PATTERN = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$")
 _FULL_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
-_PRODUCTION_ENDPOINTS = frozenset({"https://api.api2cn.com/v1/"})
+_PRODUCTION_ENDPOINTS = frozenset(
+    {
+        "https://apibasis.com/v1/",
+        "https://rightapi.ai/grok/v1/",
+        "https://api.api2cn.com/v1/",
+    }
+)
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -517,7 +526,9 @@ class DeepSeekClient:
     def _audit(self, kind: str, messages: list[dict[str, str]], raw: str, parsed: dict[str, object], attestation: PublicSourceAttestation, *, cache_hit: bool, request_id: str = "", actual_model: str | None = None) -> LlmAuditRecord:
         prompt = json.dumps(messages, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         schema = GROWTH_CONTRACT_RESPONSE_SCHEMA if kind == "growth" else AUTH_CONTRACT_RESPONSE_SCHEMA
-        settings = {"provider": PROVIDER_ID, "protocol": "responses-v1", "base_url": canonical_base_url(self._config.base_url), "requested_model": self._config.model, "actual_model": actual_model or self._config.model, "temperature": self._config.temperature, "text_format": "json_schema_strict", "prompt_version": __import__("dosweb.llm.schemas", fromlist=["PROMPT_VERSION"]).PROMPT_VERSION if kind == "growth" else AUTH_PROMPT_VERSION, "response_schema_version": __import__("dosweb.llm.schemas", fromlist=["RESPONSE_SCHEMA_VERSION"]).RESPONSE_SCHEMA_VERSION if kind == "growth" else AUTH_RESPONSE_SCHEMA_VERSION}
+        provider = provider_id_for_base_url(self._config.base_url)
+        request_profile = responses_request_profile(provider)
+        settings = {"provider": provider, "protocol": "responses-v1", "base_url": canonical_base_url(self._config.base_url), "requested_model": self._config.model, "actual_model": actual_model or self._config.model, "temperature": self._config.temperature, "text_format": "json_schema_strict", "responses_request_profile": request_profile.identity, "max_output_tokens": request_profile.max_output_tokens, "prompt_version": __import__("dosweb.llm.schemas", fromlist=["PROMPT_VERSION"]).PROMPT_VERSION if kind == "growth" else AUTH_PROMPT_VERSION, "response_schema_version": __import__("dosweb.llm.schemas", fromlist=["RESPONSE_SCHEMA_VERSION"]).RESPONSE_SCHEMA_VERSION if kind == "growth" else AUTH_RESPONSE_SCHEMA_VERSION}
         att = {"public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
         return LlmAuditRecord(kind, request_id, prompt, schema, raw, parsed, settings, att, cache_hit)
 
@@ -562,6 +573,7 @@ class DeepSeekClient:
                 fact.fact_id for fact in slice_.payload.static_facts
             )
             rebound = validate_contract_static_evidence(rebound, static_fact_ids)
+            rebound = validate_contract_static_semantics(rebound, slice_)
             if rebound.to_dict() != snapshot.contract.to_dict():
                 raise AnalyzerError(
                     "LLM_RESPONSE_SCHEMA_INVALID",
@@ -606,7 +618,8 @@ class DeepSeekClient:
     def classify_growth(self, slice_: BoundedSlice) -> GrowthContract:
         _validate_runtime_config(self._config)
         provider_payload = build_provider_payload(slice_)
-        request_body = _encode_request(_responses_request(self._config.model, provider_payload.messages, self._config.temperature))
+        provider_id = provider_id_for_base_url(self._config.base_url)
+        request_body = _encode_request(_responses_request(self._config.model, provider_payload.messages, self._config.temperature, provider_id=provider_id))
         _scan_transmitted_request(request_body, self._config.api_key, ())
         self._validate_remote_gate()
         attestation = self._verified_attestation(slice_)
@@ -700,6 +713,7 @@ class DeepSeekClient:
                                     self._config.model,
                                     current_payload.messages,
                                     self._config.temperature,
+                                    provider_id=provider_id,
                                 )
                             )
                         )
@@ -727,6 +741,9 @@ class DeepSeekClient:
                                 current_payload.fact_alias_to_original,
                             )
                             contract = validate_contract_static_evidence(contract, static_fact_ids)
+                            contract = validate_contract_static_semantics(
+                                contract, slice_
+                            )
                         except AnalyzerError as exc:
                             response_code = exc.code
                             reply = None
@@ -755,7 +772,7 @@ class DeepSeekClient:
                         break
                     else:  # pragma: no cover - both loop exits are explicit
                         raise AnalyzerError("LLM_RESPONSE_SCHEMA_INVALID", "Growth Contract correction failed.")
-                    audit = {"method": "POST", "url": self._endpoint(), "provider": PROVIDER_ID, "protocol": "responses-v1", "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
+                    audit = {"method": "POST", "url": self._endpoint(), "provider": provider_id_for_base_url(self._config.base_url), "protocol": "responses-v1", "requested_model": self._config.model, "actual_model": actual_model, "provider_request_id_digest": self._cache.provider_request_id_digest(request_id), "slice_content_hash": identity["slice_content_hash"], "allow_remote_llm": self._config.allow_remote_llm, "public_source_url": attestation.public_source_url or "", "source_commit_sha": attestation.source_commit_sha or "", "verified_public": attestation.verified_public, "verified_clean_checkout": attestation.verified_clean_checkout}
                     accepted_snapshot: GrowthCacheSnapshot | None = None
                     publication_failed = False
                     published: object = True
@@ -985,7 +1002,9 @@ class DeepSeekClient:
                 ],
             }
         )
-        auth_identity = {"kind": "auth", "provider": PROVIDER_ID, "protocol": "responses-v1", "auth_cache_format": AUTH_CACHE_FORMAT, "prompt_version": AUTH_PROMPT_VERSION, "schema_version": AUTH_RESPONSE_SCHEMA_VERSION, "model": self._config.model, "temperature": self._config.temperature, "base_url": canonical_base_url(self._config.base_url), "text_format": "json_schema_strict", "response_format_schema_hash": sha256_canonical_json(AUTH_CONTRACT_JSON_SCHEMA), "messages": messages, "sha": attestation.source_commit_sha or "", "ownership_binding_hash": ownership_binding_hash}
+        provider_id = provider_id_for_base_url(self._config.base_url)
+        request_profile = responses_request_profile(provider_id)
+        auth_identity = {"kind": "auth", "provider": provider_id, "protocol": "responses-v1", "auth_cache_format": AUTH_CACHE_FORMAT, "prompt_version": AUTH_PROMPT_VERSION, "schema_version": AUTH_RESPONSE_SCHEMA_VERSION, "model": self._config.model, "temperature": self._config.temperature, "base_url": canonical_base_url(self._config.base_url), "text_format": "json_schema_strict", "responses_request_profile": request_profile.identity, "max_output_tokens": request_profile.max_output_tokens, "response_format_schema_hash": sha256_canonical_json(AUTH_CONTRACT_JSON_SCHEMA), "messages": messages, "sha": attestation.source_commit_sha or "", "ownership_binding_hash": ownership_binding_hash}
         identity = hashlib.sha256(json.dumps(auth_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
         persisted = self._cache.get_auth_record(identity, auth_identity)
         if persisted is not None:
@@ -1118,6 +1137,7 @@ class DeepSeekClient:
                                 current_messages,
                                 self._config.temperature,
                                 contract_kind="auth",
+                                provider_id=provider_id,
                             )
                         )
                         _scan_transmitted_request(
@@ -1559,6 +1579,7 @@ def _responses_request(
     temperature: object,
     *,
     contract_kind: str = "growth",
+    provider_id: str = PROVIDER_ID,
 ) -> dict[str, object]:
     if not isinstance(messages, list) or len(messages) != 2:
         raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request requires exactly one system and one user prompt.")
@@ -1574,7 +1595,7 @@ def _responses_request(
         name, schema = "auth_contract", AUTH_CONTRACT_JSON_SCHEMA
     else:
         raise AnalyzerError("LLM_REQUEST_INVALID", "Responses request contract kind is invalid.")
-    return {
+    request: dict[str, object] = {
         "model": model,
         "instructions": instructions,
         "input": [{"role": "user", "content": [{"type": "input_text", "text": user_text}]}],
@@ -1590,6 +1611,19 @@ def _responses_request(
         "store": False,
         "stream": False,
     }
+    request_profile = responses_request_profile(provider_id)
+    if request_profile.top_level_response_format:
+        request["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": name,
+                "strict": True,
+                "schema": schema,
+            },
+        }
+    if request_profile.max_output_tokens is not None:
+        request["max_output_tokens"] = request_profile.max_output_tokens
+    return request
 
 
 def _encode_request(payload: dict[str, object]) -> bytes:

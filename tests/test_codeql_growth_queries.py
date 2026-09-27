@@ -814,6 +814,78 @@ public class MixedDimensionFixture {
             "http_session_attribute_write:fixed_attribute_fresh_session_unproven",
         )
 
+    def test_request_wrapper_constructor_stream_is_complete_without_broad_constructor_taint(
+        self,
+    ) -> None:
+        root = Path(__file__).parents[1]
+        fixture = (
+            root
+            / "tests/fixtures/spring/src/main/java/fixture/spring/ReadAllController.java"
+        )
+        lines = fixture.read_text(encoding="utf-8").splitlines()
+
+        def line(marker: str) -> int:
+            return next(
+                number
+                for number, source in enumerate(lines, 1)
+                if marker in source
+            )
+
+        wrapper_class_line = line(
+            "private static final class RequestWrapper extends HttpServletRequestWrapper"
+        )
+        wrapper_line = next(
+            number
+            for number, source in enumerate(lines, 1)
+            if number > wrapper_class_line
+            and "StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);"
+            in source
+        )
+        ordinary_class_line = line(
+            "private static final class OrdinaryReader"
+        )
+        ordinary_line = next(
+            number
+            for number, source in enumerate(lines, 1)
+            if number > ordinary_class_line
+            and "StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);"
+            in source
+        )
+        metadata_line = line(
+            "IoUtil.readBytes(new java.io.ByteArrayInputStream(request.toString().getBytes()))"
+        )
+        server_file_line = line(
+            'IOUtils.toByteArray(new FileInputStream("server-side.txt"))'
+        )
+
+        rows = self._named_fixture_query_rows(
+            "spring", "Growth/InputMaterialization.ql", "growth"
+        )
+        by_line = {
+            row["site_start_line"]: row
+            for row in rows
+            if row["site_file"].endswith("ReadAllController.java")
+            and row["site_start_line"]
+            in {wrapper_line, ordinary_line, metadata_line, server_file_line}
+        }
+
+        self.assertEqual(by_line[wrapper_line]["coverage_status"], "complete")
+        self.assertEqual(
+            by_line[wrapper_line]["coverage_note"],
+            "request_stream_origin_proven",
+        )
+        for negative in (ordinary_line, metadata_line):
+            self.assertEqual(by_line[negative]["coverage_status"], "partial")
+            self.assertEqual(
+                by_line[negative]["coverage_note"],
+                "stream_origin_unclassified",
+            )
+        self.assertEqual(by_line[server_file_line]["coverage_status"], "complete")
+        self.assertEqual(
+            by_line[server_file_line]["coverage_note"],
+            "server_side_file_materialization",
+        )
+
     def test_growth_queries_use_the_exact_shared_table_contract(self) -> None:
         root = Path(__file__).parents[1]
         query_root = root / "codeql" / "dosweb" / "Growth"
@@ -1010,9 +1082,28 @@ public class MixedDimensionFixture {
                         self.assertFalse(
                             any("SpringLookalike" in item["resource_point"]["receiver"] for item in matching)
                         )
+                        gateway_fixture = source_root / "fixture" / "spring" / "GatewayController.java"
+                        gateway_line = next(
+                            number
+                            for number, line in enumerate(
+                                gateway_fixture.read_text(encoding="utf-8").splitlines(), 1
+                            )
+                            if "generic-body-helper-parser" in line
+                        )
+                        helper_rows = [
+                            row
+                            for row in rows
+                            if row["site_file"].endswith("GatewayController.java")
+                            and row["site_start_line"] == gateway_line
+                        ]
+                        self.assertEqual(len(helper_rows), 1, helper_rows)
+                        self.assertEqual(helper_rows[0]["coverage_status"], "complete")
+                        self.assertEqual(
+                            helper_rows[0]["coverage_note"],
+                            "servlet_request_body_helper_then_structured_parser",
+                        )
                         self.assertTrue(
                             {
-                                "cn.devezhao.commons.web.ServletUtils.getRequestString",
                                 "cn.hutool.core.io.IoUtil.readBytes",
                                 "org.apache.commons.io.IOUtils.toByteArray",
                                 "org.springframework.util.StreamUtils.copyToByteArray",

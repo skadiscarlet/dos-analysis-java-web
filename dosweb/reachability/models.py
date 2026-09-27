@@ -49,9 +49,13 @@ class AuthContract:
     @classmethod
     def from_dict(cls,r:Mapping[str,object])->"AuthContract":
         if set(r)!={"auth_context","evidence_ids","assumptions","confidence"}: _bad()
-        evidence_ids, assumptions = r["evidence_ids"], r["assumptions"]
-        if not isinstance(evidence_ids,list) or not isinstance(assumptions,list): _bad()
-        return cls(cast(Literal["unauthenticated","low_privilege","privileged","unknown"],r["auth_context"]),tuple(cast(list[str],evidence_ids)),tuple(cast(list[str],assumptions)),cast(Literal["high","medium","low"],r["confidence"]))
+        auth_context, evidence_ids = r["auth_context"], r["evidence_ids"]
+        assumptions, confidence = r["assumptions"], r["confidence"]
+        if (not isinstance(auth_context,str) or not isinstance(confidence,str)
+                or not isinstance(evidence_ids,list) or not isinstance(assumptions,list)
+                or any(not isinstance(value,str) for value in evidence_ids)
+                or any(not isinstance(value,str) for value in assumptions)):_bad()
+        return cls(cast(Literal["unauthenticated","low_privilege","privileged","unknown"],auth_context),tuple(evidence_ids),tuple(assumptions),cast(Literal["high","medium","low"],confidence))
 
 @dataclass(frozen=True)
 class ReachabilityDecision:

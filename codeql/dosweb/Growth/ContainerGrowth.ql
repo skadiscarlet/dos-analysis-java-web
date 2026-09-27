@@ -7,6 +7,7 @@
 
 import java
 import LoopAmplification
+import ContainerCardinalityDomain
 
 // Exact Task 3 contract:
 // "site_file", "site_start_line", "growth_kind", "operation",
@@ -38,11 +39,16 @@ predicate fixedDemand(Expr demand) {
 }
 
 predicate containerDemand(MethodCall call, Expr demand, string demandRole) {
-  demand = call.getArgument(0) and
   (
-    call.getMethod().getName() = ["put", "computeIfAbsent", "putIfAbsent", "merge"] and
-    demandRole = "key"
-    or call.getMethod().getName() = "add" and demandRole = "value"
+    demand = call.getArgument(0) and
+    (
+      call.getMethod().getName() = ["put", "computeIfAbsent", "putIfAbsent", "merge"] and
+      demandRole = "key"
+      or call.getMethod().getName() = "add" and demandRole = "value"
+    )
+    or call.getMethod().getName() = "put" and call.getNumArgument() = 2 and
+      provenServerDerivedFreshMapKey(call, call.getArgument(0)) and
+      demand = call.getArgument(1) and demandRole = "value"
   )
 }
 
@@ -235,8 +241,13 @@ predicate containerGrowthRow(
       or demandRole = "value" and demandUsesAttackerParameter(call, demand) and
          coverageStatus = "complete" and
          coverageNote = "persistent_field_container_write:attacker_value_driver:" + multiplicityNote
+      or demandRole = "key" and
+         provenServerDerivedFreshMapKey(call, demand) and
+         coverageStatus = "complete" and
+         coverageNote = "persistent_field_container_write:server_derived_fresh_key:" + multiplicityNote
       or demandRole = "key" and not fixedDemand(demand) and
          not demandUsesAttackerParameter(call, demand) and
+         not provenServerDerivedFreshMapKey(call, demand) and
          coverageStatus = "partial" and
          coverageNote = "persistent_field_container_write:key_driver_unclassified:" + multiplicityNote
       or demandRole = "value" and not demandUsesAttackerParameter(call, demand) and

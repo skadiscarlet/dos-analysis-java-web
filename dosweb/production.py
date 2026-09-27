@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -95,6 +96,7 @@ from dosweb.lifecycle.resource_properties import (
     bind_resource_lifecycle_coverage_gap,
     bind_resource_lifecycle_property,
 )
+from dosweb.llm.cache import provider_id_for_base_url, responses_request_profile
 from dosweb.llm.deepseek import DeepSeekClient
 from dosweb.pipeline import Executor, Pipeline, STAGES, StageContext, StageOutput
 from dosweb.report.markdown import render_report
@@ -103,15 +105,15 @@ from dosweb.report.summary import build_summary
 
 _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
-        "production-v2.8-open-world-maturation-growth-v34"
+        "production-v2.8-open-world-maturation-growth-v45"
         if stage == "growth"
-        else "production-v2.8-open-world-maturation-entries-v18"
+        else "production-v2.8-open-world-maturation-entries-v21"
         if stage == "entries"
         else "production-v2.8-open-world-maturation-conclude-v9"
         if stage == "conclude"
-        else "production-v2.8-open-world-maturation-flows-v22"
+        else "production-v2.8-open-world-maturation-flows-v25"
         if stage == "flows"
-        else f"production-v2.8-open-world-maturation-{stage}-v17"
+        else f"production-v2.8-open-world-maturation-{stage}-v20"
         if stage == "lifecycle"
         else f"production-v2.8-open-world-maturation-{stage}-v2"
     )
@@ -2411,6 +2413,46 @@ def _candidate_association(
         # `/path` and `GET /path`) for the exact same handler/registration.
         # They are one semantic entry association, not an ambiguity.
         linked_entries = tuple(entries[link.entry_id] for link in linked)
+        complete_links = tuple(link for link in linked if link.status == "complete")
+        complete_entries = tuple(entries[link.entry_id] for link in complete_links)
+        complete_group_ids = {
+            _entry_registration_site_identity(entry) for entry in complete_entries
+        }
+        partial_group_ids = {
+            _entry_registration_site_identity(entries[link.entry_id])
+            for link in linked
+            if link.status == "partial"
+        }
+        if (
+            complete_links
+            and len(complete_links) < len(linked)
+            and len(complete_group_ids) == 1
+            and complete_group_ids.isdisjoint(partial_group_ids)
+        ):
+            # Candidate relevance is existential per E->G path. A unique
+            # handler/registration group with complete Association+Flow proof
+            # is not invalidated by distinct handlers that have only callgraph
+            # or partial-flow evidence to the same sink. Mixed complete/partial
+            # evidence for the same handler group remains ambiguous. Keep the
+            # proven group; two distinct complete groups remain ambiguous below.
+            linked = [
+                CandidateEntryLink.create(
+                    link.growth_id,
+                    link.entry_id,
+                    link.status,
+                    link.evidence_ids,
+                    tuple(
+                        sorted(
+                            set(link.reason_codes)
+                            | {
+                                "ASSOCIATION_UNIQUE_COMPLETE_HANDLER_GROUP_SELECTED"
+                            }
+                        )
+                    ),
+                )
+                for link in complete_links
+            ]
+            linked_entries = tuple(entries[link.entry_id] for link in linked)
         netty_base_pattern = registration_coverage_pattern_id(
             "netty", "pipeline_registration", "netty_pipeline_registration"
         )
@@ -2559,6 +2601,60 @@ def _candidate_association(
     )
 
 
+def _configuration_relevant_to_growth_dimension(
+    fact: ModeledConfigurationFact,
+    resource_dimension: str,
+) -> bool:
+    """Keep only limits that can constrain the candidate's exact resource axis.
+
+    Configuration extraction is intentionally broad.  A lexical ``max``/``size``
+    match is not enough here: header bytes, URI bytes, request counts and IP rate
+    limits cannot refute request-body byte materialization.  Lifecycle evaluates
+    applicability later, but unrelated channels must not enter the Growth slice
+    as apparent counterevidence in the first place.
+    """
+    if fact.status != "known" or not fact.default_effective:
+        return False
+    key = fact.key.lower()
+    tokens = frozenset(token for token in re.split(r"[^a-z0-9]+", key) if token)
+    rate_or_request_count = (
+        "rate" in tokens
+        or "requests-per" in key
+        or "request-count" in key
+        or "requests-count" in key
+        or "max-requests" in key
+        or "request-quota" in key
+        or "bandwidth" in tokens
+    )
+    if rate_or_request_count:
+        return False
+    if resource_dimension == "bytes":
+        if tokens & {
+            "header", "headers", "cookie", "cookies", "query", "uri", "url",
+            "path", "session",
+        }:
+            return False
+        byte_channel = bool(
+            tokens
+            & {
+                "body", "payload", "upload", "multipart", "content", "length",
+                "buffer", "post", "form", "swallow", "bytes", "byte",
+            }
+        )
+        request_size = (
+            "request" in tokens
+            and bool(tokens & {"max", "limit", "size", "length", "bytes", "byte"})
+        )
+        return byte_channel or request_size
+    tokens_by_dimension = {
+        "tasks": {"capacity", "queue", "tasks", "task", "executor"},
+        "entries": {"capacity", "entries", "entry", "cache", "items", "quota"},
+        "connections": {"connections", "connection", "sessions", "session", "pool", "timeout"},
+        "objects": {"capacity", "objects", "object", "items", "quota"},
+    }
+    return bool(tokens & tokens_by_dimension.get(resource_dimension, set()))
+
+
 def _slice_for(
     config: AnalyzerConfig,
     entry: EntryFact,
@@ -2570,19 +2666,12 @@ def _slice_for(
     checkout = config.llm.source_checkout
     if checkout is None:
         raise AnalyzerError("CONFIG_INVALID_VALUE", "source_checkout is required for Growth classification.")
-    dimension_tokens = {
-        "bytes": ("max", "limit", "size", "body", "payload", "request", "upload", "buffer"),
-        "tasks": ("max", "limit", "capacity", "queue", "quota"),
-        "entries": ("max", "limit", "capacity", "quota"),
-        "connections": ("max", "limit", "capacity", "timeout"),
-        "objects": ("max", "limit", "capacity", "quota"),
-    }.get(candidate.resource_dimension, ())
     relevant_configuration = tuple(
         fact
         for fact in configuration_facts
-        if fact.status == "known"
-        and fact.default_effective
-        and any(token in fact.key.lower() for token in dimension_tokens)
+        if _configuration_relevant_to_growth_dimension(
+            fact, candidate.resource_dimension
+        )
     )[:16]
     locations = {
         (candidate.site.file, candidate.site.start_line),
@@ -4439,7 +4528,9 @@ def build_production_pipeline(values: Mapping[str, object], *, environ: Mapping[
     if config.allow_partial_codeql and values.get("command") != "entries":
         raise AnalyzerError("CONFIG_INVALID_VALUE", "Partial CodeQL execution is restricted to exploratory entries runs.")
     analysis_mode = "exploratory_entries" if config.allow_partial_codeql else "formal"
-    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "resource_lifecycle_backend": resource_backend_identity}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature}), report_fingerprint=_digest({"renderer": "markdown-v2-modeled-assumptions"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary, "resource_lifecycle_backend": resource_backend_identity})
+    llm_provider = provider_id_for_base_url(config.llm.base_url)
+    llm_request_profile = responses_request_profile(llm_provider)
+    pipeline = Pipeline(config.output, executors, database_fingerprint="", query_pack_hash="", config_fingerprint=_digest({**_non_secret_config(config), "analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "resource_lifecycle_backend": resource_backend_identity}), model_fingerprint=_digest({"base_url": config.llm.base_url, "model": config.llm.model, "temperature": config.llm.temperature, "provider": llm_provider, "responses_request_profile": llm_request_profile.identity, "max_output_tokens": llm_request_profile.max_output_tokens}), report_fingerprint=_digest({"renderer": "markdown-v2-modeled-assumptions"}), implementation_versions=_IMPLEMENTATION_VERSIONS, resume=config.resume, preflight=preflight if stage_executors is None else None, finalizer=finalizer if stage_executors is None else None, run_identity={"analysis_mode": analysis_mode, "query_failure_policy": "coverage_gap" if config.allow_partial_codeql else "fail_closed", "codeql_binary": config.codeql_binary, "resource_lifecycle_backend": resource_backend_identity})
     # DeepSeekClient is constructed lazily by the Growth executor, so exposing
     # the complete graph here does not perform provider work during factory
     # construction or pipeline preflight.

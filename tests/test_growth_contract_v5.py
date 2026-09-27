@@ -13,6 +13,7 @@ import pytest
 from dosweb.growth.contracts import (
     bind_provider_growth_contract,
     parse_growth_contract_json,
+    validate_contract_static_semantics,
     validate_provider_growth_contract,
 )
 from dosweb.growth.models import (
@@ -26,7 +27,7 @@ from dosweb.growth.models import (
 )
 from dosweb.llm.schemas import GROWTH_CONTRACT_RESPONSE_SCHEMA, RESPONSE_SCHEMA_VERSION
 from dosweb.artifacts.identifiers import canonical_json, sha256_canonical_json
-from dosweb.config import LlmConfig
+from dosweb.config import DEFAULT_MODEL, LlmConfig
 from dosweb.errors import AnalyzerError
 from dosweb.llm.cache import ContractCache, GrowthCacheSnapshot, cache_identity
 from dosweb.llm.deepseek import DeepSeekClient, ProviderReply, _InFlightState
@@ -157,6 +158,338 @@ def _slice() -> BoundedSlice:
     return BoundedSlice("slice:1", payload)
 
 
+def _large_single_request_slice(
+    *,
+    sink_kind: str = "input_materialization",
+    flow_origin: str = "request_parameter",
+    value_space: str = "stream",
+    target: str = "size",
+    amplification: str = "large_single_request",
+    limit_location: str = "none",
+    path_present: bool = True,
+    cross_bound_fact: str | None = None,
+) -> BoundedSlice:
+    base = _slice()
+    driver_id = "fact:large-driver"
+    other_driver_id = "fact:other-driver"
+
+    def driver_ref(kind: str) -> str:
+        return other_driver_id if cross_bound_fact == kind else driver_id
+
+    facts = (
+        StaticFact(
+            driver_id,
+            "flow",
+            "excerpt:1",
+            "flows_to",
+            None,
+            flow_origin,
+        ),
+        StaticFact(
+            other_driver_id,
+            "flow",
+            "excerpt:1",
+            "flows_to",
+            None,
+            "server_controlled",
+        ),
+        StaticFact(
+            "fact:other-target",
+            "attacker_target",
+            "excerpt:1",
+            "source",
+            other_driver_id,
+            "size",
+        ),
+        StaticFact(
+            "fact:large-sink",
+            sink_kind,
+            "excerpt:1",
+            "sink",
+            driver_ref("sink"),
+        ),
+        StaticFact(
+            "fact:large-target",
+            "attacker_target",
+            "excerpt:1",
+            "source",
+            driver_ref("attacker_target"),
+            target,
+        ),
+        StaticFact(
+            "fact:large-value-space",
+            "value_space",
+            "excerpt:1",
+            "flows_to",
+            driver_ref("value_space"),
+            value_space,
+        ),
+        StaticFact(
+            "fact:large-retention",
+            "retention",
+            "excerpt:1",
+            "sink",
+            driver_ref("retention"),
+            "request",
+        ),
+        StaticFact(
+            "fact:large-amplification",
+            "amplification",
+            "excerpt:1",
+            "sink",
+            driver_ref("amplification"),
+            amplification,
+        ),
+        StaticFact(
+            "fact:large-limit",
+            "known_limit_location",
+            "excerpt:1",
+            "bounds",
+            driver_ref("known_limit_location"),
+            limit_location,
+        ),
+    )
+    payload = replace(
+        base.payload,
+        growth_id="growth:large-single-request",
+        static_facts=facts,
+        cfg_summary=CfgSummary(
+            ("path:large-single-request",) if path_present else (),
+            ("in_handler",),
+            tuple(fact.fact_id for fact in facts),
+        ),
+    )
+    return BoundedSlice("slice:large-single-request", payload)
+
+
+def _high_cardinality_retention_slice(
+    *,
+    flow_origin: str = "request_parameter",
+    target: str = "key",
+    value_space: str = "unlimited",
+    retention: str = "process",
+    amplification: str = "high_cardinality_retention",
+    limit_location: str = "none",
+    field_identity: str = "attacker_key",
+    escape_scope: str = "global",
+    loop_multiplicity: str = "repeated_requests",
+    path_present: bool = True,
+) -> BoundedSlice:
+    base = _slice()
+    driver_id = "fact:cardinality-driver"
+    facts = (
+        StaticFact(
+            driver_id,
+            "flow",
+            "excerpt:1",
+            "flows_to",
+            None,
+            flow_origin,
+        ),
+        StaticFact(
+            "fact:cardinality-target",
+            "attacker_target",
+            "excerpt:1",
+            "source",
+            driver_id,
+            target,
+        ),
+        StaticFact(
+            "fact:cardinality-sink",
+            "container_write",
+            "excerpt:1",
+            "sink",
+            driver_id,
+        ),
+        StaticFact(
+            "fact:cardinality-value-space",
+            "value_space",
+            "excerpt:1",
+            "flows_to",
+            driver_id,
+            value_space,
+        ),
+        StaticFact(
+            "fact:cardinality-retention",
+            "retention",
+            "excerpt:1",
+            "sink",
+            driver_id,
+            retention,
+        ),
+        StaticFact(
+            "fact:cardinality-amplification",
+            "amplification",
+            "excerpt:1",
+            "sink",
+            driver_id,
+            amplification,
+        ),
+        StaticFact(
+            "fact:cardinality-limit",
+            "known_limit_location",
+            "excerpt:1",
+            "bounds",
+            driver_id,
+            limit_location,
+        ),
+        StaticFact(
+            "fact:cardinality-field",
+            "field_identity",
+            "excerpt:1",
+            "sink",
+            driver_id,
+            field_identity,
+        ),
+        StaticFact(
+            "fact:cardinality-escape",
+            "escape_scope",
+            "excerpt:1",
+            "sink",
+            driver_id,
+            escape_scope,
+        ),
+        StaticFact(
+            "fact:cardinality-loop",
+            "loop_multiplicity",
+            "excerpt:1",
+            "sink",
+            driver_id,
+            loop_multiplicity,
+        ),
+    )
+    payload = replace(
+        base.payload,
+        growth_id="growth:high-cardinality-retention",
+        static_facts=facts,
+        cfg_summary=CfgSummary(
+            ("path:high-cardinality-retention",) if path_present else (),
+            ("in_handler",),
+            tuple(fact.fact_id for fact in facts),
+        ),
+    )
+    return BoundedSlice("slice:high-cardinality-retention", payload)
+
+
+def _unknown_bound_contract(slice_: BoundedSlice):
+    provider = validate_provider_growth_contract(
+        _provider_payload(
+            is_resource_growth="unknown",
+            attacker_evidence_ids=[],
+            resource_effect="unknown",
+            attacker_variable="unknown",
+            attacker_value_space="unknown",
+            growth_unit="unknown",
+            growth_function="unknown",
+            amplification_class="unknown",
+            requests_to_pressure="unknown",
+            concurrency_model="unknown",
+            retention_window="unknown",
+            failure_mechanism="unknown",
+            failure_signal="unknown",
+            required_static_evidence=[],
+            contract_status="unknown",
+            rejection_reason="unknown",
+            confidence="low",
+        )
+    )
+    return bind_provider_growth_contract(provider, slice_)
+
+
+def _request_local_bound_contract(slice_: BoundedSlice):
+    provider = validate_provider_growth_contract(
+        _provider_payload(
+            is_resource_growth="yes",
+            attacker_evidence_ids=["fact:large-driver"],
+            resource_effect="materializes_bytes",
+            attacker_variable="request controlled size",
+            attacker_value_space="large",
+            growth_unit="request bytes",
+            growth_function="request sized allocation",
+            amplification_class="large_single_request",
+            requests_to_pressure="implausible",
+            concurrency_model="one request",
+            retention_window="request",
+            failure_mechanism="none",
+            failure_signal="no failure",
+            required_static_evidence=["fact:large-sink"],
+            contract_status="growth_not_dos_relevant",
+            rejection_reason="request_local_bounded",
+            confidence="medium",
+        )
+    )
+    return bind_provider_growth_contract(provider, slice_)
+
+
+def _positive_large_single_request_contract(
+    slice_: BoundedSlice,
+    *,
+    attacker_evidence_id: str = "fact:large-driver",
+    required_static_evidence: list[str] | None = None,
+):
+    required = required_static_evidence or [
+        "fact:large-sink",
+        "fact:large-value-space",
+        "fact:large-retention",
+        "fact:large-amplification",
+        "fact:large-limit",
+    ]
+    provider = validate_provider_growth_contract(
+        _provider_payload(
+            attacker_evidence_ids=[attacker_evidence_id],
+            resource_effect="materializes_bytes",
+            attacker_variable="request controlled size",
+            attacker_value_space="stream",
+            growth_unit="request bytes",
+            growth_function="request sized allocation",
+            amplification_class="large_single_request",
+            requests_to_pressure="one",
+            concurrency_model="one request",
+            retention_window="request",
+            failure_mechanism="heap_exhaustion",
+            failure_signal="heap pressure",
+            required_static_evidence=required,
+        )
+    )
+    return bind_provider_growth_contract(provider, slice_)
+
+
+def _positive_high_cardinality_contract(
+    slice_: BoundedSlice,
+    *,
+    attacker_evidence_id: str = "fact:cardinality-driver",
+    required_static_evidence: list[str] | None = None,
+):
+    required = required_static_evidence or [
+        "fact:cardinality-sink",
+        "fact:cardinality-value-space",
+        "fact:cardinality-retention",
+        "fact:cardinality-amplification",
+        "fact:cardinality-limit",
+        "fact:cardinality-field",
+        "fact:cardinality-escape",
+        "fact:cardinality-loop",
+    ]
+    provider = validate_provider_growth_contract(
+        _provider_payload(
+            attacker_evidence_ids=[attacker_evidence_id],
+            resource_effect="adds_entries",
+            attacker_variable="typed attacker controlled input",
+            attacker_value_space="unlimited",
+            growth_unit="typed resource units",
+            growth_function="growth described by cited typed facts",
+            amplification_class="high_cardinality_retention",
+            requests_to_pressure="many",
+            concurrency_model="request repetition described by cited typed facts",
+            retention_window="process",
+            failure_mechanism="heap_exhaustion",
+            failure_signal="resource pressure from cited typed facts",
+            required_static_evidence=required,
+        )
+    )
+    return bind_provider_growth_contract(provider, slice_)
+
+
 def test_provider_schema_v5_excludes_local_candidate_shape_and_demand_role() -> None:
     assert RESPONSE_SCHEMA_VERSION == "growth-contract-schema-v5"
     assert "growth_kind" not in GROWTH_CONTRACT_RESPONSE_SCHEMA
@@ -220,20 +553,473 @@ def test_growth_prompt_exposes_only_binder_eligible_attacker_aliases() -> None:
     initial = build_provider_payload(_slice())
     user = json.loads(initial.messages[1]["content"])
 
-    assert PROMPT_VERSION == "growth-contract-v9"
+    assert PROMPT_VERSION == "growth-contract-v16"
     assert user["attacker_evidence_options"] == [
         {"evidence_id": "fact:1", "attacker_target": "key"}
     ]
     correction = build_growth_correction_payload(_slice())
     instructions = correction.messages[0]["content"]
     assert "Use only an evidence_id from attacker_evidence_options" in instructions
+    assert "field_identity=attacker_key" in instructions
+    assert "requests_to_pressure=many" in instructions
+    assert '"attacker_variable":"typed attacker controlled input"' in instructions
     assert "confidence is mandatory" in instructions
+
+
+@pytest.mark.parametrize("sink_kind", ["input_materialization", "allocation"])
+def test_exact_typed_large_single_request_rejects_unknown_growth_contract(
+    sink_kind: str,
+) -> None:
+    slice_ = _large_single_request_slice(sink_kind=sink_kind)
+
+    with pytest.raises(AnalyzerError) as raised:
+        validate_contract_static_semantics(_unknown_bound_contract(slice_), slice_)
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+
+
+def test_exact_typed_large_single_request_rejects_request_local_bounded_contract() -> None:
+    slice_ = _large_single_request_slice()
+
+    with pytest.raises(AnalyzerError) as raised:
+        validate_contract_static_semantics(
+            _request_local_bound_contract(slice_),
+            slice_,
+        )
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("sink_kind", ["input_materialization", "allocation"])
+def test_exact_typed_large_single_request_accepts_complete_same_flow_evidence(
+    sink_kind: str,
+) -> None:
+    slice_ = _large_single_request_slice(sink_kind=sink_kind)
+    contract = _positive_large_single_request_contract(slice_)
+
+    assert validate_contract_static_semantics(contract, slice_) is contract
+
+
+@pytest.mark.parametrize(
+    "missing_fact",
+    [
+        "fact:large-sink",
+        "fact:large-value-space",
+        "fact:large-retention",
+        "fact:large-amplification",
+        "fact:large-limit",
+    ],
+)
+def test_exact_typed_large_single_request_requires_same_flow_core_citations(
+    missing_fact: str,
+) -> None:
+    slice_ = _large_single_request_slice()
+    required = [
+        fact_id
+        for fact_id in (
+            "fact:large-sink",
+            "fact:large-value-space",
+            "fact:large-retention",
+            "fact:large-amplification",
+            "fact:large-limit",
+        )
+        if fact_id != missing_fact
+    ]
+    contract = _positive_large_single_request_contract(
+        slice_,
+        required_static_evidence=required,
+    )
+
+    with pytest.raises(AnalyzerError) as raised:
+        validate_contract_static_semantics(contract, slice_)
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+
+
+def test_exact_typed_large_single_request_rejects_cross_flow_attacker_citation() -> None:
+    slice_ = _large_single_request_slice()
+    contract = _positive_large_single_request_contract(
+        slice_,
+        attacker_evidence_id="fact:other-driver",
+    )
+
+    with pytest.raises(AnalyzerError) as raised:
+        validate_contract_static_semantics(contract, slice_)
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"path_present": False},
+        {"target": "value"},
+        {"value_space": "limited"},
+        {"flow_origin": "server_controlled"},
+        {"limit_location": "unknown"},
+        {"amplification": "low_amplification"},
+        {"cross_bound_fact": "amplification"},
+        {"cross_bound_fact": "sink"},
+        {"sink_kind": "container_write"},
+    ],
+)
+def test_large_single_request_semantic_invariant_does_not_cross_or_invent_facts(
+    changes: dict[str, object],
+) -> None:
+    slice_ = _large_single_request_slice(**changes)
+    contract = _unknown_bound_contract(slice_)
+
+    assert validate_contract_static_semantics(contract, slice_) is contract
+
+
+def test_exact_typed_high_cardinality_retention_rejects_unknown_contract() -> None:
+    slice_ = _high_cardinality_retention_slice()
+
+    with pytest.raises(AnalyzerError) as raised:
+        validate_contract_static_semantics(_unknown_bound_contract(slice_), slice_)
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("target", ["key", "value"])
+def test_exact_typed_high_cardinality_retention_accepts_same_flow_evidence(
+    target: str,
+) -> None:
+    slice_ = _high_cardinality_retention_slice(target=target)
+    contract = _positive_high_cardinality_contract(slice_)
+
+    assert validate_contract_static_semantics(contract, slice_) is contract
+
+
+@pytest.mark.parametrize(
+    "missing_fact",
+    [
+        "fact:cardinality-sink",
+        "fact:cardinality-value-space",
+        "fact:cardinality-retention",
+        "fact:cardinality-amplification",
+        "fact:cardinality-limit",
+        "fact:cardinality-field",
+        "fact:cardinality-escape",
+        "fact:cardinality-loop",
+    ],
+)
+def test_exact_typed_high_cardinality_retention_requires_core_citations(
+    missing_fact: str,
+) -> None:
+    slice_ = _high_cardinality_retention_slice()
+    required = [
+        fact_id
+        for fact_id in (
+            "fact:cardinality-sink",
+            "fact:cardinality-value-space",
+            "fact:cardinality-retention",
+            "fact:cardinality-amplification",
+            "fact:cardinality-limit",
+            "fact:cardinality-field",
+            "fact:cardinality-escape",
+            "fact:cardinality-loop",
+        )
+        if fact_id != missing_fact
+    ]
+    contract = _positive_high_cardinality_contract(
+        slice_,
+        required_static_evidence=required,
+    )
+
+    with pytest.raises(AnalyzerError) as raised:
+        validate_contract_static_semantics(contract, slice_)
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"path_present": False},
+        {"target": "size"},
+        {"value_space": "limited"},
+        {"flow_origin": "server_controlled"},
+        {"retention": "request"},
+        {"amplification": "low_amplification"},
+        {"limit_location": "unknown"},
+        {"field_identity": "request_local"},
+        {"escape_scope": "request"},
+        {"loop_multiplicity": "single_operation"},
+    ],
+)
+def test_high_cardinality_semantic_invariant_does_not_invent_facts(
+    changes: dict[str, object],
+) -> None:
+    slice_ = _high_cardinality_retention_slice(**changes)
+    contract = _unknown_bound_contract(slice_)
+
+    assert validate_contract_static_semantics(contract, slice_) is contract
+
+
+def _provider_prompt_object(request: dict[str, object]) -> dict[str, object]:
+    inputs = request["input"]
+    assert isinstance(inputs, list) and len(inputs) == 1
+    content = inputs[0]["content"]
+    assert isinstance(content, list) and len(content) == 1
+    parsed = json.loads(content[0]["text"])
+    assert isinstance(parsed, dict)
+    return parsed
+
+
+def _corrected_large_single_request_payload(
+    request: dict[str, object],
+) -> dict[str, object]:
+    prompt = _provider_prompt_object(request)
+    options = prompt["attacker_evidence_options"]
+    bounded_slice = prompt["bounded_slice"]
+    assert isinstance(options, list) and options
+    assert isinstance(bounded_slice, dict)
+    static_facts = bounded_slice["static_facts"]
+    assert isinstance(static_facts, list)
+    driver_id = options[0]["evidence_id"]
+    value_space = next(
+        fact["normalized_value"]
+        for fact in static_facts
+        if isinstance(fact, dict)
+        and fact.get("kind") == "value_space"
+        and fact.get("value_ref") == driver_id
+    )
+    return _provider_payload(
+        attacker_evidence_ids=[driver_id],
+        resource_effect="materializes_bytes",
+        attacker_variable="request controlled size",
+        attacker_value_space=value_space,
+        growth_unit="request bytes",
+        growth_function="request sized allocation",
+        amplification_class="large_single_request",
+        requests_to_pressure="one",
+        concurrency_model="one request",
+        retention_window="request",
+        failure_mechanism="heap_exhaustion",
+        failure_signal="heap pressure",
+        required_static_evidence=[
+            fact["fact_id"] for fact in static_facts if isinstance(fact, dict)
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("sink_kind", "first_response"),
+    [
+        (
+            "input_materialization",
+            _provider_payload(
+                is_resource_growth="unknown",
+                attacker_evidence_ids=[],
+                resource_effect="unknown",
+                attacker_variable="unknown",
+                attacker_value_space="unknown",
+                growth_unit="unknown",
+                growth_function="unknown",
+                amplification_class="unknown",
+                requests_to_pressure="unknown",
+                concurrency_model="unknown",
+                retention_window="unknown",
+                failure_mechanism="unknown",
+                failure_signal="unknown",
+                required_static_evidence=[],
+                contract_status="unknown",
+                rejection_reason="unknown",
+                confidence="low",
+            ),
+        ),
+        (
+            "input_materialization",
+            _provider_payload(
+                is_resource_growth="yes",
+                attacker_evidence_ids=[],
+                resource_effect="materializes_bytes",
+                attacker_variable="request controlled size",
+                attacker_value_space="large",
+                growth_unit="request bytes",
+                growth_function="request sized materialization",
+                amplification_class="large_single_request",
+                requests_to_pressure="implausible",
+                concurrency_model="one request",
+                retention_window="request",
+                failure_mechanism="none",
+                failure_signal="no failure",
+                required_static_evidence=[],
+                contract_status="growth_not_dos_relevant",
+                rejection_reason="request_local_bounded",
+                confidence="medium",
+            ),
+        ),
+        (
+            "allocation",
+            _provider_payload(
+                is_resource_growth="unknown",
+                attacker_evidence_ids=[],
+                resource_effect="unknown",
+                attacker_variable="unknown",
+                attacker_value_space="unknown",
+                growth_unit="unknown",
+                growth_function="unknown",
+                amplification_class="unknown",
+                requests_to_pressure="unknown",
+                concurrency_model="unknown",
+                retention_window="unknown",
+                failure_mechanism="unknown",
+                failure_signal="unknown",
+                required_static_evidence=[],
+                contract_status="unknown",
+                rejection_reason="unknown",
+                confidence="low",
+            ),
+        ),
+    ],
+)
+def test_exact_large_single_request_gets_one_safe_positive_correction(
+    tmp_path: Path,
+    sink_kind: str,
+    first_response: dict[str, object],
+) -> None:
+    attempts = 0
+
+    def growth(request: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return first_response
+        return _corrected_large_single_request_payload(request)
+
+    transport = ScriptedDeepSeekTransport(growth=growth)
+    client = _client(tmp_path, transport)
+
+    contract = client.classify_growth(
+        _large_single_request_slice(sink_kind=sink_kind)
+    )
+
+    assert contract.contract_status == "dos_relevant"
+    assert transport.request_count == 2
+    assert "MUST return contract_status=dos_relevant" in str(
+        transport.requests[1]["instructions"]
+    )
+    cache_files = list((tmp_path / "cache").glob("*.json"))
+    assert len(cache_files) == 1
+    assert json.loads(cache_files[0].read_text(encoding="utf-8"))[
+        "accepted_prompt_variant"
+    ] == "correction"
+
+
+def _large_single_request_payload_without_required_kind(
+    request: dict[str, object],
+    missing_kind: str,
+) -> dict[str, object]:
+    prompt = _provider_prompt_object(request)
+    bounded_slice = prompt["bounded_slice"]
+    assert isinstance(bounded_slice, dict)
+    static_facts = bounded_slice["static_facts"]
+    assert isinstance(static_facts, list)
+    missing_ids = {
+        fact["fact_id"]
+        for fact in static_facts
+        if isinstance(fact, dict) and fact.get("kind") == missing_kind
+    }
+    payload = _corrected_large_single_request_payload(request)
+    required = payload["required_static_evidence"]
+    assert isinstance(required, list)
+    payload["required_static_evidence"] = [
+        fact_id for fact_id in required if fact_id not in missing_ids
+    ]
+    return payload
+
+
+def test_exact_large_single_request_missing_retention_citation_gets_correction(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    def growth(request: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _large_single_request_payload_without_required_kind(
+                request,
+                "retention",
+            )
+        return _corrected_large_single_request_payload(request)
+
+    transport = ScriptedDeepSeekTransport(growth=growth)
+    client = _client(tmp_path, transport)
+
+    contract = client.classify_growth(_large_single_request_slice())
+
+    assert contract.contract_status == "dos_relevant"
+    assert transport.request_count == 2
+    assert "same-flow sink, value_space, retention" in str(
+        transport.requests[1]["instructions"]
+    )
+
+
+def test_repeated_exact_large_single_request_missing_retention_is_terminal(
+    tmp_path: Path,
+) -> None:
+    transport = ScriptedDeepSeekTransport(
+        growth=lambda request: _large_single_request_payload_without_required_kind(
+            request,
+            "retention",
+        )
+    )
+    client = _client(tmp_path, transport)
+
+    with pytest.raises(AnalyzerError) as raised:
+        client.classify_growth(_large_single_request_slice())
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+    assert transport.request_count == 2
+    assert list((tmp_path / "cache").glob("*.json")) == []
+    assert client.last_audit() is None
+
+
+def test_repeated_exact_large_single_request_unknown_is_terminal_without_state(
+    tmp_path: Path,
+) -> None:
+    unknown = _provider_payload(
+        is_resource_growth="unknown",
+        attacker_evidence_ids=[],
+        resource_effect="unknown",
+        attacker_variable="unknown",
+        attacker_value_space="unknown",
+        growth_unit="unknown",
+        growth_function="unknown",
+        amplification_class="unknown",
+        requests_to_pressure="unknown",
+        concurrency_model="unknown",
+        retention_window="unknown",
+        failure_mechanism="unknown",
+        failure_signal="unknown",
+        required_static_evidence=[],
+        contract_status="unknown",
+        rejection_reason="unknown",
+        confidence="low",
+    )
+    transport = ScriptedDeepSeekTransport(growth=lambda _request: unknown)
+    client = _client(tmp_path, transport)
+
+    with pytest.raises(AnalyzerError) as raised:
+        client.classify_growth(_large_single_request_slice())
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+    assert transport.request_count == 2
+    assert list((tmp_path / "cache").glob("*.json")) == []
+    assert client.last_audit() is None
 
 
 def test_growth_prompt_filters_exact_binder_matrix_and_zero_option() -> None:
     from dataclasses import replace
 
-    from dosweb.llm.prompts import build_provider_payload
+    from dosweb.llm.prompts import (
+        _EMPTY_ATTACKER_CORRECTION_CONTRACT,
+        build_growth_correction_payload,
+        build_provider_payload,
+    )
 
     base = _slice()
     facts = (
@@ -282,6 +1068,24 @@ def test_growth_prompt_filters_exact_binder_matrix_and_zero_option() -> None:
     assert zero_user["attacker_evidence_options"] == []
     assert "If no option exists" in zero_provider.messages[0]["content"]
     assert "contract_status must not be dos_relevant" in zero_provider.messages[0]["content"]
+    zero_correction = build_growth_correction_payload(zero)
+    zero_instructions = zero_correction.messages[0]["content"]
+    assert "For this exact request attacker_evidence_options is empty" in zero_instructions
+    exact_unknown = json.dumps(
+        _EMPTY_ATTACKER_CORRECTION_CONTRACT,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    assert exact_unknown in zero_instructions
+    assert set(_EMPTY_ATTACKER_CORRECTION_CONTRACT) == set(
+        GROWTH_CONTRACT_RESPONSE_SCHEMA
+    )
+    assert _EMPTY_ATTACKER_CORRECTION_CONTRACT["attacker_evidence_ids"] == []
+    assert _EMPTY_ATTACKER_CORRECTION_CONTRACT["required_static_evidence"] == []
+    assert _EMPTY_ATTACKER_CORRECTION_CONTRACT["contract_status"] == "unknown"
+    assert _EMPTY_ATTACKER_CORRECTION_CONTRACT["is_resource_growth"] == "unknown"
+    assert _EMPTY_ATTACKER_CORRECTION_CONTRACT["rejection_reason"] == "unknown"
+    assert zero_correction.attacker_evidence_option_ids == ()
 
 
 def test_binder_invalid_initial_response_can_use_safe_alias_options_on_correction(
@@ -391,12 +1195,12 @@ def test_strict_growth_invariant_rotates_growth_cache_authentication_domain(tmp_
     from dosweb.llm import cache as cache_module
 
     cache = cache_module.ContractCache(tmp_path / "cache", "cache-key")
-    unsigned = {"cache_format": "growth-contract-cache-v14", "contract": {}}
+    unsigned = {"cache_format": "growth-contract-cache-v16", "contract": {}}
 
-    assert cache_module._CACHE_FORMAT == "growth-contract-cache-v14"
+    assert cache_module._CACHE_FORMAT == "growth-contract-cache-v16"
     assert cache._entry_hmac(unsigned) == hmac.new(
         b"cache-key",
-        b"growth-contract-cache-entry-v14\0" + canonical_json(unsigned),
+        b"growth-contract-cache-entry-v15\0" + canonical_json(unsigned),
         hashlib.sha256,
     ).hexdigest()
 
@@ -407,7 +1211,7 @@ def test_growth_cache_identity_rotates_with_authenticated_cache_format(
     from dosweb.llm import cache as cache_module
 
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -419,7 +1223,7 @@ def test_growth_cache_identity_rotates_with_authenticated_cache_format(
     )
     current_key, current_identity = cache_module.cache_identity(config, _slice())
 
-    assert current_identity["cache_format"] == "growth-contract-cache-v14"
+    assert current_identity["cache_format"] == "growth-contract-cache-v16"
     monkeypatch.setattr(cache_module, "_CACHE_FORMAT", "growth-contract-cache-v13")
     previous_key, previous_identity = cache_module.cache_identity(config, _slice())
     assert previous_identity["cache_format"] == "growth-contract-cache-v13"
@@ -455,7 +1259,7 @@ def test_signed_malformed_growth_cache_entry_is_rejected_by_both_readers(
     malformation: str,
 ) -> None:
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -856,7 +1660,7 @@ def test_growth_publication_failure_precedes_custom_policy_and_clears_response(
 
     transport = MarkerEnvelopeTransport()
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -956,7 +1760,7 @@ def test_thread_single_flight_applies_each_waiter_secret_policy_and_audit(
     monkeypatch.setattr(deepseek_module, "_join_inflight", observed_join)
     transport = BlockingTransport()
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -1080,7 +1884,7 @@ def test_thread_single_flight_strict_owner_does_not_force_lax_waiter_refetch(
     monkeypatch.setattr(deepseek_module, "_join_inflight", observed_join)
     transport = BlockingTransport()
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -1172,7 +1976,7 @@ def test_unicode_escaped_semantic_extra_is_rechecked_per_growth_waiter(
     monkeypatch.setattr(deepseek_module, "_join_inflight", observed_join)
     transport = BlockingEscapedTransport()
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -1304,7 +2108,7 @@ def test_growth_response_extra_matching_outbound_prompt_does_not_break_shared_fl
     monkeypatch.setattr(deepseek_module, "_join_inflight", observed_join)
     transport = BlockingTransport()
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -1425,7 +2229,7 @@ def test_thread_single_flight_shares_universal_sensitive_terminal_failure(
     monkeypatch.setattr(deepseek_module, "_join_inflight", observed_join)
     transport = BlockingSensitiveTransport()
     config = LlmConfig(
-        model="grok-4.6",
+        model=DEFAULT_MODEL,
         base_url="http://127.0.0.1:1/",
         api_key="test-api-key",
         timeout_seconds=3,
@@ -1577,7 +2381,7 @@ def test_thread_single_flight_applies_each_waiter_policy_to_provider_request_id(
 
     def config(api_key: str) -> LlmConfig:
         return LlmConfig(
-            model="grok-4.6",
+            model=DEFAULT_MODEL,
             base_url="http://127.0.0.1:1/",
             api_key=api_key,
             timeout_seconds=3,
@@ -1718,7 +2522,7 @@ def test_cache_hit_uses_one_authenticated_snapshot_during_file_replacement(
 def _client(tmp_path: Path, transport: ScriptedDeepSeekTransport) -> DeepSeekClient:
     return DeepSeekClient(
         LlmConfig(
-            model="grok-4.6",
+            model=DEFAULT_MODEL,
             base_url="http://127.0.0.1:1/",
             api_key="test-api-key",
             timeout_seconds=3,
@@ -1762,6 +2566,141 @@ def test_semantic_invalid_growth_response_gets_one_bounded_correction_retry(tmp_
     cached = cache_files[0].read_text(encoding="utf-8")
     assert "fixture-2" in cached
     assert "fixture-1" not in cached
+
+
+def _configured_unknown_large_request_slice(*, cross_flow_value_space: bool = False) -> BoundedSlice:
+    slice_ = _large_single_request_slice(
+        value_space="stream",
+        limit_location="configured_unknown_phase",
+    )
+    if not cross_flow_value_space:
+        return slice_
+    other = StaticFact(
+        "fact:other-value-space",
+        "value_space",
+        "excerpt:1",
+        "flows_to",
+        "fact:other-driver",
+        "large",
+    )
+    payload = replace(
+        slice_.payload,
+        static_facts=(*slice_.payload.static_facts, other),
+        cfg_summary=CfgSummary(
+            slice_.payload.cfg_summary.path_ids,
+            slice_.payload.cfg_summary.phases,
+            (*slice_.payload.cfg_summary.branch_facts, other.fact_id),
+        ),
+    )
+    return BoundedSlice(slice_.slice_id, payload)
+
+
+def _positive_large_request_payload_with_value_space(
+    request: dict[str, object],
+    value_space: str,
+    *,
+    cite_cross_flow_value_space: bool = False,
+) -> dict[str, object]:
+    payload = _corrected_large_single_request_payload(request)
+    payload["attacker_value_space"] = value_space
+    if cite_cross_flow_value_space:
+        prompt = _provider_prompt_object(request)
+        bounded_slice = prompt["bounded_slice"]
+        assert isinstance(bounded_slice, dict)
+        facts = bounded_slice["static_facts"]
+        assert isinstance(facts, list)
+        cross_flow = next(
+            fact["fact_id"]
+            for fact in facts
+            if isinstance(fact, dict)
+            and fact.get("kind") == "value_space"
+            and fact.get("normalized_value") == value_space
+            and fact.get("value_ref") != payload["attacker_evidence_ids"][0]
+        )
+        required = payload["required_static_evidence"]
+        assert isinstance(required, list)
+        payload["required_static_evidence"] = [*required, cross_flow]
+    return payload
+
+
+def test_positive_contract_value_space_mismatch_gets_one_exact_same_flow_correction(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    def growth(request: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        return _positive_large_request_payload_with_value_space(
+            request,
+            "large" if attempts == 1 else "stream",
+        )
+
+    transport = ScriptedDeepSeekTransport(growth=growth)
+    client = _client(tmp_path, transport)
+
+    contract = client.classify_growth(_configured_unknown_large_request_slice())
+
+    assert contract.contract_status == "dos_relevant"
+    assert contract.attacker_value_space == "stream"
+    assert transport.request_count == 2
+    correction = str(transport.requests[1]["instructions"])
+    assert "same-flow value_space" in correction
+    assert "exactly match attacker_value_space" in correction
+    cache_record = json.loads(
+        next((tmp_path / "cache").glob("*.json")).read_text(encoding="utf-8")
+    )
+    assert cache_record["accepted_prompt_variant"] == "correction"
+    audit = client.last_audit()
+    assert audit is not None
+    assert "same-flow value_space" in audit.normalized_prompt
+
+
+def test_positive_contract_rejects_cross_flow_value_space_citation_then_corrects(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    def growth(request: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _positive_large_request_payload_with_value_space(
+                request,
+                "large",
+                cite_cross_flow_value_space=True,
+            )
+        return _positive_large_request_payload_with_value_space(request, "stream")
+
+    transport = ScriptedDeepSeekTransport(growth=growth)
+    contract = _client(tmp_path, transport).classify_growth(
+        _configured_unknown_large_request_slice(cross_flow_value_space=True)
+    )
+
+    assert contract.attacker_value_space == "stream"
+    assert transport.request_count == 2
+
+
+def test_second_positive_value_space_mismatch_is_terminal_without_cache_or_audit(
+    tmp_path: Path,
+) -> None:
+    transport = ScriptedDeepSeekTransport(
+        growth=lambda request: _positive_large_request_payload_with_value_space(
+            request,
+            "large",
+        )
+    )
+    client = _client(tmp_path, transport)
+
+    with pytest.raises(AnalyzerError) as raised:
+        client.classify_growth(_configured_unknown_large_request_slice())
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert transport.request_count == 2
+    assert list((tmp_path / "cache").glob("*.json")) == []
+    assert client.last_audit() is None
 
 
 def test_second_semantic_invalid_growth_response_fails_closed_without_cache(tmp_path) -> None:
@@ -2047,7 +2986,7 @@ def test_first_sensitive_response_is_not_retained_when_correction_transport_fail
         {
             "id": "fixture-sensitive-first",
             "status": "completed",
-            "model": "grok-4.6",
+            "model": DEFAULT_MODEL,
             "output": [
                 {
                     "type": "message",
@@ -2190,7 +3129,7 @@ def test_correction_success_cache_hit_replays_identical_accepted_prompt(tmp_path
     assert cached_audit.raw_response == fresh_audit.raw_response
     assert cached_audit.parsed_response == fresh_audit.parsed_response
     cache_record = json.loads(next((tmp_path / "cache").glob("*.json")).read_text())
-    assert cache_record["cache_format"] == "growth-contract-cache-v14"
+    assert cache_record["cache_format"] == "growth-contract-cache-v16"
     assert cache_record["accepted_prompt_variant"] == "correction"
 
 
@@ -2216,7 +3155,7 @@ def test_terminal_malformed_schema_error_chain_does_not_retain_rejected_body(tmp
                 {
                     "id": f"fixture-{len(self.requests)}",
                     "status": "completed",
-                    "model": "grok-4.6",
+                    "model": DEFAULT_MODEL,
                     "output": [
                         {
                             "type": "message",

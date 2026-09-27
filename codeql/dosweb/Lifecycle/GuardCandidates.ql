@@ -6,6 +6,8 @@
  */
 
 import java
+import dosweb.Flows.EntryGrowthDomain
+import dosweb.Growth.RequestMaterializationDomain
 import semmle.code.java.controlflow.Guards
 import semmle.code.java.dataflow.DataFlow
 
@@ -29,7 +31,7 @@ predicate terminalReject(IfStmt site) {
   )
 }
 
-predicate cfgRejectsBeforeGrowth(IfStmt site, MethodCall growth) {
+predicate cfgRejectsBeforeGrowth(IfStmt site, Expr growth) {
   exists(ConditionBlock block |
     block.getCondition() = site.getCondition() and
     block.dominates(growth.getBasicBlock()) and
@@ -51,6 +53,7 @@ predicate attackerParameter(Parameter input) {
   or exists(Method method |
     input = method.getParameter(1) and method.getName() = ["channelRead", "channelRead0", "messageArrived"]
   )
+  or servletRequestRole(input.getType())
 }
 
 predicate derivedAttackerSource(Parameter input, MethodCall derived) {
@@ -72,26 +75,58 @@ predicate attackerSourceNode(DataFlow::Node source) {
 }
 
 /** The exact demand expression consumed by a modeled growth anchor. */
-predicate growthDemand(MethodCall growth, Expr demand, string dimension, string scopeValue, string representationValue) {
-  growth.getMethod().getName() = ["put", "add"] and demand = growth.getArgument(0) and
-  dimension = "entries" and representationValue = "same" and
-  exists(FieldAccess receiver |
-    receiver = growth.getQualifier() and
-    (receiver.getField().isStatic() and scopeValue = "global" or not receiver.getField().isStatic() and scopeValue = "instance")
+predicate growthDemand(Expr growth, Expr demand, string dimension, string scopeValue, string representationValue) {
+  exists(MethodCall call |
+    growth = call and
+    (
+      call.getMethod().getName() = ["put", "add"] and
+      demand = call.getArgument(0) and dimension = "entries" and
+      representationValue = "same" and
+      exists(FieldAccess receiver |
+        receiver = call.getQualifier() and
+        (
+          receiver.getField().isStatic() and scopeValue = "global"
+          or not receiver.getField().isStatic() and scopeValue = "instance"
+        )
+      )
+      or
+      call.getMethod().getName() = ["offer", "submit", "execute"] and
+      demand = call.getArgument(0) and dimension = "tasks" and
+      representationValue = "same" and
+      exists(FieldAccess receiver |
+        receiver = call.getQualifier() and
+        (
+          receiver.getField().isStatic() and scopeValue = "global"
+          or not receiver.getField().isStatic() and scopeValue = "instance"
+        )
+      )
+      or
+      call.getMethod().getName() = "getPayload" and
+      demand = call.getQualifier() and dimension = "bytes" and
+      scopeValue = "request" and representationValue = "raw_body"
+    )
   )
   or
-  growth.getMethod().getName() = ["offer", "submit", "execute"] and demand = growth.getArgument(0) and
-  dimension = "tasks" and representationValue = "same" and
-  exists(FieldAccess receiver |
-    receiver = growth.getQualifier() and
-    (receiver.getField().isStatic() and scopeValue = "global" or not receiver.getField().isStatic() and scopeValue = "instance")
+  exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    growth = helper and
+    requestBodyHelperParserMaterialization(helper, parser, request, parserInput) and
+    demand = request and dimension = "bytes" and scopeValue = "request" and
+    representationValue = "raw_body"
   )
   or
-  growth.getMethod().getName() = ["allocate", "allocateDirect"] and demand = growth.getArgument(0) and
-  dimension = "bytes" and scopeValue = "request" and representationValue = "raw_body"
-  or
-  growth.getMethod().getName() = "getPayload" and demand = growth.getQualifier() and
-  dimension = "bytes" and scopeValue = "request" and representationValue = "raw_body"
+  EntryGrowthPathDomain::directAllocationSite(growth) and
+  EntryGrowthPathDomain::growthDemand(growth, "size", demand) and
+  dimension = "bytes" and scopeValue = "request" and
+  (
+    growth instanceof MethodCall and
+    growth.(MethodCall).getMethod().getName() = ["allocate", "allocateDirect"] and
+    representationValue = "raw_body"
+    or
+    not (
+      growth instanceof MethodCall and
+      growth.(MethodCall).getMethod().getName() = ["allocate", "allocateDirect"]
+    ) and representationValue = "derived_dimension"
+  )
 }
 
 module GuardDemandFlowConfig implements DataFlow::ConfigSig {
@@ -100,7 +135,7 @@ module GuardDemandFlowConfig implements DataFlow::ConfigSig {
     exists(IfStmt site, Expr conditionPart |
       sink.asExpr() = conditionPart and conditionPart.getParent*() = site.getCondition()
     )
-    or exists(MethodCall growth, Expr demand, string dimension, string scoped, string represented |
+    or exists(Expr growth, Expr demand, string dimension, string scoped, string represented |
       growthDemand(growth, demand, dimension, scoped, represented) and sink.asExpr() = demand
     )
   }
@@ -108,7 +143,7 @@ module GuardDemandFlowConfig implements DataFlow::ConfigSig {
 module GuardDemandFlow = DataFlow::Global<GuardDemandFlowConfig>;
 
 /** A complete guard needs the *same* source to reach condition and demand. */
-predicate sameAttackerSource(IfStmt site, MethodCall growth, Expr demand, string dimension, string scopeValue, string representationValue) {
+predicate sameAttackerSource(IfStmt site, Expr growth, Expr demand, string dimension, string scopeValue, string representationValue) {
   growthDemand(growth, demand, dimension, scopeValue, representationValue) and
   exists(Parameter input, DataFlow::Node conditionSource, DataFlow::Node demandSource,
          DataFlow::Node conditionSink, DataFlow::Node demandSink, Expr conditionPart |
@@ -126,7 +161,7 @@ string guardLiteral(IfStmt site) {
   )
 }
 
-from IfStmt site, MethodCall growth, Expr demand, string dimension, string scopeValue, string representationValue,
+from IfStmt site, Expr growth, Expr demand, string dimension, string scopeValue, string representationValue,
   string keyValue, string valueValue, string evidenceValue, string noteValue, string phaseValue, boolean coversValue,
   string statusValue, boolean dominatesValue, boolean rejectReachesValue
 where

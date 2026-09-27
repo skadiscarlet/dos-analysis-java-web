@@ -13,6 +13,13 @@ class GatewayController {
     }
 
     private void buildContext(HttpServletRequest request) {
-        ServletUtils.getRequestString(request);
+        String body = ServletUtils.getRequestString(request); // generic-body-helper-parser
+        StructuredParser.parse(body);
+    }
+
+    private static final class StructuredParser {
+        private static Object parse(String input) {
+            return input;
+        }
     }
 }

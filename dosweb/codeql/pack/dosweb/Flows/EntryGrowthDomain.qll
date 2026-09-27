@@ -1,7 +1,11 @@
 /** Shared proof-carrying Entry -> Growth domain. */
 
 import java
+import dosweb.Entries.SpringMvcRequestBinding
+import dosweb.Growth.ContainerCardinalityDomain
+import dosweb.Growth.DerivedAllocationDomain
 import dosweb.Growth.LoopAmplification
+import dosweb.Growth.RequestMaterializationDomain
 import semmle.code.java.dataflow.DataFlow
 import semmle.code.java.dataflow.TaintTracking
 
@@ -11,7 +15,6 @@ module EntryGrowthPathDomain {
     or call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray")
     or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray")
     or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToString")
-    or call.getMethod().hasQualifiedName("cn.devezhao.commons.web", "ServletUtils", "getRequestString")
     or call.getMethod().getName() = "readAllBytes" and
       call.getMethod().getDeclaringType().getASupertype*().hasQualifiedName("java.io", "InputStream")
   }
@@ -24,6 +27,41 @@ module EntryGrowthPathDomain {
   predicate isServletRequestType(Type type) {
     type.(RefType).getASupertype*().hasQualifiedName("javax.servlet.http", "HttpServletRequest")
     or type.(RefType).getASupertype*().hasQualifiedName("jakarta.servlet.http", "HttpServletRequest")
+  }
+
+  predicate isOncePerRequestFilterType(RefType type) {
+    type.getASupertype*().hasQualifiedName(
+      "org.springframework.web.filter", "OncePerRequestFilter"
+    )
+  }
+
+  predicate constantTrueReturn(ReturnStmt returned, Method method) {
+    returned.getEnclosingCallable() = method and
+    returned.getExpr() instanceof CompileTimeConstantExpr and
+    returned.getExpr().(CompileTimeConstantExpr).getBooleanValue() = true
+  }
+
+  predicate alwaysSkippedOncePerRequestFilter(RefType type) {
+    exists(Method skip, ReturnStmt returned |
+      skip.fromSource() and skip.getDeclaringType() = type and
+      skip.getName() = "shouldNotFilter" and constantTrueReturn(returned, skip) and
+      not exists(ReturnStmt other |
+        other.getEnclosingCallable() = skip and not constantTrueReturn(other, skip)
+      )
+    )
+  }
+
+  predicate componentOncePerRequestFilterHandler(Method method) {
+    method.fromSource() and method.getName() = "doFilterInternal" and
+    isOncePerRequestFilterType(method.getDeclaringType()) and
+    exists(Annotation component |
+      component = method.getDeclaringType().getAnAnnotation() and
+      component.getType().hasQualifiedName(
+        "org.springframework.stereotype", "Component"
+      )
+    ) and
+    not alwaysSkippedOncePerRequestFilter(method.getDeclaringType()) and
+    isServletRequestType(method.getParameter(0).getType())
   }
 
   predicate isInputStreamType(Type type) {
@@ -188,6 +226,7 @@ module EntryGrowthPathDomain {
       (method.getDeclaringType().getASourceSupertype*().hasQualifiedName("javax.servlet.http", "HttpServlet") or method.getDeclaringType().getASourceSupertype*().hasQualifiedName("jakarta.servlet.http", "HttpServlet"))
     or method.getName() = "doFilter" and
       (method.getDeclaringType().getASourceSupertype*().hasQualifiedName("javax.servlet", "Filter") or method.getDeclaringType().getASourceSupertype*().hasQualifiedName("jakarta.servlet", "Filter"))
+    or componentOncePerRequestFilterHandler(method)
     or method.getName() = ["channelRead", "channelRead0"] and method.getDeclaringType().getASourceSupertype*().hasQualifiedName("io.netty.channel", ["ChannelInboundHandlerAdapter", "SimpleChannelInboundHandler"])
     or method.getName() = "messageArrived" and method.getDeclaringType().getASourceSupertype*().hasQualifiedName("org.eclipse.paho.client.mqttv3", "IMqttMessageListener")
     or exists(Annotation mapping |
@@ -203,9 +242,7 @@ module EntryGrowthPathDomain {
   predicate attackerInput(Method method, Parameter input) {
     input = method.getAParameter() and handlerMethod(method) and
     (
-      exists(Annotation annotation |
-        annotation = input.getAnAnnotation() and annotation.getType().hasQualifiedName("org.springframework.web.bind.annotation", ["RequestBody", "RequestParam", "PathVariable", "RequestHeader"])
-      )
+      isSpringMvcRequestBoundParameter(input)
       or method.getName() = ["service", "doGet", "doPost", "doPut", "doDelete", "doPatch", "doFilter"] and input = method.getParameter(0)
       or method.getName() = ["channelRead", "channelRead0", "messageArrived"] and input = method.getParameter(1)
       or isServletRequestType(input.getType())
@@ -233,6 +270,9 @@ module EntryGrowthPathDomain {
           "com.wf.captcha", "SpecCaptcha"
         )
       )
+    )
+    or exists(Expr dimension, Expr extent, MethodCall producer |
+      derivedDimensionMaterialization(site, dimension, extent, producer)
     )
   }
 
@@ -311,6 +351,9 @@ module EntryGrowthPathDomain {
         or call.getMethod().getName() = ["put", "computeIfAbsent", "putIfAbsent", "merge"] and
           call.getMethod().getDeclaringType().getASourceSupertype*().hasQualifiedName("java.util", "Map") and
           target = "key" and demand = call.getArgument(0)
+        or call.getMethod().getName() = "put" and call.getNumArgument() = 2 and
+          provenServerDerivedFreshMapKey(call, call.getArgument(0)) and
+          target = "value" and demand = call.getArgument(1)
         or call.getMethod().getName() = ["add", "offer"] and target = "value" and demand = call.getArgument(0)
         or call.getMethod().getName() = ["submit", "execute", "schedule"] and target = "value" and demand = call.getArgument(0)
         or call.getMethod().getName() = "getPayload" and target = "size" and demand = call.getQualifier()
@@ -322,6 +365,11 @@ module EntryGrowthPathDomain {
         or armeriaAggregation(call) and target = "size" and demand = call.getQualifier()
         or byteArrayOutputCopy(call) and target = "size" and demand = call.getQualifier()
         or httpSessionAttributeWrite(call) and target = "value" and demand = call.getArgument(1)
+        or exists(MethodCall parser, Expr request, Expr parserInput |
+          requestBodyHelperParserMaterialization(
+            call, parser, request, parserInput
+          ) and target = "size" and demand = request
+        )
         or exists(MethodCall content, Expr request |
           nettyFullRequestStringMaterialization(call, content, request) and
           target = "size" and demand = request
@@ -338,6 +386,13 @@ module EntryGrowthPathDomain {
         or allocation.getConstructedType().hasQualifiedName("com.wf.captcha", "SpecCaptcha")
       ) and
       target = "size" and demand = [allocation.getArgument(0), allocation.getArgument(1)]
+    )
+    or exists(Expr materializer, Expr dimension, Expr extent,
+              MethodCall producer |
+      site = materializer and
+      derivedDimensionMaterialization(
+        materializer, dimension, extent, producer
+      ) and target = "size" and demand = dimension
     )
     or exists(LoopStmt loop, Parameter bound, VarAccess boundAccess |
       directAllocationSite(site) and
@@ -407,11 +462,81 @@ module EntryGrowthPathDomain {
     or exists(MethodCall group | filterPathGroupInput(method, input, group) and source.asExpr() = group)
   }
 
+  /**
+   * A scalar/body value extracted directly by the handler from its request.
+   *
+   * The raw HttpServletRequest object is deliberately not a source for the
+   * derived-dimension bridge below. Taint from a request key through a server
+   * lookup (for example Map.get(id) -> stored record content) proves attacker
+   * selection, not attacker control of the returned extent-producing bytes.
+   * Seeding the exact accessor result and using value-preserving global
+   * DataFlow keeps direct request values while stopping that selector-to-value
+   * overtaint.
+   */
+  predicate directRequestValueSourceNode(
+    Method method, Parameter input, DataFlow::Node source
+  ) {
+    attackerInput(method, input) and
+    not isServletRequestType(input.getType()) and
+    source.asParameter() = input
+    or
+    exists(MethodCall accessor, VarAccess requestAccess |
+      attackerInput(method, input) and isServletRequestType(input.getType()) and
+      accessor.getEnclosingCallable() = method and
+      accessor.getMethod().getName().matches("%Parameter%") and
+      (
+        requestAccess = accessor.getQualifier() and
+        requestAccess.getVariable() = input
+        or
+        requestAccess = accessor.getAnArgument() and
+        requestAccess.getVariable() = input
+      ) and
+      source.asExpr() = accessor
+    )
+  }
+
+  module DirectRequestValueConfig implements DataFlow::ConfigSig {
+    predicate isSource(DataFlow::Node source) {
+      exists(Method method, Parameter input |
+        directRequestValueSourceNode(method, input, source)
+      )
+    }
+
+    predicate isSink(DataFlow::Node sink) {
+      exists(Expr materializer, Expr dimension, Expr extent,
+             MethodCall producer, int inputIndex |
+        derivedDimensionMaterialization(
+          materializer, dimension, extent, producer
+        ) and sink.asExpr() = producer.getArgument(inputIndex)
+      )
+    }
+  }
+
+  module DirectRequestValueFlow = DataFlow::Global<DirectRequestValueConfig>;
+
+  /** A demand is attacker-controlled when flow reaches the demand expression
+   * itself or an exact parameter access lexically contained in that demand.
+   * The latter aligns the flow proof with ContainerGrowth's conservative POJO
+   * getter/key classification without inventing qualifier-to-return taint. */
+  predicate growthDemandSinkNode(Expr demand, DataFlow::Node sink) {
+    sink.asExpr() = demand
+    or exists(VarAccess access |
+      access.getVariable() instanceof Parameter and
+      access.getParent+() = demand and sink.asExpr() = access
+    )
+  }
+
   module EntryToGrowthConfig implements DataFlow::ConfigSig {
     predicate isSource(DataFlow::Node source) { exists(Method method, Parameter input | attackerSourceNode(method, input, source)) }
     predicate isSink(DataFlow::Node sink) {
       exists(Expr site, string target, Expr demand |
-        growthDemand(site, target, demand) and sink.asExpr() = demand
+        growthDemand(site, target, demand) and growthDemandSinkNode(demand, sink)
+      )
+      or exists(Expr materializer, Expr dimension, Expr extent,
+                MethodCall producer, int inputIndex |
+        derivedDimensionMaterialization(
+          materializer, dimension, extent, producer
+        ) and sink.asExpr() = producer.getArgument(inputIndex)
       )
       or exists(MethodCall append, Parameter request |
         servletRequestStringMaterialization(append, request) and sink.asParameter() = request
@@ -539,7 +664,7 @@ module EntryGrowthPathDomain {
     exists(DataFlow::Node sourceNode, DataFlow::Node sinkNode, Expr sink, Expr demand,
            int depth |
       EntryToGrowthFlow::flow(sourceNode, sinkNode) and attackerSourceNode(source, input, sourceNode) and
-      growthDemand(sink, target, demand) and sinkNode.asExpr() = demand and
+      growthDemand(sink, target, demand) and growthDemandSinkNode(demand, sinkNode) and
       boundedCallPath(source, sink.getEnclosingCallable(), depth, path) and
       sinkSite = sink and sinkText = demand.toString() and
       phase = "entry>global_dataflow>growth" and confidence = "proven" and
@@ -549,6 +674,32 @@ module EntryGrowthPathDomain {
         or
         source != sink.getEnclosingCallable() and
         note = "unique_bounded_call_path_global_dataflow"
+      )
+    )
+    or exists(DataFlow::Node sourceNode, DataFlow::Node producerInputNode,
+              Expr materializer, Expr dimension, Expr extent,
+              MethodCall producer, Expr producerInput, int inputIndex,
+              int depth |
+      DirectRequestValueFlow::flow(sourceNode, producerInputNode) and
+      directRequestValueSourceNode(source, input, sourceNode) and
+      producerInput = producer.getArgument(inputIndex) and
+      producerInputNode.asExpr() = producerInput and
+      derivedDimensionMaterialization(
+        materializer, dimension, extent, producer
+      ) and
+      boundedCallPath(
+        source, materializer.getEnclosingCallable(), depth, path
+      ) and
+      sinkSite = materializer and target = "size" and
+      sinkText = dimension.toString() and
+      phase = "entry>producer_argument>derived_extent>dimension>growth" and
+      confidence = "proven" and coverage = "complete" and
+      (
+        source = materializer.getEnclosingCallable() and
+        note = "same_handler_derived_dimension_dataflow"
+        or
+        source != materializer.getEnclosingCallable() and
+        note = "unique_bounded_call_path_derived_dimension_dataflow"
       )
     )
     or materializationParameter(source, input) and sinkSite = input and target = "size" and sinkText = input.getName() and
@@ -575,7 +726,7 @@ module EntryGrowthPathDomain {
       not exists(DataFlow::Node sourceNode, DataFlow::Node sinkNode, Expr demand |
         EntryToGrowthFlow::flow(sourceNode, sinkNode) and
         attackerSourceNode(source, input, sourceNode) and
-        growthDemand(copy, "size", demand) and sinkNode.asExpr() = demand
+        growthDemand(copy, "size", demand) and growthDemandSinkNode(demand, sinkNode)
       ) and
       sinkSite = copy and target = "size" and sinkText = copy.getQualifier().toString() and
       phase = "entry>bounded_call_path>output_copy" and

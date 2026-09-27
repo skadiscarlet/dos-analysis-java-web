@@ -6,6 +6,8 @@
  */
 
 import java
+import dosweb.Flows.EntryGrowthDomain
+import dosweb.Growth.RequestMaterializationDomain
 import FiniteQueueDomain
 import FrameworkLimitDomain
 
@@ -33,7 +35,6 @@ predicate readAllMaterialization(MethodCall call) {
   or call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray")
   or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray")
   or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToString")
-  or call.getMethod().hasQualifiedName("cn.devezhao.commons.web", "ServletUtils", "getRequestString")
   or call.getMethod().getName() = "readAllBytes" and
     call.getMethod().getDeclaringType().getASupertype*().hasQualifiedName("java.io", "InputStream")
 }
@@ -269,6 +270,15 @@ predicate modeledGrowth(Element growth) {
       )
     )
   )
+  or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    growth = helper and
+    requestBodyHelperParserMaterialization(helper, parser, request, parserInput)
+  )
+  or exists(Expr allocation |
+    growth = allocation and
+    EntryGrowthPathDomain::directAllocationSite(allocation) and
+    allocation.getLocation().getFile().getRelativePath().matches("%.java")
+  )
   or exists(ArrayCreationExpr allocation |
     growth = allocation and allocation.getLocation().getFile().getRelativePath().matches("%.java")
   )
@@ -321,9 +331,55 @@ predicate lifecycleShape(Method method, string family) {
   or family = "release" and exists(MethodCall call | call.getEnclosingCallable() = method and call.getMethod().getName() = ["remove", "clear", "evict", "close"])
 }
 
+/** A helper that rejects only a missing value fetched from a Map key does not
+ * constrain raw request-body bytes. Keep this exact shape separate from
+ * genuinely body-sensitive custom guards. */
+predicate mapKeyPresenceGuard(Method helper) {
+  helper.getNumberOfParameters() = 2 and
+  exists(
+    Parameter mapParameter, Parameter keyParameter, MethodCall get,
+    LocalVariableDecl value, IfStmt site, VarAccess conditionValue |
+    mapParameter = helper.getParameter(0) and
+    mapParameter.getType().(RefType).getSourceDeclaration().hasQualifiedName(
+      "java.util", "Map"
+    ) and
+    keyParameter = helper.getParameter(1) and
+    keyParameter.getType().(RefType).hasQualifiedName("java.lang", "String") and
+    get.getEnclosingCallable() = helper and get.getMethod().getName() = "get" and
+    get.getNumArgument() = 1 and
+    get.getQualifier().(VarAccess).getVariable() = mapParameter and
+    get.getArgument(0).(VarAccess).getVariable() = keyParameter and
+    value.getInitializer() = get and
+    site.getEnclosingCallable() = helper and
+    conditionValue.getVariable() = value and
+    conditionValue.getParent*() = site.getCondition() and
+    (
+      exists(ReturnStmt terminal | terminal.getParent*() = site.getThen())
+      or exists(ThrowStmt terminal | terminal.getParent*() = site.getThen())
+    ) and
+    not exists(IfStmt other |
+      other.getEnclosingCallable() = helper and other != site
+    )
+  )
+}
+
+predicate requestMetadataPresenceGuard(
+  Element growth, MethodCall call, Method helper
+) {
+  exists(MethodCall parser, Expr request, Expr parserInput |
+    requestBodyHelperParserMaterialization(
+      growth.(MethodCall), parser, request, parserInput
+    )
+  ) and
+  call.getEnclosingCallable() = growthCallable(growth) and
+  helper = call.getMethod() and helper.fromSource() and
+  mapKeyPresenceGuard(helper)
+}
+
 predicate unmodeledLifecycleDispatch(Element growth, string family) {
   exists(MethodCall call, Method helper |
-    call.getEnclosingCallable() = growthCallable(growth) and helper = call.getMethod() and helper.fromSource() and lifecycleShape(helper, family)
+    call.getEnclosingCallable() = growthCallable(growth) and helper = call.getMethod() and helper.fromSource() and lifecycleShape(helper, family) and
+    not (family = "guard" and requestMetadataPresenceGuard(growth, call, helper))
   )
   or
   exists(MethodCall outer, Method middle, MethodCall inner, Method nested |
@@ -343,6 +399,15 @@ predicate unresolvedFiniteQueueOffer(Element growth) {
 }
 
 predicate guardModeledDomain(Element growth) {
+  exists(Expr allocation |
+    growth = allocation and
+    EntryGrowthPathDomain::directAllocationSite(allocation)
+  )
+  or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    growth = helper and
+    requestBodyHelperParserMaterialization(helper, parser, request, parserInput)
+  )
+  or
   exists(MethodCall call |
     growth = call and
     (
@@ -360,9 +425,16 @@ predicate guardModeledDomain(Element growth) {
 
 predicate boundModeledDomain(Element growth) {
   directByteAllocationModeledDomain(growth)
+  or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    growth = helper and
+    requestBodyHelperParserMaterialization(helper, parser, request, parserInput)
+  )
   or exists(MethodCall call, Field field |
     growth = call and call.getMethod().getName() = "offer" and
     field = queueReceiverField(call) and finiteFieldQueueType(field)
+  )
+  or exists(MethodCall call |
+    growth = call and call.getMethod().getName() = ["put", "add"]
   )
   or exists(Element site, MethodCall call, string key, string value,
             string encoding, string receiver, string fieldPath, string evidence |
@@ -373,6 +445,15 @@ predicate boundModeledDomain(Element growth) {
 }
 
 predicate releaseModeledDomain(Element growth) {
+  exists(Expr allocation |
+    growth = allocation and
+    EntryGrowthPathDomain::directAllocationSite(allocation)
+  )
+  or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    growth = helper and
+    requestBodyHelperParserMaterialization(helper, parser, request, parserInput)
+  )
+  or
   exists(MethodCall call |
     growth = call and call.getMethod().getName() = ["put", "add", "offer", "submit"]
   )

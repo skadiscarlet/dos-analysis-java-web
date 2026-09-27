@@ -2,9 +2,11 @@ package fixture.spring;
 
 import cn.hutool.core.io.IoUtil;
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequestWrapper;
 import org.apache.commons.io.IOUtils;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -48,9 +50,35 @@ class ReadAllController {
         new RequestWrapper(request);
     }
 
-    private static final class RequestWrapper {
+    private static final class RequestWrapper extends HttpServletRequestWrapper {
         RequestWrapper(HttpServletRequest request) {
+            super(request);
             StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);
         }
+    }
+
+    void ordinaryConstructor(HttpServletRequest request) {
+        new OrdinaryReader(request);
+    }
+
+    private static final class OrdinaryReader {
+        OrdinaryReader(HttpServletRequest request) {
+            StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);
+        }
+    }
+
+    void metadataDerivedWrapper(HttpServletRequest request) {
+        new MetadataWrapper(request);
+    }
+
+    private static final class MetadataWrapper extends HttpServletRequestWrapper {
+        MetadataWrapper(HttpServletRequest request) {
+            super(request);
+            IoUtil.readBytes(new java.io.ByteArrayInputStream(request.toString().getBytes()));
+        }
+    }
+
+    void serverFile() throws IOException {
+        IOUtils.toByteArray(new FileInputStream("server-side.txt"));
     }
 }

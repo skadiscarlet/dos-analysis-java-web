@@ -728,7 +728,7 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
         self.assertEqual(plan.mode, "full")
         self.assertIs(plan.provider["allow_remote_llm"], True)
         self.assertEqual(plan.provider["model"], "grok-4.6")
-        self.assertEqual(plan.provider["base_url"], "https://api.api2cn.com/v1/")
+        self.assertEqual(plan.provider["base_url"], "https://apibasis.com/v1/")
         self.assertEqual(plan.provider["timeout_seconds"], 180)
         self.assertEqual(plan.provider["max_retries"], 5)
         self.assertIn("--allow-remote-llm", calls[0][0])
@@ -860,26 +860,15 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
             output.mkdir(parents=True)
             if command[1].endswith("generate_poc33_recall.py"):
                 dispositions = [
-                    {"record_id": f"supported:{index}", "status": "full_chain_finding"}
-                    for index in range(29)
+                    {"record_id": f"known:{index}", "status": "full_chain_finding"}
+                    for index in range(33)
                 ]
-                dispositions.extend(
-                    {
-                        "record_id": f"deferred:{index}",
-                        "status": "growth_only",
-                        "reason_codes": [
-                            "ENTRY_DYNAMIC_REGISTRATION_UNPROVEN",
-                            "GROWTH_SINK_MATCHED",
-                        ],
-                    }
-                    for index in range(4)
-                )
                 (output / "truth_dispositions.jsonl").write_text(
                     "".join(json.dumps(row) + "\n" for row in dispositions),
                     encoding="utf-8",
                 )
                 (output / "summary.json").write_text(
-                    json.dumps({"total": 33, "full_chain_finding_count": 29}),
+                    json.dumps({"total": 33, "full_chain_finding_count": 33}),
                     encoding="utf-8",
                 )
             elif command[1].endswith("evaluate_poc33_demo.py"):
@@ -892,10 +881,17 @@ class Poc33DemoAcceptanceTests(unittest.TestCase):
                     "query_diagnostics": 0,
                     "skipped_queries": 0,
                     "truth": 33,
-                    "explicit_deferred": 4,
+                    "full_chain_finding": 33,
+                    "explicit_deferred": 0,
                     "supported_chain_recall": {
-                        "numerator": 29,
-                        "denominator": 29,
+                        "numerator": 33,
+                        "denominator": 33,
+                        "ratio": 1.0,
+                    },
+                    "known_case_matches": 33,
+                    "known_case_recall": {
+                        "numerator": 33,
+                        "denominator": 33,
                         "ratio": 1.0,
                     },
                     "eligible_positive": 6,

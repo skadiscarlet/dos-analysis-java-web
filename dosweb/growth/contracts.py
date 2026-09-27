@@ -10,6 +10,7 @@ from dosweb.growth.models import (
     BoundedSlice,
     GrowthContract,
     ProviderGrowthContract,
+    StaticFact,
 )
 
 
@@ -80,6 +81,18 @@ _FAILURE_VALUES = frozenset({"heap_exhaustion", "gc_thrashing", "cpu_starvation"
 _CONTRACT_STATUS_VALUES = frozenset({"dos_relevant", "growth_not_dos_relevant", "unknown"})
 _REJECTION_VALUES = frozenset({"none", "request_local_bounded", "server_controlled", "fixed_cardinality", "effective_precondition", "low_amplification", "no_failure_mechanism", "unknown"})
 _INFLUENCE_TARGETS = frozenset({"size", "key", "value", "iteration_count", "submission_count", "unknown"})
+_ATTACKER_CONTROLLED_REQUEST_ORIGINS = frozenset(
+    {
+        "request_body",
+        "request_parameter",
+        "request_path",
+        "request_header",
+        "request_stream",
+        "network_message",
+    }
+)
+_LARGE_REQUEST_VALUE_SPACES = frozenset({"stream", "large", "unlimited"})
+_HIGH_CARDINALITY_VALUE_SPACES = frozenset({"unlimited"})
 _MAX_CONTRACT_BYTES = 131072
 _MAX_JSON_DEPTH = 16
 _MAX_JSON_NODES = 256
@@ -319,6 +332,278 @@ def validate_contract_static_evidence(contract: GrowthContract, static_fact_ids:
     referenced_ids = [item.evidence_id for item in contract.attacker_influence]
     referenced_ids.extend(contract.required_static_evidence)
     if not all(fact_id in static_fact_ids for fact_id in referenced_ids):
+        _schema_error()
+    return contract
+
+
+def validate_contract_static_semantics(
+    contract: GrowthContract,
+    bounded_slice: BoundedSlice,
+) -> GrowthContract:
+    """Reject provider conclusions that contradict a complete typed Growth shape.
+
+    Bound effectiveness is intentionally a later stage. Once one exact typed
+    driver proves request/network-controlled large-single-request allocation or
+    input materialization with no known pre-growth limit, the provider cannot
+    erase or defer that Growth mechanism. Any actual Guard/Bound must be
+    adjudicated by Lifecycle against the exact path.
+    """
+    if not isinstance(contract, GrowthContract) or not isinstance(
+        bounded_slice, BoundedSlice
+    ):
+        _schema_error()
+    facts = tuple(bounded_slice.payload.static_facts)
+
+    def driver_facts(
+        driver_id: str,
+        kind: str,
+        relation: str,
+        values: frozenset[str],
+    ) -> tuple[StaticFact, ...]:
+        return tuple(
+            fact
+            for fact in facts
+            if fact.kind == kind
+            and fact.relation == relation
+            and fact.value_ref == driver_id
+            and fact.normalized_value in values
+        )
+
+    large_request_shapes = []
+    high_cardinality_shapes = []
+    if bounded_slice.payload.cfg_summary.path_ids:
+        for driver in facts:
+            if (
+                driver.kind != "flow"
+                or driver.relation != "flows_to"
+                or driver.normalized_value
+                not in _ATTACKER_CONTROLLED_REQUEST_ORIGINS
+            ):
+                continue
+            sinks = tuple(
+                sink
+                for sink in facts
+                if sink.kind in {"allocation", "input_materialization"}
+                and sink.relation == "sink"
+                and sink.value_ref == driver.fact_id
+            )
+            targets = driver_facts(
+                driver.fact_id,
+                "attacker_target",
+                "source",
+                frozenset({"size"}),
+            )
+            value_spaces = driver_facts(
+                driver.fact_id,
+                "value_space",
+                "flows_to",
+                _LARGE_REQUEST_VALUE_SPACES,
+            )
+            retentions = driver_facts(
+                driver.fact_id,
+                "retention",
+                "sink",
+                frozenset({"request"}),
+            )
+            amplifications = driver_facts(
+                driver.fact_id,
+                "amplification",
+                "sink",
+                frozenset({"large_single_request"}),
+            )
+            known_limits = driver_facts(
+                driver.fact_id,
+                "known_limit_location",
+                "bounds",
+                frozenset({"none"}),
+            )
+            if all(
+                (
+                    sinks,
+                    targets,
+                    value_spaces,
+                    retentions,
+                    amplifications,
+                    known_limits,
+                )
+            ):
+                large_request_shapes.append(
+                    (
+                        driver,
+                        sinks,
+                        value_spaces,
+                        retentions,
+                        amplifications,
+                        known_limits,
+                    )
+                )
+            container_sinks = tuple(
+                sink
+                for sink in facts
+                if sink.kind == "container_write"
+                and sink.relation == "sink"
+                and sink.value_ref == driver.fact_id
+            )
+            cardinality_targets = driver_facts(
+                driver.fact_id,
+                "attacker_target",
+                "source",
+                frozenset({"key", "value"}),
+            )
+            cardinality_value_spaces = driver_facts(
+                driver.fact_id,
+                "value_space",
+                "flows_to",
+                _HIGH_CARDINALITY_VALUE_SPACES,
+            )
+            process_retentions = driver_facts(
+                driver.fact_id,
+                "retention",
+                "sink",
+                frozenset({"process"}),
+            )
+            cardinality_amplifications = driver_facts(
+                driver.fact_id,
+                "amplification",
+                "sink",
+                frozenset({"high_cardinality_retention"}),
+            )
+            container_limits = driver_facts(
+                driver.fact_id,
+                "known_limit_location",
+                "bounds",
+                frozenset({"none"}),
+            )
+            field_identities = driver_facts(
+                driver.fact_id,
+                "field_identity",
+                "sink",
+                frozenset({"attacker_key"}),
+            )
+            escape_scopes = driver_facts(
+                driver.fact_id,
+                "escape_scope",
+                "sink",
+                frozenset({"global"}),
+            )
+            loop_multiplicities = driver_facts(
+                driver.fact_id,
+                "loop_multiplicity",
+                "sink",
+                frozenset({"repeated_requests"}),
+            )
+            if all(
+                (
+                    container_sinks,
+                    cardinality_targets,
+                    cardinality_value_spaces,
+                    process_retentions,
+                    cardinality_amplifications,
+                    container_limits,
+                    field_identities,
+                    escape_scopes,
+                    loop_multiplicities,
+                )
+            ):
+                high_cardinality_shapes.append(
+                    (
+                        driver,
+                        cardinality_targets,
+                        container_sinks,
+                        cardinality_value_spaces,
+                        process_retentions,
+                        cardinality_amplifications,
+                        container_limits,
+                        field_identities,
+                        escape_scopes,
+                        loop_multiplicities,
+                    )
+                )
+
+    required = frozenset(contract.required_static_evidence)
+    influences = frozenset(
+        (influence.evidence_id, influence.target)
+        for influence in contract.attacker_influence
+    )
+
+    if contract.contract_status == "dos_relevant" and not any(
+        fact.fact_id in required
+        and fact.kind == "value_space"
+        and fact.relation in {"source", "flows_to"}
+        and fact.value_ref == influence.evidence_id
+        and fact.normalized_value == contract.attacker_value_space
+        for influence in contract.attacker_influence
+        for fact in facts
+    ):
+        _schema_error()
+
+    def cites_one(fact_group: tuple[StaticFact, ...]) -> bool:
+        return any(fact.fact_id in required for fact in fact_group)
+
+    large_request_match = any(
+        contract.contract_status == "dos_relevant"
+        and contract.failure_mechanism not in {"none", "unknown"}
+        and contract.requests_to_pressure in {"one", "few"}
+        and (driver.fact_id, "size") in influences
+        and any(
+            fact.fact_id in required
+            and fact.normalized_value == contract.attacker_value_space
+            for fact in value_spaces
+        )
+        and contract.retention_window == "request"
+        and contract.amplification_class == "large_single_request"
+        and cites_one(sinks)
+        and cites_one(retentions)
+        and cites_one(amplifications)
+        and cites_one(known_limits)
+        for (
+            driver,
+            sinks,
+            value_spaces,
+            retentions,
+            amplifications,
+            known_limits,
+        ) in large_request_shapes
+    )
+    high_cardinality_match = any(
+        contract.contract_status == "dos_relevant"
+        and contract.resource_effect == "adds_entries"
+        and contract.failure_mechanism not in {"none", "unknown"}
+        and contract.requests_to_pressure == "many"
+        and any(
+            (driver.fact_id, target.normalized_value) in influences
+            for target in targets
+        )
+        and any(
+            fact.fact_id in required
+            and fact.normalized_value == contract.attacker_value_space
+            for fact in value_spaces
+        )
+        and contract.retention_window == "process"
+        and contract.amplification_class == "high_cardinality_retention"
+        and cites_one(sinks)
+        and cites_one(retentions)
+        and cites_one(amplifications)
+        and cites_one(known_limits)
+        and cites_one(field_identities)
+        and cites_one(escape_scopes)
+        and cites_one(loop_multiplicities)
+        for (
+            driver,
+            targets,
+            sinks,
+            value_spaces,
+            retentions,
+            amplifications,
+            known_limits,
+            field_identities,
+            escape_scopes,
+            loop_multiplicities,
+        ) in high_cardinality_shapes
+    )
+    if large_request_shapes and not large_request_match:
+        _schema_error()
+    if high_cardinality_shapes and not high_cardinality_match:
         _schema_error()
     return contract
 

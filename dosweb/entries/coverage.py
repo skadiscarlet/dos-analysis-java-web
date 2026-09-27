@@ -14,6 +14,7 @@ _PATTERN_BINDINGS: Final = {
     ("servlet", "annotation_mapping"): frozenset({
         "servlet_annotation_mapping",
         "spring_component_filter_default_registration",
+        "spring_component_once_per_request_filter_default_registration",
     }),
     ("servlet", "static_registration"): frozenset({
         "filter_registration_bean",

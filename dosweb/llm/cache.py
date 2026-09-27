@@ -23,9 +23,11 @@ from dosweb.growth.contracts import validate_contract_static_evidence, validate_
 from dosweb.growth.models import BoundedSlice, GrowthContract
 from dosweb.llm.schemas import GROWTH_CONTRACT_JSON_SCHEMA, PROMPT_VERSION, RESPONSE_SCHEMA_VERSION
 
-_CACHE_FORMAT = "growth-contract-cache-v14"
-AUTH_CACHE_FORMAT = "auth-contract-cache-v5"
-PROVIDER_ID = "api2cn_responses"
+_CACHE_FORMAT = "growth-contract-cache-v16"
+AUTH_CACHE_FORMAT = "auth-contract-cache-v6"
+PROVIDER_ID = "apibasis_responses"
+_RIGHTAPI_BASE_URL = "https://rightapi.ai/grok/v1/"
+_API2CN_BASE_URL = "https://api.api2cn.com/v1/"
 _AUTH_CACHE_HMAC_DOMAIN = f"{AUTH_CACHE_FORMAT}\0".encode("ascii")
 _LOCK_STRIPES = 64
 _LOCKS_GUARD = threading.Lock()
@@ -36,6 +38,34 @@ _ACTIVE_RESERVATIONS = threading.local()
 _ACTIVE_FLOCK_FDS: dict[int, _ActiveFlockOwnership] = {}
 _ACTIVE_CACHE_DIRECTORIES: dict[int, _ActiveCacheDirectory] = {}
 _ACTIVE_TRANSIENT_FDS: dict[int, _TransientDescriptorOwnership] = {}
+
+
+@dataclass(frozen=True)
+class ResponsesRequestProfile:
+    identity: str
+    top_level_response_format: bool
+    max_output_tokens: int | None
+
+
+_STANDARD_RESPONSES_REQUEST_PROFILE = ResponsesRequestProfile(
+    "responses-text-json-schema-v1",
+    False,
+    None,
+)
+_API2CN_RESPONSES_REQUEST_PROFILE = ResponsesRequestProfile(
+    "api2cn-responses-top-level-json-schema-v1",
+    True,
+    8192,
+)
+
+
+def responses_request_profile(provider_id: object) -> ResponsesRequestProfile:
+    """Return the exact structured-output wire profile for one provider."""
+    return (
+        _API2CN_RESPONSES_REQUEST_PROFILE
+        if provider_id == "api2cn_responses"
+        else _STANDARD_RESPONSES_REQUEST_PROFILE
+    )
 _LOCKS_PID = os.getpid()
 
 
@@ -157,10 +187,22 @@ def canonical_base_url(value: object) -> str:
     return urlunsplit((parsed.scheme.lower(), netloc, f"{parsed.path.rstrip('/')}/", "", ""))
 
 
+def provider_id_for_base_url(value: object) -> str:
+    """Keep cache/audit identities disjoint across authorized providers."""
+    canonical = canonical_base_url(value)
+    if canonical == _API2CN_BASE_URL:
+        return "api2cn_responses"
+    if canonical == _RIGHTAPI_BASE_URL:
+        return "rightapi_responses"
+    return PROVIDER_ID
+
+
 def cache_identity(config: object, slice_: BoundedSlice) -> tuple[str, dict[str, object]]:
     normalized = _normalized_slice(slice_)
+    provider = provider_id_for_base_url(getattr(config, "base_url"))
+    request_profile = responses_request_profile(provider)
     identity = {
-        "provider": PROVIDER_ID,
+        "provider": provider,
         "protocol": "responses-v1",
         "base_url": canonical_base_url(getattr(config, "base_url")),
         "model": getattr(config, "model"),
@@ -170,6 +212,8 @@ def cache_identity(config: object, slice_: BoundedSlice) -> tuple[str, dict[str,
         "prompt_version": PROMPT_VERSION,
         "response_schema_version": RESPONSE_SCHEMA_VERSION,
         "text_format": "json_schema_strict",
+        "responses_request_profile": request_profile.identity,
+        "max_output_tokens": request_profile.max_output_tokens,
         "response_format_schema_hash": sha256_canonical_json(GROWTH_CONTRACT_JSON_SCHEMA),
         "attestation_schema_version": "public-source-attestation-v1",
         "public_source_url": getattr(config, "public_source_url") or "",
@@ -589,7 +633,7 @@ class ContractCache:
         return hmac.new(self._authentication_key, b"provider-request-id-v1\0" + value.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def _entry_hmac(self, entry: Mapping[str, object]) -> str:
-        return hmac.new(self._authentication_key, b"growth-contract-cache-entry-v14\0" + canonical_json(entry), hashlib.sha256).hexdigest()
+        return hmac.new(self._authentication_key, b"growth-contract-cache-entry-v15\0" + canonical_json(entry), hashlib.sha256).hexdigest()
 
     def _open_cache_dir(self, *, create: bool) -> _TransientDescriptorOwnership | None:
         ownership: _TransientDescriptorOwnership | None = None

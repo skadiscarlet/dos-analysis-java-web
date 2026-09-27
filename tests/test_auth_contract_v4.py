@@ -12,7 +12,7 @@ import pytest
 
 from dosweb.artifacts.identifiers import canonical_json, sha256_canonical_json
 from dosweb.configuration.models import ModeledConfigurationFact
-from dosweb.config import LlmConfig
+from dosweb.config import DEFAULT_MODEL, LlmConfig
 from dosweb.errors import AnalyzerError
 from dosweb.llm.cache import AUTH_CACHE_FORMAT, ContractCache
 from dosweb.llm.deepseek import DeepSeekClient, ProviderReply
@@ -81,11 +81,13 @@ def _client(
     transport: object,
     *,
     extra_secret_patterns: tuple[tuple[str, re.Pattern[str]], ...] = (),
+    model: str = DEFAULT_MODEL,
+    base_url: str = "http://127.0.0.1:1/",
 ) -> DeepSeekClient:
     return DeepSeekClient(
         LlmConfig(
-            model="grok-4.6",
-            base_url="http://127.0.0.1:1/",
+            model=model,
+            base_url=base_url,
             api_key="test-api-key",
             timeout_seconds=3,
             max_retries=1,
@@ -99,6 +101,47 @@ def _client(
         extra_secret_patterns=extra_secret_patterns,
         sleep=lambda _delay: None,
     )
+
+
+def test_api2cn_auth_uses_compatible_wire_and_cache_identity(
+    tmp_path: Path,
+) -> None:
+    transport = ScriptedDeepSeekTransport(auth=lambda _request: _valid_auth())
+    client = _client(
+        tmp_path,
+        transport,
+        model="deepseek-v4.1-flash",
+        base_url="https://api.api2cn.com/v1/",
+    )
+
+    contract = client.classify_auth("entry:1", (_fact(),))
+
+    assert contract.auth_context == "unauthenticated"
+    assert transport.request_count == 1
+    body = transport.requests[0]
+    assert body["max_output_tokens"] == 8192
+    assert body["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "auth_contract",
+            "strict": True,
+            "schema": body["text"]["format"]["schema"],
+        },
+    }
+    audit = client.last_audit()
+    assert audit is not None
+    assert (
+        audit.settings["responses_request_profile"]
+        == "api2cn-responses-top-level-json-schema-v1"
+    )
+    cache_record = json.loads(
+        next((tmp_path / "cache").glob("auth-*.json")).read_text(encoding="utf-8")
+    )
+    assert (
+        cache_record["identity"]["responses_request_profile"]
+        == "api2cn-responses-top-level-json-schema-v1"
+    )
+    assert cache_record["identity"]["max_output_tokens"] == 8192
 
 
 def _prompt_object(request: dict[str, object]) -> dict[str, object]:
@@ -188,7 +231,7 @@ def test_auth_schema_invalid_gets_one_safe_correction_and_cache_replays_prompt(
 
     cache_file = next((tmp_path / "cache").glob("auth-*.json"))
     cache_record = json.loads(cache_file.read_text(encoding="utf-8"))
-    assert AUTH_CACHE_FORMAT == "auth-contract-cache-v5"
+    assert AUTH_CACHE_FORMAT == "auth-contract-cache-v6"
     assert cache_record["cache_format"] == AUTH_CACHE_FORMAT
     assert cache_record["identity"]["auth_cache_format"] == AUTH_CACHE_FORMAT
     assert cache_record["accepted_prompt_variant"] == "correction"
@@ -202,7 +245,61 @@ def test_auth_schema_invalid_gets_one_safe_correction_and_cache_replays_prompt(
     assert transport.request_count == 2
 
 
-def test_auth_disk_replay_preserves_provider_model_alias(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "malformed",
+    (
+        {"auth_context": []},
+        {"confidence": []},
+        {"evidence_ids": [[]]},
+        {"assumptions": [[]]},
+    ),
+)
+def test_auth_unhashable_typed_values_get_one_safe_correction(
+    tmp_path: Path,
+    malformed: dict[str, object],
+) -> None:
+    attempts = 0
+
+    def auth(_request: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        return {**_valid_auth(), **malformed} if attempts == 1 else _valid_auth()
+
+    transport = ScriptedDeepSeekTransport(auth=auth)
+    client = _client(tmp_path, transport)
+
+    contract = client.classify_auth("entry:1", (_fact(),))
+
+    assert contract.auth_context == "unauthenticated"
+    assert transport.request_count == 2
+    audit = client.last_audit()
+    assert audit is not None
+    assert "one correction attempt" in audit.normalized_prompt
+    cache_record = json.loads(
+        next((tmp_path / "cache").glob("auth-*.json")).read_text(encoding="utf-8")
+    )
+    assert cache_record["accepted_prompt_variant"] == "correction"
+
+
+def test_repeated_unhashable_auth_context_is_terminal_schema_failure(
+    tmp_path: Path,
+) -> None:
+    transport = ScriptedDeepSeekTransport(
+        auth=lambda _request: {**_valid_auth(), "auth_context": []}
+    )
+    client = _client(tmp_path, transport)
+
+    with pytest.raises(AnalyzerError) as raised:
+        client.classify_auth("entry:1", (_fact(),))
+
+    assert raised.value.code == "LLM_RESPONSE_SCHEMA_INVALID"
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
+    assert transport.request_count == 2
+    assert client.last_audit() is None
+    assert list((tmp_path / "cache").glob("auth-*.json")) == []
+
+
+def test_auth_live_response_rejects_non_exact_provider_model(tmp_path: Path) -> None:
     class AliasModelTransport(ScriptedDeepSeekTransport):
         def post(
             self,
@@ -212,41 +309,48 @@ def test_auth_disk_replay_preserves_provider_model_alias(tmp_path: Path) -> None
             timeout: int,
         ) -> str:
             response = json.loads(super().post(endpoint, payload, headers, timeout))
-            response["model"] = "grok-4.6-build"
+            response["model"] = "deepseek-v4.1-flash-build"
             return json.dumps(response, separators=(",", ":"))
 
     transport = AliasModelTransport(auth=lambda _request: _valid_auth())
     fact = _fact()
 
-    fresh = _client(tmp_path, transport)
-    expected = fresh.classify_auth("entry:1", (fact,))
-    fresh_audit = fresh.last_audit()
-    assert fresh_audit is not None
-    assert fresh_audit.settings["actual_model"] == "grok-4.6-build"
+    client = DeepSeekClient(
+        LlmConfig(
+            model="deepseek-v4.1-flash",
+            base_url="https://api.api2cn.com/v1/",
+            api_key="test-api-key",
+            timeout_seconds=3,
+            max_retries=1,
+            temperature=0,
+            cache_dir=tmp_path / "cache",
+            allow_remote_llm=True,
+            source_checkout=tmp_path,
+        ),
+        verifier=StaticPublicVerifier(),
+        transport=transport,
+        sleep=lambda _delay: None,
+    )
+    with pytest.raises(AnalyzerError) as raised:
+        client.classify_auth("entry:1", (fact,))
 
-    cache_file = next((tmp_path / "cache").glob("auth-*.json"))
-    cache_record = json.loads(cache_file.read_text(encoding="utf-8"))
-    assert cache_record["actual_model"] == "grok-4.6-build"
-
-    replay = _client(tmp_path, transport)
-    assert replay.classify_auth("entry:1", (fact,)) == expected
-    replay_audit = replay.last_audit()
-    assert replay_audit is not None and replay_audit.cache_hit is True
-    assert replay_audit.settings["actual_model"] == "grok-4.6-build"
+    assert raised.value.code == "LLM_RESPONSE_INVALID"
     assert transport.request_count == 1
+    assert client.last_audit() is None
+    assert list((tmp_path / "cache").glob("auth-*.json")) == []
 
 
 def test_auth_cache_rejects_hmac_valid_unapproved_actual_model(tmp_path: Path) -> None:
     cache_dir = tmp_path / "cache"
     cache = ContractCache(cache_dir, "test-api-key")
     key = "b" * 64
-    identity = {"kind": "auth", "model": "grok-4.6"}
+    identity = {"kind": "auth", "model": DEFAULT_MODEL}
     assert cache.put_auth_record(
         key,
         identity,
         _valid_auth(),
         "{}",
-        actual_model="grok-4.6-build",
+        actual_model=DEFAULT_MODEL,
     )
 
     path = cache_dir / f"auth-{key}.json"
@@ -261,7 +365,7 @@ def test_auth_cache_rejects_hmac_valid_unapproved_actual_model(tmp_path: Path) -
     record.update(unsigned)
     record["entry_hmac"] = hmac.new(
         b"test-api-key",
-        b"auth-contract-cache-v5\0" + canonical_json(unsigned),
+        b"auth-contract-cache-v6\0" + canonical_json(unsigned),
         hashlib.sha256,
     ).hexdigest()
     path.write_bytes(canonical_json(record))
@@ -399,7 +503,7 @@ def _resign_auth_cache_record(
     record.update(unsigned)
     record["entry_hmac"] = hmac.new(
         b"test-api-key",
-        b"auth-contract-cache-v5\0" + canonical_json(unsigned),
+        b"auth-contract-cache-v6\0" + canonical_json(unsigned),
         hashlib.sha256,
     ).hexdigest()
     cache_file.write_bytes(canonical_json(record))
@@ -1204,7 +1308,7 @@ def test_auth_disk_replay_rejects_foreign_owned_evidence_id(tmp_path: Path) -> N
     record.update(unsigned)
     record["entry_hmac"] = hmac.new(
         b"test-api-key",
-        b"auth-contract-cache-v5\0" + canonical_json(unsigned),
+        b"auth-contract-cache-v6\0" + canonical_json(unsigned),
         hashlib.sha256,
     ).hexdigest()
     path.write_bytes(canonical_json(record))
@@ -1358,7 +1462,7 @@ def test_auth_v4_cache_is_cold_and_auth_identities_are_rotated(tmp_path: Path) -
     assert AUTH_PROMPT_VERSION == "auth-contract-v5"
     assert AUTH_RESPONSE_SCHEMA_VERSION == "auth-contract-schema-v3"
     assert production._IMPLEMENTATION_VERSIONS["growth"] == (  # noqa: SLF001
-        "production-v2.8-open-world-maturation-growth-v34"
+        "production-v2.8-open-world-maturation-growth-v45"
     )
 
     cache_dir = tmp_path / "cache"
@@ -1441,6 +1545,6 @@ def test_real_auth_v4_identity_is_cold_without_blocking_v5_publication(
         for path in cache_dir.glob("auth-*.json")
     ]
     assert len(records) == 2
-    current = next(record for record in records if record["cache_format"] == "auth-contract-cache-v5")
+    current = next(record for record in records if record["cache_format"] == "auth-contract-cache-v6")
     assert current["cache_key"] != old_key
-    assert current["identity"]["auth_cache_format"] == "auth-contract-cache-v5"
+    assert current["identity"]["auth_cache_format"] == "auth-contract-cache-v6"

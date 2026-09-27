@@ -97,6 +97,29 @@ predicate isSpringComponentAnnotation(Annotation annotation) {
   annotation.getType().hasQualifiedName("org.springframework.stereotype", "Component")
 }
 
+predicate isOncePerRequestFilterType(RefType type) {
+  type.getASupertype*().hasQualifiedName(
+    "org.springframework.web.filter", "OncePerRequestFilter"
+  )
+}
+
+predicate constantTrueReturn(ReturnStmt returned, Method method) {
+  returned.getEnclosingCallable() = method and
+  returned.getExpr() instanceof CompileTimeConstantExpr and
+  returned.getExpr().(CompileTimeConstantExpr).getBooleanValue() = true
+}
+
+/** A source override that only returns true proves this component is skipped. */
+predicate alwaysSkippedOncePerRequestFilter(RefType type) {
+  exists(Method skip, ReturnStmt returned |
+    skip.fromSource() and skip.getDeclaringType() = type and
+    skip.getName() = "shouldNotFilter" and constantTrueReturn(returned, skip) and
+    not exists(ReturnStmt other |
+      other.getEnclosingCallable() = skip and not constantTrueReturn(other, skip)
+    )
+  )
+}
+
 predicate isFilterRegistrationBean(RefType type) {
   type.hasQualifiedName("fixture.servlet", "FilterRegistrationBean")
   or type.hasQualifiedName("org.springframework.boot.web.servlet", "FilterRegistrationBean")
@@ -188,6 +211,27 @@ predicate servletRow(
     inputType = request.getType().toString() and inputKind = "stream" and
     materializationPhase = "in_handler" and coverageStatus = "complete" and
     coverageNote = "spring_component_filter_default_registration"
+  )
+  or exists(Method callback, Annotation registration, Parameter request |
+    callback.getName() = "doFilterInternal" and
+    isOncePerRequestFilterType(callback.getDeclaringType()) and
+    request = callback.getParameter(0) and isSourceMethod(callback) and
+    registration = callback.getDeclaringType().getAnAnnotation() and
+    isSpringComponentAnnotation(registration) and isSourceExpr(registration) and
+    not alwaysSkippedOncePerRequestFilter(callback.getDeclaringType()) and
+    isServletType(request.getType().(RefType), "HttpServletRequest") and
+    framework = "servlet" and protocol = "http" and
+    handlerFqn = callback.getDeclaringType().getQualifiedName() + "." + callback.getName() and
+    handlerFile = callback.getLocation().getFile().getRelativePath() and
+    handlerLine = callback.getLocation().getStartLine() and
+    registrationKind = "annotation_mapping" and
+    registrationFqn = callback.getDeclaringType().getQualifiedName() and
+    registrationFile = registration.getLocation().getFile().getRelativePath() and
+    registrationLine = registration.getLocation().getStartLine() and
+    routeOrEvent = "/*" and authContext = "unknown" and inputName = request.getName() and
+    inputType = request.getType().toString() and inputKind = "stream" and
+    materializationPhase = "in_handler" and coverageStatus = "complete" and
+    coverageNote = "spring_component_once_per_request_filter_default_registration"
   )
   or exists(Method method, Parameter request, Parameter response |
     // Deployment descriptors are not in the Java AST. This is deliberately a

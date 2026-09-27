@@ -1,5 +1,6 @@
 /** Shared conservative attacker-controlled loop witness for G3/G4. */
 import java
+import dosweb.Entries.SpringMvcRequestBinding
 import semmle.code.java.dataflow.DataFlow
 
 predicate p0Handler(Method method) {
@@ -16,9 +17,7 @@ predicate p0Handler(Method method) {
 predicate p0AttackerParameter(Method method, Parameter input) {
   input = method.getAParameter() and p0Handler(method) and
   (
-    exists(Annotation annotation |
-      annotation = input.getAnAnnotation() and annotation.getType().hasQualifiedName("org.springframework.web.bind.annotation", ["RequestBody", "RequestParam", "PathVariable", "RequestHeader"])
-    )
+    isSpringMvcRequestBoundParameter(input)
     or method.getName() = ["service", "doGet", "doPost", "doPut", "doDelete", "doPatch"] and input = method.getParameter(0)
     or method.getName() = ["channelRead", "channelRead0", "messageArrived"] and input = method.getParameter(1)
   )

@@ -6,6 +6,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.http.HttpServlet;
@@ -82,6 +83,20 @@ class JacksonBoundController {
     @PostMapping("/constant-clamped-allocation")
     void constantClampedAllocation() {
         ByteBuffer.allocate(Math.min(-1, 1024));
+    }
+
+    @PostMapping("/partially-clamped-image")
+    void partiallyClampedImage(
+            @RequestParam int width, @RequestParam int height) {
+        new BufferedImage(Math.min(width, 1024), height, BufferedImage.TYPE_INT_ARGB);
+    }
+
+    @PostMapping("/fully-clamped-image")
+    void fullyClampedImage(
+            @RequestParam int width, @RequestParam int height) {
+        new BufferedImage(
+                Math.min(width, 1024), Math.min(height, 2048),
+                BufferedImage.TYPE_INT_ARGB);
     }
 }
 

@@ -6,6 +6,7 @@
  */
 
 import java
+import SpringMvcRequestBinding
 
 // Entry rows must originate from source, not dependency bytecode.
 predicate isSourceMethod(Method method) {
@@ -103,39 +104,12 @@ string getClassPath(Method method) {
   )
 }
 
-predicate hasExplicitSpringInputAnnotation(Parameter parameter) {
-  exists(Annotation annotation |
-    annotation = parameter.getAnAnnotation() and
-    isSpringAnnotation(annotation, [
-      "RequestBody", "RequestParam", "PathVariable", "RequestHeader", "ModelAttribute"
-    ])
-  )
-}
-
 string getInputKind(Parameter parameter) {
-  isSpringAnnotation(parameter.getAnAnnotation(), "RequestBody") and result = "request_body"
-  or isSpringAnnotation(parameter.getAnAnnotation(), "RequestParam") and result = "request_parameter"
-  or isSpringAnnotation(parameter.getAnAnnotation(), "PathVariable") and result = "path_parameter"
-  or isSpringAnnotation(parameter.getAnAnnotation(), "RequestHeader") and result = "header"
-  or isSpringAnnotation(parameter.getAnAnnotation(), "ModelAttribute") and result = "model_attribute"
+  result = springMvcRequestBindingKind(parameter)
   or (
     parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("javax.servlet.http", "HttpServletRequest")
     or parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("jakarta.servlet.http", "HttpServletRequest")
   ) and result = "request_parameter"
-  or
-  parameter.getType() instanceof RefType and
-  not hasExplicitSpringInputAnnotation(parameter) and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("javax.servlet.http", "HttpServletRequest") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("jakarta.servlet.http", "HttpServletRequest") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("org.springframework.validation", "BindingResult") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("org.springframework.ui", "Model") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("java.security", "Principal") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("javax.servlet", "ServletResponse") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("jakarta.servlet", "ServletResponse") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("javax.servlet.http", "HttpSession") and
-  not parameter.getType().(RefType).getASourceSupertype*().hasQualifiedName("jakarta.servlet.http", "HttpSession") and
-  not parameter.getType().hasName(["java.lang.String", "java.lang.Integer", "java.lang.Long", "java.lang.Boolean", "java.lang.Short", "java.lang.Byte", "java.lang.Float", "java.lang.Double", "java.lang.Character"]) and
-  result = "model_attribute"
 }
 
 predicate isArmeriaAnnotation(Annotation annotation) {

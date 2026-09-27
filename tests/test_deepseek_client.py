@@ -23,7 +23,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from pathlib import Path
 
-from dosweb.config import LlmConfig
+from dosweb.config import DEFAULT_MODEL, LlmConfig
 from dosweb.errors import AnalyzerError
 from dosweb.growth.models import (
     BoundedSlice, BoundedSlicePayload, CfgSummary, ConfigFact, RegistrationFact, SourceExcerpt, StaticFact,
@@ -58,7 +58,7 @@ VALID_CONTRACT = {
     "retention_window": "process",
     "failure_mechanism": "heap_exhaustion",
     "failure_signal": "retained entries exhaust heap",
-    "required_static_evidence": ["fact:key", "fact:put"],
+    "required_static_evidence": ["fact:key", "fact:put", "fact:value-space"],
     "contract_status": "dos_relevant",
     "rejection_reason": "none",
     "confidence": "high",
@@ -71,7 +71,7 @@ PROVIDER_CONTRACT = {
         if key not in {"growth_kind", "resource_dimension", "attacker_influence"}
     },
     "attacker_evidence_ids": ["fact:1"],
-    "required_static_evidence": ["fact:1", "fact:2"],
+    "required_static_evidence": ["fact:1", "fact:2", "fact:4"],
 }
 
 UNKNOWN_CONTRACT = {
@@ -132,7 +132,7 @@ def _process_cache_producer(cache_dir: str, key: str, identity: dict[str, object
     ready.put(True)
     start.wait(10)
     with cache.single_flight(key):
-        if cache.get(key, identity, frozenset({"fact:key", "fact:put"})) is None:
+        if cache.get(key, identity, frozenset({"fact:key", "fact:put", "fact:value-space"})) is None:
             time.sleep(0.2)
             cache.put(
                 key,
@@ -140,7 +140,7 @@ def _process_cache_producer(cache_dir: str, key: str, identity: dict[str, object
                 validate_growth_contract(VALID_CONTRACT),
                 {
                     "method": identity["request_method"], "url": identity["request_url"], "provider": identity["provider"], "protocol": "responses-v1",
-                    "requested_model": "grok-4.6", "actual_model": "grok-4.6",
+                    "requested_model": "deepseek-v4.1-flash", "actual_model": "deepseek-v4.1-flash",
                     "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
                     "allow_remote_llm": True, "public_source_url": identity["public_source_url"],
                     "source_commit_sha": identity["source_commit_sha"], "verified_public": identity["verified_public"], "verified_clean_checkout": identity["verified_clean_checkout"],
@@ -216,7 +216,7 @@ class DeepSeekClientTests(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.cache_dir = Path(self.temporary_directory.name) / "cache"
         self.config = LlmConfig(
-            model="grok-4.6",
+            model="deepseek-v4.1-flash",
             base_url=f"http://127.0.0.1:{self.server.server_port}/",
             api_key="test-api-key",
             timeout_seconds=1,
@@ -255,6 +255,7 @@ class DeepSeekClientTests(unittest.TestCase):
                     StaticFact("fact:key", "flow", "excerpt:1", "source"),
                     StaticFact("fact:put", "container_write", "excerpt:1", "sink"),
                     StaticFact("fact:target", "attacker_target", "excerpt:1", "source", "fact:key", "key"),
+                    StaticFact("fact:value-space", "value_space", "excerpt:1", "source", "fact:key", "unlimited"),
                 ),
                 cfg_summary=CfgSummary(("path:1",), ("in_handler",), ("fact:key",)),
                 registration_facts=(RegistrationFact("spring_mvc", "excerpt:1"),),
@@ -279,7 +280,7 @@ class DeepSeekClientTests(unittest.TestCase):
 
     @staticmethod
     def _success(content: object) -> dict[str, object]:
-        return {"model": "grok-4.6", "id": "req_fixture_1", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(content)}]}]}
+        return {"model": "deepseek-v4.1-flash", "id": "req_fixture_1", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(content)}]}]}
 
     @staticmethod
     def _slice_with_content(content: str) -> BoundedSlice:
@@ -292,13 +293,83 @@ class DeepSeekClientTests(unittest.TestCase):
                     StaticFact("fact:sensitive", "flow", "excerpt:sensitive", "source"),
                     StaticFact("fact:sink", "container_write", "excerpt:sensitive", "sink"),
                     StaticFact("fact:target", "attacker_target", "excerpt:sensitive", "source", "fact:sensitive", "key"),
+                    StaticFact("fact:value-space", "value_space", "excerpt:sensitive", "source", "fact:sensitive", "unlimited"),
                 ),
                 CfgSummary(("path:sensitive",), ("in_handler",), ("fact:sensitive",)),
                 (RegistrationFact("spring_mvc", "excerpt:sensitive"),), (),
             ),
         )
 
-    def test_valid_contract_uses_api2cn_responses(self) -> None:
+    def _request_materialization_slice(self) -> BoundedSlice:
+        facts = (
+            StaticFact(
+                "fact:body-flow",
+                "flow",
+                "excerpt:1",
+                "flows_to",
+                normalized_value="request_body",
+            ),
+            StaticFact(
+                "fact:materialize",
+                "input_materialization",
+                "excerpt:1",
+                "sink",
+                "fact:body-flow",
+            ),
+            StaticFact(
+                "fact:size-target",
+                "attacker_target",
+                "excerpt:1",
+                "source",
+                "fact:body-flow",
+                "size",
+            ),
+            StaticFact(
+                "fact:value-space",
+                "value_space",
+                "excerpt:1",
+                "flows_to",
+                "fact:body-flow",
+                "stream",
+            ),
+            StaticFact(
+                "fact:retention",
+                "retention",
+                "excerpt:1",
+                "sink",
+                "fact:body-flow",
+                "request",
+            ),
+            StaticFact(
+                "fact:amplification",
+                "amplification",
+                "excerpt:1",
+                "sink",
+                "fact:body-flow",
+                "large_single_request",
+            ),
+            StaticFact(
+                "fact:known-limit",
+                "known_limit_location",
+                "excerpt:1",
+                "bounds",
+                "fact:body-flow",
+                "none",
+            ),
+        )
+        payload = replace(
+            self.slice.payload,
+            growth_id="growth:request-materialization",
+            static_facts=facts,
+            cfg_summary=CfgSummary(
+                ("path:request-materialization",),
+                ("in_handler",),
+                tuple(fact.fact_id for fact in facts),
+            ),
+        )
+        return BoundedSlice("slice:request-materialization", payload)
+
+    def test_valid_contract_uses_apibasis_responses(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
 
         client = self._client()
@@ -315,14 +386,18 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertNotIn("Cookie", headers)
         self.assertNotIn("test-api-key", request["body"])
         body = json.loads(request["body"])
-        self.assertEqual(body["model"], "grok-4.6")
+        self.assertEqual(body["model"], "deepseek-v4.1-flash")
         self.assertEqual(body["temperature"], 0)
         self.assertIn("instructions", body)
         self.assertEqual(body["input"][0]["content"][0]["type"], "input_text")
         self.assertEqual(body["text"]["format"]["type"], "json_schema")
-        self.assertEqual(client.last_audit().settings["provider"], "api2cn_responses")
+        self.assertEqual(client.last_audit().settings["provider"], "apibasis_responses")
         _, identity = cache_identity(self.config, self.slice)
-        self.assertEqual(identity["provider"], "api2cn_responses")
+        self.assertEqual(identity["provider"], "apibasis_responses")
+        self.assertEqual(
+            identity["responses_request_profile"],
+            "responses-text-json-schema-v1",
+        )
         self.assertEqual(body["text"]["format"]["name"], "growth_contract")
         self.assertTrue(body["text"]["format"]["strict"])
         self.assertEqual(
@@ -335,6 +410,88 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertNotIn("messages", body)
         self.assertNotIn("response_format", body)
 
+    def test_authorized_fallbacks_have_distinct_cache_identities(self) -> None:
+        fallback = replace(
+            self.config,
+            base_url="https://api.api2cn.com/v1/",
+        )
+        rightapi = replace(
+            self.config,
+            base_url="https://rightapi.ai/grok/v1/",
+        )
+
+        default_key, default_identity = cache_identity(self.config, self.slice)
+        fallback_key, fallback_identity = cache_identity(fallback, self.slice)
+        rightapi_key, rightapi_identity = cache_identity(rightapi, self.slice)
+
+        self.assertEqual(default_identity["provider"], "apibasis_responses")
+        self.assertEqual(fallback_identity["provider"], "api2cn_responses")
+        self.assertEqual(rightapi_identity["provider"], "rightapi_responses")
+        self.assertEqual(
+            default_identity["responses_request_profile"],
+            "responses-text-json-schema-v1",
+        )
+        self.assertEqual(
+            fallback_identity["responses_request_profile"],
+            "api2cn-responses-top-level-json-schema-v1",
+        )
+        self.assertIsNone(default_identity["max_output_tokens"])
+        self.assertEqual(fallback_identity["max_output_tokens"], 8192)
+        self.assertNotEqual(default_key, fallback_key)
+        self.assertNotEqual(default_key, rightapi_key)
+
+    def test_api2cn_client_uses_compatible_growth_wire_profile(self) -> None:
+        requests: list[dict[str, object]] = []
+        success = self._success(UNKNOWN_CONTRACT)
+
+        class CaptureTransport:
+            def post(
+                self,
+                _endpoint: str,
+                payload: bytes,
+                _headers: dict[str, str],
+                _timeout: int,
+            ) -> str:
+                request = json.loads(payload.decode("utf-8"))
+                assert isinstance(request, dict)
+                requests.append(request)
+                return json.dumps(success, separators=(",", ":"))
+
+        client = DeepSeekClient(
+            replace(
+                self.config,
+                base_url="https://api.api2cn.com/v1/",
+            ),
+            verifier=_FakeVerifier(self.attestation),
+            transport=CaptureTransport(),
+            sleep=lambda _delay: None,
+        )
+
+        contract = client.classify_growth(self.slice)
+
+        self.assertEqual(contract.contract_status, "unknown")
+        self.assertEqual(len(requests), 1)
+        body = requests[0]
+        self.assertEqual(body["max_output_tokens"], 8192)
+        self.assertEqual(
+            body["response_format"],
+            {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "growth_contract",
+                    "strict": True,
+                    "schema": body["text"]["format"]["schema"],
+                },
+            },
+        )
+        audit = client.last_audit()
+        self.assertIsNotNone(audit)
+        self.assertEqual(
+            audit.settings["responses_request_profile"],
+            "api2cn-responses-top-level-json-schema-v1",
+        )
+        self.assertEqual(audit.settings["max_output_tokens"], 8192)
+
     def test_semantic_unknown_is_a_successful_contract(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(UNKNOWN_CONTRACT))]
 
@@ -343,6 +500,69 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual(result.is_resource_growth, "unknown")
         self.assertEqual(result.growth_kind, "container_growth")
         self.assertEqual(len(_ScriptedHandler.requests), 1)
+
+    def test_request_body_materialization_negative_contradiction_gets_one_correction(self) -> None:
+        rejected = {
+            **UNKNOWN_CONTRACT,
+            "is_resource_growth": "no",
+            "resource_effect": "materializes_bytes",
+            "attacker_variable": "request body bytes",
+            "attacker_value_space": "stream",
+            "growth_unit": "materialized bytes",
+            "growth_function": "linear request body materialization",
+            "amplification_class": "large_single_request",
+            "requests_to_pressure": "unknown",
+            "concurrency_model": "one request",
+            "retention_window": "request",
+            "failure_mechanism": "none",
+            "failure_signal": "no failure mechanism",
+            "contract_status": "growth_not_dos_relevant",
+            "rejection_reason": "no_failure_mechanism",
+            "confidence": "medium",
+        }
+        corrected = {
+            **PROVIDER_CONTRACT,
+            "attacker_evidence_ids": ["fact:1"],
+            "required_static_evidence": [
+                "fact:1",
+                "fact:2",
+                "fact:3",
+                "fact:4",
+                "fact:5",
+                "fact:6",
+                "fact:7",
+            ],
+            "resource_effect": "materializes_bytes",
+            "attacker_variable": "request body bytes",
+            "attacker_value_space": "stream",
+            "growth_unit": "materialized bytes",
+            "growth_function": "linear request body materialization",
+            "amplification_class": "large_single_request",
+            "requests_to_pressure": "one",
+            "concurrency_model": "one request",
+            "retention_window": "request",
+            "failure_mechanism": "heap_exhaustion",
+            "failure_signal": "heap pressure",
+        }
+        _ScriptedHandler.scripted_responses = [
+            (200, self._success(rejected)),
+            (200, self._success(corrected)),
+        ]
+
+        result = self._client().classify_growth(
+            self._request_materialization_slice()
+        )
+
+        self.assertEqual(result.contract_status, "dos_relevant")
+        self.assertEqual(result.growth_kind, "input_materialization")
+        self.assertEqual(len(_ScriptedHandler.requests), 2)
+        correction = json.loads(_ScriptedHandler.requests[1]["body"])
+        self.assertIn(
+            "MUST return contract_status=dos_relevant",
+            correction["instructions"],
+        )
+        cached = json.loads(next(self.cache_dir.glob("*.json")).read_text())
+        self.assertEqual(cached["accepted_prompt_variant"], "correction")
 
     def test_429_and_500_are_retried_up_to_configured_attempts(self) -> None:
         _ScriptedHandler.scripted_responses = [(429, {}), (500, {}), (500, {})]
@@ -365,7 +585,7 @@ class DeepSeekClientTests(unittest.TestCase):
     def test_empty_or_non_json_content_fails_schema_validation(self) -> None:
         for content in ("", "not-json"):
             with self.subTest(content=content):
-                response = (200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]})
+                response = (200, {"model": "deepseek-v4.1-flash", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]})
                 _ScriptedHandler.scripted_responses = [response] if not content else [response, response]
                 with self.assertRaises(AnalyzerError) as raised:
                     self._client().classify_growth(self.slice)
@@ -512,7 +732,7 @@ class DeepSeekClientTests(unittest.TestCase):
             return result
 
         with mock.patch("dosweb.llm.cache.os.lstat", side_effect=foreign_owner):
-            self.assertIsNone(ContractCache(self.cache_dir, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put"})))
+            self.assertIsNone(ContractCache(self.cache_dir, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put", "fact:value-space"})))
 
     def test_successful_cache_hit_skips_second_http_request(self) -> None:
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
@@ -554,7 +774,7 @@ class DeepSeekClientTests(unittest.TestCase):
             ContractCache(self.cache_dir, "cache-auth-key").get(
                 key,
                 identity,
-                frozenset({"fact:key", "fact:put"}),
+                frozenset({"fact:key", "fact:put", "fact:value-space"}),
             )
         )
 
@@ -626,7 +846,7 @@ class DeepSeekClientTests(unittest.TestCase):
             with self.subTest(source=source):
                 _ScriptedHandler.requests = []
                 _ScriptedHandler.scripted_responses = [
-                    (200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))
+                    (200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))
                 ]
 
                 self._client().classify_growth(self._slice_with_content(source))
@@ -637,7 +857,7 @@ class DeepSeekClientTests(unittest.TestCase):
         verifier = _FakeVerifier(self.attestation)
         value = "123-45-6789"
 
-        _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))] * 3
+        _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))] * 3
         with self.assertRaises(AnalyzerError) as raised:
             self._client(verifier).classify_growth(self._slice_with_content(value))
 
@@ -664,7 +884,7 @@ class DeepSeekClientTests(unittest.TestCase):
             with self.subTest(source=source):
                 _ScriptedHandler.requests = []
                 verifier = _FakeVerifier(self.attestation)
-                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))] * 3
+                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))] * 3
                 with self.assertRaises(AnalyzerError) as raised:
                     self._client(verifier).classify_growth(self._slice_with_content(source))
                 self.assertEqual(raised.exception.code, "LLM_BOUNDED_SLICE_SECRET_DETECTED")
@@ -675,7 +895,7 @@ class DeepSeekClientTests(unittest.TestCase):
         for value in ("000-12-3456", "666-12-3456", "900-12-3456", "123-00-3456", "123-45-0000", "2026-07-22"):
             with self.subTest(value=value):
                 _ScriptedHandler.requests = []
-                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))]
+                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))]
                 self._client().classify_growth(self._slice_with_content(value))
                 self.assertEqual(len(_ScriptedHandler.requests), 1)
 
@@ -813,7 +1033,7 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertEqual([produced.get(timeout=1)], [True])
         with self.assertRaises(__import__("queue").Empty):
             produced.get_nowait()
-        self.assertEqual(ContractCache(self.cache_dir, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put"})), validate_growth_contract(VALID_CONTRACT))
+        self.assertEqual(ContractCache(self.cache_dir, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put", "fact:value-space"})), validate_growth_contract(VALID_CONTRACT))
         self.assertEqual(len(list(self.cache_dir.glob("*.json"))), 1)
 
     def test_concurrent_private_hierarchy_creation_treats_racing_creator_as_success(self) -> None:
@@ -956,12 +1176,12 @@ class DeepSeekClientTests(unittest.TestCase):
         with cache.single_flight(key):
             self.assertTrue(cache.put(key, identity, validate_growth_contract(VALID_CONTRACT), {
                 "method": identity["request_method"], "url": identity["request_url"], "provider": identity["provider"], "protocol": "responses-v1",
-                "requested_model": "grok-4.6", "actual_model": "grok-4.6",
+                "requested_model": "deepseek-v4.1-flash", "actual_model": "deepseek-v4.1-flash",
                 "provider_request_id_digest": cache.provider_request_id_digest("fixture"), "slice_content_hash": identity["slice_content_hash"],
                 "allow_remote_llm": True, "public_source_url": identity["public_source_url"],
                 "source_commit_sha": identity["source_commit_sha"], "verified_public": identity["verified_public"], "verified_clean_checkout": identity["verified_clean_checkout"],
             }))
-        self.assertEqual(ContractCache(nested, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put"})), validate_growth_contract(VALID_CONTRACT))
+        self.assertEqual(ContractCache(nested, "test-api-key").get(key, identity, frozenset({"fact:key", "fact:put", "fact:value-space"})), validate_growth_contract(VALID_CONTRACT))
         self.assertEqual(stat.S_IMODE((nested.parent.parent).stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(nested.parent.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(nested.stat().st_mode), 0o700)
@@ -970,10 +1190,11 @@ class DeepSeekClientTests(unittest.TestCase):
         facts = tuple(StaticFact(f"fact:f{index}", "flow", "excerpt:1", "source") for index in range(65)) + (
             StaticFact("fact:sink", "container_write", "excerpt:1", "sink"),
             StaticFact("fact:target", "attacker_target", "excerpt:1", "source", "fact:f0", "key"),
+            StaticFact("fact:value-space", "value_space", "excerpt:1", "source", "fact:f0", "unlimited"),
         )
         payload = replace(self.slice.payload, static_facts=facts, cfg_summary=CfgSummary(("path:1",), ("in_handler",), ("fact:f0",)))
         slice_ = BoundedSlice("slice:many-facts", payload)
-        contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:66"]}
+        contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:66", "fact:68"]}
         _ScriptedHandler.scripted_responses = [(200, self._success(contract))]
         first = self._client().classify_growth(slice_)
         second = self._client().classify_growth(slice_)
@@ -1233,7 +1454,7 @@ class DeepSeekClientTests(unittest.TestCase):
         serialized = next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8")
         entry = json.loads(serialized)
         identity = entry["identity"]
-        self.assertEqual(identity["prompt_version"], "growth-contract-v9")
+        self.assertEqual(identity["prompt_version"], "growth-contract-v16")
         self.assertIn("slice_content_hash", identity)
         self.assertNotIn("normalized_slice", identity)
         identity_serialized = json.dumps(identity, sort_keys=True)
@@ -1467,54 +1688,68 @@ class DeepSeekClientTests(unittest.TestCase):
                             StaticFact("fact:non-deny", "flow", "excerpt:non-deny", "source"),
                             StaticFact("fact:sink", "container_write", "excerpt:non-deny", "sink"),
                             StaticFact("fact:target", "attacker_target", "excerpt:non-deny", "source", "fact:non-deny", "key"),
+                            StaticFact("fact:value-space", "value_space", "excerpt:non-deny", "source", "fact:non-deny", "unlimited"),
                         ),
                         CfgSummary(("path:non-deny",), ("in_handler",), ("fact:non-deny",)),
                         (RegistrationFact("spring_mvc", "excerpt:non-deny"),), (),
                     ),
                 )
                 _ScriptedHandler.requests = []
-                contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:2"]}
+                contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:2", "fact:4"]}
                 _ScriptedHandler.scripted_responses = [(200, self._success(contract))]
                 self._client().classify_growth(slice_)
                 self.assertEqual(len(_ScriptedHandler.requests), 1)
 
-    def test_authorized_provider_model_alias_is_accepted_but_other_mismatches_fail(self) -> None:
-        client = self._client(model="grok-4.6", base_url="https://api.api2cn.com/v1/")
+    def test_authorized_provider_model_requires_exact_match(self) -> None:
+        client = self._client(model="deepseek-v4.1-flash", base_url="https://api.api2cn.com/v1/")
         reply = ProviderReply(
             json.dumps({
                 "id": "req_alias_1",
-                "model": "grok-4.6-build",
+                "model": "deepseek-v4.1-flash",
                 "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "{}"}]}],
             }),
             {},
         )
         content, actual_model, request_id = client._response_content(reply)
         self.assertEqual(content, "{}")
-        self.assertEqual(actual_model, "grok-4.6-build")
+        self.assertEqual(actual_model, "deepseek-v4.1-flash")
         self.assertEqual(request_id, "req_alias_1")
+        with self.assertRaises(AnalyzerError) as raised:
+            client._response_content(
+                ProviderReply(
+                    json.dumps({
+                        "id": "req_alias_2",
+                        "model": "deepseek-v4.1-flash-build",
+                        "status": "completed",
+                        "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "{}"}]}],
+                    }),
+                    {},
+                )
+            )
+        self.assertEqual(raised.exception.code, "LLM_RESPONSE_INVALID")
 
     def test_authorized_model_alias_is_cache_authenticated_and_replayable(self) -> None:
         response = {
             "id": "req_alias_cache",
-            "model": "grok-4.6-build",
+            "model": "deepseek-v4.1-flash",
             "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(PROVIDER_CONTRACT)}]}],
         }
         _ScriptedHandler.scripted_responses = [(200, response)]
-        client = self._client(model="grok-4.6")
+        client = self._client(model="deepseek-v4.1-flash")
         first = client.classify_growth(self.slice)
         self.assertEqual(first.growth_kind, "container_growth")
         cache_entry = json.loads(next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8"))
-        self.assertEqual(cache_entry["request_audit"]["requested_model"], "grok-4.6")
-        self.assertEqual(cache_entry["request_audit"]["actual_model"], "grok-4.6-build")
+        self.assertEqual(cache_entry["request_audit"]["requested_model"], "deepseek-v4.1-flash")
+        self.assertEqual(cache_entry["request_audit"]["actual_model"], "deepseek-v4.1-flash")
         request_count = len(_ScriptedHandler.requests)
-        replay_client = self._client(model="grok-4.6")
+        replay_client = self._client(model="deepseek-v4.1-flash")
         second = replay_client.classify_growth(self.slice)
         self.assertEqual(second.to_dict(), first.to_dict())
         self.assertEqual(len(_ScriptedHandler.requests), request_count)
         self.assertIsNotNone(replay_client.last_audit())
         self.assertEqual(
             replay_client.last_audit().settings["actual_model"],
-            "grok-4.6-build",
+            "deepseek-v4.1-flash",
         )
 
     def test_response_requires_matching_model_and_persists_only_request_id_digest(self) -> None:
@@ -1527,8 +1762,8 @@ class DeepSeekClientTests(unittest.TestCase):
         _ScriptedHandler.scripted_responses = [(200, self._success(PROVIDER_CONTRACT))]
         self._client().classify_growth(self.slice)
         entry = json.loads(next(self.cache_dir.glob("*.json")).read_text(encoding="utf-8"))
-        self.assertEqual(entry["request_audit"]["requested_model"], "grok-4.6")
-        self.assertEqual(entry["request_audit"]["actual_model"], "grok-4.6")
+        self.assertEqual(entry["request_audit"]["requested_model"], "deepseek-v4.1-flash")
+        self.assertEqual(entry["request_audit"]["actual_model"], "deepseek-v4.1-flash")
         digest = entry["request_audit"]["provider_request_id_digest"]
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
         serialized = json.dumps(entry, sort_keys=True)
@@ -1616,7 +1851,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
             _payload = DeepSeekClientTests._success(PROVIDER_CONTRACT)
-        client = DeepSeekClient(replace(self.config, base_url="https://api.api2cn.com/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
+        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=1), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0, monotonic=clock)
         client._opener = mock.Mock()
         client._opener.open.return_value = SlowResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1655,7 +1890,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = DeepSeekClient(replace(self.config, base_url="https://api.api2cn.com/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
+        client = DeepSeekClient(replace(self.config, base_url="https://rightapi.ai/grok/v1/", max_retries=3), verifier=_FakeVerifier(self.attestation), sleep=lambda _: None, jitter=lambda: 0)
         client._opener = mock.Mock()
         client._opener.open.return_value = InvalidResponse()
         with self.assertRaises(AnalyzerError) as raised:
@@ -1672,7 +1907,7 @@ class DeepSeekClientTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args: object) -> None: return None
 
-        client = self._client(max_retries=3, base_url="https://api.api2cn.com/v1/")
+        client = self._client(max_retries=3, base_url="https://rightapi.ai/grok/v1/")
         client._transport = None
         client._opener = mock.Mock()
         client._opener.open.return_value = TimeoutResponse()
@@ -1698,10 +1933,11 @@ class DeepSeekClientTests(unittest.TestCase):
             StaticFact(private_id, "flow", "excerpt:1", "source"),
             StaticFact("fact:put", "container_write", "excerpt:1", "sink"),
             StaticFact("fact:target", "attacker_target", "excerpt:1", "source", private_id, "key"),
+            StaticFact("fact:value-space", "value_space", "excerpt:1", "source", private_id, "unlimited"),
         )
         payload = replace(self.slice.payload, entry_id="entry:private", growth_id="growth:private", static_facts=facts, cfg_summary=CfgSummary(("path:private",), ("in_handler",), (private_id,)))
         slice_ = BoundedSlice("slice:private", payload)
-        aliased_contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:2"]}
+        aliased_contract = {**PROVIDER_CONTRACT, "attacker_evidence_ids": ["fact:1"], "required_static_evidence": ["fact:1", "fact:2", "fact:4"]}
         _ScriptedHandler.scripted_responses = [(200, self._success(aliased_contract))]
 
         result = self._client().classify_growth(slice_)
@@ -1711,7 +1947,7 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertNotIn("entry:private", request)
         self.assertNotIn("growth:private", request)
         self.assertEqual(result.attacker_influence[0].evidence_id, private_id)
-        self.assertEqual(result.required_static_evidence, (private_id, "fact:put"))
+        self.assertEqual(result.required_static_evidence, (private_id, "fact:put", "fact:value-space"))
 
     def test_provider_aliases_preserve_same_file_relationship(self) -> None:
         from dosweb.llm.prompts import build_provider_payload
@@ -1796,7 +2032,7 @@ class DeepSeekClientTests(unittest.TestCase):
         for source in blocked:
             with self.subTest(source=source[:80]):
                 _ScriptedHandler.requests = []
-                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))] * 3
+                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))] * 3
                 verifier = _FakeVerifier(self.attestation)
                 with self.assertRaises(AnalyzerError) as raised:
                     self._client(verifier).classify_growth(self._slice_with_content(source))
@@ -1812,13 +2048,13 @@ class DeepSeekClientTests(unittest.TestCase):
         for source in benign:
             with self.subTest(source=source):
                 _ScriptedHandler.requests = []
-                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))]
+                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))]
                 self._client().classify_growth(self._slice_with_content(source))
                 self.assertEqual(len(_ScriptedHandler.requests), 1)
 
     def test_java_type_annotation_argument_is_not_sensitive_assignment(self) -> None:
         source = "String credentials @Size(max = 5) [];"
-        _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))] * 3
+        _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))] * 3
 
         self._client().classify_growth(self._slice_with_content(source))
 
@@ -1826,7 +2062,7 @@ class DeepSeekClientTests(unittest.TestCase):
 
     def test_sensitive_annotation_argument_is_not_a_credential_assignment(self) -> None:
         source = "@interface Ann { int token(); } @Ann(token = 5) class Example {}"
-        _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))]
+        _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))]
 
         self._client().classify_growth(self._slice_with_content(source))
 
@@ -1847,11 +2083,11 @@ class DeepSeekClientTests(unittest.TestCase):
         for excerpt in ("}", "{", "unknown", ";"):
             with self.subTest(excerpt=excerpt):
                 _ScriptedHandler.requests = []
-                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1"]}))]
+                _ScriptedHandler.scripted_responses = [(200, self._success({**PROVIDER_CONTRACT, "required_static_evidence": ["fact:1", "fact:4"]}))]
                 result = self._client().classify_growth(self._slice_with_content(excerpt))
                 self.assertEqual(result.is_resource_growth, "yes")
         long_echo = "unique-source-echo-" + "x" * 96
-        _ScriptedHandler.scripted_responses = [(200, {"model": "grok-4.6", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": long_echo}]}]})] * 2
+        _ScriptedHandler.scripted_responses = [(200, {"model": "deepseek-v4.1-flash", "status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": long_echo}]}]})] * 2
         with self.assertRaises(AnalyzerError) as raised:
             self._client().classify_growth(self._slice_with_content(long_echo))
         self.assertEqual(raised.exception.code, "LLM_RESPONSE_SENSITIVE_CONTENT")
@@ -1955,7 +2191,7 @@ class DeepSeekClientTests(unittest.TestCase):
             cache.put_auth_record("f" * 64, {"index": 257}, contract, "{}")
         self.assertEqual("LLM_CACHE_CAPACITY_EXHAUSTED", raised.exception.code)
 
-    def test_authenticated_auth_v2_is_cold_then_v4_can_publish_under_new_identity(self) -> None:
+    def test_authenticated_auth_v2_is_cold_then_v6_can_publish_under_new_identity(self) -> None:
         from dosweb.artifacts.identifiers import canonical_json, sha256_canonical_json
 
         self.cache_dir.mkdir(mode=0o700)
@@ -1975,10 +2211,10 @@ class DeepSeekClientTests(unittest.TestCase):
         self.assertTrue(cache.put_auth_record(new_key, new_identity, contract, "{}"))
         self.assertEqual(
             cache.get_auth_record(new_key, new_identity),
-            {"contract": contract, "raw_response": "{}", "accepted_prompt_variant": "initial", "actual_model": "grok-4.6"},
+            {"contract": contract, "raw_response": "{}", "accepted_prompt_variant": "initial", "actual_model": DEFAULT_MODEL},
         )
         published = self.cache_dir / f"auth-{new_key}.json"
-        self.assertEqual(json.loads(published.read_text(encoding="utf-8"))["cache_format"], "auth-contract-cache-v5")
+        self.assertEqual(json.loads(published.read_text(encoding="utf-8"))["cache_format"], "auth-contract-cache-v6")
 
     def test_tampered_auth_v1_is_not_deleted(self) -> None:
         self.cache_dir.mkdir(mode=0o700)
@@ -2182,16 +2418,16 @@ class JsonBoundaryTests(unittest.TestCase):
 
     def test_provider_envelope_json_rejects_depth_duplicate_keys_and_nonfinite_values(self) -> None:
         client = DeepSeekClient(
-            LlmConfig("grok-4.6", "http://127.0.0.1:8000/", "test-api-key", 1, 1, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path(".")),
+            LlmConfig("deepseek-v4.1-flash", "http://127.0.0.1:8000/", "test-api-key", 1, 1, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path(".")),
             verifier=_FakeVerifier(PublicSourceAttestation("https://github.com/example/public-repository", "a" * 40, True, True)),
             transport=_LoopbackTransport(),
         )
-        deeply_nested: object = {"model": "grok-4.6", "choices": [{"message": {"content": "{}"}}]}
+        deeply_nested: object = {"model": "deepseek-v4.1-flash", "choices": [{"message": {"content": "{}"}}]}
         for _ in range(17):
             deeply_nested = [deeply_nested]
         for body in (
             json.dumps(deeply_nested),
-            '{"model":"grok-4.6","model":"grok-4.6","choices":[]}',
+            '{"model":"deepseek-v4.1-flash","model":"deepseek-v4.1-flash","choices":[]}',
             '{"model":NaN,"choices":[]}',
         ):
             with self.subTest(body=body[:30]):
@@ -2203,8 +2439,8 @@ class JsonBoundaryTests(unittest.TestCase):
 class GitHubPublicSourceVerifierTests(unittest.TestCase):
     def test_default_verifier_requires_public_matching_commit_and_clean_checkout(self) -> None:
         config = LlmConfig(
-            model="grok-4.6",
-            base_url="https://api.api2cn.com/v1/",
+            model="deepseek-v4.1-flash",
+            base_url="https://rightapi.ai/grok/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -2286,7 +2522,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_default_verifier_allows_local_commit_binding_without_public_source_url(self) -> None:
         config = LlmConfig(
-            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             None, "b" * 40, Path("/fixture"),
         )
@@ -2309,7 +2545,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_default_verifier_rejects_public_url_not_bound_to_checkout_origin(self) -> None:
         config = LlmConfig(
-            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/example/public-repository", "b" * 40, Path("/fixture"),
         )
@@ -2332,7 +2568,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_source_requirements_canonicalize_public_github_url(self) -> None:
         config = LlmConfig(
-            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/Cicizz/jmqtt", "b" * 40, Path("/fixture"),
         )
@@ -2344,7 +2580,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_default_verifier_accepts_public_pinned_commit_without_branch_assumption(self) -> None:
         config = LlmConfig(
-            "grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
+            "deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0,
             Path("cache"), True,
             "https://github.com/example/public-repository", "b" * 40, Path("/fixture"),
         )
@@ -2374,7 +2610,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(2, requests)
 
     def test_verify_local_git_steps_share_one_absolute_deadline(self) -> None:
-        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, None, "b" * 40, Path("/fixture"))
+        config = LlmConfig("deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, None, "b" * 40, Path("/fixture"))
         current = -0.01
         def clock() -> float:
             nonlocal current
@@ -2401,7 +2637,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertLess(timeouts[-1], timeouts[0])
 
     def test_verify_slice_shares_one_deadline_across_authorization_and_blob_validation(self) -> None:
-        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
+        config = LlmConfig("deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
         verifier = GitHubPublicSourceVerifier(monotonic=lambda: 5.0, git_timeout_seconds=2)
         attestation = PublicSourceAttestation(config.public_source_url, config.source_commit_sha, True, True)
         slice_ = mock.Mock(spec=BoundedSlice)
@@ -2412,8 +2648,8 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_default_verifier_rejects_private_repository_without_commit_or_deepseek_call(self) -> None:
         config = LlmConfig(
-            model="grok-4.6",
-            base_url="https://api.api2cn.com/v1/",
+            model="deepseek-v4.1-flash",
+            base_url="https://rightapi.ai/grok/v1/",
             api_key="test-api-key",
             timeout_seconds=1,
             max_retries=3,
@@ -2445,13 +2681,17 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
 
     def test_endpoint_validation_allows_only_production_or_loopback(self) -> None:
         self.assertEqual(
+            validate_provider_endpoint("https://apibasis.com/v1"),
+            "https://apibasis.com/v1/",
+        )
+        self.assertEqual(
+            validate_provider_endpoint("https://rightapi.ai/grok/v1"),
+            "https://rightapi.ai/grok/v1/",
+        )
+        self.assertEqual(
             validate_provider_endpoint("https://api.api2cn.com/v1"),
             "https://api.api2cn.com/v1/",
         )
-        with self.assertRaises(AnalyzerError):
-            validate_provider_endpoint("https://rightapi.ai/grok/v1/")
-        with self.assertRaises(AnalyzerError):
-            validate_provider_endpoint("https://apibasis.com/v1/")
         with self.assertRaises(AnalyzerError):
             validate_provider_endpoint("https://api.deepseek.com/")
         self.assertEqual(validate_provider_endpoint("http://[::1]:8000/", allow_test_transport=True), "http://[::1]:8000/")
@@ -2573,7 +2813,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
                 (RegistrationFact("spring_mvc", "excerpt:1"),), (),
             ),
         )
-        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path("/fixture"))
+        config = LlmConfig("deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "a" * 40, Path("/fixture"))
         attestation = PublicSourceAttestation("https://github.com/example/public-repository", "a" * 40, True, True)
         calls: list[tuple[str, ...]] = []
         verifier = GitHubPublicSourceVerifier()
@@ -2592,7 +2832,7 @@ class GitHubPublicSourceVerifierTests(unittest.TestCase):
         self.assertEqual(calls, [("cat-file", "--batch-check=%(objecttype) %(objectsize)", "a" * 40 + ":Example.java")])
 
     def test_verify_runs_strict_fsck_before_any_local_object_read(self) -> None:
-        config = LlmConfig("grok-4.6", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
+        config = LlmConfig("deepseek-v4.1-flash", "https://api.deepseek.com/", "test-api-key", 1, 3, 0, Path("cache"), True, "https://github.com/example/public-repository", "b" * 40, Path("/fixture"))
         calls: list[tuple[str, ...]] = []
         github_calls = 0
 

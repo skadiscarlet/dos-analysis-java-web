@@ -13,6 +13,7 @@ import org.springframework.security.config.SecurityRules;
 class FixtureCondition {}
 
 public class SecuritySemanticsFixture {
+    private final DefaultSecurityRoutes defaultSecurityRoutes = new DefaultSecurityRoutes();
     @fixture.customsecurity.PermitAll
     public void customPermitAll() {}
 
@@ -88,5 +89,24 @@ public class SecuritySemanticsFixture {
         rules.requestMatchers("/api/**").authenticated();
         rules.requestMatchers("/api/admin/**").hasRole("ADMIN");
         rules.requestMatchers("/api/user/**").hasRole("USER");
+        rules.antMatchers(defaultSecurityRoutes.getAuthenticateEndpoint()).permitAll();
+        rules.antMatchers(defaultSecurityRoutes.getDynamicEndpoint()).permitAll();
+    }
+}
+
+interface DefaultSecurityConstants {
+    String AUTHENTICATE_ENDPOINT = "/rest/authenticate";
+}
+
+class DefaultSecurityRoutes {
+    private String authenticateEndpoint = DefaultSecurityConstants.AUTHENTICATE_ENDPOINT;
+    private String dynamicEndpoint;
+
+    String getAuthenticateEndpoint() {
+        return authenticateEndpoint;
+    }
+
+    String getDynamicEndpoint() {
+        return dynamicEndpoint;
     }
 }

@@ -1224,6 +1224,20 @@ select a canonical Entry. The same handler-identity requirement applies to
 generic duplicate-registration canonicalization: a shared application-level
 registration site, such as one JAX-RS/Dropwizard Guice binding, MUST NOT collapse
 distinct resource handlers or HTTP methods into one canonical Entry.
+When one Growth sink has links from multiple handler groups, a single exact
+handler/registration group with complete Association and same-path Flow proof
+MAY be selected while sibling groups remain partial. This is an existential
+E→G proof, not status averaging: two distinct complete handler groups remain
+ambiguous, and route aliases may collapse only inside that exact selected
+handler group. For derived dimensions, the complete bridge MUST start at an
+exact scalar/body request value and use value-preserving global data flow to the
+extent producer. A request key that only selects server-side stored content is
+not direct control of the returned content and remains partial callgraph evidence.
+The deterministic relevance gate MUST consume that exact complete
+`unique_bounded_call_path_derived_dimension_dataflow` link together with the
+`derived_dimension_materialization:uncapped_after_derivation` Growth fact as
+attacker-sized allocation evidence. The Growth fact alone, a callgraph-only
+link, or a partial sibling link is insufficient.
 
 The Flow stage MUST consume the authenticated Growth-stage canonical
 disposition/link mapping for every retained Growth result. A route-qualified
@@ -1311,15 +1325,39 @@ completion alone cannot reject any of these candidates.
 
 ### 21.3 Growth Contract v5 and safe correction
 
-The current formal provider is API2CN Responses at the canonical production
-base URL `https://api.api2cn.com/v1/`, using model `grok-4.6`, non-streaming
-`POST /responses`, and provider identity `api2cn_responses`. The former
-RightAPI endpoint is no longer an accepted production endpoint. The base URL
-and provider identity participate in Growth/Auth cache identity, while the base
-URL also participates in formal model/stage identity; switching credentials
-changes cache HMAC authentication. Therefore no RightAPI stage or cache is
-reused by a fresh API2CN formal run. Credentials remain restricted to the
-process environment or owner-only gitignored `config/local_secrets.json`.
+The default formal provider is APIBasis Responses at the canonical production
+base URL `https://apibasis.com/v1/`, using model `grok-4.6`, non-streaming
+`POST /responses`, and provider identity `apibasis_responses`. The authorized
+RightAPI and API2CN endpoints remain explicitly selected fallbacks with
+distinct provider identities; API2CN retains exact model
+`deepseek-v4.1-flash` and its compatibility-only top-level strict schema wire.
+APIBasis uses standard `text.format.type=json_schema`. The base URL and provider
+identity participate in Growth/Auth cache identity, while the base URL also
+participates in formal model/stage identity; switching credentials changes
+cache HMAC authentication. Growth cache format v16 and Auth cache format v6
+make the fallback migration cold, and no stage/cache is reused across provider
+identities. Credentials remain restricted to the process environment or
+owner-only gitignored `config/local_secrets.json`.
+The API2CN live catalog and real canaries verify model availability only; they
+do not establish a reliable strict structured-output channel. Fresh Wave B v2
+failed Erupt Auth and GetRebuild/JetLinks Growth with
+`LLM_RESPONSE_SCHEMA_INVALID` under exact `deepseek-v4.1-flash`. A subsequent
+four-prompt, three-repetition `kimi-k3` matrix passed only 2/12: both exact
+large-request and high-cardinality Growth prompts were 0/3, while the
+empty-attacker correction and Auth prompt were each 1/3. `qwen3.8-max` had
+already failed the full production Growth contract in fresh formal v6;
+`kimi-k3` failed fresh formal v7 and this repeatability matrix; `glm-5.3` failed
+all three fresh formal v8 targets. None is supported. API2CN envelopes for the
+remaining explicit fallback must report exactly `deepseek-v4.1-flash`; no build
+or family alias is accepted. RightAPI retains the bounded `grok-4.6` response
+alias contract. The requested model is part of the immutable plan, Growth/Auth
+cache identity, private audit, and stage model fingerprint, so switching
+provider/model is cold and cannot replay an earlier model's contract. With the
+current owner-only credential, APIBasis `/models` and `/responses` return HTTP
+200 and a fresh four-prompt x three-repetition gate passes 12/12 raw envelope,
+raw JSON, schema, ownership, static-evidence, and semantic validators. This
+restores eligibility for a fresh Wave B v3 but is not Wave B/Wave C evidence.
+RightAPI previously returned 401 and API2CN has no stable eligible model.
 
 The provider response schema is `growth-contract-schema-v5`. The provider no
 longer chooses `growth_kind`, `resource_dimension`, or a free attacker-influence
@@ -1332,11 +1370,22 @@ semantic invariant: `contract_status=dos_relevant` implies
 `dos_relevant` is schema-invalid; it cannot become a negative/unknown Growth
 Contract or a cacheable false negative.
 
-The Growth prompt identity is `growth-contract-v9`; the provider response schema
+The Growth prompt identity is `growth-contract-v16`; the provider response schema
 remains `growth-contract-schema-v5`. Every initial/correction Responses request
 uses strict `text.format.type=json_schema`, requires the exact 17 keys, forbids
 additional properties, and constrains all enum/alias/collection/bounded-text
-domains. The Growth provider wire schema is deliberately flat: it contains no
+domains. The API2CN request profile additionally duplicates that exact schema
+under top-level `response_format.type=json_schema` and fixes
+`max_output_tokens=8192`. A source-free gateway A/B motivated this compatibility
+profile and once returned a complete contract, but later production and
+repeatability canaries proved that the gateway does not reliably enforce either
+field. RightAPI receives neither compatibility field. The profile and cap are
+bound into Growth/Auth cache identity, private audit, and the stage model
+fingerprint; the raw JSON parser and every local validator are unchanged, and
+no fenced-JSON extraction or reasoning override is permitted. The compatibility
+profile is fail-closed request metadata, not evidence that the provider is
+eligible for formal execution.
+The Growth provider wire schema is deliberately flat: it contains no
 `oneOf`, `anyOf`, `allOf`, `const`, or conditional composition. Status-branch
 consistency remains stated in both initial and correction prompts and is
 enforced by the local typed schema/cross-field checks before acceptance. The
@@ -1351,6 +1400,50 @@ issue exactly one safe correction request. The rejected body is unavailable to
 that request and is never echoed, cached, audited, logged, or added to an error
 message, details mapping, cause, context chain, or rejected-path traceback
 frame local.
+
+Growth also enforces one path-bound typed large-single-request invariant before
+cache/audit acceptance. A nonempty CFG path must bind the same request/network-
+controlled flow by `value_ref` to an `allocation` or `input_materialization`
+sink, `attacker_target=size`, `value_space=stream|large|unlimited`, request
+retention, `amplification=large_single_request`, and
+`known_limit_location=none`. For that exact shape, `unknown` and every
+`growth_not_dos_relevant` response are schema-invalid and use the sole safe
+correction. A positive response must also cite the exact flow as attacker
+evidence, cite the same-flow sink/value-space/retention/amplification/no-limit
+facts as required evidence, supply a concrete failure mechanism, and use
+`requests_to_pressure=one|few`; no citation is synthesized locally. A repeated
+contradiction is terminal without cache or audit. Facts from different flow IDs
+cannot be combined to satisfy the invariant. The invariant proves only Growth
+relevance: Guard/Bound effectiveness remains a later path-bound Lifecycle
+decision.
+
+Growth additionally enforces one path-bound typed high-cardinality-retention
+invariant before cache/audit acceptance. A nonempty CFG path must bind the same
+request/network-controlled flow by `value_ref` to a `container_write` sink,
+`attacker_target=key|value`, `value_space=unlimited`, process retention,
+`amplification=high_cardinality_retention`, `known_limit_location=none`,
+`field_identity=attacker_key`, `escape_scope=global`, and
+`loop_multiplicity=repeated_requests`. For that exact shape, the provider must
+return `contract_status=dos_relevant`, `is_resource_growth=yes`,
+`resource_effect=adds_entries`, a concrete failure mechanism, and
+`requests_to_pressure=many`. Attacker evidence must cite the exact flow, while
+required evidence must cite the same-flow sink, value-space, retention,
+amplification, no-limit, field-identity, escape-scope, and loop-multiplicity
+facts. `unknown`, a negative, missing citations, or cross-flow evidence enters
+the sole safe correction and a repeated contradiction is terminal without
+cache or audit. No citation or contract field is completed locally. The five
+correction free-text values are fixed bounded abstractions to suppress source
+echo. This invariant proves only Growth relevance; actual Guard/Bound
+effectiveness remains a later path-bound Lifecycle decision.
+
+Every positive Growth Contract additionally owns its declared
+`attacker_value_space` through one required same-flow static fact. The fact must
+have `kind=value_space`, `relation=source|flows_to`, the exact attacker-flow
+`value_ref`, and a normalized value equal to the contract field. A matching
+fact from another flow, a missing citation, or a mismatched value enters the
+single safe correction; a repeated mismatch is terminal and produces neither
+cache nor audit state. The analyzer does not infer or overwrite the provider's
+declared value space.
 
 The provider-compatibility evidence for this boundary is explicit. The fresh
 formal v30 three-target canary at
@@ -1377,7 +1470,14 @@ The initial and correction prompts publish a deterministic
 local binder has already proven to be a `flow`/`driver_origin` source with one
 exact attacker target. Provider output may select only an option's
 `evidence_id`; the paired target remains local context and is never a response
-field. An empty option list cannot support `dos_relevant`.
+field. An empty option list cannot support `dos_relevant`. On the sole
+correction attempt, that empty option list fixes all seventeen provider fields
+to one schema-valid conservative unknown object with empty attacker and
+required-evidence arrays and bounded generic free text. The provider must still
+emit that exact object, and the unchanged parser, sensitive scanner, schema,
+alias-binding, and semantic validators still accept or reject it; the analyzer
+does not synthesize a contract or turn a repeated provider violation into a
+fallback result.
 The correction prompt re-sends only the unchanged bounded slice and a
 deterministic statement of the exact seventeen keys, status combinations,
 unique exact `fact:<ordinal>` aliases, 16/32 evidence limits, and local
@@ -1589,7 +1689,12 @@ The response has exactly four keys:
 `auth_context`, `evidence_ids`, `assumptions`, and `confidence`.
 `evidence_ids` and `assumptions` are JSON arrays (either may be empty), and
 `confidence` is exactly `high`, `medium`, or `low`; scalar-to-array
-normalization is forbidden. Auth content uses the same bounded unique-key JSON
+normalization is forbidden. Before any set-membership, deduplication, or typed
+construction, local validation requires `auth_context` and `confidence` to be
+strings and every member of both arrays to be a string. Nested arrays, objects,
+or other non-string values are strict schema failures: the first occurrence may
+use the sole safe correction and a repeated occurrence is terminal without
+cache or audit. Auth content uses the same bounded unique-key JSON
 parser as the provider envelope: duplicate members, non-finite constants,
 oversize strings/collections, excess depth, and excess node count fail strict
 schema before typed construction. If the first Auth response fails strict schema or
@@ -1634,14 +1739,14 @@ Rejected content is absent from cache, audit, error message/details,
 cause/context, and rejected-path traceback frame locals. A successful initial
 or correction response persists `accepted_prompt_variant=initial|correction`
 and the bounded actual provider model inside private HMAC-authenticated Auth
-cache v5. Replay validates that model against the requested model's authorized
+cache v6. Replay validates that model against the requested model's authorized
 aliases and preserves the actual alias in audit settings. Cache replay
 reconstructs the exact accepted prompt variant, so fresh and replayed
-normalized prompts agree; v4 and older Auth records are cold misses. Auth uses
-a fixed exported `auth_cache_format=auth-contract-cache-v5` identity field;
+normalized prompts agree; v5 and older Auth records are cold misses. Auth uses
+a fixed exported `auth_cache_format=auth-contract-cache-v6` identity field;
 the field participates in the Auth identity digest and cache filename. A real
-HMAC-valid v4 record produced by the earlier Auth v4 prompt/schema/messages
-therefore remains cold at its old path, while the v5 request selects a distinct
+HMAC-valid v5 record produced by the earlier cache identity therefore remains
+cold at its old path, while the v6 request selects a distinct
 key and may call the provider and atomically publish the new record. Cold-cache
 handling must not delete, rename, overwrite, or reserve the old record's path.
 Auth uses a dedicated in-process single-flight map. Before its first provider call, the
@@ -1691,7 +1796,13 @@ cannot hide it, and verification emits `REACH_AUTH_COVERAGE_PARTIAL` with
 from this Auth gap/conflict resolution and continue through the independent
 deployment resolver, including partial deployment coverage. These Auth rules
 first required growth-v5; the current Growth-stage implementation fingerprint
-is v32. Growth v32 binds duplicate-registration canonicalization to a complete
+is v45. Growth v45 adds the identity-bound API2CN top-level strict-schema wire
+profile and 8192-token output cap without changing parser or verdict gates.
+Growth v37 requires the uncapped derived-dimension Growth fact and its
+exact complete derived-dimension data-flow link to agree before deterministic
+relevance classifies the allocation as attacker-sized. Growth v35 adds resource-channel configuration filtering, generic
+Servlet body-helper-to-parser materialization, and attacker-derived dimension
+materializers; Growth v32 binds duplicate-registration canonicalization to a complete
 same-handler registration identity; Growth v31 binds the flat strict 17-key Growth provider wire schema,
 prompt v9, and cache/HMAC v14 while retaining local status/evidence/positive
 validation. Growth v30 bound the composed strict Responses JSON Schema
@@ -1783,6 +1894,12 @@ lookup and never falls back to the unprefixed name. Multiple/distinct names,
 unknown name/value/prefix, empty `havingValue`, or `matchIfMissing=true` publish
 only partial `conditional_property_unknown` evidence.
 
+hsweb default-parser facts are emitted only for source methods carrying an
+exact Spring Web mapping annotation. The presence of the hsweb runtime must
+not turn arbitrary helpers, iterators, services, or other non-entry methods
+into `hsweb_default_parser_empty_definition` facts. Handler binding remains an
+independent exact-identity check after extraction.
+
 Both `AuthContract.evidence_ids` and `ReachabilityDecision.evidence_ids` retain
 their strict 32-ID bound. A locally derived unique Auth context cites the
 lexicographically smallest supporting fact ID; the verifier still checks the
@@ -1866,8 +1983,19 @@ are emitted as canonical decimal configuration values before deterministic Bound
 evaluation.
 Plain direct allocation can therefore prove
 Bound absence, while an exact literal clamp refutes the unbounded premise.
+Persistent container `put`/`add` sites are also an explicit same-callable
+Bound coverage domain: a zero-row Bound result is usable only together with
+the independently complete Guard and synchronous Release scans for that exact
+Growth anchor. This coverage rule does not treat method exit, GC, asynchronous
+cleanup, or a cap on another resource as an effective bound.
 Custom dispatch, reflection, unsupported allocation shapes, and uncertain
 configuration remain partial.
+An exact depth-one metadata-presence helper is not a raw request-body Guard:
+Lifecycle v20 recognizes only a two-parameter `Map`/`String` helper whose value
+comes directly from `map.get(key)` and whose sole conditional rejects the
+missing value. That helper may be excluded from the body Guard coverage-gap
+set. A helper that accepts, reads, derives from, or otherwise inspects the
+request/body remains custom body-sensitive dispatch and therefore partial.
 
 ### 21.6 Artifact and resume boundary
 
@@ -1951,13 +2079,13 @@ demands joined v4's explicit-array/direct-loop shared proof-carrying
 Entry-to-Growth domain on top of v3's Entry-exact registration coverage
 boundary, and conclude v4 was the exact certificate-scope boundary. Conclude v5
 adds the candidate-link semantic-ID acceptance boundary.
-A formal resume may not reuse entries before v17, growth-v5 through growth-v31,
-flows-v3 through flows-v20, lifecycle artifacts before v14, or conclude
-artifacts before v5 even when
-their schema/tool versions are already 2.7/0.6.0. Growth provider cache format
-v14 authenticates the accepted initial/correction prompt variant, flat strict
+A formal resume may not reuse entries before v21, growth artifacts before v45,
+flows artifacts before v25, lifecycle artifacts before v20, or conclude
+artifacts before v9 even when
+their schema/tool versions are already 2.8/0.7.0. Growth provider cache format
+v16 authenticates the accepted initial/correction prompt variant, flat strict
 typed-growth domain, strict response-format schema identity, and decoded-response/raw-to-typed acceptance
-boundary; v13 and older records are not replayable. Auth cache format v5 likewise makes v4 and
+boundary; v15 and older records are not replayable. Auth cache format v6 likewise makes v5 and
 older records cold, and the fixed Auth cache-format identity field places those
 records under different immutable keys rather than turning a cold miss into a
 same-path publication conflict. P0 batch aggregation includes
@@ -1984,13 +2112,17 @@ inventory-only. This tightens only the independent P0 aggregate acceptance
 boundary and does not change a formal stage artifact, so production stage
 fingerprints remain unchanged.
 
-The PoC-33 real-provider acceptance layer binds `model=grok-4.6`,
-`base_url=https://api.api2cn.com/v1/`, `timeout_seconds=180`, `max_retries=5`, and
-`allow_remote_llm=true` into the immutable formal full plan. Archive validation
-requires exactly that five-field provider mapping; a digest-consistent plan with
-any missing, extra, or different provider setting is rejected. These settings alter only
-the network deadline/retry budget; they do not change strict response schemas,
-local binder/ownership checks, selected CodeQL policy, or verdict gates.
+The PoC-33 real-provider acceptance layer binds the explicitly selected
+supported `model`, selected authorized `base_url`, `timeout_seconds=180`,
+`max_retries=5`, and `allow_remote_llm=true` into the immutable formal full
+plan. Archive validation requires exactly that five-field provider mapping and
+the expected allowlisted base URL; a digest-consistent plan with any missing,
+extra, or different provider setting is rejected. Provider selection is also
+gated operationally by a fresh multi-prompt Growth/Auth repeatability canary;
+the current RightAPI/API2CN choices do not pass that gate, so no Wave B v3 plan
+has been created. These settings alter only the network deadline/retry budget;
+they do not change strict response schemas, local binder/ownership checks,
+selected CodeQL policy, or verdict gates.
 Wrong-Growth/wrong-Entry eligible links, missing or extra disposition proof
 citations, cross-Growth proof references/evidence, and provider/oracle-shaped
 facts absent from the referenced Growth candidate fail the target as malformed.

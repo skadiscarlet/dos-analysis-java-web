@@ -16,10 +16,13 @@ from dosweb.configuration.policy import modeled_key_allowed, normalize_modeled_v
 from dosweb.errors import AnalyzerError
 
 
-DEFAULT_BASE_URL = "https://api.api2cn.com/v1/"
+DEFAULT_BASE_URL = "https://apibasis.com/v1/"
 DEFAULT_MODEL = "grok-4.6"
-SUPPORTED_MODELS = frozenset({"grok-4.6"})
-RESPONSE_MODEL_ALIASES = {"grok-4.6": frozenset({"grok-4.6", "grok-4.6-build"})}
+SUPPORTED_MODELS = frozenset({"grok-4.6", "deepseek-v4.1-flash"})
+RESPONSE_MODEL_ALIASES = {
+    "grok-4.6": frozenset({"grok-4.6", "grok-4.6-build"}),
+    "deepseek-v4.1-flash": frozenset({"deepseek-v4.1-flash"})
+}
 
 
 def model_response_matches(requested: str, actual: str) -> bool:

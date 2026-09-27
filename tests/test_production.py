@@ -5974,6 +5974,31 @@ public class ServiceApplication extends Application<Object> {
         self.assertEqual(disposition.association_status, "ambiguous")
         self.assertEqual(disposition.canonical_entry_id, "")
 
+        first_complete = {
+            **row(first),
+            "confidence": "proven",
+            "coverage_status": "complete",
+            "coverage_note": "unique_bounded_call_path_global_dataflow",
+        }
+        mixed_rows = (first_complete, row(second))
+        selected_links, selected_disposition = production._candidate_association(  # noqa: SLF001
+            {first.entry_id: first, second.entry_id: second},
+            candidate,
+            mixed_rows,
+            mixed_rows,
+        )
+
+        self.assertEqual(len(selected_links), 1)
+        self.assertEqual(selected_links[0].entry_id, first.entry_id)
+        self.assertEqual(selected_links[0].status, "complete")
+        self.assertIn(
+            "ASSOCIATION_UNIQUE_COMPLETE_HANDLER_GROUP_SELECTED",
+            selected_links[0].reason_codes,
+        )
+        self.assertEqual(selected_disposition.status, "gap_eligible")
+        self.assertEqual(selected_disposition.association_status, "complete")
+        self.assertEqual(selected_disposition.canonical_entry_id, first.entry_id)
+
     def test_complete_candidate_association_requires_the_same_formal_flow_witness(self) -> None:
         entry, candidate = self._entry_and_candidate()
         association = {
@@ -6107,19 +6132,19 @@ public class ServiceApplication extends Application<Object> {
                 )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["flows"],
-            "production-v2.8-open-world-maturation-flows-v22",
+            "production-v2.8-open-world-maturation-flows-v25",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["entries"],
-            "production-v2.8-open-world-maturation-entries-v18",
+            "production-v2.8-open-world-maturation-entries-v21",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["growth"],
-            "production-v2.8-open-world-maturation-growth-v34",
+            "production-v2.8-open-world-maturation-growth-v45",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["lifecycle"],
-            "production-v2.8-open-world-maturation-lifecycle-v17",
+            "production-v2.8-open-world-maturation-lifecycle-v20",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],

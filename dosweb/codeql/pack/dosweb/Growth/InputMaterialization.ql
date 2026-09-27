@@ -7,6 +7,7 @@
 
 import java
 import LoopAmplification
+import RequestMaterializationDomain
 
 // Exact Task 3 contract:
 // "site_file", "site_start_line", "growth_kind", "operation",
@@ -61,6 +62,9 @@ predicate requestStreamExpression(Expr input) {
     access = getter.getQualifier() and access.getVariable() = request and
     method = getter.getEnclosingCallable() and p0AttackerParameter(method, request)
   )
+  or exists(MethodCall getter, Parameter request |
+    input = getter and requestWrapperConstructorStream(getter, request)
+  )
 }
 
 predicate serverFileStreamExpression(Expr input) {
@@ -71,6 +75,16 @@ predicate materializationRow(
   Element site, string operation, string receiver, string fieldPath,
   string demandName, string evidence, string coverage, string note
 ) {
+  exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    site = helper and
+    requestBodyHelperParserMaterialization(helper, parser, request, parserInput) and
+    operation = helper.getMethod().getDeclaringType().getQualifiedName() + "." +
+      helper.getMethod().getName() and
+    receiver = request.toString() and fieldPath = receiver and demandName = receiver and
+    evidence = "servlet_request_body_helper_structured_parser" and coverage = "complete" and
+    note = "servlet_request_body_helper_then_structured_parser"
+  )
+  or
   exists(MethodCall call |
     site = call and
     call.getMethod().getName() = "getPayload" and
@@ -129,7 +143,6 @@ predicate materializationRow(
       or call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray")
       or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray")
       or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToString")
-      or call.getMethod().hasQualifiedName("cn.devezhao.commons.web", "ServletUtils", "getRequestString")
     ) and
     operation = call.getMethod().getDeclaringType().getQualifiedName() + "." + call.getMethod().getName() and
     receiver = input.toString() and fieldPath = receiver and demandName = receiver and

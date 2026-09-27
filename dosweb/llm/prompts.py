@@ -18,10 +18,21 @@ _SYSTEM_MESSAGE = (
     "Use attacker_evidence_ids only from attacker_evidence_options and return only each option's evidence_id; "
     "the paired attacker_target is local binding context, not a response field. If no option exists, "
     "attacker_evidence_ids must be empty and contract_status must not be dos_relevant. "
+    "For every dos_relevant result, attacker_value_space must exactly equal a value_space fact cited in "
+    "required_static_evidence whose value_ref is the same flow cited in attacker_evidence_ids; a cross-flow "
+    "value_space fact never supports that claim. "
     "When evidence is insufficient use contract_status unknown and is_resource_growth unknown; unknown "
     "must never masquerade as no. Claims needing proof must cite supplied fact aliases. Schema: "
     + json.dumps(GROWTH_CONTRACT_RESPONSE_SCHEMA, sort_keys=True, separators=(",", ":"))
 )
+
+_CORRECTION_FREE_TEXT_VALUES = {
+    "attacker_variable": "typed attacker controlled input",
+    "growth_unit": "typed resource units",
+    "growth_function": "growth described by cited typed facts",
+    "concurrency_model": "request repetition described by cited typed facts",
+    "failure_signal": "resource pressure from cited typed facts",
+}
 
 _GROWTH_CORRECTION_INVARIANTS = (
     " This is the one correction attempt after the prior response was rejected; "
@@ -39,11 +50,67 @@ _GROWTH_CORRECTION_INVARIANTS = (
     "For contract_status=dos_relevant use is_resource_growth=yes, rejection_reason=none, and non-empty "
     "attacker_evidence_ids and required_static_evidence. For contract_status=growth_not_dos_relevant "
     "use one concrete rejection_reason other than none or unknown. For contract_status=unknown use "
-    "is_resource_growth=unknown and rejection_reason=unknown. All five free-text values must be non-empty, "
-    "single-line, abstract descriptions: never include source code, source paths, URLs, email addresses, "
-    "phone numbers, personal data, credentials, authorization data, or secrets. "
+    "is_resource_growth=unknown and rejection_reason=unknown. To prevent source echo, all five free-text "
+    "values must exactly equal this fixed abstract mapping: "
+    + json.dumps(_CORRECTION_FREE_TEXT_VALUES, sort_keys=True, separators=(",", ":"))
+    + ". Never include source code, source paths, URLs, email addresses, phone numbers, personal data, "
+    "credentials, authorization data, or secrets. "
     "Use only an evidence_id from attacker_evidence_options for attacker_evidence_ids. "
+    "For contract_status=dos_relevant, the cited same-flow value_space fact MUST exactly match attacker_value_space: "
+    "it must be in required_static_evidence and its value_ref must equal one cited attacker_evidence_ids alias. "
+    "A cross-flow value_space citation is invalid even when its normalized value matches. "
+    "A non-empty CFG path with one exact request/network-controlled flow bound by the same value_ref "
+    "to an allocation or input_materialization sink, attacker_target=size, value_space in "
+    "stream|large|unlimited, retention=request, amplification=large_single_request, and "
+    "known_limit_location=none MUST return contract_status=dos_relevant, is_resource_growth=yes, "
+    "rejection_reason=none, a concrete failure_mechanism, and requests_to_pressure=one|few. It MUST "
+    "cite that exact flow in attacker_evidence_ids and cite the same-flow sink, value_space, retention, "
+    "amplification, and known_limit_location facts in required_static_evidence. It must not return "
+    "unknown, growth_not_dos_relevant, or splice evidence from another flow. Actual Guard/Bound "
+    "effectiveness is decided only by the later Lifecycle stage. "
+    "A non-empty CFG path with one exact request/network-controlled flow bound by the same value_ref "
+    "to a container_write sink, attacker_target=key|value, value_space=unlimited, retention=process, "
+    "amplification=high_cardinality_retention, known_limit_location=none, field_identity=attacker_key, "
+    "escape_scope=global, and loop_multiplicity=repeated_requests MUST return contract_status=dos_relevant, "
+    "is_resource_growth=yes, resource_effect=adds_entries, rejection_reason=none, a concrete "
+    "failure_mechanism, and requests_to_pressure=many. It MUST cite that exact flow in "
+    "attacker_evidence_ids and cite the same-flow sink, value_space, retention, amplification, no-limit, "
+    "field-identity, escape-scope, and loop-multiplicity facts in required_static_evidence. It must not "
+    "return unknown, growth_not_dos_relevant, or splice evidence from another flow. Actual Guard/Bound "
+    "effectiveness is decided only by the later Lifecycle stage. "
     "confidence is mandatory and must be exactly high, medium, or low; never omit it. Return JSON only."
+)
+
+_EMPTY_ATTACKER_CORRECTION_CONTRACT = {
+    "is_resource_growth": "unknown",
+    "attacker_evidence_ids": [],
+    "resource_effect": "unknown",
+    "attacker_variable": _CORRECTION_FREE_TEXT_VALUES["attacker_variable"],
+    "attacker_value_space": "unknown",
+    "growth_unit": _CORRECTION_FREE_TEXT_VALUES["growth_unit"],
+    "growth_function": _CORRECTION_FREE_TEXT_VALUES["growth_function"],
+    "amplification_class": "unknown",
+    "requests_to_pressure": "unknown",
+    "concurrency_model": _CORRECTION_FREE_TEXT_VALUES["concurrency_model"],
+    "retention_window": "unknown",
+    "failure_mechanism": "unknown",
+    "failure_signal": _CORRECTION_FREE_TEXT_VALUES["failure_signal"],
+    "required_static_evidence": [],
+    "contract_status": "unknown",
+    "rejection_reason": "unknown",
+    "confidence": "low",
+}
+
+_GROWTH_EMPTY_ATTACKER_CORRECTION = (
+    " For this exact request attacker_evidence_options is empty. This makes attacker control unproved. "
+    "Do not infer, cite, or describe any positive or negative Growth mechanism. Return exactly this "
+    "conservative JSON object and no other values: "
+    + json.dumps(
+        _EMPTY_ATTACKER_CORRECTION_CONTRACT,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    + ". This fixed unknown object overrides every contrary inference."
 )
 
 _AUTH_CORRECTION_INVARIANTS = (
@@ -65,6 +132,7 @@ _AUTH_CORRECTION_INVARIANTS = (
 class ProviderPayload:
     messages: list[dict[str, str]]
     fact_alias_to_original: dict[str, str]
+    attacker_evidence_option_ids: tuple[str, ...] = ()
 
 
 def build_provider_payload(slice_: BoundedSlice) -> ProviderPayload:
@@ -107,7 +175,11 @@ def build_provider_payload(slice_: BoundedSlice) -> ProviderPayload:
     }
     user = {"response_schema_version": RESPONSE_SCHEMA_VERSION, "response_schema": GROWTH_CONTRACT_RESPONSE_SCHEMA, "attacker_evidence_options": attacker_evidence_options, "bounded_slice": aliased}
     messages = [{"role": "system", "content": _SYSTEM_MESSAGE}, {"role": "user", "content": json.dumps(user, sort_keys=True, separators=(",", ":"), ensure_ascii=False)}]
-    return ProviderPayload(messages, {alias: original for original, alias in fact_aliases.items()})
+    return ProviderPayload(
+        messages,
+        {alias: original for original, alias in fact_aliases.items()},
+        tuple(item["evidence_id"] for item in attacker_evidence_options),
+    )
 
 
 def build_growth_messages(slice_: BoundedSlice) -> list[dict[str, str]]:
@@ -118,12 +190,15 @@ def build_growth_correction_payload(slice_: BoundedSlice) -> ProviderPayload:
     """Build the sole safe response-correction request without invalid output."""
     initial = build_provider_payload(slice_)
     system = initial.messages[0]["content"] + _GROWTH_CORRECTION_INVARIANTS
+    if not initial.attacker_evidence_option_ids:
+        system += _GROWTH_EMPTY_ATTACKER_CORRECTION
     return ProviderPayload(
         [
             {"role": "system", "content": system},
             dict(initial.messages[1]),
         ],
         initial.fact_alias_to_original,
+        initial.attacker_evidence_option_ids,
     )
 
 

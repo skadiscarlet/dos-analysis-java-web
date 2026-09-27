@@ -7,6 +7,7 @@
 
 import java
 import LoopAmplification
+import DerivedAllocationDomain
 
 // Exact Task 3 contract:
 // "site_file", "site_start_line", "growth_kind", "operation",
@@ -84,8 +85,30 @@ from Expr allocation, string operation, string receiver, string evidence,
      string demandName, string demandRole, string coverageStatus, string note
 where
   (
+    exists(Expr dimension, Expr extent, MethodCall producer |
+      derivedDimensionMaterialization(allocation, dimension, extent, producer) and
+      derivedMaterializerIdentity(allocation, operation, receiver) and
+      evidence = "derived_dimension_materialization" and
+      demandName = dimension.toString() and demandRole = "size" and
+      coverageStatus = "complete" and
+      (
+        exists(MethodCall cap |
+          postDerivationCap(allocation, dimension, extent, cap)
+        ) and
+        note = "derived_dimension_materialization:post_derivation_cap_present"
+        or
+        not exists(MethodCall cap |
+          postDerivationCap(allocation, dimension, extent, cap)
+        ) and
+        note = "derived_dimension_materialization:uncapped_after_derivation"
+      )
+    )
+    or
     exists(Expr size |
       allocationSizeDriver(allocation, size, operation, receiver, evidence) and
+      not exists(Expr extent, MethodCall producer |
+        derivedDimensionMaterialization(allocation, size, extent, producer)
+      ) and
       demandName = size.toString() and demandRole = "size" and
       (
         sizeUsesAttackerParameter(allocation, size) and

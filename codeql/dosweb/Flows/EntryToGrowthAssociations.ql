@@ -6,6 +6,8 @@
  */
 import java
 import EntryGrowthDomain
+import dosweb.Growth.DerivedAllocationDomain
+import dosweb.Growth.RequestMaterializationDomain
 
 predicate isInputStreamType(Type type) {
   type.(RefType).getASupertype*().hasQualifiedName("java.io", "InputStream")
@@ -44,7 +46,6 @@ predicate readAllMaterialization(MethodCall call) {
   or call.getMethod().hasQualifiedName("org.apache.commons.io", "IOUtils", "toByteArray")
   or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToByteArray")
   or call.getMethod().hasQualifiedName("org.springframework.util", "StreamUtils", "copyToString")
-  or call.getMethod().hasQualifiedName("cn.devezhao.commons.web", "ServletUtils", "getRequestString")
   or call.getMethod().getName() = "readAllBytes" and
     call.getMethod().getDeclaringType().getASupertype*().hasQualifiedName("java.io", "InputStream")
 }
@@ -235,6 +236,19 @@ predicate growthSite(Expr site, Callable owner, string target) {
       or allocation.getConstructedType().hasQualifiedName("com.wf.captcha", "SpecCaptcha")
     ) and target = "size"
   )
+  or exists(MethodCall helper, MethodCall parser, Expr request, Expr parserInput |
+    site = helper and owner = helper.getEnclosingCallable() and
+    requestBodyHelperParserMaterialization(
+      helper, parser, request, parserInput
+    ) and target = "size"
+  )
+  or exists(Expr materializer, Expr dimension, Expr extent,
+            MethodCall producer |
+    site = materializer and owner = materializer.getEnclosingCallable() and
+    derivedDimensionMaterialization(
+      materializer, dimension, extent, producer
+    ) and target = "size"
+  )
 }
 
 /**
@@ -365,43 +379,6 @@ predicate jmqttQos2Dispatch(Method entry, MethodCall growth) {
     growth.getMethod().getName() = "put" and
     receiver = growth.getQualifier() and receiver.getField().getName() = "qos2Receiving" and
     growthSite(growth, receiveQos2, "key")
-  )
-}
-
-predicate sourceConstructor(
-  string packageName, string typeName, Constructor constructor
-) {
-  constructor.fromSource() and
-  constructor.getDeclaringType().getPackage().getName() = packageName and
-  constructor.getDeclaringType().getName() = typeName
-}
-
-/**
- * Citrus registers RequestWrapperFilter as a component-wide servlet filter.
- * Spring's runtime filter ordering is not recovered here, so the exact source
- * wrapper construction and read-all sink establish only a partial pre-handler
- * association with the source-default authentication route.
- */
-predicate citrusAuthenticationPrehandler(Method entry, MethodCall growth) {
-  exists(Method filter, Constructor wrapper, ClassInstanceExpr construction |
-    sourceMethod(
-      ["fixture.spring", "com.github.yiuman.citrus.security.authenticate"],
-      ["CitrusAuthenticateController", "AuthenticateController"],
-      "authenticate", entry
-    ) and
-    sourceMethod(
-      ["fixture.spring", "com.github.yiuman.citrus.support.http"],
-      ["CitrusRequestWrapperFilter", "RequestWrapperFilter"],
-      "doFilterInternal", filter
-    ) and
-    sourceConstructor(
-      ["fixture.spring", "com.github.yiuman.citrus.support.http"],
-      "RequestWrapper", wrapper
-    ) and
-    construction.getEnclosingCallable() = filter and construction.getConstructor() = wrapper and
-    growth.getEnclosingCallable() = wrapper and
-    growth.getMethod().hasQualifiedName("cn.hutool.core.io", "IoUtil", "readBytes") and
-    growth.getNumArgument() = 1
   )
 }
 
@@ -574,14 +551,6 @@ predicate legacyAssociationRow(Method entry, Element site, string target, string
     phase = "entry>mqtt_decode>async_processor>publish_qos2>growth" and
     confidence = "partial" and coverage = "partial" and
     note = "jmqtt_async_processor_qos2_dispatch_requires_path_coverage"
-  )
-  or exists(MethodCall growth |
-    citrusAuthenticationPrehandler(entry, growth) and site = growth and target = "size" and
-    sink = growth.getEnclosingCallable().getQualifiedName() and
-    path = entry.getQualifiedName() + ">component_filter>" + sink and
-    phase = "entry>component_filter>request_wrapper>growth" and
-    confidence = "partial" and coverage = "partial" and
-    note = "citrus_component_request_wrapper_prehandler_requires_path_coverage"
   )
   or exists(MethodCall growth |
     citrusVerificationSessionDispatch(entry, growth) and site = growth and target = "value" and

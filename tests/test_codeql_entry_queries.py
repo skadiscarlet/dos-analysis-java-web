@@ -461,10 +461,10 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                 row["handler_fqn"].endswith(
                     "SecuritySemanticsFixture.matchIfMissingProperty"
                 )
-                and row["value"] == "conditional_property_unknown"
-                and row["coverage_status"] == "partial"
+                and row["value"] == "default_enabled"
+                and row["coverage_status"] == "complete"
                 and row["coverage_note"]
-                == "conditional_property_requires_static_name_value_prefix_and_absence_semantics"
+                == "conditional_property_match_if_missing_default_enabled"
                 for row in rows
             ),
             rows,
@@ -503,6 +503,50 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                 row["route_or_event"] == "/api/user/**"
                 and row["value"] == "security_matcher_unknown"
                 and row["coverage_status"] == "partial"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["route_or_event"] == "/rest/authenticate"
+                and row["value"] == "unauthenticated_filter"
+                and row["coverage_status"] == "complete"
+                and row["coverage_note"]
+                == "property_backed_default_request_matcher_permitAll"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertFalse(
+            any(
+                row["coverage_note"]
+                == "property_backed_default_request_matcher_permitAll"
+                and row["route_or_event"] == "dynamic_matcher"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertTrue(
+            any(
+                row["handler_fqn"].endswith(
+                    "CitrusRequestWrapperFilter.doFilterInternal"
+                )
+                and row["route_or_event"] == ""
+                and row["value"] == "unauthenticated_filter"
+                and row["coverage_status"] == "complete"
+                and row["coverage_note"]
+                == "component_once_filter_has_permit_all_route_witness"
+                for row in rows
+            ),
+            rows,
+        )
+        self.assertFalse(
+            any(
+                row["handler_fqn"].endswith(
+                    "SkippableRequestWrapperFilter.doFilterInternal"
+                )
+                and row["value"] == "unauthenticated_filter"
                 for row in rows
             ),
             rows,
@@ -699,6 +743,37 @@ class CodeqlEntryQueryFixtureTests(unittest.TestCase):
                 ),
                 entries,
             )
+
+    def test_component_once_per_request_filter_callback_is_a_default_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows, entries = self._entry_fixture_rows(
+                "spring", "ServletEntries.ql", Path(tmp)
+            )
+
+        matching = [
+            entry
+            for entry in entries
+            if entry["handler"]["callable"].endswith(
+                "CitrusRequestWrapperFilter.doFilterInternal"
+            )
+        ]
+        self.assertEqual(len(matching), 1, rows)
+        self.assertEqual(matching[0]["route_or_event"], "/*")
+        self.assertEqual(matching[0]["registration"]["kind"], "annotation_mapping")
+        self.assertEqual(
+            matching[0]["registration_pattern_id"],
+            "entry-registration-coverage:servlet:annotation_mapping:"
+            "spring_component_once_per_request_filter_default_registration",
+        )
+        self.assertFalse(
+            any(
+                entry["handler"]["callable"].endswith(
+                    "SkippableRequestWrapperFilter.doFilterInternal"
+                )
+                for entry in entries
+            ),
+            entries,
+        )
 
     def test_registered_entries_and_dynamic_gaps_against_temporary_databases(self):
         root = Path(__file__).parents[1]

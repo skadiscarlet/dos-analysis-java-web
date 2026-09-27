@@ -1,7 +1,7 @@
 # Bumped after the Growth provider wire schema was flattened for provider
 # compatibility; cross-field invariants remain enforced by the prompt and local
 # typed validation.
-PROMPT_VERSION = "growth-contract-v9"
+PROMPT_VERSION = "growth-contract-v16"
 RESPONSE_SCHEMA_VERSION = "growth-contract-schema-v5"
 AUTH_PROMPT_VERSION = "auth-contract-v5"
 AUTH_RESPONSE_SCHEMA_VERSION = "auth-contract-schema-v3"

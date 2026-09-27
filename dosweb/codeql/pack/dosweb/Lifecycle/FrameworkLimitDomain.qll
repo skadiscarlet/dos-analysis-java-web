@@ -1,5 +1,6 @@
 /** Exact, source-backed framework request-limit domains. */
 import java
+import dosweb.Flows.EntryGrowthDomain
 import semmle.code.java.controlflow.Guards
 
 predicate frameworkTerminalReject(IfStmt site) {
@@ -45,8 +46,24 @@ predicate byteAllocationGrowth(
 }
 
 predicate directByteAllocationModeledDomain(Element growth) {
-  exists(MethodCall call, Expr demand, string receiver, string fieldPath |
-    growth = call and byteAllocationGrowth(call, demand, receiver, fieldPath)
+  exists(Expr allocation |
+    growth = allocation and
+    EntryGrowthPathDomain::directAllocationSite(allocation)
+  )
+}
+
+predicate directAllocationGrowth(
+  Expr growth, Expr demand, string receiver, string fieldPath
+) {
+  EntryGrowthPathDomain::directAllocationSite(growth) and
+  EntryGrowthPathDomain::growthDemand(growth, "size", demand) and
+  fieldPath = "allocation" and
+  (
+    growth instanceof ClassInstanceExpr and
+    receiver = growth.(ClassInstanceExpr).getConstructedType().getQualifiedName()
+    or growth instanceof MethodCall and
+       receiver = growth.(MethodCall).getMethod().getDeclaringType().getQualifiedName()
+    or growth instanceof ArrayCreationExpr and receiver = growth.getType().toString()
   )
 }
 
@@ -71,10 +88,7 @@ predicate springAttackerDemand(Expr demand) {
   )
 }
 
-predicate numericClampBound(
-  MethodCall growth, MethodCall clamp, string value, string receiver, string fieldPath
-) {
-  byteAllocationGrowth(growth, clamp, receiver, fieldPath) and
+predicate positiveNumericClamp(MethodCall clamp, string value) {
   clamp.getMethod().hasQualifiedName("java.lang", "Math", "min") and
   exists(IntegerLiteral configured, Expr demand |
     (
@@ -82,8 +96,36 @@ predicate numericClampBound(
       or configured = clamp.getArgument(1) and demand = clamp.getArgument(0)
     ) and
     configured.getIntValue() > 0 and
-    springAttackerDemand(demand) and
-    value = configured.getIntValue().toString()
+    springAttackerDemand(demand) and value = configured.getIntValue().toString()
+  )
+}
+
+predicate directDemandStaticallyBounded(Expr growth, Expr demand) {
+  directAllocationGrowth(growth, demand, _, _) and
+  demand instanceof CompileTimeConstantExpr
+  or
+  directAllocationGrowth(growth, demand, _, _) and
+  demand instanceof MethodCall and
+  positiveNumericClamp(demand.(MethodCall), _)
+}
+
+predicate everyDirectDemandStaticallyBounded(Expr growth) {
+  exists(Expr demand | directAllocationGrowth(growth, demand, _, _)) and
+  forall(Expr demand |
+    directAllocationGrowth(growth, demand, _, _) |
+    directDemandStaticallyBounded(growth, demand)
+  )
+}
+
+predicate numericClampBound(
+  Expr growth, MethodCall clamp, string value, string receiver,
+  string fieldPath, boolean productBound
+) {
+  directAllocationGrowth(growth, clamp, receiver, fieldPath) and
+  positiveNumericClamp(clamp, value) and
+  (
+    everyDirectDemandStaticallyBounded(growth) and productBound = true
+    or not everyDirectDemandStaticallyBounded(growth) and productBound = false
   )
 }
 
