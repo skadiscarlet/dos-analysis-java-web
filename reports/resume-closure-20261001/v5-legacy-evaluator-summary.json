@@ -1,0 +1,20 @@
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 2,
+  "generated_at": "20260930_162630",
+  "static_vulnerable_count": 1,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 0,
+    "flow_partial": 0,
+    "full_chain_finding": 2,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 31,
+    "unsupported_scope": 0
+  },
+  "total": 33
+}

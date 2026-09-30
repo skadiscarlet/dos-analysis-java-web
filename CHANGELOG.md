@@ -1,3 +1,9 @@
+## 2026-10-01 — 中断恢复、MVC证明边界与coverage统计修复
+
+- 恢复并核验已完成的v5单项目运行：1正式阳性/4unknown，离线匹配2条基准记录为1阳性/1unknown，另31条明确not_in_run；原33个非私有artifact哈希通过，未重复批次或执行新目标。
+- 固化@Resource默认名/多MVC注册与继承HandlerMethod API修复，并用独立源码反例收紧双首大写命名、条件同名bean、用户override三类边界；原9场景与独立4场景均通过，direct/embedded一致。
+- 修正coverage_partial_count把全部记录误计为partial，新增total/complete计数；entries-v23/lifecycle-v22及旧缓存失效回归。保留测试umask/TMPDIR差异证据，结果详见reports/resume-closure-20261001/summary.md；不把工程回归算作21库33条科研验收。
+
 ## 2026-09-27 — Wave B 静态语义与源码回归修复
 
 - 在原本地源码快照上修复 Spring Security 单链有序 fallback 和 MVC 精确字段注册；未知链、动态/条件注册、自定义 PathMatcher 及 Registration 逃逸保留 partial，不将 anyRequest 全局解释为低权限。

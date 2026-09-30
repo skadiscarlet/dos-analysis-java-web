@@ -42,6 +42,48 @@ module SpringMvcFieldBindings {
     )
   }
 
+  private predicate springStereotype(RefType type, Annotation annotation) {
+    annotation = type.getAnAnnotation() and
+    (
+      annotation.getType().hasQualifiedName("org.springframework.stereotype", "Component")
+      or annotation.getType().hasQualifiedName("org.springframework.stereotype", "Service")
+      or annotation.getType().hasQualifiedName("org.springframework.stereotype", "Repository")
+      or annotation.getType().hasQualifiedName("org.springframework.stereotype", "Controller")
+    )
+  }
+
+  /**
+   * Resolve only a statically exact stereotype bean name. The default Spring
+   * bean name follows JavaBeans decapitalization: two initial uppercase
+   * letters are preserved. Default non-ASCII names remain outside this domain.
+   * This deliberately does not model @Resource's type-fallback behavior.
+   */
+  private predicate springStereotypeBeanName(RefType type, string beanName) {
+    exists(Annotation annotation, string explicitName, string simpleName |
+      springStereotype(type, annotation) and
+      explicitName = annotation.getStringValue("value") and
+      simpleName = type.getName() and simpleName.length() > 0 and
+      (
+        explicitName != "" and beanName = explicitName
+        or
+        explicitName = "" and simpleName.regexpMatch("[A-Za-z_$][A-Za-z0-9_$]*") and
+        (
+          simpleName.regexpMatch("[A-Z][A-Z].*") and beanName = simpleName
+          or
+          not simpleName.regexpMatch("[A-Z][A-Z].*") and
+          beanName =
+            simpleName.substring(0, 1).toLowerCase() +
+            simpleName.substring(1, simpleName.length())
+        )
+      )
+    )
+  }
+
+  private predicate resourceAnnotation(Annotation annotation) {
+    annotation.getType().hasQualifiedName("jakarta.annotation", "Resource")
+    or annotation.getType().hasQualifiedName("javax.annotation", "Resource")
+  }
+
   private predicate noWrites(Field field) {
     not exists(AssignExpr assignment |
       assignment.getDest().(FieldAccess).getField() = field and
@@ -76,6 +118,46 @@ module SpringMvcFieldBindings {
     )
   }
 
+  /**
+   * Resolve @Resource only when its default name identifies one exact
+   * source-backed Spring stereotype. Stateful/non-final interceptors remain
+   * valid targets; identity comes from the bean name, not from type guessing.
+   */
+  private predicate exactResourceType(Field field, RefType type) {
+    not exists(field.getInitializer()) and noWrites(field) and
+    type = field.getType() and type instanceof Class and
+    not type.(Class).isAbstract() and type.fromSource() and
+    not conditional(type) and
+    springStereotypeBeanName(type, field.getName()) and
+    exists(Annotation injected |
+      injected = field.getAnAnnotation() and resourceAnnotation(injected) and
+      injected.getStringValue("name") = "" and
+      not exists(Annotation other |
+        other = field.getAnAnnotation() and other != injected
+      )
+    ) and
+    not exists(RefType other |
+      // Unknown activation is not proof that a competing bean is absent.
+      other != type and other.fromSource() and
+      springStereotypeBeanName(other, field.getName())
+    ) and
+    not exists(Method factory, Annotation bean |
+      factory.fromSource() and bean = factory.getAnAnnotation() and
+      bean.getType().hasQualifiedName("org.springframework.context.annotation", "Bean") and
+      (
+        factory.getName() = field.getName()
+        or bean.getAStringArrayValue("name") = field.getName()
+        or bean.getAStringArrayValue("value") = field.getName()
+        or factory.getReturnType().(RefType).getASupertype*() = type
+      )
+    ) and
+    not exists(RefType factory |
+      factory.fromSource() and factory.getASupertype*().hasQualifiedName(
+        "org.springframework.beans.factory", "FactoryBean"
+      )
+    )
+  }
+
   predicate target(MethodCall addInterceptor, RefType type) {
     exists(FieldAccess access, Field field, Method owner, ExprStmt statement |
       access = addInterceptor.getArgument(0) and field = access.getField() and
@@ -94,12 +176,13 @@ module SpringMvcFieldBindings {
         (a.getType().getName() = "Profile" or a.getType().getName().matches("Conditional%"))
       ) and
       addInterceptor.getQualifier().(VarAccess).getVariable() = owner.getParameter(0) and
-      owner.getBody().getNumStmt() = 1 and statement = owner.getBody().getStmt(0) and
+      statement = owner.getBody().getAStmt() and
       addInterceptor.getParent*() = statement and
       (
         field.isFinal() and noWrites(field) and
         type = field.getInitializer().(ClassInstanceExpr).getConstructedType()
         or exactAutowiredType(field, type)
+        or exactResourceType(field, type)
       )
     )
   }

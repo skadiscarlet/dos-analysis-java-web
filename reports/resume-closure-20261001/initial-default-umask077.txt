@@ -1,0 +1,198 @@
+s.................................. [  1%]
+................................................. [  3%]
+......................................................... [  6%]
+.s................................................s...................................... [ 10%]
+...........s...ss................................................................................................ [ 15%]
+...s...............sssss.........ssssssss....ssssssss.......................... [ 19%]
+......................................................................................ssssssssssssssssss......ssssssssssssssssss............. [ 25%]
+......................................... [ 27%]
+......................................................... [ 29%]
+............................................................................ [ 33%]
+..................................................................................FF............... [ 37%]
+................................................................... [ 40%]
+........................................................................ [ 44%]
+............................................................................................................... [ 49%]
+.........s................................................................F..F......................................................................................... [ 56%]
+........................................................ [ 59%]
+......................................................................................ssss...................... [ 64%]
+................s................................................... [ 67%]
+..................................................ssssssssssss..................s.. [ 71%]
+.......................................................s................ [ 74%]
+............ss........s..........sss................................................................................. [ 79%]
+........................s........................................... [ 82%]
+.........................s............................s............... [ 85%]
+........................................................................ [ 89%]
+...........................ssssssssssssssssss........................... [ 92%]
+............................................ [ 94%]
+............................................................... [ 97%]
+...............sssssss.......sssssssssss....s................s [100%]
+=================================== FAILURES ===================================
+_ FixtureDatabaseCacheTests.test_prepare_cache_root_never_uses_path_chmod_that_can_follow_a_swap _
+
+self = <tests.test_fixture_database.FixtureDatabaseCacheTests testMethod=test_prepare_cache_root_never_uses_path_chmod_that_can_follow_a_swap>
+
+    def test_prepare_cache_root_never_uses_path_chmod_that_can_follow_a_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_root = root / "cache"
+            cache_root.mkdir(mode=0o755)
+            outside = root / "outside"
+            outside.mkdir(mode=0o755)
+            outside_file = outside / "KEEP.bin"
+            outside_bytes = b"outside cache substitute\n"
+            outside_file.write_bytes(outside_bytes)
+            held = root / "held-cache"
+            real_chmod = Path.chmod
+            path_chmod_called = False
+    
+            def swap_on_path_chmod(path: Path, mode: int) -> None:
+                nonlocal path_chmod_called
+                if path == cache_root and not path_chmod_called:
+                    cache_root.rename(held)
+                    cache_root.symlink_to(outside, target_is_directory=True)
+                    path_chmod_called = True
+                real_chmod(path, mode)
+    
+            with mock.patch.object(
+                Path,
+                "chmod",
+                autospec=True,
+                side_effect=swap_on_path_chmod,
+            ):
+                prepared = fixture_database_module._prepare_cache_root(cache_root)
+    
+            self.assertFalse(path_chmod_called)
+            self.assertEqual(prepared, cache_root)
+>           self.assertEqual(stat.S_IMODE(outside.stat().st_mode), 0o755)
+E           AssertionError: 448 != 493
+
+tests/test_fixture_database.py:106: AssertionError
+_ FixtureDatabaseCacheTests.test_prepare_cache_root_rejects_open_window_substitute_without_chmod _
+
+self = <tests.test_fixture_database.FixtureDatabaseCacheTests testMethod=test_prepare_cache_root_rejects_open_window_substitute_without_chmod>
+
+    def test_prepare_cache_root_rejects_open_window_substitute_without_chmod(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_root = root / "cache"
+            cache_root.mkdir(mode=0o755)
+            outside = root / "outside"
+            outside.mkdir(mode=0o755)
+            outside_file = outside / "KEEP.bin"
+            outside_bytes = b"outside cache substitute\n"
+            outside_file.write_bytes(outside_bytes)
+            held = root / "held-cache"
+            real_open = os.open
+            swapped = False
+    
+            def swap_before_root_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                nonlocal swapped
+                if (
+                    os.fsdecode(path) == cache_root.name
+                    and dir_fd is not None
+                    and flags & getattr(os, "O_DIRECTORY", 0)
+                    and not swapped
+                ):
+                    cache_root.rename(held)
+                    cache_root.symlink_to(outside, target_is_directory=True)
+                    swapped = True
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+    
+            with (
+                mock.patch.object(
+                    fixture_database_module.os,
+                    "open",
+                    side_effect=swap_before_root_open,
+                ),
+                self.assertRaisesRegex(
+                    AssertionError,
+                    "fixture cache root changed before pinning",
+                ),
+            ):
+                fixture_database_module._prepare_cache_root(cache_root)
+    
+            self.assertTrue(swapped)
+>           self.assertEqual(stat.S_IMODE(outside.stat().st_mode), 0o755)
+E           AssertionError: 448 != 493
+
+tests/test_fixture_database.py:159: AssertionError
+_ test_single_flight_traverses_foreign_readonly_ancestor_after_private_anchor __
+
+    def test_single_flight_traverses_foreign_readonly_ancestor_after_private_anchor() -> None:
+        """A foreign read-only prefix is traversal-only, not authority to create."""
+        with tempfile.TemporaryDirectory() as temporary:
+            foreign = Path(temporary) / "foreign-readonly"
+            foreign.mkdir(mode=0o755)
+            direct_target = foreign / "direct-cache"
+    
+            with _forge_fstat_for_directory(foreign, uid=os.getuid() + 1):
+                with pytest.raises(AnalyzerError) as raised:
+                    with ContractCache(direct_target, "test-api-key").single_flight("0" * 64):
+                        pass
+    
+            assert raised.value.code == "LLM_CACHE_UNSAFE"
+            assert not direct_target.exists()
+    
+            anchor = foreign / "safe-owned-anchor"
+            anchor.mkdir(mode=0o755)
+>           assert stat.S_IMODE(anchor.stat().st_mode) == 0o755
+E           AssertionError: assert 448 == 493
+E            +  where 448 = <built-in function S_IMODE>(16832)
+E            +    where <built-in function S_IMODE> = stat.S_IMODE
+E            +    and   16832 = os.stat_result(st_mode=16832, st_ino=3522916, st_dev=60, st_nlink=2, st_uid=1000, st_gid=1000, st_size=40, st_atime=1790785940, st_mtime=1790785940, st_ctime=1790785940).st_mode
+E            +      where os.stat_result(st_mode=16832, st_ino=3522916, st_dev=60, st_nlink=2, st_uid=1000, st_gid=1000, st_size=40, st_atime=1790785940, st_mtime=1790785940, st_ctime=1790785940) = stat()
+E            +        where stat = PosixPath('/tmp/tmpa4zp4mfn/foreign-readonly/safe-owned-anchor').stat
+
+tests/test_llm_cache_paths.py:138: AssertionError
+______________ test_single_flight_rejects_unsafe_existing_target _______________
+
+    def test_single_flight_rejects_unsafe_existing_target() -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "cache"
+            target.mkdir(mode=0o755)
+    
+>           with pytest.raises(AnalyzerError) as raised:
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_llm_cache_paths.py:187: Failed
+=============================== warnings summary ===============================
+tests/test_deepseek_client.py::DeepSeekClientTests::test_at_fork_child_closes_inherited_real_flock_descriptor
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_deepseek_client.py:1375: DeprecationWarning: This process (pid=2395087) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_deepseek_client.py::DeepSeekClientTests::test_inherited_locked_thread_lock_is_reset_after_fork
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_deepseek_client.py:991: DeprecationWarning: This process (pid=2395087) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[capacity]
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_llm_cache_paths.py:838: DeprecationWarning: This process (pid=2395087) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-capacity]
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_llm_cache_paths.py:963: DeprecationWarning: This process (pid=2395087) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[duplicate]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[entry]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[temporary]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_llm_cache_paths.py:1492: DeprecationWarning: This process (pid=2395087) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_fixture_database.py::FixtureDatabaseCacheTests::test_prepare_cache_root_never_uses_path_chmod_that_can_follow_a_swap
+FAILED tests/test_fixture_database.py::FixtureDatabaseCacheTests::test_prepare_cache_root_rejects_open_window_substitute_without_chmod
+FAILED tests/test_llm_cache_paths.py::test_single_flight_traverses_foreign_readonly_ancestor_after_private_anchor
+FAILED tests/test_llm_cache_paths.py::test_single_flight_rejects_unsafe_existing_target
+4 failed, 2077 passed, 131 skipped, 9 warnings, 1100 subtests passed in 112.71s (0:01:52)

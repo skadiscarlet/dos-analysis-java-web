@@ -6136,7 +6136,7 @@ public class ServiceApplication extends Application<Object> {
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["entries"],
-            "production-v2.8-open-world-maturation-entries-v22",
+            "production-v2.8-open-world-maturation-entries-v23",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["growth"],
@@ -6144,7 +6144,7 @@ public class ServiceApplication extends Application<Object> {
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["lifecycle"],
-            "production-v2.8-open-world-maturation-lifecycle-v21",
+            "production-v2.8-open-world-maturation-lifecycle-v22",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],

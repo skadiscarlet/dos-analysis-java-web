@@ -1,0 +1,108 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_____ test_coverage_metadata_matches_published_records[partial_families0] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-459/test_coverage_metadata_matches0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f40106ae960>
+partial_families = ()
+
+    @pytest.mark.parametrize("partial_families", [(), ("guard",), ("guard", "bound", "release")])
+    def test_coverage_metadata_matches_published_records(tmp_path: Path, monkeypatch, partial_families) -> None:
+        original = production._run_codeql_family
+    
+        def add_partial_rows(*args, **kwargs):
+            rows = original(*args, **kwargs)
+            if args[2] == "lifecycle":
+                rows = [
+                    {**row, "coverage_status": "partial", "coverage_note": "fixture_scope_unresolved"}
+                    if row.get("query_name") == "lifecycle_coverage" and row.get("family") in partial_families
+                    else row
+                    for row in rows
+                ]
+            return rows
+    
+        monkeypatch.setattr(production, "_run_codeql_family", add_partial_rows)
+        result, output, *_ = run_synthetic_case(tmp_path, "off")
+        assert result["status"] == "completed"
+        records = [json.loads(line) for line in (output / "lifecycle_coverage.jsonl").read_text().splitlines()]
+        run = json.loads((output / "run.json").read_text())
+        metadata = run["stages"]["lifecycle"]["metadata"]
+        expected_partial = sum(row["status"] == "partial" for row in records)
+        assert expected_partial == len(partial_families)
+>       assert metadata["coverage_partial_count"] == expected_partial
+E       assert 3 == 0
+
+tests/test_resume_coverage_metadata.py:35: AssertionError
+_____ test_coverage_metadata_matches_published_records[partial_families1] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-459/test_coverage_metadata_matches1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f400ff31190>
+partial_families = ('guard',)
+
+    @pytest.mark.parametrize("partial_families", [(), ("guard",), ("guard", "bound", "release")])
+    def test_coverage_metadata_matches_published_records(tmp_path: Path, monkeypatch, partial_families) -> None:
+        original = production._run_codeql_family
+    
+        def add_partial_rows(*args, **kwargs):
+            rows = original(*args, **kwargs)
+            if args[2] == "lifecycle":
+                rows = [
+                    {**row, "coverage_status": "partial", "coverage_note": "fixture_scope_unresolved"}
+                    if row.get("query_name") == "lifecycle_coverage" and row.get("family") in partial_families
+                    else row
+                    for row in rows
+                ]
+            return rows
+    
+        monkeypatch.setattr(production, "_run_codeql_family", add_partial_rows)
+        result, output, *_ = run_synthetic_case(tmp_path, "off")
+        assert result["status"] == "completed"
+        records = [json.loads(line) for line in (output / "lifecycle_coverage.jsonl").read_text().splitlines()]
+        run = json.loads((output / "run.json").read_text())
+        metadata = run["stages"]["lifecycle"]["metadata"]
+        expected_partial = sum(row["status"] == "partial" for row in records)
+        assert expected_partial == len(partial_families)
+>       assert metadata["coverage_partial_count"] == expected_partial
+E       assert 3 == 1
+
+tests/test_resume_coverage_metadata.py:35: AssertionError
+_____ test_coverage_metadata_matches_published_records[partial_families2] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-459/test_coverage_metadata_matches2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f400ff934a0>
+partial_families = ('guard', 'bound', 'release')
+
+    @pytest.mark.parametrize("partial_families", [(), ("guard",), ("guard", "bound", "release")])
+    def test_coverage_metadata_matches_published_records(tmp_path: Path, monkeypatch, partial_families) -> None:
+        original = production._run_codeql_family
+    
+        def add_partial_rows(*args, **kwargs):
+            rows = original(*args, **kwargs)
+            if args[2] == "lifecycle":
+                rows = [
+                    {**row, "coverage_status": "partial", "coverage_note": "fixture_scope_unresolved"}
+                    if row.get("query_name") == "lifecycle_coverage" and row.get("family") in partial_families
+                    else row
+                    for row in rows
+                ]
+            return rows
+    
+        monkeypatch.setattr(production, "_run_codeql_family", add_partial_rows)
+        result, output, *_ = run_synthetic_case(tmp_path, "off")
+        assert result["status"] == "completed"
+        records = [json.loads(line) for line in (output / "lifecycle_coverage.jsonl").read_text().splitlines()]
+        run = json.loads((output / "run.json").read_text())
+        metadata = run["stages"]["lifecycle"]["metadata"]
+        expected_partial = sum(row["status"] == "partial" for row in records)
+        assert expected_partial == len(partial_families)
+        assert metadata["coverage_partial_count"] == expected_partial
+>       assert metadata["coverage_total_count"] == len(records)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'coverage_total_count'
+
+tests/test_resume_coverage_metadata.py:36: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_resume_coverage_metadata.py::test_coverage_metadata_matches_published_records[partial_families0]
+FAILED tests/test_resume_coverage_metadata.py::test_coverage_metadata_matches_published_records[partial_families1]
+FAILED tests/test_resume_coverage_metadata.py::test_coverage_metadata_matches_published_records[partial_families2]
+3 failed in 1.23s

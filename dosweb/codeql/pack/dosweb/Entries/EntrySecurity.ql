@@ -844,9 +844,18 @@ predicate springMvcAnnotationLookupAllowsMissing(
          IfStmt missingGuard, EQExpr missing,
          ReturnStmt allowed |
     lookup.getEnclosingCallable() = preHandle and
-    lookup.getMethod().hasQualifiedName(
-      "org.springframework.web.method", "HandlerMethod", "getMethodAnnotation"
+    // Preserve supported inherited framework APIs, but never borrow their
+    // summary for a user-defined overriding implementation.
+    (
+      lookup.getMethod().hasQualifiedName(
+        "org.springframework.web.method", "HandlerMethod", "getMethodAnnotation"
+      )
+      or lookup.getMethod().hasQualifiedName(
+        "org.springframework.core.annotation", "AnnotatedMethod", "getMethodAnnotation"
+      )
     ) and
+    lookup.getQualifier().getType().getErasure().(RefType).getASupertype*()
+      .hasQualifiedName("org.springframework.web.method", "HandlerMethod") and
     annotationLiteral = lookup.getArgument(0) and
     targetAnnotation = annotationLiteral.getReferencedType().(RefType) and
     methodCallStoredInLocal(lookup, annotationVariable) and

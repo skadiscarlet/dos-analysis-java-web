@@ -108,13 +108,13 @@ _IMPLEMENTATION_VERSIONS: Final = {
     stage: (
         "production-v2.8-open-world-maturation-growth-v45"
         if stage == "growth"
-        else "production-v2.8-open-world-maturation-entries-v22"
+        else "production-v2.8-open-world-maturation-entries-v23"
         if stage == "entries"
         else "production-v2.8-open-world-maturation-conclude-v10"
         if stage == "conclude"
         else "production-v2.8-open-world-maturation-flows-v25"
         if stage == "flows"
-        else f"production-v2.8-open-world-maturation-{stage}-v21"
+        else f"production-v2.8-open-world-maturation-{stage}-v22"
         if stage == "lifecycle"
         else f"production-v2.8-open-world-maturation-{stage}-v2"
     )
@@ -3995,7 +3995,13 @@ def make_lifecycle_executor(
             artifacts,  # type: ignore[arg-type]
             {
                 "flow_count": len(flows),
-                "coverage_partial_count": len(lifecycle_coverage),
+                "coverage_total_count": len(lifecycle_coverage),
+                "coverage_partial_count": sum(
+                    row["status"] == "partial" for row in lifecycle_coverage
+                ),
+                "coverage_complete_count": sum(
+                    row["status"] == "complete" for row in lifecycle_coverage
+                ),
                 "summary_count": len(lifecycle_summaries),
                 "resource_lifecycle_binding_count": len(
                     resource_lifecycle_bindings

@@ -1,0 +1,79 @@
+{
+  "format": "dosweb-resume-result-audit-v1",
+  "source_batch": "results/java_web_dos_batch/poc33-final-closure-20260928-erupt-v5-full",
+  "source_plan_digest": "ff637199b14dd1602cff16bcb8989409af7d5cb075dc517fd9efa5a8698ebfc3",
+  "source_run_sha256": "78167d70e31f9578ef79cc13197f0c5d4a1bfaa8b7444257132fc43dddf55bd4",
+  "execution_status": "completed",
+  "projects_in_this_batch": 1,
+  "stages_completed": 6,
+  "stage_seconds": {
+    "conclude": 0.030387163162231445,
+    "entries": 244.45263648033142,
+    "flows": 27.943187952041626,
+    "growth": 682.2874195575714,
+    "lifecycle": 153.25105333328247,
+    "report": 0.001965761184692383
+  },
+  "elapsed_seconds": 1110.577964067459,
+  "verdict_counts": {
+    "static_vulnerable": 1,
+    "static_unknown": 4
+  },
+  "known_records_total": 33,
+  "known_records_in_this_batch": 2,
+  "known_records_not_in_this_batch": 31,
+  "matched_static_vulnerable": 1,
+  "is_21_project_full_evaluation": false,
+  "current_repaired_version_retested": false,
+  "source_coverage_metadata": {
+    "coverage_partial_count": 15,
+    "flow_count": 5,
+    "resource_lifecycle_binding_count": 0,
+    "summary_count": 0
+  },
+  "recounted_coverage": {
+    "partial": 9,
+    "complete": 6
+  },
+  "artifact_hashes_verified": {
+    "finding_families.jsonl": "f8903d6db3d66cab2df1c311b37cc9326f5ea1810a8ac2ec990d617ed8d746b6",
+    "lifecycle_certificates.jsonl": "66b28cf85d321eb16ccef9bb305bf5c3b0c3a8819861d6f0d521a9df7544cac7",
+    "static_findings.jsonl": "04ffe9e4c311b9b0c55356843931623f754294c29f2294a4b199d6342b4ceb91",
+    "configuration_coverage.json": "33fc61f4ed68ae60edcd41e6ea8b263e5b317ed1f3880c426e2cb8d71d67628f",
+    "coverage.json": "b0971fc59182b4088fe09ae374c8571bf4086860d8ae6ae10004917036a08acd",
+    "descriptor_coverage.json": "05e6489d09c9c0eb1b1aef74ee6674df3b372c899739a213a6e4f1fb3ee906d9",
+    "entry_facts.jsonl": "bbd77c7a0c98c7c11f7f37cd73c70b6398b622fc84aebc311e1839464cb9c711",
+    "entry_gap_facts.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "entry_interposition_facts.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "entry_security_facts.jsonl": "8ad14aff72dbb5426f193374a078e30d2b929d11211af29c8859144cb561ae3d",
+    "modeled_configuration.jsonl": "15750a8c47bd4262a7443087e9c27ef188facbe354a8f8f367ecaa339f53924c",
+    "flow_proofs.jsonl": "4c335c520b9dcaeaaf25e35f63dc9aace476b6325f76dc220ad872c1d02d4842",
+    "amplification_decisions.jsonl": "a915b510061a79d739a2ef4c1078eb38ee0771df415dc748d57004d73f30f982",
+    "auth_contracts.jsonl": "39ad43054a09436bb77a66a0c75c615b813e5cb035a5ed2e4bcfc5999bc8cfd1",
+    "candidate_dispositions.jsonl": "a9efcea655d4e2564a6585cc49b1f282b673e379224000ce0b6a71af127af8c0",
+    "candidate_entry_links.jsonl": "89da2abeca30a53769189477c0584fbaddb95ccd027f281d9dde2d53a2237ca8",
+    "candidate_negative_proofs.jsonl": "fe02c7f42a76dca2126b4a5f6aba9521d031215e0e96d8c8dae9a32b8e013670",
+    "growth_candidates.jsonl": "c647e6285224cee6c9475577f130c32712fd74851e906f3c5455d5e1be08317f",
+    "growth_contracts.jsonl": "e1179a0a8f7d1b535b66d358563c85e9639ca45b65b1bbf2824f38ee355a5014",
+    "growth_static_facts.jsonl": "35e45953a8d3710844e32890fa36cca1c2288418728628ca5bd1e4ee19279fa9",
+    "reachability_decisions.jsonl": "eb49c39eb995a0691077958dc06d0a373617ed461a7ab9ef08a807b56294140d",
+    "repeatability_decisions.jsonl": "43f2a342872aaca0379247c23644aea6cf8b0707f4f7de3254e57c9377dd3ad1",
+    "verified_growth.jsonl": "8b861bc68f99098ee859926e7adf7d8fa5864d465d944adac6bbe24d884a5603",
+    "bound_candidates.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guard_candidates.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "lifecycle_coverage.jsonl": "543b0b8f8944c0a384d9b379325d3ba5cc24ffe32b4a34f69504c423294156c2",
+    "lifecycle_evidence.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "lifecycle_results.jsonl": "d9ac63781f277fc0035761f3abed1f57a39f61846356d33d2f86ff1b36a673d6",
+    "lifecycle_summaries.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "release_candidates.jsonl": "8c9503b7c2e0cd8e9ccde18cb06a1f9711abc68d56834fa50a08ead6fc27a17e",
+    "resource_lifecycle_bindings.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "report.md": "68647ec40216e4148cfa6ba0219ff84c59626e8de41be5a00603d51d111004a9",
+    "summary.json": "c3e893751f34b697dfd98a110f6c0847b6f50c5bbafe35e952c0293abdff98fa"
+  },
+  "limitations": [
+    "Post-hoc audit of an already completed run; no new queries, model calls or targets executed.",
+    "Out-of-run records are not execution failures. Legacy evaluator status is retained separately.",
+    "Do not combine this single-target result with earlier versions into a current 6/33 metric.",
+    "A recorded static_vulnerable verdict is not fresh dynamic confirmation or proof of later-code recall."
+  ]
+}

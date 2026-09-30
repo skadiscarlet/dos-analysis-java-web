@@ -1,0 +1,435 @@
+s.................................. [  1%]
+................................................. [  3%]
+......................................................... [  6%]
+.s................................................s...................................... [ 10%]
+...........s...ss............................................................................................F... [ 15%]
+...s...............sssss.........ssssssss....ssssssss.......................... [ 19%]
+......................................................................................ssssssssssssssssss......ssssssssssssssssss............. [ 25%]
+......................................... [ 27%]
+...........................................F............. [ 29%]
+............................................................................ [ 33%]
+..................................................................F...F.............F.............. [ 37%]
+................................................................... [ 40%]
+........................................................................ [ 44%]
+............................................................................................................... [ 49%]
+.........s...............................................................F............................................................................................. [ 56%]
+........................................................ [ 59%]
+......................................................................................ssss...................... [ 64%]
+................s................................................... [ 67%]
+..................................................ssssssssssss..................s.. [ 71%]
+.......................................................s................ [ 74%]
+............ss........s..........sss................................................................................. [ 79%]
+........................s........................................... [ 82%]
+.........................s............................s............... [ 85%]
+........................................................................ [ 89%]
+...........................ssssssssssssssssss........................... [ 92%]
+............................................ [ 94%]
+............................................................... [ 97%]
+...............sssssss.......sssssssssss....s................s [100%]
+=================================== FAILURES ===================================
+_ CodeqlAdapterTests.test_published_generation_mode_drift_during_slot_retirement_fails_closed _
+
+self = <tests.test_codeql_adapter.CodeqlAdapterTests testMethod=test_published_generation_mode_drift_during_slot_retirement_fails_closed>
+
+    def test_published_generation_mode_drift_during_slot_retirement_fails_closed(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database = validate_database(self._database(root))
+            query = root / "Entries.ql"
+            query.write_text("select 1", encoding="utf-8")
+            output = root / "output"
+            calls = 0
+            changed_mode = False
+            real_no_replace = codeql_runner.renameat2_no_replace
+    
+            def successful_run(argv, **_kwargs):
+                nonlocal calls
+                calls += 1
+                destination = Path(argv[argv.index("--output") + 1])
+                if calls == 1:
+                    destination.write_bytes(b"bqrs")
+                else:
+                    destination.write_text(
+                        self._decoded_entries_json(), encoding="utf-8"
+                    )
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="", stderr=""
+                )
+    
+            def change_mode_before_slot_isolation(
+                source_directory_fd,
+                source_name,
+                destination_directory_fd,
+                destination_name,
+            ):
+                nonlocal changed_mode
+                if (
+                    not changed_mode
+                    and source_name.startswith(".rollback-slot-")
+                    and destination_name.startswith(
+                        ".rollback-slot-tombstone-"
+                    )
+                ):
+                    with os.scandir(source_directory_fd) as entries:
+                        published_name = next(
+                            entry.name
+                            for entry in entries
+                            if entry.name.startswith("Entries-")
+                        )
+                    os.chmod(
+                        published_name,
+                        0o755,
+                        dir_fd=source_directory_fd,
+                        follow_symlinks=False,
+                    )
+                    changed_mode = True
+                return real_no_replace(
+                    source_directory_fd,
+                    source_name,
+                    destination_directory_fd,
+                    destination_name,
+                )
+    
+            with mock.patch.object(
+                codeql_runner,
+                "renameat2_no_replace",
+                side_effect=change_mode_before_slot_isolation,
+            ):
+                with self.assertRaises(AnalyzerError) as raised:
+                    run_query(
+                        query,
+                        database,
+                        output,
+                        subprocess_run=successful_run,
+                    )
+    
+>           self.assertTrue(changed_mode)
+E           AssertionError: False is not true
+
+tests/test_codeql_adapter.py:1591: AssertionError
+_ DeepSeekClientTests.test_cross_stripe_capacity_reservation_allows_only_one_provider_call _
+
+self = <tests.test_deepseek_client.DeepSeekClientTests testMethod=test_cross_stripe_capacity_reservation_allows_only_one_provider_call>
+
+    def test_cross_stripe_capacity_reservation_allows_only_one_provider_call(self) -> None:
+        from dosweb.llm import cache as cache_module
+    
+        first_key, _ = cache_identity(self.config, self.slice)
+        second_slice = BoundedSlice("slice:other", replace(self.slice.payload, growth_id="growth:other"))
+        second_key, _ = cache_identity(self.config, second_slice)
+        suffix = 0
+        while int(second_key[:8], 16) % cache_module._LOCK_STRIPES == int(first_key[:8], 16) % cache_module._LOCK_STRIPES:
+            suffix += 1
+            second_slice = BoundedSlice("slice:other", replace(self.slice.payload, growth_id=f"growth:other{suffix}"))
+            second_key, _ = cache_identity(self.config, second_slice)
+    
+        entered = threading.Event()
+        release = threading.Event()
+        calls: list[str] = []
+        calls_lock = threading.Lock()
+    
+        class BlockingTransport:
+            def post(inner_self, endpoint: str, payload: bytes, headers: dict[str, str], timeout: int) -> str:
+                with calls_lock:
+                    calls.append(endpoint)
+                    entered.set()
+                release.wait(5)
+                return json.dumps(self._success(PROVIDER_CONTRACT))
+    
+        results: list[object] = []
+        failures: list[AnalyzerError] = []
+    
+        def classify(slice_: BoundedSlice) -> None:
+            client = DeepSeekClient(replace(self.config, cache_dir=self.cache_dir), verifier=_FakeVerifier(self.attestation), transport=BlockingTransport(), sleep=lambda _: None, jitter=lambda: 0)
+            try:
+                results.append(client.classify_growth(slice_))
+            except AnalyzerError as exc:
+                failures.append(exc)
+    
+        with mock.patch.object(cache_module, "_MAX_CACHE_ENTRIES", 1):
+            first = threading.Thread(target=classify, args=(self.slice,))
+            second = threading.Thread(target=classify, args=(second_slice,))
+            first.start()
+            self.assertTrue(entered.wait(5))
+            second.start()
+            time.sleep(0.1)
+            self.assertEqual(len(calls), 1)
+            release.set()
+            first.join(5)
+            second.join(5)
+    
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(len(results), 1)
+>       self.assertEqual([failure.code for failure in failures], ["LLM_CACHE_CAPACITY_EXHAUSTED"])
+E       AssertionError: Lists differ: ['LLM_CACHE_WRITE_FAILED'] != ['LLM_CACHE_CAPACITY_EXHAUSTED']
+E       
+E       First differing element 0:
+E       'LLM_CACHE_WRITE_FAILED'
+E       'LLM_CACHE_CAPACITY_EXHAUSTED'
+E       
+E       - ['LLM_CACHE_WRITE_FAILED']
+E       + ['LLM_CACHE_CAPACITY_EXHAUSTED']
+
+tests/test_deepseek_client.py:1253: AssertionError
+_ FixtureDatabaseCacheTests.test_cleanup_inventory_never_chmods_injected_outside_file _
+
+self = <tests.test_fixture_database.FixtureDatabaseCacheTests testMethod=test_cleanup_inventory_never_chmods_injected_outside_file>
+
+    def test_cleanup_inventory_never_chmods_injected_outside_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_root = root / "cache"
+            cache_root.mkdir(mode=0o700)
+            database = cache_root / f"{'a' * 64}.db-{'0' * 32}"
+            database.mkdir(mode=0o700)
+            database_info = database.stat()
+            attacker_root_descriptor = os.open(
+                database,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            outside = root / "outside.bin"
+            outside_bytes = b"outside inode must keep its mode\n"
+            outside.write_bytes(outside_bytes)
+            outside.chmod(0o400)
+            outside_info = outside.stat()
+            real_scandir = os.scandir
+            injected = False
+    
+            class InjectingScandir:
+                def __init__(self, path: object) -> None:
+                    self._entries = real_scandir(path)
+                    self._target = False
+                    if isinstance(path, int):
+                        info = os.fstat(path)
+                        self._target = (
+                            info.st_dev,
+                            info.st_ino,
+                        ) == (
+                            database_info.st_dev,
+                            database_info.st_ino,
+                        )
+    
+                def __enter__(self) -> InjectingScandir:
+                    nonlocal injected
+                    self._entries.__enter__()
+                    if self._target and not injected:
+                        os.rename(
+                            outside,
+                            "Outside.bin",
+                            dst_dir_fd=attacker_root_descriptor,
+                        )
+                        injected = True
+                    return self
+    
+                def __exit__(self, *args: object) -> object:
+                    return self._entries.__exit__(*args)
+    
+                def __iter__(self) -> InjectingScandir:
+                    return self
+    
+                def __next__(self) -> os.DirEntry[str]:
+                    return next(self._entries)
+    
+            cleanup_error: BaseException | None = None
+            try:
+                with mock.patch.object(
+                    fixture_database_module.os,
+                    "scandir",
+                    side_effect=InjectingScandir,
+                ):
+                    try:
+                        fixture_database_module._remove_helper_owned_cache_path(
+                            database,
+                            cache_root,
+                        )
+                    except (AssertionError, OSError) as exc:
+                        cleanup_error = exc
+    
+                if not injected and cleanup_error is not None:
+                    raise cleanup_error
+>               self.assertTrue(injected)
+E               AssertionError: False is not true
+
+tests/test_fixture_database.py:1957: AssertionError
+_ FixtureDatabaseCacheTests.test_cleanup_retention_aggregate_size_bound_rolls_back_exact_root _
+
+self = <tests.test_fixture_database.FixtureDatabaseCacheTests testMethod=test_cleanup_retention_aggregate_size_bound_rolls_back_exact_root>
+
+    def test_cleanup_retention_aggregate_size_bound_rolls_back_exact_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_root = root / "cache"
+            cache_root.mkdir(mode=0o700)
+            snapshot = cache_root / f"{'a' * 64}.sources-{'0' * 32}"
+            snapshot.mkdir(mode=0o700)
+            fixture_bytes = b"class Fixture { byte[] value = new byte[64]; }\n"
+            fixture = snapshot / "Fixture.java"
+            fixture.write_bytes(fixture_bytes)
+            fixture_info = fixture.stat()
+    
+            with (
+                mock.patch.object(
+                    fixture_database_module,
+                    "_MAX_RETAINED_CLEANUP_TOMBSTONES",
+                    4,
+                    create=True,
+                ),
+                mock.patch.object(
+                    fixture_database_module,
+                    "_MAX_RETAINED_CLEANUP_BYTES",
+                    1,
+                    create=True,
+                ),
+>               self.assertRaisesRegex(AssertionError, "aggregate size bound"),
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            ):
+E           AssertionError: AssertionError not raised
+
+tests/test_fixture_database.py:2405: AssertionError
+_ FixtureDatabaseCacheTests.test_readonly_cleanup_never_chmods_symlink_swap_target _
+
+self = <tests.test_fixture_database.FixtureDatabaseCacheTests testMethod=test_readonly_cleanup_never_chmods_symlink_swap_target>
+
+    def test_readonly_cleanup_never_chmods_symlink_swap_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_root = root / "cache"
+            cache_root.mkdir(mode=0o700)
+            snapshot = cache_root / f"{'a' * 64}.sources-{'0' * 32}"
+            snapshot.mkdir(mode=0o700)
+            fixture = snapshot / "Fixture.java"
+            fixture.write_bytes(b"class Fixture {}\n")
+            fixture.chmod(0o400)
+            snapshot.chmod(0o500)
+            attacker_root_descriptor = os.open(
+                snapshot,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            outside = root / "outside.java"
+            outside_bytes = b"class Outside { int secret = 7; }\n"
+            outside.write_bytes(outside_bytes)
+            outside.chmod(0o400)
+            outside_mode = stat.S_IMODE(outside.stat().st_mode)
+            real_scandir = os.scandir
+            swapped = False
+    
+            class SwappingEntry:
+                def __init__(self, entry: os.DirEntry[str]) -> None:
+                    self._entry = entry
+                    self.name = entry.name
+    
+                def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+                    nonlocal swapped
+                    info = self._entry.stat(follow_symlinks=follow_symlinks)
+                    if self.name == "Fixture.java" and not swapped:
+                        os.fchmod(attacker_root_descriptor, 0o700)
+                        os.unlink(
+                            "Fixture.java",
+                            dir_fd=attacker_root_descriptor,
+                        )
+                        os.symlink(
+                            outside,
+                            "Fixture.java",
+                            dir_fd=attacker_root_descriptor,
+                        )
+                        swapped = True
+                    return info
+    
+                def __getattr__(self, name: str) -> object:
+                    return getattr(self._entry, name)
+    
+            class SwappingScandir:
+                def __init__(self, path: object) -> None:
+                    self._entries = real_scandir(path)
+    
+                def __enter__(self) -> SwappingScandir:
+                    self._entries.__enter__()
+                    return self
+    
+                def __exit__(self, *args: object) -> object:
+                    return self._entries.__exit__(*args)
+    
+                def __iter__(self) -> SwappingScandir:
+                    return self
+    
+                def __next__(self) -> SwappingEntry:
+                    return SwappingEntry(next(self._entries))
+    
+            def swapping_scandir(path: object) -> SwappingScandir:
+                return SwappingScandir(path)
+    
+            cleanup_error: BaseException | None = None
+            try:
+                with mock.patch.object(
+                    fixture_database_module.os,
+                    "scandir",
+                    side_effect=swapping_scandir,
+                ):
+                    try:
+                        fixture_database_module._remove_helper_owned_cache_path(
+                            snapshot,
+                            cache_root,
+                        )
+                    except (AssertionError, OSError) as exc:
+                        cleanup_error = exc
+            finally:
+                os.close(attacker_root_descriptor)
+    
+            if not swapped and cleanup_error is not None:
+                raise cleanup_error
+>           self.assertTrue(swapped)
+E           AssertionError: False is not true
+
+tests/test_fixture_database.py:1881: AssertionError
+_____ test_private_cache_under_sticky_sandbox_tmp_keeps_owner_only_target ______
+
+    def test_private_cache_under_sticky_sandbox_tmp_keeps_owner_only_target() -> None:
+        """A sticky shared ancestor must not make a private output cache unusable."""
+        with tempfile.TemporaryDirectory() as temporary:
+            nested = Path(temporary) / "production-output" / "cache" / "llm"
+            nested.parent.parent.mkdir(mode=0o755)
+            ancestor = Path(tempfile.gettempdir())
+>           assert ancestor.stat().st_mode & stat.S_ISVTX
+E           AssertionError: assert (16832 & 512)
+E            +  where 16832 = os.stat_result(st_mode=16832, st_ino=400669162, st_dev=57, st_nlink=1, st_uid=1000, st_gid=1000, st_size=54, st_atime=1790786026, st_mtime=1790786255, st_ctime=1790786255).st_mode
+E            +    where os.stat_result(st_mode=16832, st_ino=400669162, st_dev=57, st_nlink=1, st_uid=1000, st_gid=1000, st_size=54, st_atime=1790786026, st_mtime=1790786255, st_ctime=1790786255) = stat()
+E            +      where stat = PosixPath('/home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/.verification/resume-closure-20261001/suite-tmp').stat
+E            +  and   512 = stat.S_ISVTX
+
+tests/test_llm_cache_paths.py:107: AssertionError
+=============================== warnings summary ===============================
+tests/test_deepseek_client.py::DeepSeekClientTests::test_at_fork_child_closes_inherited_real_flock_descriptor
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_deepseek_client.py:1375: DeprecationWarning: This process (pid=2428505) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_deepseek_client.py::DeepSeekClientTests::test_inherited_locked_thread_lock_is_reset_after_fork
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_deepseek_client.py:991: DeprecationWarning: This process (pid=2428505) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[capacity]
+tests/test_llm_cache_paths.py::test_fork_from_another_thread_closes_all_inherited_cache_descriptors[stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_llm_cache_paths.py:838: DeprecationWarning: This process (pid=2428505) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-capacity]
+tests/test_llm_cache_paths.py::test_fork_waits_for_active_directory_lifecycle_transfer[acquire-stripe]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_llm_cache_paths.py:963: DeprecationWarning: This process (pid=2428505) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[duplicate]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[entry]
+tests/test_llm_cache_paths.py::test_cross_thread_fork_closes_nested_cache_capabilities[temporary]
+  /home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/tests/test_llm_cache_paths.py:1492: DeprecationWarning: This process (pid=2428505) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_codeql_adapter.py::CodeqlAdapterTests::test_published_generation_mode_drift_during_slot_retirement_fails_closed
+FAILED tests/test_deepseek_client.py::DeepSeekClientTests::test_cross_stripe_capacity_reservation_allows_only_one_provider_call
+FAILED tests/test_fixture_database.py::FixtureDatabaseCacheTests::test_cleanup_inventory_never_chmods_injected_outside_file
+FAILED tests/test_fixture_database.py::FixtureDatabaseCacheTests::test_cleanup_retention_aggregate_size_bound_rolls_back_exact_root
+FAILED tests/test_fixture_database.py::FixtureDatabaseCacheTests::test_readonly_cleanup_never_chmods_symlink_swap_target
+FAILED tests/test_llm_cache_paths.py::test_private_cache_under_sticky_sandbox_tmp_keeps_owner_only_target
+6 failed, 2075 passed, 131 skipped, 9 warnings, 1100 subtests passed in 155.82s (0:02:35)

@@ -1,0 +1,41 @@
+{
+  "red": {
+    "passed": 1,
+    "failed": 3
+  },
+  "green": {
+    "passed": 4,
+    "failed": 0,
+    "seconds": 92.27
+  },
+  "test_unchanged": true,
+  "source_checks": [
+    {
+      "path": "codeql/dosweb/Entries/EntrySecurity.ql",
+      "sha256": "33a97d1aa76b79663914d3c043ad267dc9c1459835e53e668b7d85e221c73d90",
+      "matches_tested": true
+    },
+    {
+      "path": "codeql/dosweb/Entries/SpringMvcFieldRegistration.qll",
+      "sha256": "3ff0ffd8a86c5391be2fda7857090405c6d533f7d5fae2bff13649f9ada29d92",
+      "matches_tested": true
+    },
+    {
+      "path": "tests/test_resume_mvc_proof_review.py",
+      "sha256": "fd368157b0dcc583ce614e58af2316ff187ad186954228cc058204e65ce5f5b0",
+      "matches_tested": true
+    }
+  ],
+  "direct_embedded_match": {
+    "EntrySecurity.ql": true,
+    "SpringMvcFieldRegistration.qll": true
+  },
+  "green_public_fact_counts": {
+    "acronym_name": 1,
+    "conditional_competitor": 0,
+    "custom_lookup_override": 0,
+    "plain": 1
+  },
+  "green_log_sha256": "f424bf66243ffae74db6f05cd3f99f73e3050b81495e72778edc07331427dd34",
+  "scope": "Self-owned Java source/query tests only; not a target scan or new benchmark result"
+}

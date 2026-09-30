@@ -1,0 +1,98 @@
+.FFF                                                                     [100%]
+=================================== FAILURES ===================================
+__________ test_resource_name_and_competing_bean_scope[acronym_name] ___________
+
+tmp_path = PosixPath('/home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/.verification/resume-peer-687/red-tmp/pytest-of-furina/pytest-0/test_resource_name_and_competi1')
+variant = 'acronym_name'
+
+    @pytest.mark.skipif(not _SOURCE_OPT_IN, reason="Self-owned Java/CodeQL opt-in required")
+    @pytest.mark.parametrize("variant", ["plain", "acronym_name", "conditional_competitor"])
+    def test_resource_name_and_competing_bean_scope(tmp_path: Path, variant: str) -> None:
+        source = source_tree(tmp_path, "resource_multi")
+        java = source / "fixture/field/FieldRegistration.java"
+        text = java.read_text()
+        if variant == "acronym_name":
+            # JavaBeans decapitalization preserves a name whose first two letters
+            # are uppercase: URLGate -> URLGate, not uRLGate.
+            text = text.replace("TokenGate", "URLGate").replace("tokenGate", "URLGate")
+        elif variant == "conditional_competitor":
+            profile = source / "org/springframework/context/annotation/Profile.java"
+            profile.write_text('package org.springframework.context.annotation; public @interface Profile { String[] value(); }\n')
+            text += ('\n@Service("tokenGate") @org.springframework.context.annotation.Profile("alternate") '
+                     'class AlternateGate extends TokenGate {}\n')
+        java.write_text(text)
+        rows = _rows(tmp_path, source, variant)
+        selected = [r for r in rows if r["route_or_event"] == "/open/**"
+                    and r["value"] == "unauthenticated_filter" and r["coverage_status"] == "complete"]
+        if variant == "conditional_competitor":
+            assert not selected, "Unknown profile activation cannot prove a unique same-name bean"
+        else:
+>           assert len(selected) == 1, "Exact default bean identity must respect JavaBeans acronym naming"
+E           AssertionError: Exact default bean identity must respect JavaBeans acronym naming
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/test_resume_mvc_proof_review.py:61: AssertionError
+_____ test_resource_name_and_competing_bean_scope[conditional_competitor] ______
+
+tmp_path = PosixPath('/home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/.verification/resume-peer-687/red-tmp/pytest-of-furina/pytest-0/test_resource_name_and_competi2')
+variant = 'conditional_competitor'
+
+    @pytest.mark.skipif(not _SOURCE_OPT_IN, reason="Self-owned Java/CodeQL opt-in required")
+    @pytest.mark.parametrize("variant", ["plain", "acronym_name", "conditional_competitor"])
+    def test_resource_name_and_competing_bean_scope(tmp_path: Path, variant: str) -> None:
+        source = source_tree(tmp_path, "resource_multi")
+        java = source / "fixture/field/FieldRegistration.java"
+        text = java.read_text()
+        if variant == "acronym_name":
+            # JavaBeans decapitalization preserves a name whose first two letters
+            # are uppercase: URLGate -> URLGate, not uRLGate.
+            text = text.replace("TokenGate", "URLGate").replace("tokenGate", "URLGate")
+        elif variant == "conditional_competitor":
+            profile = source / "org/springframework/context/annotation/Profile.java"
+            profile.write_text('package org.springframework.context.annotation; public @interface Profile { String[] value(); }\n')
+            text += ('\n@Service("tokenGate") @org.springframework.context.annotation.Profile("alternate") '
+                     'class AlternateGate extends TokenGate {}\n')
+        java.write_text(text)
+        rows = _rows(tmp_path, source, variant)
+        selected = [r for r in rows if r["route_or_event"] == "/open/**"
+                    and r["value"] == "unauthenticated_filter" and r["coverage_status"] == "complete"]
+        if variant == "conditional_competitor":
+>           assert not selected, "Unknown profile activation cannot prove a unique same-name bean"
+E           AssertionError: Unknown profile activation cannot prove a unique same-name bean
+E           assert not [{'coverage_note': 'spring_mvc_security_interceptor_excluded_path', 'coverage_status': 'complete', 'fact_file': 'fixtu...eld/FieldRegistration.java', 'fact_location': {'file': 'fixture/field/FieldRegistration.java', 'start_line': 19}, ...}]
+
+tests/test_resume_mvc_proof_review.py:59: AssertionError
+_________ test_custom_lookup_override_is_not_framework_annotation_api __________
+
+tmp_path = PosixPath('/home/furina/new_tool/dos-analysis-web/.worktrees/poc33-final-closure-20260925/.verification/resume-peer-687/red-tmp/pytest-of-furina/pytest-0/test_custom_lookup_override_is0')
+
+    @pytest.mark.skipif(not _SOURCE_OPT_IN, reason="Self-owned Java/CodeQL opt-in required")
+    def test_custom_lookup_override_is_not_framework_annotation_api(tmp_path: Path) -> None:
+        source = inherited_handler_method_source(tmp_path)
+        java = source / "fixture/interceptor/InterceptorSecurityFixture.java"
+        text = java.read_text()
+        text = text.replace(
+            "class AnnotationSecurityInterceptor implements HandlerInterceptor {",
+            "class CustomHandlerMethod extends HandlerMethod {\n"
+            " @Override public <T extends java.lang.annotation.Annotation> T getMethodAnnotation(Class<T> type) {\n"
+            "  throw new UnsupportedOperationException();\n }\n}\n"
+            "class AnnotationSecurityInterceptor implements HandlerInterceptor {",
+        ).replace("handler instanceof HandlerMethod", "handler instanceof CustomHandlerMethod").replace(
+            "((HandlerMethod) handler).getMethodAnnotation", "((CustomHandlerMethod) handler).getMethodAnnotation",
+        )
+        java.write_text(text)
+        rows = _rows(tmp_path, source, "custom_lookup_override")
+        selected = [r for r in rows if r["route_or_event"] == "/ordered/open"
+                    and r["coverage_note"] == "spring_mvc_annotation_absent_interceptor_bypass"
+                    and r["coverage_status"] == "complete" and r["value"] == "unauthenticated_filter"]
+>       assert not selected, "A user-defined overriding method must not inherit a framework proof summary"
+E       AssertionError: A user-defined overriding method must not inherit a framework proof summary
+E       assert not [{'coverage_note': 'spring_mvc_annotation_absent_interceptor_bypass', 'coverage_status': 'complete', 'fact_file': 'fix...xture.java', 'fact_location': {'file': 'fixture/interceptor/InterceptorSecurityFixture.java', 'start_line': 101}, ...}]
+
+tests/test_resume_mvc_proof_review.py:83: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_resume_mvc_proof_review.py::test_resource_name_and_competing_bean_scope[acronym_name]
+FAILED tests/test_resume_mvc_proof_review.py::test_resource_name_and_competing_bean_scope[conditional_competitor]
+FAILED tests/test_resume_mvc_proof_review.py::test_custom_lookup_override_is_not_framework_annotation_api
+3 failed, 1 passed in 92.37s (0:01:32)
