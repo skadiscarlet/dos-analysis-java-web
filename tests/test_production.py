@@ -6144,7 +6144,7 @@ public class ServiceApplication extends Application<Object> {
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["lifecycle"],
-            "production-v2.8-open-world-maturation-lifecycle-v22",
+            "production-v2.8-open-world-maturation-lifecycle-v23",
         )
         self.assertEqual(  # noqa: SLF001
             production._IMPLEMENTATION_VERSIONS["conclude"],

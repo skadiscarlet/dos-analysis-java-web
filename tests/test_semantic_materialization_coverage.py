@@ -64,7 +64,7 @@ def extracted():
     yield rows, anchors
     if holder: holder.cleanup()
 
-@pytest.mark.parametrize("case", ["plain", "library", "wrapper"])
+@pytest.mark.parametrize("case", ["plain", "library", "wrapper", "filter-wrapper-metadata"])
 def test_exact_straight_line_request_read_has_scanned_local_families(extracted,case):
     rows, anchors = extracted
     growth=[r for r in rows['growth'] if r['site_start_line']==anchors[case] and r['site_file'].endswith('MaterializationFixture.java')]
@@ -73,7 +73,7 @@ def test_exact_straight_line_request_read_has_scanned_local_families(extracted,c
     assert len(coverage)==3 and {r['family'] for r in coverage}=={'guard','bound','release'}
     assert all(r['coverage_status']=='complete' for r in coverage), coverage
 
-@pytest.mark.parametrize("case", ["conditional", "helper", "limited", "local", "guarded-wrapper", "closed", "reassigned", "spring-plain", "spring-library", "caller-guarded-wrapper"])
+@pytest.mark.parametrize("case", ["conditional", "helper", "limited", "local", "guarded-wrapper", "closed", "reassigned", "spring-plain", "spring-library", "caller-guarded-wrapper", "filter-wrapper-size-guard"])
 def test_unmodeled_control_stream_or_effect_does_not_gain_complete_coverage(extracted,case):
     rows, anchors = extracted
     coverage=[r for r in rows['lifecycle_coverage'] if r['anchor_start_line']==anchors[case] and r['anchor_file'].endswith('MaterializationFixture.java')]

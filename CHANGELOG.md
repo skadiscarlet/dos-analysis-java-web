@@ -1,3 +1,9 @@
+## 2026-10-06 — read-all/Lombok中断恢复与证明边界交付
+
+- 固化中断未交付的copyToString、Servlet Filter→request wrapper和真实Lombok异常壳支持；快照保留。继续用不变参数/别名、精确API摘要和CFG次序检验封闭读取域，不推断任意调用无副作用。
+- 独立反例修复四类Filter漏项（未知constructor、Object别名、字段逃逸、读取前chain）与两类Lombok误闭合（同源码行catch额外语句、finally效果）；相同8项从6failed/2passed到8passed，不改标签；direct/embedded一致。
+- lifecycle-v23拒绝旧v22缓存并重算lifecycle/conclude/report；源码组合25passed、默认2082passed/142skipped/1100subtests。没有新21库33记录召回，不将测试/历史命中混加；完整证据见reports/readall-proof-repair-20261006。
+
 ## 2026-10-01 — 中断恢复、MVC证明边界与coverage统计修复
 
 - 恢复并核验已完成的v5单项目运行：1正式阳性/4unknown，离线匹配2条基准记录为1阳性/1unknown，另31条明确not_in_run；原33个非私有artifact哈希通过，未重复批次或执行新目标。

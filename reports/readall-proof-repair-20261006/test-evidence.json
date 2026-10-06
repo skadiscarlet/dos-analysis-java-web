@@ -1,0 +1,79 @@
+{
+  "format": "readall-proof-repair-v1",
+  "date": "2026-10-06",
+  "baseline_commit": "74203047051c85dc8adc1b6314b8375114555969",
+  "branch": "codex/readall-proof-repair-20261006",
+  "source_hash_count": 542,
+  "helper_sha256": "111b5e2d709b61b7b86d7471d2b526aec285d7d855db19b3acfffce0de2d572e",
+  "implementation_versions": {
+    "entries": "production-v2.8-open-world-maturation-entries-v23",
+    "growth": "production-v2.8-open-world-maturation-growth-v45",
+    "flows": "production-v2.8-open-world-maturation-flows-v25",
+    "lifecycle": "production-v2.8-open-world-maturation-lifecycle-v23",
+    "conclude": "production-v2.8-open-world-maturation-conclude-v10",
+    "report": "production-v2.8-open-world-maturation-report-v2"
+  },
+  "default_suite": {
+    "passed": 2082,
+    "failed": 0,
+    "skipped": 142,
+    "warnings": 9,
+    "subtests_passed": 1100,
+    "seconds": 114.78,
+    "tmpdir": "/tmp",
+    "umask": "022"
+  },
+  "source_suite": {
+    "passed": 25,
+    "failed": 0,
+    "seconds": 185.72,
+    "self_owned_java": true,
+    "real_codeql": true,
+    "real_lombok_processor": true
+  },
+  "independent_peer": {
+    "phase": "verified",
+    "test_sha256": "4de24ce1240c49f25c23ed4de72f769885997bd5970dc4ad08237bd6077f33c4",
+    "baseline_helper_sha256": "e483106cf4365e65f3fad06bd64657d7b5dbfabf7277ca22a515e55fee461f63",
+    "candidate_helper_sha256": "111b5e2d709b61b7b86d7471d2b526aec285d7d855db19b3acfffce0de2d572e",
+    "unique_tests": 8,
+    "baseline_failures": 6,
+    "baseline_positive_controls_passed": 2,
+    "green_passed": 8,
+    "green_failed": 0,
+    "green_seconds": 80.84,
+    "direct_embedded_match": true,
+    "green_verified": true,
+    "production_changed_by_peer": false,
+    "third_party_scan": false,
+    "target_program_executed": false
+  },
+  "cache_regression": {
+    "before_failed": 1,
+    "after": "passed_in_default_suite",
+    "invalidated_stages": [
+      "lifecycle",
+      "conclude",
+      "report"
+    ]
+  },
+  "do_not_add_overlapping_test_counts": true,
+  "new_third_party_scans": 0,
+  "target_programs_executed": 0,
+  "remote_model_calls": 0,
+  "research": {
+    "status": "partial",
+    "known_corpus_records": 33,
+    "known_corpus_projects": 21,
+    "fresh_full_run": false,
+    "current_version_recall": null,
+    "prior_v5_scope": {
+      "records_in_run": 2,
+      "formal_hits": 1,
+      "unknown": 1,
+      "not_in_run": 31
+    },
+    "prior_results_not_combinable": true
+  },
+  "inherited_snapshot": ".verification/readall-proof-20261006/inherited-snapshot"
+}

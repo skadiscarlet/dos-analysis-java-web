@@ -1,0 +1,119 @@
+[
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 28,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 28
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 28,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 28
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 28,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 28
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 33,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 33
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 33,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 33
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 33,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 33
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 37,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 37
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 37,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 37
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerLombok.java",
+    "anchor_start_line": 37,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerLombok.java",
+      "start_line": 37
+    }
+  }
+]

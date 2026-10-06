@@ -1,0 +1,72 @@
+.FFFF                                                                    [100%]
+=================================== FAILURES ===================================
+_ test_request_effects_are_not_lost_at_filter_wrapper_boundary[constructor_gate] _
+
+peer_rows = ([{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'fixture/peer/PeerReadAll.java', 'start...ned', ...}, ...], {'constructor_gate': 44, 'erased_alias_gate': 59, 'field_escape_gate': 92, 'metadata_only': 29, ...})
+case = 'constructor_gate'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_request_effects_are_not_lost_at_filter_wrapper_boundary(peer_rows, case):
+        rows, anchors = peer_rows
+        selected = [r for r in rows if r["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(r["coverage_status"] == CASES[case][2] for r in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'constructor_gate', 'rows': [{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'fi...', 'start_line': 44}, 'anchor_start_line': 44, 'coverage_note': 'request_read_all_same_callable_domain_scanned', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_request_effects_are_not_lost_at_filter_wrapper_boundary.<locals>.<genexpr> at 0x7f8cc7e77a00>)
+
+tests/test_readall_peer_boundary_20261006.py:118: AssertionError
+_ test_request_effects_are_not_lost_at_filter_wrapper_boundary[erased_alias_gate] _
+
+peer_rows = ([{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'fixture/peer/PeerReadAll.java', 'start...ned', ...}, ...], {'constructor_gate': 44, 'erased_alias_gate': 59, 'field_escape_gate': 92, 'metadata_only': 29, ...})
+case = 'erased_alias_gate'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_request_effects_are_not_lost_at_filter_wrapper_boundary(peer_rows, case):
+        rows, anchors = peer_rows
+        selected = [r for r in rows if r["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(r["coverage_status"] == CASES[case][2] for r in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'erased_alias_gate', 'rows': [{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'f...', 'start_line': 59}, 'anchor_start_line': 59, 'coverage_note': 'request_read_all_same_callable_domain_scanned', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_request_effects_are_not_lost_at_filter_wrapper_boundary.<locals>.<genexpr> at 0x7f8cc7cf4120>)
+
+tests/test_readall_peer_boundary_20261006.py:118: AssertionError
+_ test_request_effects_are_not_lost_at_filter_wrapper_boundary[preceding_chain] _
+
+peer_rows = ([{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'fixture/peer/PeerReadAll.java', 'start...ned', ...}, ...], {'constructor_gate': 44, 'erased_alias_gate': 59, 'field_escape_gate': 92, 'metadata_only': 29, ...})
+case = 'preceding_chain'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_request_effects_are_not_lost_at_filter_wrapper_boundary(peer_rows, case):
+        rows, anchors = peer_rows
+        selected = [r for r in rows if r["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(r["coverage_status"] == CASES[case][2] for r in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'preceding_chain', 'rows': [{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'fix...', 'start_line': 74}, 'anchor_start_line': 74, 'coverage_note': 'request_read_all_same_callable_domain_scanned', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_request_effects_are_not_lost_at_filter_wrapper_boundary.<locals>.<genexpr> at 0x7f8cc7cf4660>)
+
+tests/test_readall_peer_boundary_20261006.py:118: AssertionError
+_ test_request_effects_are_not_lost_at_filter_wrapper_boundary[field_escape_gate] _
+
+peer_rows = ([{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'fixture/peer/PeerReadAll.java', 'start...ned', ...}, ...], {'constructor_gate': 44, 'erased_alias_gate': 59, 'field_escape_gate': 92, 'metadata_only': 29, ...})
+case = 'field_escape_gate'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_request_effects_are_not_lost_at_filter_wrapper_boundary(peer_rows, case):
+        rows, anchors = peer_rows
+        selected = [r for r in rows if r["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(r["coverage_status"] == CASES[case][2] for r in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'field_escape_gate', 'rows': [{'anchor_file': 'fixture/peer/PeerReadAll.java', 'anchor_location': {'file': 'f...', 'start_line': 92}, 'anchor_start_line': 92, 'coverage_note': 'request_read_all_same_callable_domain_scanned', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_request_effects_are_not_lost_at_filter_wrapper_boundary.<locals>.<genexpr> at 0x7f8cc7cf5000>)
+
+tests/test_readall_peer_boundary_20261006.py:118: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_readall_peer_boundary_20261006.py::test_request_effects_are_not_lost_at_filter_wrapper_boundary[constructor_gate]
+FAILED tests/test_readall_peer_boundary_20261006.py::test_request_effects_are_not_lost_at_filter_wrapper_boundary[erased_alias_gate]
+FAILED tests/test_readall_peer_boundary_20261006.py::test_request_effects_are_not_lost_at_filter_wrapper_boundary[preceding_chain]
+FAILED tests/test_readall_peer_boundary_20261006.py::test_request_effects_are_not_lost_at_filter_wrapper_boundary[field_escape_gate]
+4 failed, 1 passed in 33.77s

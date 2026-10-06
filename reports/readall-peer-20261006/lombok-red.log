@@ -1,0 +1,38 @@
+.FF                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_annotation_line_is_not_sufficient_for_transparent_exception_shell[same_line_catch_effect] _
+
+lombok_peer_rows = ([{'anchor_file': 'fixture/peer/PeerLombok.java', 'anchor_location': {'file': 'fixture/peer/PeerLombok.java', 'start_l...able_domain_scanned', ...}, ...], {'generated_only': 28, 'same_line_catch_effect': 33, 'same_line_finally_effect': 37})
+case = 'same_line_catch_effect'
+
+    @pytest.mark.parametrize("case", tuple(LOMBOK_CASES))
+    def test_annotation_line_is_not_sufficient_for_transparent_exception_shell(lombok_peer_rows, case):
+        rows, anchors = lombok_peer_rows
+        selected = [r for r in rows if r["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(r["coverage_status"] == LOMBOK_CASES[case] for r in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'same_line_catch_effect', 'rows': [{'anchor_file': 'fixture/peer/PeerLombok.java', 'anchor_location': {'file'...', 'start_line': 33}, 'anchor_start_line': 33, 'coverage_note': 'request_read_all_same_callable_domain_scanned', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_annotation_line_is_not_sufficient_for_transparent_exception_shell.<locals>.<genexpr> at 0x7f7e34b8e0a0>)
+
+tests/test_readall_peer_boundary_20261006.py:222: AssertionError
+_ test_annotation_line_is_not_sufficient_for_transparent_exception_shell[same_line_finally_effect] _
+
+lombok_peer_rows = ([{'anchor_file': 'fixture/peer/PeerLombok.java', 'anchor_location': {'file': 'fixture/peer/PeerLombok.java', 'start_l...able_domain_scanned', ...}, ...], {'generated_only': 28, 'same_line_catch_effect': 33, 'same_line_finally_effect': 37})
+case = 'same_line_finally_effect'
+
+    @pytest.mark.parametrize("case", tuple(LOMBOK_CASES))
+    def test_annotation_line_is_not_sufficient_for_transparent_exception_shell(lombok_peer_rows, case):
+        rows, anchors = lombok_peer_rows
+        selected = [r for r in rows if r["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(r["coverage_status"] == LOMBOK_CASES[case] for r in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'same_line_finally_effect', 'rows': [{'anchor_file': 'fixture/peer/PeerLombok.java', 'anchor_location': {'fil...', 'start_line': 37}, 'anchor_start_line': 37, 'coverage_note': 'request_read_all_same_callable_domain_scanned', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_annotation_line_is_not_sufficient_for_transparent_exception_shell.<locals>.<genexpr> at 0x7f7e3497a260>)
+
+tests/test_readall_peer_boundary_20261006.py:222: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_readall_peer_boundary_20261006.py::test_annotation_line_is_not_sufficient_for_transparent_exception_shell[same_line_catch_effect]
+FAILED tests/test_readall_peer_boundary_20261006.py::test_annotation_line_is_not_sufficient_for_transparent_exception_shell[same_line_finally_effect]
+2 failed, 1 passed, 5 deselected in 33.63s

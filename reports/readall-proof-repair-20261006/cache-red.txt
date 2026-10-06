@@ -1,0 +1,38 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_pre_repair_cache_invalidates_changed_stage_and_downstream[lifecycle-production-v2.8-open-world-maturation-lifecycle-v22] _
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-463/test_pre_repair_cache_invalida0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb34f5e3ef0>
+stage = 'lifecycle', old = 'production-v2.8-open-world-maturation-lifecycle-v22'
+
+    @pytest.mark.parametrize('stage,old', [
+        ('entries', 'production-v2.8-open-world-maturation-entries-v21'),
+        ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v20'),
+        ('conclude', 'production-v2.8-open-world-maturation-conclude-v9'),
+        ('entries', 'production-v2.8-open-world-maturation-entries-v22'),
+        ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v21'),
+        ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v22'),
+    ])
+    def test_pre_repair_cache_invalidates_changed_stage_and_downstream(tmp_path, monkeypatch, stage, old):
+        helper = production_helpers.ProductionFactoryTests()
+        calls = []
+        values = helper._values(tmp_path, allow_remote_llm=True)
+        versions = {**production._IMPLEMENTATION_VERSIONS, stage: old}
+        with monkeypatch.context() as context:
+            context.setattr(production, '_IMPLEMENTATION_VERSIONS', versions)
+            stale = production.build_production_pipeline(values, environ={'DEEPSEEK_API_KEY':'fixture-not-a-key'}, stage_executors=helper._fake_executors(calls))
+            assert stale.run('analyze')['status'] == 'completed'
+        calls.clear()
+        current = production.build_production_pipeline({**values,'resume':True}, environ={'DEEPSEEK_API_KEY':'fixture-not-a-key'}, stage_executors=helper._fake_executors(calls))
+        assert current.run('analyze')['status'] == 'completed'
+>       assert calls == list(STAGES)[list(STAGES).index(stage):]
+E       AssertionError: assert [] == ['lifecycle',...de', 'report']
+E         
+E         Right contains 3 more items, first extra item: 'lifecycle'
+E         Use -v to get more diff
+
+tests/test_waveb_stage_invalidation.py:27: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_waveb_stage_invalidation.py::test_pre_repair_cache_invalidates_changed_stage_and_downstream[lifecycle-production-v2.8-open-world-maturation-lifecycle-v22]
+1 failed, 5 deselected in 0.48s

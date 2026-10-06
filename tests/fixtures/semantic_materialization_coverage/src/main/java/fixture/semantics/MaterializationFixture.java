@@ -1,5 +1,7 @@
 package fixture.semantics;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import javax.servlet.*;
 import javax.servlet.http.*;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.util.StreamUtils;
@@ -93,5 +95,43 @@ class CallerGuardedWrapper extends HttpServletRequestWrapper {
     CallerGuardedWrapper(HttpServletRequest request) throws IOException {
         super(request);
         body = request.getInputStream().readAllBytes(); // CASE:caller-guarded-wrapper
+    }
+}
+
+class MetadataFilter implements Filter {
+    @Override public void doFilter(ServletRequest raw, ServletResponse response, FilterChain chain) throws IOException {
+        if (raw instanceof HttpServletRequest) {
+            HttpServletRequest request = (HttpServletRequest) raw;
+            if (request.getServletPath().contains("/api") && "application/json".equals(request.getContentType())) {
+                chain.doFilter(new MetadataFilterWrapper(request), response);
+                return;
+            }
+        }
+        chain.doFilter(raw, response);
+    }
+}
+class MetadataFilterWrapper extends HttpServletRequestWrapper {
+    final String body;
+    MetadataFilterWrapper(HttpServletRequest request) throws IOException {
+        super(request);
+        body = StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8); // CASE:filter-wrapper-metadata
+    }
+}
+class SizeGuardFilter implements Filter {
+    @Override public void doFilter(ServletRequest raw, ServletResponse response, FilterChain chain) throws IOException {
+        if (raw instanceof HttpServletRequest) {
+            HttpServletRequest request = (HttpServletRequest) raw;
+            if (request.getContentLengthLong() > 1024) return;
+            chain.doFilter(new SizeGuardFilterWrapper(request), response);
+            return;
+        }
+        chain.doFilter(raw, response);
+    }
+}
+class SizeGuardFilterWrapper extends HttpServletRequestWrapper {
+    final String body;
+    SizeGuardFilterWrapper(HttpServletRequest request) throws IOException {
+        super(request);
+        body = StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8); // CASE:filter-wrapper-size-guard
     }
 }

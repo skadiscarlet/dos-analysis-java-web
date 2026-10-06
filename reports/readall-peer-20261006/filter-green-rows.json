@@ -1,0 +1,197 @@
+[
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 29,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 29
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 29,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 29
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 29,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 29
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 44,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 44
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 44,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 44
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 44,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 44
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 59,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 59
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 59,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 59
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 59,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 59
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 74,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 74
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 74,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 74
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 74,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 74
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 92,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 92
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 92,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 92
+    }
+  },
+  {
+    "anchor_file": "fixture/peer/PeerReadAll.java",
+    "anchor_start_line": 92,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/peer/PeerReadAll.java",
+      "start_line": 92
+    }
+  }
+]

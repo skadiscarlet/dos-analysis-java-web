@@ -1,0 +1,17 @@
+{
+  "phase": "verified",
+  "test_sha256": "4de24ce1240c49f25c23ed4de72f769885997bd5970dc4ad08237bd6077f33c4",
+  "baseline_helper_sha256": "e483106cf4365e65f3fad06bd64657d7b5dbfabf7277ca22a515e55fee461f63",
+  "candidate_helper_sha256": "111b5e2d709b61b7b86d7471d2b526aec285d7d855db19b3acfffce0de2d572e",
+  "unique_tests": 8,
+  "baseline_failures": 6,
+  "baseline_positive_controls_passed": 2,
+  "green_passed": 8,
+  "green_failed": 0,
+  "green_seconds": 80.84,
+  "direct_embedded_match": true,
+  "green_verified": true,
+  "production_changed_by_peer": false,
+  "third_party_scan": false,
+  "target_program_executed": false
+}
