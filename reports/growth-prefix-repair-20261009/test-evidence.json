@@ -1,0 +1,77 @@
+{
+  "format": "growth-prefix-repair-evidence-v1",
+  "date": "2026-10-09",
+  "branch": "codex/growth-prefix-repair-20261009",
+  "baseline_commit": "01a8062aefd50ab021785927f8528f4f46ffde12",
+  "stable_source_count": 545,
+  "helper_sha256": "5e137a3131b14f448f0503e5cca1754e7aec076c17017efda0f5610721453edc",
+  "implementation_versions": {
+    "entries": "production-v2.8-open-world-maturation-entries-v23",
+    "growth": "production-v2.8-open-world-maturation-growth-v45",
+    "flows": "production-v2.8-open-world-maturation-flows-v25",
+    "lifecycle": "production-v2.8-open-world-maturation-lifecycle-v24",
+    "conclude": "production-v2.8-open-world-maturation-conclude-v10",
+    "report": "production-v2.8-open-world-maturation-report-v2"
+  },
+  "source_primary": {
+    "passed": 37,
+    "failed": 0,
+    "seconds": 207.71,
+    "new_prefix_cases": 12,
+    "prior_cases": 25
+  },
+  "source_independent": {
+    "baseline_failed": 7,
+    "baseline_passed": 12,
+    "candidate_passed": 19,
+    "candidate_failed": 0,
+    "main_tree_passed": 19,
+    "main_tree_seconds": 34.17
+  },
+  "primary_red": {
+    "failed": 4,
+    "passed": 5,
+    "same_source_same_labels": true
+  },
+  "scope_new_tests": {
+    "before_failed": 10,
+    "after_passed": 10,
+    "combined_existing_passed": 77,
+    "combined_subtests_passed": 52
+  },
+  "cache_regression": {
+    "before_failed": 1,
+    "after": "passed_in_default_suite",
+    "old_lifecycle": "v23",
+    "new_lifecycle": "v24"
+  },
+  "default_suite": {
+    "passed": 2093,
+    "failed": 0,
+    "skipped": 173,
+    "warnings": 9,
+    "subtests_passed": 1100,
+    "seconds": 111.12,
+    "umask": "022",
+    "tmpdir": "/tmp"
+  },
+  "research": {
+    "fixed_records": 33,
+    "fixed_projects": 21,
+    "existing_v7_projects_completed": 1,
+    "existing_v7_records_in_run": 2,
+    "existing_v7_formal_hits": 1,
+    "existing_v7_unknown": 1,
+    "existing_v7_not_in_run": 31,
+    "in_scope_matching_unchanged": true,
+    "new_full_corpus_run": false,
+    "new_recall_improvement": null,
+    "status": "partial"
+  },
+  "public_v7_artifacts_verified": 33,
+  "private_audit_read": false,
+  "new_third_party_scans": 0,
+  "target_programs_executed": 0,
+  "remote_model_calls": 0,
+  "tests_from_repeated_runs_must_not_be_added": true
+}

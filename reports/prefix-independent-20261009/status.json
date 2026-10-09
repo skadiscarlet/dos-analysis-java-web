@@ -1,0 +1,21 @@
+{
+  "format": "prefix-independent-source-review-v1",
+  "date": "2026-10-09",
+  "parent_task": "task_04725d453b274a108585",
+  "peer_task": "task_c9b2dcdc7bf74dbeaa97",
+  "baseline_commit": "01a8062aefd50ab021785927f8528f4f46ffde12",
+  "tests": 19,
+  "baseline_failed": 7,
+  "baseline_passed": 12,
+  "candidate_passed": 19,
+  "candidate_failed": 0,
+  "source_sha256": "29f6f020d5687a4860a1414d4b6018e4b5d30ab974a1d4cb80498eba7d27097d",
+  "baseline_helper_sha256": "111b5e2d709b61b7b86d7471d2b526aec285d7d855db19b3acfffce0de2d572e",
+  "candidate_helper_sha256": "5e137a3131b14f448f0503e5cca1754e7aec076c17017efda0f5610721453edc",
+  "test_sha256": "1489ea3376640d4cc9ace92341eec1417c076afb6e9bf0f9dfde435902d06921",
+  "source_unchanged": true,
+  "labels_unchanged": true,
+  "target_program_executed": false,
+  "new_third_party_scan": false,
+  "corpus_recall_improvement": null
+}

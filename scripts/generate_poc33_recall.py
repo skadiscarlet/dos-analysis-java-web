@@ -23,8 +23,11 @@ if str(_REPO_ROOT) not in sys.path:
 from dosweb.artifacts.identifiers import stable_identifier
 from dosweb.benchmark.disposition import DISPOSITION_STATUSES, TargetArtifacts, compute_disposition
 from dosweb.benchmark.truth import normalize_repo, repo_slug, resolve_asset_directory
+from dosweb.batch.plan import load_batch_plan
+from dosweb.errors import AnalyzerError
 
-_ORACLE_FORMAT = "dosweb-poc33-recall-oracle-v2"
+_ORACLE_FORMAT = "dosweb-poc33-recall-oracle-v3"
+_RECALL_STATUSES = (*DISPOSITION_STATUSES, "not_in_run")
 
 
 def _symbolic_sink_identity(value: object) -> str | None:
@@ -293,6 +296,49 @@ def _resolve_results_dir(results_root: Path, slug: str) -> Path | None:
     return matches[0] if len(matches) == 1 else None
 
 
+
+def _validated_execution_scope(results_root: Path):
+    """Use a verified plan and exact target bindings, never directory absence.
+
+    Membership is planned scope, not a claim that a selected target completed.
+    Archives may be relocated; canonical target paths are relative to the
+    plan output root. Existing but unbound/mismatched outputs fail closed.
+    """
+    plan_path = results_root / "batch_plan.json"
+    if plan_path.is_symlink():
+        raise AnalyzerError("BENCHMARK_SCOPE_INVALID", "Run scope plan must be a regular file.")
+    if not plan_path.exists():
+        return None, {}
+    plan = load_batch_plan(plan_path)
+    directories: dict[str, Path | None] = {}
+    targets_root = results_root / "targets"
+    if targets_root.is_symlink():
+        raise AnalyzerError("BENCHMARK_SCOPE_INVALID", "Run target directory must not be a symlink.")
+    for target in plan.targets:
+        slug = target.identity.slug.casefold()
+        if slug in directories:
+            raise AnalyzerError("BENCHMARK_SCOPE_INVALID", "Ambiguous project revisions in run scope.")
+        relative = Path(target.output_path).relative_to(Path(plan.output_root))
+        directory = results_root / relative
+        if directory.is_symlink():
+            raise AnalyzerError("BENCHMARK_SCOPE_INVALID", "Selected target output is a symlink.")
+        if not directory.exists():
+            directories[slug] = None
+            continue
+        binding = _read_json(directory / "batch_target.json")
+        expected = {
+            "plan_id": plan.plan_id, "plan_digest": plan.plan_digest,
+            "run_id": plan.run_id, "mode": plan.mode,
+            "analysis_mode": plan.analysis_mode,
+            "query_failure_policy": plan.query_failure_policy,
+            "target": target.to_dict(),
+        }
+        if binding != expected:
+            raise AnalyzerError("BENCHMARK_SCOPE_INVALID", "Target binding does not match this run plan.")
+        directories[slug] = directory
+    return plan, directories
+
+
 def _load_manifest(manifest_path: Path) -> list[dict[str, object]]:
     value = _read_json(manifest_path)
     if not isinstance(value, list):
@@ -316,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     output_root = Path(args.output) if args.output else (results_root.parent / f"poc33-recall-v2-{timestamp}")
+    scope_plan, scope_directories = _validated_execution_scope(results_root)
     output_root.mkdir(parents=True, exist_ok=False)
 
     records = _load_manifest(manifest_path)
@@ -326,19 +373,36 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             dispositions.append({"record_id": manifest_record.get("record_id"), "status": "truth_invalid", "reason_codes": [str(exc)]})
             continue
-        results_dir = _resolve_results_dir(results_root, str(truth["repo_slug"]))
+        slug = str(truth["repo_slug"]).casefold()
+        if scope_plan is not None and slug not in scope_directories:
+            if _resolve_results_dir(results_root, slug) is not None:
+                raise AnalyzerError("BENCHMARK_SCOPE_INVALID", "Excluded project has conflicting run artifacts.")
+            dispositions.append({
+                "record_id": truth["record_id"], "truth_id": truth["truth_id"],
+                "repository": truth["repository"], "status": "not_in_run",
+                "execution_scope": "not_in_run", "verdicts": [],
+                "reason_codes": ["PROJECT_NOT_SELECTED_IN_VERIFIED_PLAN"],
+                "matched_finding_ids": [],
+            })
+            continue
+        execution_scope = "in_run" if scope_plan is not None else "unverified_scope"
+        results_dir = scope_directories.get(slug) if scope_plan is not None else _resolve_results_dir(results_root, slug)
         if results_dir is None:
             artifacts = TargetArtifacts(Path("/nonexistent"))
         else:
             artifacts = TargetArtifacts.load(results_dir)
         disposition = compute_disposition(truth, artifacts, error=truth.get("asset_error"))
+        disposition["execution_scope"] = execution_scope
         dispositions.append(disposition)
 
     summary = {
         "format": _ORACLE_FORMAT,
         "generated_at": timestamp,
         "total": len(dispositions),
-        "status_counts": {status: sum(1 for d in dispositions if d.get("status") == status) for status in DISPOSITION_STATUSES},
+        "scope_verified": scope_plan is not None,
+        "scope_plan_digest": scope_plan.plan_digest if scope_plan is not None else None,
+        "scope_counts": {scope: sum(1 for d in dispositions if d.get("execution_scope", "unverified_scope") == scope) for scope in ("in_run", "not_in_run", "unverified_scope")},
+        "status_counts": {status: sum(1 for d in dispositions if d.get("status") == status) for status in _RECALL_STATUSES},
         "static_vulnerable_count": sum(1 for d in dispositions if "static_vulnerable" in d.get("verdicts", [])),
         "full_chain_finding_count": sum(1 for d in dispositions if d.get("status") == "full_chain_finding"),
     }
@@ -366,22 +430,28 @@ def _write_report(output_root: Path, summary: dict[str, object], dispositions: l
         "## Disposition counts",
         "",
     ]
-    for status in DISPOSITION_STATUSES:
+    for status in _RECALL_STATUSES:
         count = summary["status_counts"].get(status, 0)
         if count:
             lines.append(f"- `{status}`: {count}")
     lines += [
         "",
+        "## Execution scope",
+        "",
+        f"Scope counts: `{json.dumps(summary['scope_counts'], sort_keys=True)}`",
+        "`in_run` means selected by a verified plan, not necessarily completed. `not_in_run` is not a failed analysis. No plan means unverified scope.",
+        "The full truth denominator is retained. Historical runs and unknown findings are not additional positives.",
+        "",
         "## Per-record disposition",
         "",
-        "| record_id | repository | status | verdicts | reason_codes |",
-        "|---|---|---|---|---|",
+        "| record_id | repository | execution_scope | status | verdicts | reason_codes |",
+        "|---|---|---|---|---|---|",
     ]
     for d in dispositions:
         verdicts = ",".join(d.get("verdicts", []) or []) or "-"
         reasons = ",".join(d.get("reason_codes", []) or []) or "-"
         lines.append(
-            f"| {d.get('record_id', '?')} | {d.get('repository', '?')} | {d.get('status', '?')} | {verdicts} | {reasons} |"
+            f"| {d.get('record_id', '?')} | {d.get('repository', '?')} | {d.get('execution_scope', 'unverified_scope')} | {d.get('status', '?')} | {verdicts} | {reasons} |"
         )
     lines.append("")
     (output_root / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

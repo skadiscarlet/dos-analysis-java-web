@@ -11,6 +11,7 @@ from dosweb.pipeline import STAGES
     ('entries', 'production-v2.8-open-world-maturation-entries-v22'),
     ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v21'),
     ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v22'),
+    ('lifecycle', 'production-v2.8-open-world-maturation-lifecycle-v23'),
 ])
 def test_pre_repair_cache_invalidates_changed_stage_and_downstream(tmp_path, monkeypatch, stage, old):
     helper = production_helpers.ProductionFactoryTests()

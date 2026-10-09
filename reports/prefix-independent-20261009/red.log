@@ -1,0 +1,158 @@
+.FFFFFFF...........                                                      [100%]
+=================================== FAILURES ===================================
+_______________ test_growth_prefix_effect_boundary[after_method] _______________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'after_method'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'after_method', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'fi..., 'start_line': 55}, 'anchor_start_line': 55, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+____________ test_growth_prefix_effect_boundary[after_constructor] _____________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'after_constructor'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'after_constructor', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location':..., 'start_line': 74}, 'anchor_start_line': 74, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+____________ test_growth_prefix_effect_boundary[after_field_store] _____________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'after_field_store'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'after_field_store', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location':..., 'start_line': 93}, 'anchor_start_line': 93, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+____________ test_growth_prefix_effect_boundary[after_array_store] _____________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'after_array_store'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'after_array_store', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location':...'start_line': 112}, 'anchor_start_line': 112, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+______________ test_growth_prefix_effect_boundary[after_argument] ______________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'after_argument'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'after_argument', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'...'start_line': 131}, 'anchor_start_line': 131, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+____________ test_growth_prefix_effect_boundary[after_size_branch] _____________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'after_size_branch'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'after_size_branch', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location':...'start_line': 150}, 'anchor_start_line': 150, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+_____________ test_growth_prefix_effect_boundary[disjoint_return] ______________
+
+prefix_rows = ([{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {'file': 'fixture/prefixpeer/PrefixP..., ...}, ...], {'after_argument': 131, 'after_array_store': 112, 'after_constructor': 74, 'after_field_store': 93, ...})
+case = 'disjoint_return'
+
+    @pytest.mark.parametrize("case", tuple(EXPECTED))
+    def test_growth_prefix_effect_boundary(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {row["family"] for row in selected} == {"guard", "bound", "release"}, {"case": case, "rows": selected}
+>       assert {row["coverage_status"] for row in selected} == {EXPECTED[case]}, {"case": case, "rows": selected}
+E       AssertionError: {'case': 'disjoint_return', 'rows': [{'anchor_file': 'fixture/prefixpeer/PrefixPeerFixture.java', 'anchor_location': {...'start_line': 169}, 'anchor_start_line': 169, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert {'partial'} == {'complete'}
+E         
+E         Extra items in the left set:
+E         'partial'
+E         Extra items in the right set:
+E         'complete'
+E         Use -v to get more diff
+
+tests/test_prefix_effect_independent_20261009.py:178: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[after_method]
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[after_constructor]
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[after_field_store]
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[after_array_store]
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[after_argument]
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[after_size_branch]
+FAILED tests/test_prefix_effect_independent_20261009.py::test_growth_prefix_effect_boundary[disjoint_return]
+7 failed, 12 passed in 33.83s

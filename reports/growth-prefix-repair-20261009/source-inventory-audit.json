@@ -1,0 +1,9 @@
+{
+  "original_sample_count": 546,
+  "stable_source_count": 545,
+  "excluded_generated_temporary_query": {
+    "codeql/dosweb/Lifecycle/.LifecycleCoverage.dosweb.c9wzvfcd.ql": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46"
+  },
+  "original_sample_retained": ".verification/growth-prefix-20261009/source-snapshot.json",
+  "all_stable_hashes_unchanged": true
+}

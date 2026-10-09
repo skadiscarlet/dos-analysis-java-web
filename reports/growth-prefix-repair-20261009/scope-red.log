@@ -1,0 +1,479 @@
+.......FFFFFFFFFF                                                        [100%]
+=================================== FAILURES ===================================
+______ test_subset_preserves_full_manifest_and_marks_excluded_not_failed _______
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_subset_preserves_full_man0')
+
+    def test_subset_preserves_full_manifest_and_marks_excluded_not_failed(tmp_path):
+        run, manifest, _, _ = _inputs(tmp_path)
+        rows, summary = _evaluate(tmp_path, run, manifest)
+        assert len(rows) == summary["total"] == 2
+>       assert rows[0]["execution_scope"] == "in_run"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'execution_scope'
+
+tests/test_poc33_execution_scope.py:45: KeyError
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_subset_preserves_full_man0/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 1,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 1,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+____________ test_selected_project_with_no_artifacts_remains_failed ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_selected_project_with_no_0')
+
+    def test_selected_project_with_no_artifacts_remains_failed(tmp_path):
+        run, manifest, _, _ = _inputs(tmp_path, target=False)
+        rows, summary = _evaluate(tmp_path, run, manifest)
+>       assert rows[0]["execution_scope"] == "in_run"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'execution_scope'
+
+tests/test_poc33_execution_scope.py:57: KeyError
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_selected_project_with_no_0/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 0,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 2,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_________ test_no_plan_does_not_infer_exclusion_from_missing_directory _________
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_no_plan_does_not_infer_ex0')
+
+    def test_no_plan_does_not_infer_exclusion_from_missing_directory(tmp_path):
+        run, manifest, _, _ = _inputs(tmp_path, plan=False)
+        rows, summary = _evaluate(tmp_path, run, manifest)
+>       assert all(row["execution_scope"] == "unverified_scope" for row in rows)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_poc33_execution_scope.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x7fabad6d5840>
+
+>   assert all(row["execution_scope"] == "unverified_scope" for row in rows)
+               ^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'execution_scope'
+
+tests/test_poc33_execution_scope.py:66: KeyError
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_no_plan_does_not_infer_ex0/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 0,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 2,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+__ test_unverified_plan_or_cross_run_binding_cannot_change_scope[plan_digest] __
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_0')
+damage = 'plan_digest'
+
+    @pytest.mark.parametrize("damage", ["plan_digest", "invalid_json", "plan_symlink", "binding_run_id", "binding_target", "missing_binding"])
+    def test_unverified_plan_or_cross_run_binding_cannot_change_scope(tmp_path, damage):
+        run, manifest, _, directory = _inputs(tmp_path)
+        assert directory is not None
+        path = run / "batch_plan.json"
+        if damage == "plan_digest":
+            value = json.loads(path.read_text()); value["targets"] = []; path.write_text(json.dumps(value))
+        elif damage == "invalid_json":
+            path.write_text("{")
+        elif damage == "plan_symlink":
+            archived = run / "archived.json"; path.rename(archived); path.symlink_to(archived)
+        elif damage == "missing_binding":
+            (directory / "batch_target.json").unlink()
+        else:
+            binding = directory / "batch_target.json"
+            value = json.loads(binding.read_text())
+            if damage == "binding_run_id":
+                value["run_id"] = "different-run"
+            else:
+                value["target"]["identity"]["fingerprint"] = "f" * 40
+            binding.write_text(json.dumps(value))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:92: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_0/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 1,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 1,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_ test_unverified_plan_or_cross_run_binding_cannot_change_scope[invalid_json] __
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_1')
+damage = 'invalid_json'
+
+    @pytest.mark.parametrize("damage", ["plan_digest", "invalid_json", "plan_symlink", "binding_run_id", "binding_target", "missing_binding"])
+    def test_unverified_plan_or_cross_run_binding_cannot_change_scope(tmp_path, damage):
+        run, manifest, _, directory = _inputs(tmp_path)
+        assert directory is not None
+        path = run / "batch_plan.json"
+        if damage == "plan_digest":
+            value = json.loads(path.read_text()); value["targets"] = []; path.write_text(json.dumps(value))
+        elif damage == "invalid_json":
+            path.write_text("{")
+        elif damage == "plan_symlink":
+            archived = run / "archived.json"; path.rename(archived); path.symlink_to(archived)
+        elif damage == "missing_binding":
+            (directory / "batch_target.json").unlink()
+        else:
+            binding = directory / "batch_target.json"
+            value = json.loads(binding.read_text())
+            if damage == "binding_run_id":
+                value["run_id"] = "different-run"
+            else:
+                value["target"]["identity"]["fingerprint"] = "f" * 40
+            binding.write_text(json.dumps(value))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:92: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_1/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 1,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 1,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_ test_unverified_plan_or_cross_run_binding_cannot_change_scope[plan_symlink] __
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_2')
+damage = 'plan_symlink'
+
+    @pytest.mark.parametrize("damage", ["plan_digest", "invalid_json", "plan_symlink", "binding_run_id", "binding_target", "missing_binding"])
+    def test_unverified_plan_or_cross_run_binding_cannot_change_scope(tmp_path, damage):
+        run, manifest, _, directory = _inputs(tmp_path)
+        assert directory is not None
+        path = run / "batch_plan.json"
+        if damage == "plan_digest":
+            value = json.loads(path.read_text()); value["targets"] = []; path.write_text(json.dumps(value))
+        elif damage == "invalid_json":
+            path.write_text("{")
+        elif damage == "plan_symlink":
+            archived = run / "archived.json"; path.rename(archived); path.symlink_to(archived)
+        elif damage == "missing_binding":
+            (directory / "batch_target.json").unlink()
+        else:
+            binding = directory / "batch_target.json"
+            value = json.loads(binding.read_text())
+            if damage == "binding_run_id":
+                value["run_id"] = "different-run"
+            else:
+                value["target"]["identity"]["fingerprint"] = "f" * 40
+            binding.write_text(json.dumps(value))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:92: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_2/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 1,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 1,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_ test_unverified_plan_or_cross_run_binding_cannot_change_scope[binding_run_id] _
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_3')
+damage = 'binding_run_id'
+
+    @pytest.mark.parametrize("damage", ["plan_digest", "invalid_json", "plan_symlink", "binding_run_id", "binding_target", "missing_binding"])
+    def test_unverified_plan_or_cross_run_binding_cannot_change_scope(tmp_path, damage):
+        run, manifest, _, directory = _inputs(tmp_path)
+        assert directory is not None
+        path = run / "batch_plan.json"
+        if damage == "plan_digest":
+            value = json.loads(path.read_text()); value["targets"] = []; path.write_text(json.dumps(value))
+        elif damage == "invalid_json":
+            path.write_text("{")
+        elif damage == "plan_symlink":
+            archived = run / "archived.json"; path.rename(archived); path.symlink_to(archived)
+        elif damage == "missing_binding":
+            (directory / "batch_target.json").unlink()
+        else:
+            binding = directory / "batch_target.json"
+            value = json.loads(binding.read_text())
+            if damage == "binding_run_id":
+                value["run_id"] = "different-run"
+            else:
+                value["target"]["identity"]["fingerprint"] = "f" * 40
+            binding.write_text(json.dumps(value))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:92: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_3/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 1,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 1,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_ test_unverified_plan_or_cross_run_binding_cannot_change_scope[binding_target] _
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_4')
+damage = 'binding_target'
+
+    @pytest.mark.parametrize("damage", ["plan_digest", "invalid_json", "plan_symlink", "binding_run_id", "binding_target", "missing_binding"])
+    def test_unverified_plan_or_cross_run_binding_cannot_change_scope(tmp_path, damage):
+        run, manifest, _, directory = _inputs(tmp_path)
+        assert directory is not None
+        path = run / "batch_plan.json"
+        if damage == "plan_digest":
+            value = json.loads(path.read_text()); value["targets"] = []; path.write_text(json.dumps(value))
+        elif damage == "invalid_json":
+            path.write_text("{")
+        elif damage == "plan_symlink":
+            archived = run / "archived.json"; path.rename(archived); path.symlink_to(archived)
+        elif damage == "missing_binding":
+            (directory / "batch_target.json").unlink()
+        else:
+            binding = directory / "batch_target.json"
+            value = json.loads(binding.read_text())
+            if damage == "binding_run_id":
+                value["run_id"] = "different-run"
+            else:
+                value["target"]["identity"]["fingerprint"] = "f" * 40
+            binding.write_text(json.dumps(value))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:92: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_4/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 1,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 1,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_ test_unverified_plan_or_cross_run_binding_cannot_change_scope[missing_binding] _
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_5')
+damage = 'missing_binding'
+
+    @pytest.mark.parametrize("damage", ["plan_digest", "invalid_json", "plan_symlink", "binding_run_id", "binding_target", "missing_binding"])
+    def test_unverified_plan_or_cross_run_binding_cannot_change_scope(tmp_path, damage):
+        run, manifest, _, directory = _inputs(tmp_path)
+        assert directory is not None
+        path = run / "batch_plan.json"
+        if damage == "plan_digest":
+            value = json.loads(path.read_text()); value["targets"] = []; path.write_text(json.dumps(value))
+        elif damage == "invalid_json":
+            path.write_text("{")
+        elif damage == "plan_symlink":
+            archived = run / "archived.json"; path.rename(archived); path.symlink_to(archived)
+        elif damage == "missing_binding":
+            (directory / "batch_target.json").unlink()
+        else:
+            binding = directory / "batch_target.json"
+            value = json.loads(binding.read_text())
+            if damage == "binding_run_id":
+                value["run_id"] = "different-run"
+            else:
+                value["target"]["identity"]["fingerprint"] = "f" * 40
+            binding.write_text(json.dumps(value))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:92: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_unverified_plan_or_cross_5/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 0,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 2,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+_________ test_excluded_project_with_stray_artifacts_is_scope_conflict _________
+
+tmp_path = PosixPath('/tmp/pytest-of-furina/pytest-465/test_excluded_project_with_str0')
+
+    def test_excluded_project_with_stray_artifacts_is_scope_conflict(tmp_path):
+        run, manifest, _, _ = _inputs(tmp_path)
+        stray = run / "owner2__repo2"
+        stray.mkdir()
+        (stray / "run.json").write_text(json.dumps({"status": "completed"}))
+>       with pytest.raises(AnalyzerError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'dosweb.errors.AnalyzerError'>
+
+tests/test_poc33_execution_scope.py:102: Failed
+----------------------------- Captured stdout call -----------------------------
+wrote 2 dispositions to /tmp/pytest-of-furina/pytest-465/test_excluded_project_with_str0/report
+{
+  "format": "dosweb-poc33-recall-oracle-v2",
+  "full_chain_finding_count": 0,
+  "generated_at": "20261009_140437",
+  "static_vulnerable_count": 0,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 2,
+    "flow_partial": 0,
+    "full_chain_finding": 0,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "stage_failed": 0,
+    "unsupported_scope": 0
+  },
+  "total": 2
+}
+=========================== short test summary info ============================
+FAILED tests/test_poc33_execution_scope.py::test_subset_preserves_full_manifest_and_marks_excluded_not_failed
+FAILED tests/test_poc33_execution_scope.py::test_selected_project_with_no_artifacts_remains_failed
+FAILED tests/test_poc33_execution_scope.py::test_no_plan_does_not_infer_exclusion_from_missing_directory
+FAILED tests/test_poc33_execution_scope.py::test_unverified_plan_or_cross_run_binding_cannot_change_scope[plan_digest]
+FAILED tests/test_poc33_execution_scope.py::test_unverified_plan_or_cross_run_binding_cannot_change_scope[invalid_json]
+FAILED tests/test_poc33_execution_scope.py::test_unverified_plan_or_cross_run_binding_cannot_change_scope[plan_symlink]
+FAILED tests/test_poc33_execution_scope.py::test_unverified_plan_or_cross_run_binding_cannot_change_scope[binding_run_id]
+FAILED tests/test_poc33_execution_scope.py::test_unverified_plan_or_cross_run_binding_cannot_change_scope[binding_target]
+FAILED tests/test_poc33_execution_scope.py::test_unverified_plan_or_cross_run_binding_cannot_change_scope[missing_binding]
+FAILED tests/test_poc33_execution_scope.py::test_excluded_project_with_stray_artifacts_is_scope_conflict
+10 failed, 7 passed in 0.16s

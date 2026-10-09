@@ -212,6 +212,16 @@ private predicate filterPureStringTest(MethodCall call) {
   call.getNumArgument() = 1
 }
 
+/** Local peak at the wrapper read is determined by its execution prefix.
+ * Prove absence of a CFG path from this effect to the wrapper; textual order
+ * or absence of a request argument is not a substitute. Missing CFG stays
+ * unresolved. This does not prove release or retention after the read. */
+private predicate effectOutsideGrowthPrefix(Expr effect, ClassInstanceExpr wrapper) {
+  effect.getEnclosingCallable() = wrapper.getEnclosingCallable() and
+  exists(effect.getControlFlowNode()) and exists(wrapper.getControlFlowNode()) and
+  not effect.getControlFlowNode().getASuccessor*() = wrapper.getControlFlowNode()
+}
+
 /** A chain may alter/consume the request. Only a chain call unable to reach
  * this wrapper (after it, or on a disjoint return path) is outside its prefix. */
 private predicate filterForwardAfterWrapper(MethodCall use, ClassInstanceExpr wrapper, Method caller) {
@@ -233,14 +243,23 @@ predicate readAllFilterWrapperCall(ClassInstanceExpr call, Constructor target) {
     not exists(MethodCall use |
       use.getEnclosingCallable() = caller and
       not (filterMetadataRequestAccess(use, request) or filterPureStringTest(use) or
-           filterForwardAfterWrapper(use, call, caller))
+           filterForwardAfterWrapper(use, call, caller) or
+           effectOutsideGrowthPrefix(use, call))
     ) and
     not exists(ConstructorCall other |
-      other.getEnclosingCallable() = caller and other != call
+      other.getEnclosingCallable() = caller and other != call and
+      not (
+        other instanceof ClassInstanceExpr and
+        // Constructing an outer object may initialize its class before its
+        // arguments. Do not normalize an enclosing constructor as post-read.
+        not call.getParent+() = other and
+        effectOutsideGrowthPrefix(other.(ClassInstanceExpr), call)
+      )
     ) and
     not exists(Assignment store |
       store.getEnclosingCallable() = caller and
-      (store.getDest() instanceof FieldAccess or store.getDest() instanceof ArrayAccess)
+      (store.getDest() instanceof FieldAccess or store.getDest() instanceof ArrayAccess) and
+      not effectOutsideGrowthPrefix(store, call)
     ) and
     not exists(Stmt control |
       control.getEnclosingCallable() = caller and

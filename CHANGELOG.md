@@ -1,3 +1,8 @@
+## 2026-10-09
+
+- 增长前缀修复：只在同一调用者CFG明确证明效果无法先于当前request wrapper增长点执行时，将后置/互斥未知调用、独立构造器和字段写排除出局部读取峰值的前缀检查；前置、环回、异常控制、缺失CFG和外层构造器保留partial。新增真实自有Java/CodeQL成对正反例，direct/embedded同步，lifecycle版本v24拒绝旧v23缓存。
+- PoC-33后置评价新增已验证计划和target binding驱动的运行范围；not_in_run不再计stage_failed，未取得可信计划不推断排除，损坏计划/跨run绑定拒绝。保持完整truth分母、原matcher及production verdict不变，报告格式v3。
+
 ## 2026-10-06 — read-all/Lombok中断恢复与证明边界交付
 
 - 固化中断未交付的copyToString、Servlet Filter→request wrapper和真实Lombok异常壳支持；快照保留。继续用不变参数/别名、精确API摘要和CFG次序检验封闭读取域，不推断任意调用无副作用。

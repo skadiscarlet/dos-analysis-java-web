@@ -1,0 +1,72 @@
+FFFF.....                                                                [100%]
+=================================== FAILURES ===================================
+_ test_only_effects_in_growth_prefix_may_block_local_peak_domain[method_after] _
+
+prefix_rows = ([{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': 'fixture/prefix/PrefixReadAll.java'... ...}, ...], {'constructor_after': 40, 'constructor_before': 100, 'disjoint_effect': 70, 'exception_before': 145, ...})
+case = 'method_after'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_only_effects_in_growth_prefix_may_block_local_peak_domain(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(row["coverage_status"] == CASES[case][1] for row in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'method_after', 'rows': [{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': 'fi..., 'start_line': 25}, 'anchor_start_line': 25, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_only_effects_in_growth_prefix_may_block_local_peak_domain.<locals>.<genexpr> at 0x7fb2cc5bba00>)
+
+tests/test_readall_growth_prefix.py:112: AssertionError
+_ test_only_effects_in_growth_prefix_may_block_local_peak_domain[constructor_after] _
+
+prefix_rows = ([{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': 'fixture/prefix/PrefixReadAll.java'... ...}, ...], {'constructor_after': 40, 'constructor_before': 100, 'disjoint_effect': 70, 'exception_before': 145, ...})
+case = 'constructor_after'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_only_effects_in_growth_prefix_may_block_local_peak_domain(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(row["coverage_status"] == CASES[case][1] for row in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'constructor_after', 'rows': [{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file'..., 'start_line': 40}, 'anchor_start_line': 40, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_only_effects_in_growth_prefix_may_block_local_peak_domain.<locals>.<genexpr> at 0x7fb2cc3b83c0>)
+
+tests/test_readall_growth_prefix.py:112: AssertionError
+_ test_only_effects_in_growth_prefix_may_block_local_peak_domain[store_after] __
+
+prefix_rows = ([{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': 'fixture/prefix/PrefixReadAll.java'... ...}, ...], {'constructor_after': 40, 'constructor_before': 100, 'disjoint_effect': 70, 'exception_before': 145, ...})
+case = 'store_after'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_only_effects_in_growth_prefix_may_block_local_peak_domain(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(row["coverage_status"] == CASES[case][1] for row in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'store_after', 'rows': [{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': 'fix..., 'start_line': 55}, 'anchor_start_line': 55, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_only_effects_in_growth_prefix_may_block_local_peak_domain.<locals>.<genexpr> at 0x7fb2cc3ba260>)
+
+tests/test_readall_growth_prefix.py:112: AssertionError
+_ test_only_effects_in_growth_prefix_may_block_local_peak_domain[disjoint_effect] _
+
+prefix_rows = ([{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': 'fixture/prefix/PrefixReadAll.java'... ...}, ...], {'constructor_after': 40, 'constructor_before': 100, 'disjoint_effect': 70, 'exception_before': 145, ...})
+case = 'disjoint_effect'
+
+    @pytest.mark.parametrize("case", tuple(CASES))
+    def test_only_effects_in_growth_prefix_may_block_local_peak_domain(prefix_rows, case):
+        rows, anchors = prefix_rows
+        selected = [row for row in rows if row["anchor_start_line"] == anchors[case]]
+        assert len(selected) == 3 and {r["family"] for r in selected} == {"guard", "bound", "release"}, selected
+>       assert all(row["coverage_status"] == CASES[case][1] for row in selected), {"case": case, "rows": selected}
+E       AssertionError: {'case': 'disjoint_effect', 'rows': [{'anchor_file': 'fixture/prefix/PrefixReadAll.java', 'anchor_location': {'file': ..., 'start_line': 70}, 'anchor_start_line': 70, 'coverage_note': 'request_read_all_stream_or_control_not_modeled', ...}]}
+E       assert False
+E        +  where False = all(<generator object test_only_effects_in_growth_prefix_may_block_local_peak_domain.<locals>.<genexpr> at 0x7fb2cc3bbae0>)
+
+tests/test_readall_growth_prefix.py:112: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_readall_growth_prefix.py::test_only_effects_in_growth_prefix_may_block_local_peak_domain[method_after]
+FAILED tests/test_readall_growth_prefix.py::test_only_effects_in_growth_prefix_may_block_local_peak_domain[constructor_after]
+FAILED tests/test_readall_growth_prefix.py::test_only_effects_in_growth_prefix_may_block_local_peak_domain[store_after]
+FAILED tests/test_readall_growth_prefix.py::test_only_effects_in_growth_prefix_may_block_local_peak_domain[disjoint_effect]
+4 failed, 5 passed in 33.60s

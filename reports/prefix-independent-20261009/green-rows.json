@@ -1,0 +1,743 @@
+[
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 36,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 36
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 36,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 36
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 36,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 36
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 55,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 55
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 55,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 55
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 55,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 55
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 74,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 74
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 74,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 74
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 74,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 74
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 93,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 93
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 93,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 93
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 93,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 93
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 112,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 112
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 112,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 112
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 112,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 112
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 131,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 131
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 131,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 131
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 131,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 131
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 150,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 150
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 150,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 150
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 150,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 150
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 169,
+    "family": "release",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 169
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 169,
+    "family": "bound",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 169
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 169,
+    "family": "guard",
+    "coverage_status": "complete",
+    "coverage_note": "request_read_all_same_callable_domain_scanned",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 169
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 188,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 188
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 188,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 188
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 188,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 188
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 207,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 207
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 207,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 207
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 207,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 207
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 226,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 226
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 226,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 226
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 226,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 226
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 245,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 245
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 245,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 245
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 245,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 245
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 264,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 264
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 264,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 264
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 264,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 264
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 283,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 283
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 283,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 283
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 283,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 283
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 302,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 302
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 302,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 302
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 302,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 302
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 321,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 321
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 321,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 321
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 321,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 321
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 340,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 340
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 340,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 340
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 340,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 340
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 359,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 359
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 359,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 359
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 359,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 359
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 379,
+    "family": "release",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 379
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 379,
+    "family": "bound",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 379
+    }
+  },
+  {
+    "anchor_file": "fixture/prefixpeer/PrefixPeerFixture.java",
+    "anchor_start_line": 379,
+    "family": "guard",
+    "coverage_status": "partial",
+    "coverage_note": "request_read_all_stream_or_control_not_modeled",
+    "query_name": "lifecycle_coverage",
+    "query_sha256": "1241a984d814c49328dc53fed5c901870ad70e72306ca750f47169d9ce0d2b46",
+    "anchor_location": {
+      "file": "fixture/prefixpeer/PrefixPeerFixture.java",
+      "start_line": 379
+    }
+  }
+]

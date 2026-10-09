@@ -1,0 +1,28 @@
+{
+  "format": "dosweb-poc33-recall-oracle-v3",
+  "full_chain_finding_count": 2,
+  "generated_at": "20261009_140742",
+  "scope_counts": {
+    "in_run": 2,
+    "not_in_run": 31,
+    "unverified_scope": 0
+  },
+  "scope_plan_digest": "da7f5037c178e1b4fa3b2a1e909d8368d04415b28c6aa5afbf02cc742f3a8f56",
+  "scope_verified": true,
+  "static_vulnerable_count": 1,
+  "status_counts": {
+    "ambiguous_truth_match": 0,
+    "asset_missing": 0,
+    "association_missing": 0,
+    "entry_and_growth_linked": 0,
+    "entry_only": 0,
+    "flow_partial": 0,
+    "full_chain_finding": 2,
+    "growth_only": 0,
+    "lifecycle_unknown": 0,
+    "not_in_run": 31,
+    "stage_failed": 0,
+    "unsupported_scope": 0
+  },
+  "total": 33
+}
